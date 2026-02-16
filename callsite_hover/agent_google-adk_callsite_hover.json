@@ -1,0 +1,40 @@
+{
+  "file": "/home/rawleysm/dev/sandbox/rlm/rlm_adk/agent.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "InMemoryRunner",
+    "LlmAgent"
+  ],
+  "call_sites": [
+    {
+      "symbol": "LlmAgent",
+      "instances": [
+        {
+          "name": null,
+          "line": 37
+        },
+        {
+          "name": null,
+          "line": 53
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass LlmAgent(\n    *,\n    name: str,\n    description: str = '',\n    sub_agents: list[BaseAgent] = list,\n    before_agent_callback: BeforeAgentCallback | None = None,\n    after_agent_callback: AfterAgentCallback | None = None,\n    model: str | BaseLlm = '',\n    instruction: str | InstructionProvider = '',\n    global_instruction: str | InstructionProvider = '',\n    static_instruction: ContentUnion | None = None,\n    tools: list[ToolUnion] = list,\n    generate_content_config: GenerateContentConfig | None = None,\n    disallow_transfer_to_parent: bool = False,\n    disallow_transfer_to_peers: bool = False,\n    include_contents: Literal['default', 'none'] = 'default',\n    input_schema: type[BaseModel] | None = None,\n    output_schema: type[BaseModel] | None = None,\n    output_key: str | None = None,\n    planner: BasePlanner | None = None,\n    code_executor: BaseCodeExecutor | None = None,\n    before_model_callback: BeforeModelCallback | None = None,\n    after_model_callback: AfterModelCallback | None = None,\n    on_model_error_callback: OnModelErrorCallback | None = None,\n    before_tool_callback: BeforeToolCallback | None = None,\n    after_tool_callback: AfterToolCallback | None = None,\n    on_tool_error_callback: OnToolErrorCallback | None = None\n)\n```\n---\nLLM-based Agent."
+      }
+    },
+    {
+      "symbol": "InMemoryRunner",
+      "instances": [
+        {
+          "name": "runner",
+          "line": 212
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass InMemoryRunner(\n    agent: BaseAgent | None = None,\n    *,\n    app_name: str | None = None,\n    plugins: list[BasePlugin] | None = None,\n    app: App | None = None,\n    plugin_close_timeout: float = 5\n)\n```\n---\nInitializes the InMemoryRunner.\n\nArgs:  \n&nbsp;&nbsp;&nbsp;&nbsp;agent: The root agent to run.  \n&nbsp;&nbsp;&nbsp;&nbsp;app\\_name: The application name of the runner. Defaults to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'InMemoryRunner'.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugins: Optional list of plugins for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;app: Optional App instance.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugin\\_close\\_timeout: The timeout in seconds for plugin close methods."
+      }
+    }
+  ],
+  "type_annotations": []
+}

@@ -1,0 +1,10 @@
+{
+  "venvPath": "/home/rawleysm/dev/sandbox/rlm_parallel",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "include": ["rlm_adk", "*.py"],
+  "exclude": ["**/__pycache__"]
+}
