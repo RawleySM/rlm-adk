@@ -8,7 +8,6 @@ ModelUsageSummary, UsageSummary, RLMChatCompletion, REPLResult, etc.
 from rlm_adk.types import (
     CodeBlock,
     ModelUsageSummary,
-    QueryMetadata,
     REPLResult,
     RLMChatCompletion,
     RLMIteration,
@@ -223,38 +222,3 @@ class TestRLMMetadata:
         )
         d = meta.to_dict()
         assert "<module" in d["backend_kwargs"]["mod"]
-
-
-class TestQueryMetadata:
-    def test_str_context(self):
-        qm = QueryMetadata("hello world")
-        assert qm.context_type == "str"
-        assert qm.context_total_length == 11
-        assert qm.context_lengths == [11]
-
-    def test_dict_context(self):
-        qm = QueryMetadata({"key": "value"})
-        assert qm.context_type == "dict"
-        assert qm.context_total_length > 0
-
-    def test_list_of_strings(self):
-        qm = QueryMetadata(["abc", "defgh"])
-        assert qm.context_type == "list"
-        assert qm.context_lengths == [3, 5]
-        assert qm.context_total_length == 8
-
-    def test_list_of_dicts_with_content(self):
-        qm = QueryMetadata([{"content": "abc"}, {"content": "de"}])
-        assert qm.context_type == "list"
-        assert qm.context_lengths == [3, 2]
-
-    def test_empty_list(self):
-        qm = QueryMetadata([])
-        assert qm.context_type == "list"
-        assert qm.context_total_length == 0
-
-    def test_invalid_type_raises(self):
-        import pytest
-
-        with pytest.raises(ValueError, match="Invalid prompt type"):
-            QueryMetadata(12345)

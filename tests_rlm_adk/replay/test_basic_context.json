@@ -1,0 +1,9 @@
+{
+  "state": {
+    "app:max_iterations": 3,
+    "app:max_depth": 1
+  },
+  "queries": [
+    "Given the following context: 'Python is a high-level programming language created by Guido van Rossum.' Summarize the key facts in one sentence."
+  ]
+}

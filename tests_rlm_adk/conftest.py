@@ -11,27 +11,3 @@ def repl():
     r = LocalREPL()
     yield r
     r.cleanup()
-
-
-@pytest.fixture
-def repl_with_context():
-    """Provide a LocalREPL pre-loaded with a string context."""
-    r = LocalREPL(context_payload="hello world")
-    yield r
-    r.cleanup()
-
-
-@pytest.fixture
-def repl_with_dict_context():
-    """Provide a LocalREPL pre-loaded with a dict context."""
-    r = LocalREPL(context_payload={"key": "value", "number": 42})
-    yield r
-    r.cleanup()
-
-
-@pytest.fixture
-def repl_with_list_context():
-    """Provide a LocalREPL pre-loaded with a list context."""
-    r = LocalREPL(context_payload=["item1", "item2", "item3"])
-    yield r
-    r.cleanup()

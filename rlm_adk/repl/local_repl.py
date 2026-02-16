@@ -11,7 +11,6 @@ Provides sandboxed Python code execution with:
 import contextvars
 import copy
 import io
-import json
 import os
 import shutil
 import sys
@@ -170,7 +169,6 @@ class LocalREPL:
 
     def __init__(
         self,
-        context_payload: dict | list | str | None = None,
         depth: int = 1,
         llm_query_fn: Callable | None = None,
         llm_query_batched_fn: Callable | None = None,
@@ -178,7 +176,6 @@ class LocalREPL:
         self.depth = depth
         self.temp_dir = tempfile.mkdtemp(prefix=f"repl_adk_{uuid.uuid4()}_")
         self.original_cwd = os.getcwd()
-        self._context_count: int = 0
         self._history_count: int = 0
         self._pending_llm_calls: list[RLMChatCompletion] = []
 
@@ -198,10 +195,6 @@ class LocalREPL:
             self.globals["llm_query"] = llm_query_fn
         if llm_query_batched_fn:
             self.globals["llm_query_batched"] = llm_query_batched_fn
-
-        # Load context if provided
-        if context_payload is not None:
-            self.load_context(context_payload)
 
     def set_llm_query_fns(self, llm_query_fn: Callable, llm_query_batched_fn: Callable) -> None:
         """Set/update the sync LM query functions (called by orchestrator)."""
@@ -243,47 +236,6 @@ class LocalREPL:
             return "No variables created yet. Use ```repl``` blocks to create variables."
         return f"Available variables: {available}"
 
-    def load_context(self, context_payload: dict | list | str) -> None:
-        """Load context into the environment as context_0 (and 'context' alias)."""
-        self.add_context(context_payload, 0)
-
-    def add_context(
-        self, context_payload: dict | list | str, context_index: int | None = None
-    ) -> int:
-        """Add a context with versioned variable name.
-
-        Args:
-            context_payload: The context data to add
-            context_index: Optional explicit index. If None, auto-increments.
-
-        Returns:
-            The context index used.
-        """
-        if context_index is None:
-            context_index = self._context_count
-
-        var_name = f"context_{context_index}"
-
-        if isinstance(context_payload, str):
-            context_path = os.path.join(self.temp_dir, f"context_{context_index}.txt")
-            with open(context_path, "w") as f:
-                f.write(context_payload)
-            self.execute_code(f"with open(r'{context_path}', 'r') as f:\n    {var_name} = f.read()")
-        else:
-            context_path = os.path.join(self.temp_dir, f"context_{context_index}.json")
-            with open(context_path, "w") as f:
-                json.dump(context_payload, f)
-            self.execute_code(
-                f"import json\nwith open(r'{context_path}', 'r') as f:\n    {var_name} = json.load(f)"
-            )
-
-        # Alias context_0 as 'context' for backward compatibility
-        if context_index == 0:
-            self.execute_code(f"context = {var_name}")
-
-        self._context_count = max(self._context_count, context_index + 1)
-        return context_index
-
     def add_history(
         self, message_history: list[dict[str, Any]], history_index: int | None = None
     ) -> int:
@@ -308,10 +260,6 @@ class LocalREPL:
 
         self._history_count = max(self._history_count, history_index + 1)
         return history_index
-
-    def get_context_count(self) -> int:
-        """Return the number of contexts loaded."""
-        return self._context_count
 
     def get_history_count(self) -> int:
         """Return the number of conversation histories stored."""

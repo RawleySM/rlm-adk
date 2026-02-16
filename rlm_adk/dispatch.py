@@ -12,6 +12,7 @@ Architecture:
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from google.adk.agents import LlmAgent, ParallelAgent
@@ -20,6 +21,14 @@ from google.adk.events import Event
 from google.genai import types
 
 from rlm_adk.callbacks.worker import worker_before_model, worker_after_model
+from rlm_adk.state import (
+    OBS_WORKER_DIRTY_READ_MISMATCHES,
+    OBS_WORKER_DISPATCH_LATENCY_MS,
+    OBS_WORKER_TOTAL_BATCH_DISPATCHES,
+    OBS_WORKER_TOTAL_DISPATCHES,
+    TEMP_WORKER_DIRTY_READ_COUNT,
+    TEMP_WORKER_DISPATCH_COUNT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +210,19 @@ def create_dispatch_closures(
             return []
 
         workers: list[LlmAgent] = []
+        k = len(prompts)
+        dispatch_start = time.perf_counter()
+
+        # Track dispatch count (invocation-scoped)
+        prev_dispatch_count = ctx.session.state.get(TEMP_WORKER_DISPATCH_COUNT, 0)
+        ctx.session.state[TEMP_WORKER_DISPATCH_COUNT] = prev_dispatch_count + k
+
+        # Track batch vs single dispatches (session-scoped)
+        if k > 1:
+            prev_batch = ctx.session.state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
+            ctx.session.state[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = prev_batch + 1
+        prev_total = ctx.session.state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
+        ctx.session.state[OBS_WORKER_TOTAL_DISPATCHES] = prev_total + k
 
         try:
             # Acquire K workers and inject prompts
@@ -222,12 +244,42 @@ def create_dispatch_closures(
                 async for event in parallel.run_async(ctx):
                     event_queue.put_nowait(event)
 
-            # Read results from state via each worker's output_key
+            # Record dispatch latency (session-scoped, append to list)
+            dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
+            latencies = ctx.session.state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
+            latencies.append(round(dispatch_elapsed_ms, 2))
+            ctx.session.state[OBS_WORKER_DISPATCH_LATENCY_MS] = latencies
+
+            # --- State timing guard: dirty read of worker results ---
+            # Worker after_model callbacks write to output_key in local state.
+            # These writes are NOT committed by the Runner yet (events are in
+            # event_queue, not yielded). We perform a dirty read here, which
+            # is valid within the same invocation but must be tracked.
             results = []
+            dirty_read_count = ctx.session.state.get(TEMP_WORKER_DIRTY_READ_COUNT, 0)
+            mismatches = ctx.session.state.get(OBS_WORKER_DIRTY_READ_MISMATCHES, 0)
+
             for worker in workers:
                 output_key = worker.output_key
                 result = ctx.session.state.get(output_key, "")
+                dirty_read_count += 1
+
+                if not result:
+                    # Guard: output_key missing after dispatch -- state write
+                    # from worker_after_model may not have propagated locally.
+                    # This indicates a potential timing issue.
+                    logger.warning(
+                        "State timing guard: worker %s output_key '%s' "
+                        "returned empty after dispatch (dirty read). "
+                        "Events pending in queue: %d",
+                        worker.name, output_key, event_queue.qsize(),
+                    )
+                    mismatches += 1
+
                 results.append(str(result) if result else "")
+
+            ctx.session.state[TEMP_WORKER_DIRTY_READ_COUNT] = dirty_read_count
+            ctx.session.state[OBS_WORKER_DIRTY_READ_MISMATCHES] = mismatches
 
             return results
 

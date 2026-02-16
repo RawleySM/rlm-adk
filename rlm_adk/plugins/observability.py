@@ -20,14 +20,23 @@ from google.genai import types
 
 from rlm_adk.state import (
     OBS_ITERATION_TIMES,
+    OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
+    TEMP_CONTEXT_WINDOW_SNAPSHOT,
     TEMP_INVOCATION_START_TIME,
     TEMP_ITERATION_COUNT,
+    TEMP_REASONING_INPUT_TOKENS,
+    TEMP_REASONING_OUTPUT_TOKENS,
+    TEMP_REASONING_PROMPT_CHARS,
+    TEMP_REASONING_SYSTEM_CHARS,
     TEMP_REQUEST_ID,
+    TEMP_WORKER_INPUT_TOKENS,
+    TEMP_WORKER_OUTPUT_TOKENS,
+    TEMP_WORKER_PROMPT_CHARS,
     USER_LAST_SUCCESSFUL_CALL_ID,
     obs_model_usage_key,
 )
@@ -137,6 +146,39 @@ class ObservabilityPlugin(BasePlugin):
                 model_usage["output_tokens"] += output_tokens
                 state[model_key] = model_usage
 
+            # --- Per-iteration token breakdown ---
+            # Read agent-specific token accounting written by before/after callbacks
+            iteration = state.get(TEMP_ITERATION_COUNT, 0)
+            context_snapshot = state.get(TEMP_CONTEXT_WINDOW_SNAPSHOT)
+
+            breakdown_entry: dict[str, Any] = {
+                "iteration": iteration,
+                "call_number": state.get(OBS_TOTAL_CALLS, 0),
+                "input_tokens": input_tokens if usage else 0,
+                "output_tokens": output_tokens if usage else 0,
+            }
+
+            # Include agent-type-specific prompt characterization
+            reasoning_prompt_chars = state.get(TEMP_REASONING_PROMPT_CHARS)
+            if reasoning_prompt_chars is not None:
+                breakdown_entry["agent_type"] = "reasoning"
+                breakdown_entry["prompt_chars"] = reasoning_prompt_chars
+                breakdown_entry["system_chars"] = state.get(
+                    TEMP_REASONING_SYSTEM_CHARS, 0
+                )
+
+            worker_prompt_chars = state.get(TEMP_WORKER_PROMPT_CHARS)
+            if worker_prompt_chars is not None:
+                breakdown_entry["agent_type"] = "worker"
+                breakdown_entry["prompt_chars"] = worker_prompt_chars
+
+            if context_snapshot:
+                breakdown_entry["context_snapshot"] = context_snapshot
+
+            breakdowns: list = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
+            breakdowns.append(breakdown_entry)
+            state[OBS_PER_ITERATION_TOKEN_BREAKDOWN] = breakdowns
+
             request_id = state.get(TEMP_REQUEST_ID, "unknown")
             logger.debug("[%s] Model call completed", request_id)
 
@@ -215,11 +257,21 @@ class ObservabilityPlugin(BasePlugin):
             if request_id != "unknown":
                 state[USER_LAST_SUCCESSFUL_CALL_ID] = request_id
 
+            breakdowns = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
+            reasoning_calls = sum(
+                1 for b in breakdowns if b.get("agent_type") == "reasoning"
+            )
+            worker_calls = sum(
+                1 for b in breakdowns if b.get("agent_type") == "worker"
+            )
+
             logger.info(
-                "[%s] Run completed: calls=%d, input_tokens=%d, "
-                "output_tokens=%d, time=%.2fs",
+                "[%s] Run completed: calls=%d (reasoning=%d, worker=%d), "
+                "input_tokens=%d, output_tokens=%d, time=%.2fs",
                 request_id,
                 state.get(OBS_TOTAL_CALLS, 0),
+                reasoning_calls,
+                worker_calls,
                 state.get(OBS_TOTAL_INPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_EXECUTION_TIME, 0),

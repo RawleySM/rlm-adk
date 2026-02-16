@@ -1,6 +1,6 @@
 """AR-HIGH-006: Callback completeness.
 
-Reasoning, worker, and default-answer agents shall each have defined
+Reasoning and worker agents shall each have defined
 before/after callback behavior for prompt injection and output extraction.
 """
 
@@ -10,11 +10,6 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
-from rlm_adk.callbacks.default_answer import (
-    DEFAULT_ANSWER_OUTPUT_KEY,
-    default_after_model,
-    default_before_model,
-)
 from rlm_adk.callbacks.reasoning import (
     reasoning_after_model,
     reasoning_before_model,
@@ -24,7 +19,6 @@ from rlm_adk.state import (
     TEMP_LAST_REASONING_RESPONSE,
     TEMP_MESSAGE_HISTORY,
     TEMP_REASONING_CALL_START,
-    TEMP_USED_DEFAULT_ANSWER,
 )
 
 
@@ -68,21 +62,6 @@ class TestReasoningBeforeModel:
         assert len(request.contents) == 2
         assert request.contents[0].role == "user"
         assert request.contents[1].role == "model"  # assistant -> model
-
-    def test_system_messages_become_system_instruction(self):
-        state = {
-            TEMP_MESSAGE_HISTORY: [
-                {"role": "system", "content": "You are helpful."},
-                {"role": "user", "content": "Hello"},
-            ],
-        }
-        ctx = _make_callback_context(state)
-        request = LlmRequest(model="test", contents=[])
-
-        reasoning_before_model(ctx, request)
-
-        assert len(request.contents) == 1  # only user, system is separate
-        assert request.config.system_instruction == "You are helpful."
 
     def test_sets_reasoning_call_start(self):
         state = {TEMP_MESSAGE_HISTORY: []}
@@ -210,66 +189,3 @@ class TestWorkerAfterModel:
         worker_after_model(ctx, response)
         # Should not crash, state unchanged
         assert len(state) == 0
-
-
-# ── Default Answer Callbacks ─────────────────────────────────────────────
-
-
-class TestDefaultBeforeModel:
-    """Default answer before_model_callback injects full history + final instruction."""
-
-    def test_injects_history_and_final_instruction(self):
-        state = {
-            TEMP_MESSAGE_HISTORY: [
-                {"role": "system", "content": "System msg"},
-                {"role": "user", "content": "Question"},
-                {"role": "assistant", "content": "Partial answer"},
-            ],
-        }
-        ctx = _make_callback_context(state)
-        request = LlmRequest(model="test", contents=[])
-
-        result = default_before_model(ctx, request)
-
-        assert result is None
-        # user + assistant + final instruction = 3 contents
-        assert len(request.contents) == 3
-        # Last content should be the "provide final answer" instruction
-        last = request.contents[-1]
-        assert last.role == "user"
-        assert "final answer" in last.parts[0].text.lower()
-
-    def test_system_instruction_set(self):
-        state = {
-            TEMP_MESSAGE_HISTORY: [
-                {"role": "system", "content": "Be helpful"},
-            ],
-        }
-        ctx = _make_callback_context(state)
-        request = LlmRequest(model="test", contents=[])
-
-        default_before_model(ctx, request)
-        assert request.config.system_instruction == "Be helpful"
-
-
-class TestDefaultAfterModel:
-    """Default answer after_model_callback records answer and marks flag."""
-
-    def test_records_answer(self):
-        state = {}
-        ctx = _make_callback_context(state)
-        response = _make_llm_response("Best guess: 42")
-
-        result = default_after_model(ctx, response)
-
-        assert result is None
-        assert state[DEFAULT_ANSWER_OUTPUT_KEY] == "Best guess: 42"
-        assert state[TEMP_USED_DEFAULT_ANSWER] is True
-
-    def test_empty_response(self):
-        state = {}
-        ctx = _make_callback_context(state)
-        response = LlmResponse(content=None)
-
-        default_after_model(ctx, response)
-        assert state[DEFAULT_ANSWER_OUTPUT_KEY] == ""

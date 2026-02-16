@@ -12,7 +12,9 @@ class TestPackageImport:
 
     def test_import_rlm_adk(self):
         mod = importlib.import_module("rlm_adk")
-        assert hasattr(mod, "RLMAdkEngine")
+        assert hasattr(mod, "create_rlm_orchestrator")
+        assert hasattr(mod, "create_rlm_app")
+        assert hasattr(mod, "create_rlm_runner")
 
     def test_rlm_adk_all_no_duplicates(self):
         mod = importlib.import_module("rlm_adk")
@@ -52,12 +54,12 @@ class TestSubpackageImports:
 
     def test_import_prompts(self):
         from rlm_adk.utils.prompts import (
-            RLM_SYSTEM_PROMPT,
+            RLM_STATIC_INSTRUCTION,
             build_user_prompt,
         )
 
         assert callable(build_user_prompt)
-        assert len(RLM_SYSTEM_PROMPT) > 0
+        assert len(RLM_STATIC_INSTRUCTION) > 0
 
     def test_import_local_repl(self):
         from rlm_adk.repl.local_repl import LocalREPL
@@ -112,9 +114,45 @@ class TestSubpackageImports:
 
     def test_import_agent(self):
         from rlm_adk.agent import (
-            RLMAdkEngine,
             create_reasoning_agent,
+            create_rlm_app,
+            create_rlm_orchestrator,
+            create_rlm_runner,
         )
 
-        assert callable(RLMAdkEngine)
+        assert callable(create_rlm_orchestrator)
         assert callable(create_reasoning_agent)
+        assert callable(create_rlm_app)
+        assert callable(create_rlm_runner)
+
+    def test_agent_module_exports_app(self):
+        """ADK CLI discovers ``app`` (App instance) before ``root_agent``."""
+        from google.adk.apps.app import App
+
+        mod = importlib.import_module("rlm_adk.agent")
+        assert hasattr(mod, "app"), "agent.py must export 'app' for ADK CLI"
+        assert isinstance(mod.app, App)
+        assert len(mod.app.plugins) >= 1, "App should have at least ObservabilityPlugin"
+
+    def test_agent_app_contains_observability_plugin(self):
+        from rlm_adk.agent import app
+        from rlm_adk.plugins.observability import ObservabilityPlugin
+
+        plugin_types = [type(p) for p in app.plugins]
+        assert ObservabilityPlugin in plugin_types
+
+    def test_create_rlm_runner_returns_runner(self):
+        """create_rlm_runner() returns an InMemoryRunner wrapping the App."""
+        from google.adk.runners import InMemoryRunner
+
+        from rlm_adk.agent import create_rlm_runner
+
+        runner = create_rlm_runner(model="gemini-2.5-flash")
+        assert isinstance(runner, InMemoryRunner)
+
+    def test_runner_has_session_service(self):
+        """Runner provides a session_service for state persistence."""
+        from rlm_adk.agent import create_rlm_runner
+
+        runner = create_rlm_runner(model="gemini-2.5-flash")
+        assert runner.session_service is not None

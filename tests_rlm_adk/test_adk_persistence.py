@@ -1,48 +1,13 @@
 """FR-008/009: Persistent session state and non-persistent isolation.
 
 Covers:
-- FR-008: Persistent mode - contexts accumulate, histories accumulate, vars persist
+- FR-008: Persistent mode - histories accumulate, vars persist
 - FR-009: Non-persistent mode - fresh REPL per completion, no var leakage
 """
 
 from rlm_adk.repl.local_repl import LocalREPL
 
 # ── FR-008 Persistent Session State ──────────────────────────────────────
-
-
-class TestPersistentContextAccumulation:
-    """FR-008: Contexts shall accumulate as context_0..N."""
-
-    def test_add_context_increments_count(self):
-        repl = LocalREPL(context_payload="first")
-        assert repl.get_context_count() == 1
-
-        repl.add_context("second")
-        assert repl.get_context_count() == 2
-        repl.cleanup()
-
-    def test_context_0_alias_is_context(self):
-        repl = LocalREPL(context_payload="first")
-        result = repl.execute_code("print(context)")
-        assert "first" in result.stdout
-        repl.cleanup()
-
-    def test_multiple_contexts_accessible(self):
-        repl = LocalREPL(context_payload="first")
-        repl.add_context("second")
-        result = repl.execute_code("print(context_0)")
-        assert "first" in result.stdout
-        result = repl.execute_code("print(context_1)")
-        assert "second" in result.stdout
-        repl.cleanup()
-
-    def test_dict_context_accumulation(self):
-        repl = LocalREPL(context_payload={"a": 1})
-        repl.add_context({"b": 2})
-        result = repl.execute_code("print(context_0['a'], context_1['b'])")
-        assert "1" in result.stdout
-        assert "2" in result.stdout
-        repl.cleanup()
 
 
 class TestPersistentHistoryAccumulation:
@@ -125,17 +90,8 @@ class TestNonPersistentIsolation:
         assert "NameError" in result.stderr
         repl2.cleanup()
 
-    def test_context_not_shared(self):
-        repl1 = LocalREPL(context_payload="session1_data")
-        repl1.cleanup()
-
-        repl2 = LocalREPL()
-        result = repl2.execute_code("print(context)")
-        assert "NameError" in result.stderr
-        repl2.cleanup()
-
     def test_cleanup_removes_all_state(self):
-        repl = LocalREPL(context_payload="test")
+        repl = LocalREPL()
         repl.execute_code("x = 1")
         repl.cleanup()
         assert repl.locals == {}

@@ -1,8 +1,7 @@
-"""FR-001/002/012 + AR-CRIT-001: Orchestrator loop, completion contract, default answer.
+"""FR-001/002 + AR-CRIT-001: Orchestrator loop, completion contract.
 
 FR-001: Completion contract parity (RLMChatCompletion shape).
 FR-002: Iterative orchestration loop (prompt -> reason -> extract -> execute -> final).
-FR-012: Default answer fallback when max_iterations exhausted.
 AR-CRIT-001: State delta discipline (no direct ctx.session.state writes).
 """
 
@@ -140,15 +139,15 @@ print(x)
         """Simulate multiple iterations building up state."""
         from rlm_adk.repl.local_repl import LocalREPL
 
-        repl = LocalREPL(context_payload="test data")
+        repl = LocalREPL()
 
-        # Iteration 1: Explore context
-        code1 = "data_len = len(context)\nprint(f'Context length: {data_len}')"
+        # Iteration 1: Load and explore data via REPL
+        code1 = "data = 'test data'\ndata_len = len(data)\nprint(f'Data length: {data_len}')"
         r1 = repl.execute_code(code1)
-        assert "Context length:" in r1.stdout
+        assert "Data length:" in r1.stdout
 
         # Iteration 2: Process data
-        code2 = "result = context.upper()\nprint(result)"
+        code2 = "result = data.upper()\nprint(result)"
         r2 = repl.execute_code(code2)
         assert "TEST DATA" in r2.stdout
 
@@ -180,30 +179,16 @@ class TestOrchestratorStateDeltaDiscipline:
                 assert node.value is not None, "Bare yield found in orchestrator"
 
     def test_orchestrator_sub_agents_declared(self):
-        """Orchestrator should declare reasoning_agent and default_answer_agent."""
+        """Orchestrator should declare reasoning_agent."""
         fields = RLMOrchestratorAgent.model_fields
         assert "reasoning_agent" in fields
-        assert "default_answer_agent" in fields
 
 
 # ── FR-001 Completion Contract ───────────────────────────────────────────
 
 
 class TestCompletionContractShape:
-    """FR-001: RLMChatCompletion has required fields."""
-
-    def test_engine_class_exists(self):
-        from rlm_adk.agent import RLMAdkEngine
-
-        assert hasattr(RLMAdkEngine, "completion")
-        assert hasattr(RLMAdkEngine, "acompletion")
-
-    def test_engine_has_context_manager(self):
-        from rlm_adk.agent import RLMAdkEngine
-
-        assert hasattr(RLMAdkEngine, "__enter__")
-        assert hasattr(RLMAdkEngine, "__exit__")
-        assert hasattr(RLMAdkEngine, "close")
+    """FR-001: Factory functions and orchestrator shape."""
 
     def test_create_reasoning_agent_returns_llm_agent(self):
         from rlm_adk.agent import create_reasoning_agent
@@ -214,17 +199,15 @@ class TestCompletionContractShape:
         assert agent.disallow_transfer_to_parent is True
         assert agent.disallow_transfer_to_peers is True
 
-    def test_create_default_answer_agent(self):
-        from rlm_adk.agent import create_default_answer_agent
-
-        agent = create_default_answer_agent("test-model")
-        assert agent.name == "default_answer_agent"
-        assert agent.include_contents == "none"
-
     def test_create_orchestrator(self):
         from rlm_adk.agent import create_rlm_orchestrator
 
         orch = create_rlm_orchestrator(model="test-model")
         assert orch.name == "rlm_orchestrator"
         assert orch.reasoning_agent is not None
-        assert orch.default_answer_agent is not None
+
+    def test_create_orchestrator_default_worker_pool(self):
+        from rlm_adk.agent import create_rlm_orchestrator
+
+        orch = create_rlm_orchestrator(model="test-model")
+        assert orch.worker_pool is not None

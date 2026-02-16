@@ -1,9 +1,8 @@
-"""FR-005/006/007 + NF-003: Local REPL execution, helpers, context loading.
+"""FR-005/006/007 + NF-003: Local REPL execution, helpers.
 
 Covers:
 - FR-005 REPL Execution Core Behavior
 - FR-006 REPL Helpers (FINAL_VAR, SHOW_VARS)
-- FR-007 Context Loading (str | dict | list)
 - FR-004 REPL Code Block Parsing (via find_code_blocks)
 - FR-003 Final Answer Extraction Semantics
 - NF-003 REPL Runtime Failures
@@ -139,43 +138,6 @@ class TestREPLHelpers:
         result = repl.execute_code("print(SHOW_VARS())")
         assert "x" in result.stdout
         assert "_private" not in result.stdout
-
-
-# ── FR-007 Context Loading ───────────────────────────────────────────────
-
-
-class TestREPLContextLoading:
-    """FR-007: Support str | dict | list context payloads."""
-
-    def test_string_context(self, repl_with_context):
-        result = repl_with_context.execute_code("print(context)")
-        assert "hello world" in result.stdout
-
-    def test_string_context_alias(self, repl_with_context):
-        result = repl_with_context.execute_code("print(context_0)")
-        assert "hello world" in result.stdout
-
-    def test_dict_context(self, repl_with_dict_context):
-        result = repl_with_dict_context.execute_code("print(context['key'])")
-        assert "value" in result.stdout
-
-    def test_dict_context_number(self, repl_with_dict_context):
-        result = repl_with_dict_context.execute_code("print(context['number'])")
-        assert "42" in result.stdout
-
-    def test_list_context(self, repl_with_list_context):
-        result = repl_with_list_context.execute_code("print(context[0])")
-        assert "item1" in result.stdout
-
-    def test_context_count_after_load(self, repl_with_context):
-        assert repl_with_context.get_context_count() == 1
-
-    def test_context_0_is_context_alias(self):
-        repl = LocalREPL(context_payload="test")
-        result = repl.execute_code("print(context is context_0)")
-        # They should be the same value (both loaded from same file)
-        assert "True" in result.stdout
-        repl.cleanup()
 
 
 # ── FR-004 REPL Code Block Parsing ──────────────────────────────────────

@@ -8,6 +8,7 @@ CRIT-1: All state writes inside _run_async_impl use yield Event(actions=EventAct
 
 import asyncio
 import logging
+import os
 from typing import Any, AsyncGenerator
 
 from google.adk.agents import BaseAgent, LlmAgent
@@ -20,23 +21,23 @@ from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.state import (
     APP_MAX_DEPTH,
     APP_MAX_ITERATIONS,
+    DYN_REPO_URL,
+    DYN_ROOT_PROMPT,
     TEMP_CURRENT_DEPTH,
     TEMP_FINAL_ANSWER,
     TEMP_ITERATION_COUNT,
     TEMP_LAST_REASONING_RESPONSE,
     TEMP_LAST_REPL_RESULT,
     TEMP_MESSAGE_HISTORY,
+    TEMP_REPO_URL,
+    TEMP_ROOT_PROMPT,
     TEMP_SHOULD_STOP,
-    TEMP_USED_DEFAULT_ANSWER,
+    TEMP_WORKER_EVENTS_DRAINED,
+    TEMP_WORKER_RESULTS_COMMITTED,
 )
 from rlm_adk.types import CodeBlock, REPLResult, RLMIteration
 from rlm_adk.utils.parsing import find_code_blocks, find_final_answer, format_iteration
-from rlm_adk.utils.prompts import (
-    RLM_SYSTEM_PROMPT,
-    QueryMetadata,
-    build_rlm_system_prompt,
-    build_user_prompt,
-)
+from rlm_adk.utils.prompts import build_user_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,6 @@ class RLMOrchestratorAgent(BaseAgent):
 
     Sub-agents:
     - reasoning_agent: LlmAgent for main reasoning (depth=0)
-    - default_answer_agent: LlmAgent for fallback answer generation
 
     The orchestrator does NOT use ADK's built-in agent transfer.
     Instead, it manually dispatches to sub-agents and processes their output.
@@ -60,12 +60,10 @@ class RLMOrchestratorAgent(BaseAgent):
 
     # Sub-agents declared as Pydantic fields so ADK recognizes them
     reasoning_agent: LlmAgent
-    default_answer_agent: LlmAgent
 
     # Configuration fields
-    system_prompt: str = RLM_SYSTEM_PROMPT
-    context_payload: Any = None
     root_prompt: str | None = None
+    repo_url: str | None = None
     persistent: bool = False
     worker_pool: Any = None
     repl: Any = None
@@ -77,17 +75,15 @@ class RLMOrchestratorAgent(BaseAgent):
 
         CRIT-1: All state writes MUST yield Event with EventActions(state_delta).
         """
-        max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, 30)
+        _default_max_iter = int(os.getenv("RLM_MAX_ITERATIONS", "30"))
+        max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
         max_depth = ctx.session.state.get(APP_MAX_DEPTH, 1)
 
         # Initialize REPL environment (BUG-8: reuse persistent REPL if provided)
         if self.repl is not None:
             repl = self.repl
         else:
-            repl = LocalREPL(
-                context_payload=self.context_payload,
-                depth=1,
-            )
+            repl = LocalREPL(depth=1)
 
         # Wire up WorkerPool dispatch closures (BUG-3)
         event_queue: asyncio.Queue | None = None
@@ -109,30 +105,45 @@ class RLMOrchestratorAgent(BaseAgent):
             repl.set_llm_query_fns(sync_llm_query_unsupported, sync_llm_query_unsupported)
 
         try:
-            # Build initial message history
-            metadata = QueryMetadata(self.context_payload or "")
-            message_history = build_rlm_system_prompt(
-                system_prompt=self.system_prompt,
-                query_metadata=metadata,
-            )
+            # Message history starts empty — ADK handles the system prompt
+            # via static_instruction= and context metadata via instruction=
+            # template resolution.  Only iterative conversation messages
+            # (user prompts, model responses, REPL output) go here.
+            message_history: list[dict[str, str]] = []
+
+            # Build initial state delta.
+            # - temp: keys are invocation-scoped (callbacks, observability).
+            # - Unprefixed DYN_ keys are session-scoped for ADK instruction
+            #   template resolution ({repo_url?}, {root_prompt?}).
+            initial_state: dict[str, Any] = {
+                TEMP_MESSAGE_HISTORY: message_history,
+                TEMP_CURRENT_DEPTH: 1,
+                TEMP_ITERATION_COUNT: 0,
+            }
+            if self.root_prompt:
+                initial_state[TEMP_ROOT_PROMPT] = self.root_prompt
+                initial_state[DYN_ROOT_PROMPT] = self.root_prompt
+            if self.repo_url:
+                initial_state[TEMP_REPO_URL] = self.repo_url
+                initial_state[DYN_REPO_URL] = self.repo_url
 
             # Yield initial state
             yield Event(
                 invocation_id=ctx.invocation_id,
                 author=self.name,
-                actions=EventActions(state_delta={
-                    TEMP_MESSAGE_HISTORY: message_history,
-                    TEMP_CURRENT_DEPTH: 1,
-                    TEMP_ITERATION_COUNT: 0,
-                }),
+                actions=EventActions(state_delta=initial_state),
             )
 
             for i in range(max_iterations):
+                print(
+                    f"[RLM] --- iter={i} START max={max_iterations} ---",
+                    flush=True,
+                )
+
                 # Build current prompt = message history + user prompt suffix
-                context_count = repl.get_context_count()
                 history_count = repl.get_history_count()
                 current_prompt = message_history + [
-                    build_user_prompt(self.root_prompt, i, context_count, history_count)
+                    build_user_prompt(self.root_prompt, i, history_count)
                 ]
 
                 # --- Inject prompt into state for reasoning_before_model callback ---
@@ -149,14 +160,36 @@ class RLMOrchestratorAgent(BaseAgent):
                     yield event
 
                 # Drain worker event queue (BUG-3)
+                # After drain, yield a sync-point event so the Runner commits
+                # worker state_deltas before we read any worker results.
                 if event_queue is not None:
+                    drained = 0
                     while not event_queue.empty():
                         yield event_queue.get_nowait()
+                        drained += 1
+                    if drained > 0:
+                        prev_drained = ctx.session.state.get(TEMP_WORKER_EVENTS_DRAINED, 0)
+                        yield Event(
+                            invocation_id=ctx.invocation_id,
+                            author=self.name,
+                            actions=EventActions(state_delta={
+                                TEMP_WORKER_EVENTS_DRAINED: prev_drained + drained,
+                                TEMP_WORKER_RESULTS_COMMITTED: True,
+                            }),
+                        )
+                        print(
+                            f"[RLM] iter={i} worker_events_drained={drained}",
+                            flush=True,
+                        )
 
                 # Get response from state (written by reasoning_after_model callback)
                 response = ctx.session.state.get(TEMP_LAST_REASONING_RESPONSE, "")
 
                 if not response:
+                    print(
+                        f"[RLM_WARN] iter={i} empty response from reasoning agent",
+                        flush=True,
+                    )
                     logger.warning("Empty response from reasoning agent at iteration %d", i)
 
                 # --- Extract and execute code blocks ---
@@ -193,10 +226,21 @@ class RLMOrchestratorAgent(BaseAgent):
 
                     code_blocks.append(CodeBlock(code=code_str, result=result))
 
+                print(
+                    f"[RLM] iter={i} code_blocks={len(code_blocks)} "
+                    f"has_output={any(cb.result.stdout for cb in code_blocks)}",
+                    flush=True,
+                )
+
                 # --- Check for final answer ---
                 final_answer = find_final_answer(response, environment=repl)
 
                 if final_answer is not None:
+                    print(
+                        f"[RLM] FINAL_ANSWER detected at iter={i + 1} "
+                        f"length={len(final_answer)}",
+                        flush=True,
+                    )
                     yield Event(
                         invocation_id=ctx.invocation_id,
                         author=self.name,
@@ -244,32 +288,35 @@ class RLMOrchestratorAgent(BaseAgent):
                     }),
                 )
 
-            # --- Max iterations exhausted -> default answer ---
-            # Update state with full history for the default answer callback
-            yield Event(
-                invocation_id=ctx.invocation_id,
-                author=self.name,
-                actions=EventActions(state_delta={
-                    TEMP_MESSAGE_HISTORY: message_history,
-                }),
+                print(
+                    f"[RLM] --- iter={i} END ---",
+                    flush=True,
+                )
+
+            # --- Max iterations exhausted ---
+            logger.warning(
+                "max_iterations=%d exhausted without FINAL answer. "
+                "Consider increasing max_iterations.",
+                max_iterations,
+            )
+            print(
+                f"[RLM_WARN] max_iterations={max_iterations} exhausted "
+                f"without FINAL answer. Increase max_iterations.",
+                flush=True,
             )
 
-            async for event in self.default_answer_agent.run_async(ctx):
-                yield event
-
-            # Drain worker event queue (BUG-3)
-            if event_queue is not None:
-                while not event_queue.empty():
-                    yield event_queue.get_nowait()
-
-            default_answer = ctx.session.state.get("default_answer", "")
+            exhausted_msg = (
+                f"[RLM ERROR] Max iterations ({max_iterations}) exhausted "
+                f"without producing a FINAL answer. "
+                f"Increase max_iterations and retry."
+            )
 
             yield Event(
                 invocation_id=ctx.invocation_id,
                 author=self.name,
                 actions=EventActions(state_delta={
-                    TEMP_FINAL_ANSWER: default_answer,
-                    TEMP_USED_DEFAULT_ANSWER: True,
+                    TEMP_FINAL_ANSWER: exhausted_msg,
+                    TEMP_SHOULD_STOP: True,
                     TEMP_ITERATION_COUNT: max_iterations,
                 }),
             )
@@ -278,7 +325,7 @@ class RLMOrchestratorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text=default_answer)],
+                    parts=[types.Part.from_text(text=exhausted_msg)],
                 ),
             )
 
