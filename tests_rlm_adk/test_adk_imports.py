@@ -142,13 +142,13 @@ class TestSubpackageImports:
         assert ObservabilityPlugin in plugin_types
 
     def test_create_rlm_runner_returns_runner(self):
-        """create_rlm_runner() returns an InMemoryRunner wrapping the App."""
-        from google.adk.runners import InMemoryRunner
+        """create_rlm_runner() returns a Runner wrapping the App."""
+        from google.adk.runners import Runner
 
         from rlm_adk.agent import create_rlm_runner
 
         runner = create_rlm_runner(model="gemini-2.5-flash")
-        assert isinstance(runner, InMemoryRunner)
+        assert isinstance(runner, Runner)
 
     def test_runner_has_session_service(self):
         """Runner provides a session_service for state persistence."""

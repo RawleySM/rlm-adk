@@ -23,8 +23,8 @@ from rlm_adk.state import (
 
 logger = logging.getLogger(__name__)
 
-# Temp state key for passing fingerprint from before_model to after_model
-_TEMP_CACHE_PENDING_FP = "temp:cache_pending_fingerprint"
+# State key for passing fingerprint from before_model to after_model
+_CACHE_PENDING_FP = "cache_pending_fingerprint"
 
 
 class CachePlugin(BasePlugin):
@@ -58,7 +58,7 @@ class CachePlugin(BasePlugin):
             fingerprint = _fingerprint(llm_request)
 
             # Always store fingerprint so after_model_callback can use it
-            state[_TEMP_CACHE_PENDING_FP] = fingerprint
+            state[_CACHE_PENDING_FP] = fingerprint
 
             cache_store: dict = state.get(CACHE_STORE, {})
 
@@ -89,7 +89,7 @@ class CachePlugin(BasePlugin):
         """Store response in cache after successful model call."""
         try:
             state = callback_context.state
-            pending_fp = state.get(_TEMP_CACHE_PENDING_FP)
+            pending_fp = state.get(_CACHE_PENDING_FP)
             if not pending_fp:
                 return None
 

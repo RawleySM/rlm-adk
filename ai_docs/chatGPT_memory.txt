@@ -1,0 +1,206 @@
+
+Search memories
+
+
+Always expand acronyms when Rawley asks about a term they are unfamiliar with.
+
+When writing code that uses Databricks Connect for Rawley, default to the simple authentication/import pattern using DatabricksSession: `from databricks.connect import DatabricksSession` (and use the standard `DatabricksSession.builder.getOrCreate()` flow). This is the preferred setup whenever Databricks Connect is utilized.
+
+Rawley is interested in adding a self-improvement reflection script to their agentic workflow. This script would analyze logs from existing workflows, use GEPY (a genetic algorithm tool for the DSPy module) to optimize prompts, and feed these improvements back into the system. Challenges include ensuring consistent log formats, deciding on feedback frequency, validating improvements, and managing resource usage. This script is intended to be part of Rawley's local developer environment rather than a cloud-deployed solution.
+
+Preference: When delivering code changes, always provide a complete, re-assembled file with a download link—avoid piecemeal copy‑paste snippets that risk drift or user error.
+
+Prefers that, when troubleshooting or setting up workflows, I begin by providing a complete, self‑contained “uv” single‑file Python script (with inline metadata, error handling, and informative terminal output) rather than a step‑by‑step manual checklist.
+
+Notes that downloadable file links provided by ChatGPT open correctly in a web browser (chatgpt.com) but not in the ChatGPT desktop app, and requests that they be reminded of this when offering download links.
+
+When Rawley asks for a suite of options, they always want the pricing information included, backed by links or references.
+
+Wants to focus on creating an engineering specification for the E-DAF (Entangled DSRP Agentic Framework) architecture before implementation. The next layer of detail for the specification should include full agent pseudocode.
+
+Rawley is working with VS Code, a media player for tutorial videos, and a microphone linked to Gemini Live, all running simultaneously. They are experiencing performance issues with the multimedia player, which is playing very slowly and has no sound.
+
+Is exploring a computational simulation framework based on knot theory, topology, and braid theory to model and guide filament winding or weaving operations. This includes transformations from manufacturable shapes into final forms via mechanisms such as inversion of braid structures, sliding hopped rings, and controlled rotation within toroidal volumes to achieve desired interlacement.
+
+Is building a digital twin simulation project for topological fiber reinforcement, beginning with foundational research into mathematical curves, knot theory, and surface topology. They are collecting useful resources that explain the math and nomenclature around 3D curves and topological surfaces for reinforcement learning-based textile simulation.
+
+Is considering building a reinforcement learning environment to generate textile concepts for toroidal composite structures, grounded in the hypothetical capabilities of a future fiber-handling machine. This machine is not modeled in detail but is abstracted via generalized operations (e.g., shuttling a tow through a hopped ring, applying tension at discrete points, dynamically repositioning constraints). These abstracted operations are used to define spatial envelopes and constraints in the digital twin environment to inform textile feasibility and guide reinforcement learning within operationally realistic bounds.
+
+Is excited about using topologically toroidal geometries, with major and minor radius-linked fiber structures, to create preliminary forms that do not resemble the final toroidal shape but are rich in interlacement and linkage. These preliminary geometries may be transformed into the final structure via operations such as poloidal rolling (to align fiber placement at optimal tangent points) and dynamic scaling (e.g., coarse-scale interlacement in an expanded form followed by shrinking via idler-like mechanisms to condense and equalize two-turn fiber links). This approach offers novel manufacturing and design pathways by allowing easier access and coarse textile configuration that condenses into a structurally rich final form.
+
+Has grouped all past and future conversations related to Hopf vibration, toroidal braiding, and inflatable soft actuators—such as Python clamps utilizing braided sleeves—under a single unified project: Toroidal Braiding Project. This includes discussions on topological staging, poloidal rolling, reinforcement learning for textile path planning, and the use of digital twin simulations to model and optimize these systems.
+
+Is conceptualizing FlogBoard, a project with three modes of operation: Gameplay, Analytics, and Laboratory (Experiment) Mode. In Gameplay mode, users interact with sentiment analysis tools, influencing in-game elements based on their responses. Analytics mode allows users to explore polarized issues, analyzing triggering phrases and demographics without direct gameplay. Laboratory mode involves AI-simulated players, enabling users to modify game reward structures, test the impact of comedic elements, or create ally structures among AI agents to affect the game's overall dynamics. Revenue generation strategies include targeting free-to-play game enthusiasts and politically active social media users for sentiment collection, offering analytics tools and research to professionals and AI organizations, and providing think tanks and universities with experimental tools for research on reward structures.
+
+Is organizing their active projects into more succinct categories for easier reference.
+
+Projects can be categorized into two main areas: engineering and composites-related projects, and daily activities or personal projects.
+
+Projects can be broadly categorized into two main areas: projects related to their career with composites and engineering, and projects around their daily activities incorporating AI.
+
+Is working on a drink beverage formulator and an associated gearbox design as part of an entrepreneurial project. The device has sixteen liquid storage locations and combines liquids in predetermined amounts based on user input of previous formulations or desired tastes.
+
+Has an active project for using pneumatic artificial muscles in a torus configuration to create radial pressure in axis-symmetric composite draping applications, under the project category of Engineering and Composites.
+
+Is interested in developing a strategy for building a moat by integrating AI tools into customers' lives and becoming a trusted supplier of services and knowledge. This involves creating real-world examples of personal integration of AI tools and potentially partnering with providers of such tools. This is part of their Daily Activities with AI.
+
+Is working on a gearbox project involving an epicycle compound planetary gear, where a sun drives a planet carrier and a sun drives a planet. This setup allows for simultaneous movement of different planets fixed to one another in various combinations to change the output. The differential between driving two rings with different tooth patterns but the same tooth pattern on the planet set creates a large ratio change across a single transition of planet to ring. The double ring differential allows one ring to power a pump while the other can be used as a prescribed output that can either turn the driven pump ring into an output or bypass the pump and drive the channel individually. This project falls under Engineering and Composites.
+
+Ongoing projects include building an AI agent called the Assumption Challenger. This agent helps break down long-standing assumptions in building requirements and designs to identify opportunities for innovation. This is part of their Daily Activities with AI.
+
+Plans to incorporate a mechanism design in their automated beverage bartender cup, where little levers used for the drink serving process could be actuated to function as fingers for the video project. This falls under their Daily Activities with AI.
+
+Has an ongoing project involving the exploration of art made from braided sleeves and other composite materials, including carbon fiber reinforced polymers (CFRP). The first sculpture in this project features toroidal winding of a braided sleeve and tube inversion for direction change. The user is interested in exploring mathematical inspirations like the Hopf fibration as part of this project. The project will include challenges with bounties and ongoing inspiration gathering. This falls under Art and Creativity.
+
+Has a project in the Entrepreneurial Project category involving a drink beverage formulator and associated gearbox design.
+
+Is exploring science and mystery, particularly in the areas of spinners, cosmos, and Hopf fibration related to toroidal structures.
+
+Daily Activities with AI includes projects related to swarm robots for composite manufacturing.
+
+Has moved the automated beverage bartender cup from 'Daily Activities with AI' to 'Entrepreneurial Project.'
+
+Has added a subcategory 'Transforming Environments for Play' under 'Art and Creativity,' which includes projects like treehouses, zip lines, and snow sculptures.
+
+Daily activities with AI include automations for organization, automations for scheduling and executive functioning including planning gifts, an internal family systems approach for hyper-self-awareness, and long-term exploration of neural integration with technology via EEG sensors to enhance interactions with AI and intellectual capabilities.
+
+Create a 'Hot List' of priority activities for the user: AI and Activities of Daily Living: Setting up agentic frameworks. Pursuing tutorials purchased in December, particularly using the tool Aider.
+
+Organization: Organizing various engineering tools accumulated over the years for better accessibility and management.
+
+Is developing a microscopic time series dataset showing a clear resin film curing through a glass portal, from room temperature to gel temperature, incorporating data like rheology and flow via micro-particle placement.
+
+Is creating a simplified process for manufacturing toroidal McKibben soft actuators.
+
+Reaching out to the researcher who developed the chainmail monomer material for a possible technical collaboration.
+
+Create a 'Down the Road' list for composites, separate from the 'Hot List,' including:
+
+1. Developing an agentic framework for resin material formulation.
+2. Creating an agentic framework for RAG (Retrieval-Augmented Generation), deep research, and study around state-of-the-art composite techniques and materials from universities and industry.
+
+Is creating a 'Down the Road' list for composites, which includes an agentic framework for resin material formulation.
+
+Is creating a 'Down the Road' list for composites, which includes an agentic framework for R&D, deep research, and study around state-of-the-art composite techniques and materials from universities and industry.
+
+Is creating a 'Down the Road' list for composites, which includes investigating autoclave design for home use, specifically building a carbon fiber autoclave that fits within spatial constraints and runs on residential power.
+
+Is creating a separate project called "FlogBoard" focusing on political discourse and gamified experiments. The project includes creating an agentic workflow for app generation and building a free-to-play game to serve as a basis for experimenting with gamified political discourse.
+
+Long-term goals for the 'FlogBoard' project include: 1) Establishing a dedicated manager for the application to update topics and functionalities based on user feedback. 2) Creating a dedicated AI marketing representative to identify potential stakeholders and customers of the dataset and methodology behind FlogBoard. 3) Developing an agentic AI system to manage the financial aspects of the project, including capital inflows, expenditures, and app maintenance.
+
+Has initiated a project in collaboration with a friend to develop a process and product offering for creating adapters that unify power sources for cordless drills and tools across different brands. This aims to help customers avoid a complete pivot to a new product line due to battery incompatibility.
+
+Conducting deep research on various 3D scan tools for gathering the 3D CAD data required to engineer adapters that mate with different systems.
+
+Creating a technical overview and deep research summary about the risks and benefits associated with the integration of cordless drill adapters across different platforms.
+
+Is conducting deep research on various 3D scan tools for gathering the 3D CAD data required to engineer adapters that mate with different systems as part of the cordless drill adapter project.
+
+Is creating a technical overview and deep research summary about the risks and technical necessities for power supplies of cordless tools as part of the cordless drill adapter project.
+
+Is demonstrating an agentic workflow around building a CAD file and PCB for power adaption as part of the cordless drill adapter project.
+
+Is actively working on a story about cryogenic freezing, focusing on a family overcoming hardships and returning to different eras.
+
+Has a 'Hot List' for the cryogenic freezing story project, which includes: 1. Building out characters, 2. Researching how stories are constructed from the ground up, 3. Setting daily reminders to add scenes or narratives to the story that can be tied into the story arc.
+
+Is interested in playing a larger role in the budgeting and finance of their family, specifically related to cash inflows, and has added this to their 'Hot List' under AI and Activities of Daily Living.
+
+Is exploring an agentic framework for managing household cash inflows, leveraging various skills and technologies developed by the user to market and sell in alignment with their current lifestyle of raising children.
+
+Is researching techniques to teach kids how to work and learn with AI, both in school settings and at home on their devices.
+
+Is developing a family systems approach for emotionally healthy connectivity, focusing on their wife Sarah, daughter Cambryn, and son Creighton, with a task list for speaking each individual's love language and using AI to support these relationships.
+
+Is developing an email agentic framework for communicating with necessary institutions such as the IRS or unemployment office, including automating regular emails and conducting research on who to contact for pushing and lobbying on the user's family's behalf.
+
+Plans to add a 'Down the Road' item (name to be refined later) under AI and Activities of Daily Living.
+
+Has started a new active project: The Eternal Wake, a multi-book sci-fi saga about a family that uses synchronized cryo-suspension to maintain unity and adapt to shifting civilizations. Over time, their repeated awakenings shape the course of history, leading to unintended mythologization and eventual deification. The first book, The First Awakening, explores their rise to power and their ultimate decision to relinquish influence by vanishing into time once more. The series will explore themes of power, self-sacrifice, false idols, and the paradox of leadership. User will continue iterating on this project.
+
+Wants a to-do list divided into tasks done by AI (code) and tasks done by them to facilitate the right environments or downloads for Python libraries.
+
+Recently watched a lecture by Roger Penrose that referenced how Dirac's spinners describe mass as the interaction between two spinners of different spin or primes. This interaction between the two fields brings about mass to a massless particle. User is interested in elaborating on this concept and understanding how it relates to physics.
+
+Has a concept for the easy development of toroidal rings out of composite carbon fiber or braided sleeves. This process aims to create rings with specific major and minor toroidal diameters based on sleeve selection and initial wrapping angle. They are exploring how to integrate these pre-cured toroidal rings into larger axisymmetric structures, looking to nature for inspiration on how toroidal rings or hoop fibers are incorporated into larger systems.
+
+Is interested in an inductor design that involves both poloidal and toroidal winding, where each turn of the coil includes a central turn and an additional turn forming a coiled torus.
+
+Has an adept knowledge and implementation skill set of microcontrollers, including optical sensors, and the ability to collect nuanced data.
+
+Wants the assistant to respond with maximum possible technical detail with initial response unless "Journal mode" or "JM" is mentioned. In those cases, the assistant should only confirm receipt of the text.
+
+Is experiencing long 10-hour cycles in their work, which is likely related to their involvement with autoclave processes.
+
+Is interested in the relationship between light and electromagnetism, particularly regarding recent discoveries on how twisted light beams can manipulate magnetic pole orientation in certain crystal structures. They are reflecting on the potential implications of this phenomenon for human evolution into a more powerful, god-like existence, particularly in manipulating spacetime using light as an information carrier.
+
+Is reflecting on Stephen Wolfram's perspective on the second law of thermodynamics, particularly entropy, and how it might be viewed differently if humans evolve into beings capable of manipulating matter using light, specifically sunlight. They are considering the implications of this for humanity's future and its connection to spiritual and existential questions about the nature of God and our place in the universe.
+
+Is interested in the relationship between complex numbers, electron spin, and fundamental principles in computing and physics, including the Pauli Exclusion Principle.
+
+Is identifying a tree with leaves that look like mini Norway maple leaves but are red and about the size of two fingers.
+
+Is interested in the alignment of black holes within the universe and how it might relate to their metaphor of knowledge as aligned axes with tightly wound fiber bundles representing core knowledge.
+
+Finds the idea of knowledge bundles in the Hopf fibration metaphor having aligned axes appealing, as it suggests cross-pollination of knowledge. They also consider the possibility of these axes representing rotation matrices, pointing to a more complex spin or vector field with gradients, rather than perfect alignment.
+
+Wants to add a sub-project to their carbon fiber composite manufacturing process folder. This sub-project focuses on adjusting the timescale of development for the changing times of superintelligence. The aim is to rethink manufacturing processes to operate at a much slower rate but with ten times more adaptability. This setup should be able to produce a nearly infinite number of geometries and capabilities.
+
+Is discussing an idea for composite slow manufacturing involving a small robot that navigates the surface of a laminate preform. The robot snips tiny bundles from a unidirectional layer laid in one direction and stitches them through the preform in various patterns. This approach allows for local weaving or braiding, tailored to specific engineering loads.
+
+Is considering an approach where multiple small robots act in unison, almost like a swarm, to build out the composite structure on the shape tool. This method resembles constructing a custom suit of armor for the preform.
+
+Composite manufacturing process concept includes using a swarm of robots for material placement on or near the tool in a near-net pattern. These robots handle the general directional architectures, reinforcing and assisting with drape and layup, and debridging. Additionally, the user envisions a swarm of cure robots that selectively cure areas with very localized pressure and heat.
+
+First prototype for their composite manufacturing robots will use a material inspired by quilting or cross-stitching techniques. It consists of a wire-embedded textile strip with a fine array of slanted needle points. These needle points resist the pull of fibrous material against their angle, providing grip, but allow the material to slide in the direction of the grain. This material will help the robot grip the preform and secure itself while performing tasks like stitching, draping, or curing.
+
+Is considering incorporating a macro, non-swarm-based robot, the "Python Clamp," into their composite manufacturing process. This toroidal McKibben actuator, similar to a braided sleeve with an internal bladder, can be used for macro draping to place rough, near-net material onto the shape. The swarm of small robots will then perform detailed, fine work and curing.
+
+Has control over the temperature of the plate for their resin application and can use materials like Teflon to achieve a consistent, low surface energy. They also have control over the humidity in their work environment.
+
+Brain works best in the morning, and they are a morning person.
+
+Son's name is Creighton. Creighton is experiencing talking with ChatGPT in voice mode for the first time.
+
+Is developing an experiment involving software where multiple AIs with different political sentiments interact to simulate how conversation might go awry or proceed constructively with opposing political viewpoints.
+
+Is working on a carbon fiber manufacturing process utilizing resin film infusion in conjunction with a high-temp autoclave cure. The surface ply is a braided aliphatic epoxy resin on a class A aluminum mold surface with silicone release agent pre-applied to the tool. A cloudy white defect has been observed in areas where the surface ply shifts under consolidation. The user is considering the application of a clear powder coat, green cured to the tool, to mitigate the defect. They are comparing clear gloss powder coat materials between polyester and acrylic for potential cross-linking with the aliphatic epoxy.
+
+Bernedoodle is a full-bred 4-month-old puppy that is very picky about food and has difficulty eating large bites.
+
+Is thinking of some names for their black Bernedoodle.
+
+Wife enjoys cooking, fine dining, creative interior design, meaningful jewelry, reading in bed, planning trips, surprising romantic gestures, and deep tissue massages targeting the sciatic nerve.
+
+Is developing a project for a spray or substrate that will be applied intra-layup during a composite production process. This spray or substrate will allow layers to be cured with resin film infusion during the layup process, enabling the first layer to cure and harden, thus eliminating the need for tooling. Subsequent layers can then be pressed into the previously cured layers, which have undergone a cure cycle and become hard. This project will continue to be developed collaboratively.
+
+Is interested in adding a creative layer to their AI framework, where the AI automatically shifts to creativity mode after identifying the influence of a certain variable on a system. In this mode, the AI would explore ways to gain dynamic control over that variable, potentially leading to the proposal of new materials or engineered solutions for enhanced system control.
+
+Is working on building out an internal family systems equivalent of their engineering parts, starting with an 'Experience Creator' (aka the magician) and a 'Min Viable Product (MVP) engineer.'
+
+Has named the style 'Molded CFRP 3k with High Gloss.' They have requested more views of the same dragon in a style called 'Molded CFRP 12k with Ultra High Gloss.'
+
+Is brainstorming ideas for incorporating healthy habits through the strategic placement of objects, sounds, or images that serve as cues or reminders for adaptive behavior. They want to elevate ideas beyond typical examples like 'sticky notes.' They provided an example: placing an elevated planter box filled with growing fruit and veggie plants at the exit of the driveway or garage so that drivers and passengers can reach out the window and pick fresh produce.
+
+Is exploring the meaning of life tied to the hypothesis that it involves making purpose out of quantum fields or various wave fields, with encoding information as one way of achieving this. They are interested in how even a vacuum particle can come into existence as an example.
+
+Took a college course on knowledge and reality, and is particularly interested in David Hume's work on the nature of reality and the concept of the observer.
+
+Enjoys improvising on the piano and finds meaning in the randomness and evolution of melodies, likening it to the meaning of life and exploring new creative possibilities.
+
+Has a six-year-old niece visiting from the city on their rural property of Five Acres Marsh and wants to maximize her thrill during her visit by incorporating activities she enjoys, like gummy bears, into new experiences in the wilderness.
+
+Current projects include the development of a clear aliphatic epoxy formulation for a carbon fiber auto wheel. The formulation must produce a class A surface finish after a urethane clear coat is applied. The cured resin needs to be highly transparent with a glass transition temperature (Tg) above 170°C. The formulation will be processed into a 250gsm areal weight resin film that remains flexible at room temperature, has at least one day of out-time, and features a controlled tack level to facilitate backing removal and handling. This film is intended for the first two layers of the wheel, with a toughened aromatic epoxy co-cured behind it.
+
+Is planning to create a video piece celebrating AI-human relationships, featuring them playing a GarageBand-style keyboard on a mobile phone in a high-tech cup environment, with a distraction from the real world at the video's end. The main point of the video is the storyline of things coming to life around the user without them realizing it. This could be portrayed as a faked-out story of an event where people don't notice that their little AI gadgets are moving in the backdrop, learning from them, and even copying their behavior. The video will end with the scene going silent and focusing on a cup after they leave. The cup will then come to life, move to the phone still on the keyboard scene, and tap out the song with embellishments as if it had been watching and mimicking the user's behavior.
+
+Has an active project in the category of outdoor landscape and crazy engineering design. The goal of this project is to transform the exterior of a property to create a fun, exciting, and relaxing space for humans to hang out or party. One subcategory of this project is treehouses, and within that, cable or aircraft cable structures. This specific design involves systems that are not permanently attached but instead create a looped route for attaching harnesses. The interaction with the trees is temporary, with tree-hugging mechanisms that move out of the way as needed, allowing for a passing zipliner. This design includes multiple attachment points that disconnect individually to facilitate the zipliner's passage.
+
+Is developing a YouTube channel focused on the engineering of the future, featuring incredible technologies and inspiring new behaviors among engineers. Themes include empowering individual engineers, using AI for innovation, filing provisional patents, advocating for patent law reform, and expanding the use of single power sources through innovative gearbox technologies.
+
+Is interested in collaborating with an AI assistant to create engaging stories, with a focus on imaginative plot twists and dynamic character development.
+
+Is interested in exploring EEG machine-brain interfaces and biometric data integration for (1) hyper-self-awareness with a CBT overlay and (2) exploration, characterization, and enhancement of their own creative process.
+
+Is a mechanical engineer specializing in composite manufacturing and design for axisymmetric structures, specifically creating tubes of carbon fiber braid that are draped to various contoured profiles from an initial diameter, which can be larger or smaller than the final diameter. The user prefers the assistant to maintain a helpful AI assistant mode.

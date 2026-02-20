@@ -72,8 +72,8 @@ _STATE_KEY_CONSTANTS = {
     if isinstance(v, str) and not k.startswith("_") and not callable(v)
 }
 
-# State keys that use the app: or temp: prefix must match a known constant
-_PREFIXED_KEY_PREFIXES = ("app:", "temp:", "obs:", "cache:", "user:")
+# State keys that use a scoping prefix must match a known constant
+_PREFIXED_KEY_PREFIXES = ("app:", "obs:", "cache:", "user:")
 
 
 @pytest.mark.parametrize("replay_path", REPLAY_FILES, ids=lambda p: p.name)
@@ -122,7 +122,7 @@ class TestRepoAnalysisReplay:
         assert self.data["state"]["repo_url"].startswith("https://")
 
     def test_max_iterations_set(self):
-        assert self.data["state"][S.APP_MAX_ITERATIONS] == 20
+        assert self.data["state"][S.APP_MAX_ITERATIONS] == 10
 
     def test_max_depth_set(self):
         assert self.data["state"][S.APP_MAX_DEPTH] == 1

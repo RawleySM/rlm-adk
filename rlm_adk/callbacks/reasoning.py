@@ -1,15 +1,15 @@
 """Reasoning Agent callbacks.
 
-before_model_callback: Injects the current message_history from temp:message_history
+before_model_callback: Injects the current message_history from state
     into the LlmRequest contents.  Preserves ADK-set system_instruction (from
     static_instruction) and relocates the ADK-resolved dynamic instruction
     (from instruction= template) into system_instruction to maintain proper
     Gemini user/model role alternation in contents.
-    Sets temp:reasoning_call_start timestamp.
+    Sets reasoning_call_start timestamp.
     The agent's include_contents='none' means conversation is injected here.
 
 after_model_callback: Extracts the text response and writes it to
-    temp:last_reasoning_response in the state.
+    last_reasoning_response in the state.
 """
 
 import time
@@ -20,16 +20,16 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
 from rlm_adk.state import (
-    TEMP_CONTEXT_WINDOW_SNAPSHOT,
-    TEMP_LAST_REASONING_RESPONSE,
-    TEMP_MESSAGE_HISTORY,
-    TEMP_REASONING_CALL_START,
-    TEMP_REASONING_CONTENT_COUNT,
-    TEMP_REASONING_HISTORY_MSG_COUNT,
-    TEMP_REASONING_INPUT_TOKENS,
-    TEMP_REASONING_OUTPUT_TOKENS,
-    TEMP_REASONING_PROMPT_CHARS,
-    TEMP_REASONING_SYSTEM_CHARS,
+    CONTEXT_WINDOW_SNAPSHOT,
+    LAST_REASONING_RESPONSE,
+    MESSAGE_HISTORY,
+    REASONING_CALL_START,
+    REASONING_CONTENT_COUNT,
+    REASONING_HISTORY_MSG_COUNT,
+    REASONING_INPUT_TOKENS,
+    REASONING_OUTPUT_TOKENS,
+    REASONING_PROMPT_CHARS,
+    REASONING_SYSTEM_CHARS,
 )
 
 
@@ -81,7 +81,7 @@ def reasoning_before_model(
       3. Appends the dynamic metadata to system_instruction
       4. Injects conversation messages from message_history into contents
     """
-    callback_context.state[TEMP_REASONING_CALL_START] = time.perf_counter()
+    callback_context.state[REASONING_CALL_START] = time.perf_counter()
 
     # --- Extract what ADK set ---
     # static_instruction -> system_instruction (stable system prompt)
@@ -101,7 +101,7 @@ def reasoning_before_model(
     # message_history now contains only conversation messages (user prompts,
     # model responses, REPL output).  System prompt and metadata are handled
     # above via ADK's static_instruction and instruction parameters.
-    message_history = callback_context.state.get(TEMP_MESSAGE_HISTORY, [])
+    message_history = callback_context.state.get(MESSAGE_HISTORY, [])
     contents = []
     for msg in message_history:
         role = msg.get("role", "user")
@@ -139,11 +139,11 @@ def reasoning_before_model(
     content_count = len(contents)
     history_msg_count = sum(1 for msg in message_history if msg.get("role") != "system")
 
-    callback_context.state[TEMP_REASONING_PROMPT_CHARS] = total_prompt_chars
-    callback_context.state[TEMP_REASONING_SYSTEM_CHARS] = system_chars
-    callback_context.state[TEMP_REASONING_CONTENT_COUNT] = content_count
-    callback_context.state[TEMP_REASONING_HISTORY_MSG_COUNT] = history_msg_count
-    callback_context.state[TEMP_CONTEXT_WINDOW_SNAPSHOT] = {
+    callback_context.state[REASONING_PROMPT_CHARS] = total_prompt_chars
+    callback_context.state[REASONING_SYSTEM_CHARS] = system_chars
+    callback_context.state[REASONING_CONTENT_COUNT] = content_count
+    callback_context.state[REASONING_HISTORY_MSG_COUNT] = history_msg_count
+    callback_context.state[CONTEXT_WINDOW_SNAPSHOT] = {
         "agent_type": "reasoning",
         "content_count": content_count,
         "prompt_chars": total_prompt_chars,
@@ -165,15 +165,15 @@ def reasoning_after_model(
             part.text for part in llm_response.content.parts if part.text and not part.thought
         )
 
-    callback_context.state[TEMP_LAST_REASONING_RESPONSE] = response_text
+    callback_context.state[LAST_REASONING_RESPONSE] = response_text
 
     # --- Per-invocation token accounting from usage_metadata ---
     usage = llm_response.usage_metadata
     if usage:
-        callback_context.state[TEMP_REASONING_INPUT_TOKENS] = (
+        callback_context.state[REASONING_INPUT_TOKENS] = (
             getattr(usage, "prompt_token_count", 0) or 0
         )
-        callback_context.state[TEMP_REASONING_OUTPUT_TOKENS] = (
+        callback_context.state[REASONING_OUTPUT_TOKENS] = (
             getattr(usage, "candidates_token_count", 0) or 0
         )
 

@@ -19,6 +19,11 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
+    CONTEXT_WINDOW_SNAPSHOT,
+    INVOCATION_START_TIME,
+    ITERATION_COUNT,
+    OBS_ARTIFACT_BYTES_SAVED,
+    OBS_ARTIFACT_SAVES,
     OBS_ITERATION_TIMES,
     OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_TOOL_INVOCATION_SUMMARY,
@@ -26,18 +31,15 @@ from rlm_adk.state import (
     OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
-    TEMP_CONTEXT_WINDOW_SNAPSHOT,
-    TEMP_INVOCATION_START_TIME,
-    TEMP_ITERATION_COUNT,
-    TEMP_REASONING_INPUT_TOKENS,
-    TEMP_REASONING_OUTPUT_TOKENS,
-    TEMP_REASONING_PROMPT_CHARS,
-    TEMP_REASONING_SYSTEM_CHARS,
-    TEMP_REQUEST_ID,
-    TEMP_WORKER_INPUT_TOKENS,
-    TEMP_WORKER_OUTPUT_TOKENS,
-    TEMP_WORKER_PROMPT_CHARS,
+    REASONING_INPUT_TOKENS,
+    REASONING_OUTPUT_TOKENS,
+    REASONING_PROMPT_CHARS,
+    REASONING_SYSTEM_CHARS,
+    REQUEST_ID,
     USER_LAST_SUCCESSFUL_CALL_ID,
+    WORKER_INPUT_TOKENS,
+    WORKER_OUTPUT_TOKENS,
+    WORKER_PROMPT_CHARS,
     obs_model_usage_key,
 )
 
@@ -63,11 +65,11 @@ class ObservabilityPlugin(BasePlugin):
         """Record agent entry."""
         try:
             state = callback_context.state
-            if not state.get(TEMP_INVOCATION_START_TIME):
-                state[TEMP_INVOCATION_START_TIME] = time.time()
+            if not state.get(INVOCATION_START_TIME):
+                state[INVOCATION_START_TIME] = time.time()
 
             agent_name = getattr(agent, "name", "unknown")
-            request_id = state.get(TEMP_REQUEST_ID, "unknown")
+            request_id = state.get(REQUEST_ID, "unknown")
             logger.debug("[%s] Agent '%s' starting", request_id, agent_name)
         except Exception:
             pass
@@ -82,7 +84,7 @@ class ObservabilityPlugin(BasePlugin):
         """Record agent exit."""
         try:
             agent_name = getattr(agent, "name", "unknown")
-            request_id = callback_context.state.get(TEMP_REQUEST_ID, "unknown")
+            request_id = callback_context.state.get(REQUEST_ID, "unknown")
             logger.debug("[%s] Agent '%s' completed", request_id, agent_name)
         except Exception:
             pass
@@ -97,7 +99,7 @@ class ObservabilityPlugin(BasePlugin):
         """Record pre-model call metrics."""
         try:
             state = callback_context.state
-            request_id = state.get(TEMP_REQUEST_ID, "unknown")
+            request_id = state.get(REQUEST_ID, "unknown")
             model = llm_request.model or "unknown"
             logger.debug("[%s] Model call to '%s' starting", request_id, model)
         except Exception:
@@ -148,8 +150,8 @@ class ObservabilityPlugin(BasePlugin):
 
             # --- Per-iteration token breakdown ---
             # Read agent-specific token accounting written by before/after callbacks
-            iteration = state.get(TEMP_ITERATION_COUNT, 0)
-            context_snapshot = state.get(TEMP_CONTEXT_WINDOW_SNAPSHOT)
+            iteration = state.get(ITERATION_COUNT, 0)
+            context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
 
             breakdown_entry: dict[str, Any] = {
                 "iteration": iteration,
@@ -159,15 +161,15 @@ class ObservabilityPlugin(BasePlugin):
             }
 
             # Include agent-type-specific prompt characterization
-            reasoning_prompt_chars = state.get(TEMP_REASONING_PROMPT_CHARS)
+            reasoning_prompt_chars = state.get(REASONING_PROMPT_CHARS)
             if reasoning_prompt_chars is not None:
                 breakdown_entry["agent_type"] = "reasoning"
                 breakdown_entry["prompt_chars"] = reasoning_prompt_chars
                 breakdown_entry["system_chars"] = state.get(
-                    TEMP_REASONING_SYSTEM_CHARS, 0
+                    REASONING_SYSTEM_CHARS, 0
                 )
 
-            worker_prompt_chars = state.get(TEMP_WORKER_PROMPT_CHARS)
+            worker_prompt_chars = state.get(WORKER_PROMPT_CHARS)
             if worker_prompt_chars is not None:
                 breakdown_entry["agent_type"] = "worker"
                 breakdown_entry["prompt_chars"] = worker_prompt_chars
@@ -179,7 +181,7 @@ class ObservabilityPlugin(BasePlugin):
             breakdowns.append(breakdown_entry)
             state[OBS_PER_ITERATION_TOKEN_BREAKDOWN] = breakdowns
 
-            request_id = state.get(TEMP_REQUEST_ID, "unknown")
+            request_id = state.get(REQUEST_ID, "unknown")
             logger.debug("[%s] Model call completed", request_id)
 
         except Exception as e:
@@ -222,10 +224,10 @@ class ObservabilityPlugin(BasePlugin):
         invocation_context: InvocationContext,
         event: Event,
     ) -> Optional[Event]:
-        """Enrich events with request ID for correlation."""
+        """Enrich events with request ID for correlation and track artifact deltas."""
         try:
             state = invocation_context.session.state
-            request_id = state.get(TEMP_REQUEST_ID)
+            request_id = state.get(REQUEST_ID)
             if request_id and event.actions and event.actions.state_delta:
                 # Log event for audit trail
                 logger.debug(
@@ -233,6 +235,17 @@ class ObservabilityPlugin(BasePlugin):
                     request_id,
                     event.author,
                     len(event.actions.state_delta),
+                )
+
+            # Track artifact operations from event artifact_delta
+            if event.actions and event.actions.artifact_delta:
+                artifact_count = len(event.actions.artifact_delta)
+                state[OBS_ARTIFACT_SAVES] = state.get(OBS_ARTIFACT_SAVES, 0) + artifact_count
+                logger.debug(
+                    "[%s] Event from '%s': %d artifact saves",
+                    state.get(REQUEST_ID, "unknown"),
+                    event.author,
+                    artifact_count,
                 )
         except Exception:
             pass
@@ -246,12 +259,12 @@ class ObservabilityPlugin(BasePlugin):
         """Record final execution summary."""
         try:
             state = invocation_context.session.state
-            start_time = state.get(TEMP_INVOCATION_START_TIME, 0)
+            start_time = state.get(INVOCATION_START_TIME, 0)
             if start_time:
                 total_time = time.time() - start_time
                 state[OBS_TOTAL_EXECUTION_TIME] = total_time
 
-            request_id = state.get(TEMP_REQUEST_ID, "unknown")
+            request_id = state.get(REQUEST_ID, "unknown")
 
             # Store last successful call ID for cross-session reference
             if request_id != "unknown":
@@ -265,9 +278,14 @@ class ObservabilityPlugin(BasePlugin):
                 1 for b in breakdowns if b.get("agent_type") == "worker"
             )
 
-            logger.info(
+            artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+            artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+
+            log_msg = (
                 "[%s] Run completed: calls=%d (reasoning=%d, worker=%d), "
-                "input_tokens=%d, output_tokens=%d, time=%.2fs",
+                "input_tokens=%d, output_tokens=%d, time=%.2fs"
+            )
+            log_args = [
                 request_id,
                 state.get(OBS_TOTAL_CALLS, 0),
                 reasoning_calls,
@@ -275,6 +293,12 @@ class ObservabilityPlugin(BasePlugin):
                 state.get(OBS_TOTAL_INPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_EXECUTION_TIME, 0),
-            )
+            ]
+
+            if artifact_saves > 0:
+                log_msg += ", artifact_saves=%d, artifact_bytes=%d"
+                log_args.extend([artifact_saves, artifact_bytes])
+
+            logger.info(log_msg, *log_args)
         except Exception as e:
             logger.debug("Observability after_run error: %s", e)

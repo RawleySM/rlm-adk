@@ -13,7 +13,7 @@
       "respectGitIgnore": true
     },
     "includeDirectories": [
-      "/home/rawleysm/"
+      "/home/"
     ]
   },
   "security": {
@@ -34,7 +34,8 @@
   "general": {
     "vimMode": false,
     "previewFeatures": true,
-    "preferredEditor": "vscode"
+    "preferredEditor": "vscode",
+    "defaultApprovalMode": "auto_edit"
   },
   "tools": {
     "shell": {

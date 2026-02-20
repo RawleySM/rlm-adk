@@ -16,18 +16,24 @@ from rlm_adk.callbacks.reasoning import (
 )
 from rlm_adk.callbacks.worker import worker_after_model, worker_before_model
 from rlm_adk.state import (
-    TEMP_LAST_REASONING_RESPONSE,
-    TEMP_MESSAGE_HISTORY,
-    TEMP_REASONING_CALL_START,
+    LAST_REASONING_RESPONSE,
+    MESSAGE_HISTORY,
+    REASONING_CALL_START,
 )
 
 
 def _make_callback_context(state: dict | None = None, agent: MagicMock | None = None):
-    """Build a mock CallbackContext with .state dict and .agent."""
+    """Build a mock CallbackContext with .state dict and ._invocation_context.agent.
+
+    Mirrors the production CallbackContext hierarchy where agent is accessed
+    via callback_context._invocation_context.agent (see ReadonlyContext).
+    """
     ctx = MagicMock()
     ctx.state = state if state is not None else {}
     if agent is not None:
-        ctx.agent = agent
+        invocation_context = MagicMock()
+        invocation_context.agent = agent
+        ctx._invocation_context = invocation_context
     return ctx
 
 
@@ -48,7 +54,7 @@ class TestReasoningBeforeModel:
 
     def test_injects_user_messages(self):
         state = {
-            TEMP_MESSAGE_HISTORY: [
+            MESSAGE_HISTORY: [
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hi"},
             ],
@@ -64,16 +70,16 @@ class TestReasoningBeforeModel:
         assert request.contents[1].role == "model"  # assistant -> model
 
     def test_sets_reasoning_call_start(self):
-        state = {TEMP_MESSAGE_HISTORY: []}
+        state = {MESSAGE_HISTORY: []}
         ctx = _make_callback_context(state)
         request = LlmRequest(model="test", contents=[])
 
         reasoning_before_model(ctx, request)
 
-        assert TEMP_REASONING_CALL_START in ctx.state
+        assert REASONING_CALL_START in ctx.state
 
     def test_empty_history(self):
-        state = {TEMP_MESSAGE_HISTORY: []}
+        state = {MESSAGE_HISTORY: []}
         ctx = _make_callback_context(state)
         request = LlmRequest(model="test", contents=[])
 
@@ -93,7 +99,7 @@ class TestReasoningAfterModel:
         result = reasoning_after_model(ctx, response)
 
         assert result is None  # observe only
-        assert state[TEMP_LAST_REASONING_RESPONSE] == "The answer is 42."
+        assert state[LAST_REASONING_RESPONSE] == "The answer is 42."
 
     def test_empty_response(self):
         state = {}
@@ -101,7 +107,7 @@ class TestReasoningAfterModel:
         response = LlmResponse(content=None)
 
         reasoning_after_model(ctx, response)
-        assert state[TEMP_LAST_REASONING_RESPONSE] == ""
+        assert state[LAST_REASONING_RESPONSE] == ""
 
     def test_filters_thought_parts(self):
         """Non-thought parts only should be extracted."""
@@ -118,7 +124,7 @@ class TestReasoningAfterModel:
         )
 
         reasoning_after_model(ctx, response)
-        assert state[TEMP_LAST_REASONING_RESPONSE] == "visible"
+        assert state[LAST_REASONING_RESPONSE] == "visible"
 
 
 # ── Worker Callbacks ─────────────────────────────────────────────────────

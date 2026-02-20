@@ -87,7 +87,7 @@ class TestCacheMiss:
 
         await plugin.before_model_callback(callback_context=ctx, llm_request=request)
 
-        assert "temp:cache_pending_fingerprint" in state
+        assert "cache_pending_fingerprint" in state
 
 
 class TestCacheStore:

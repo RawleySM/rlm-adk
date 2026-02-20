@@ -12,10 +12,10 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
 from rlm_adk.state import (
-    TEMP_WORKER_CONTENT_COUNT,
-    TEMP_WORKER_INPUT_TOKENS,
-    TEMP_WORKER_OUTPUT_TOKENS,
-    TEMP_WORKER_PROMPT_CHARS,
+    WORKER_CONTENT_COUNT,
+    WORKER_INPUT_TOKENS,
+    WORKER_OUTPUT_TOKENS,
+    WORKER_PROMPT_CHARS,
 )
 
 
@@ -27,7 +27,7 @@ def worker_before_model(
     The dispatch closure sets worker._pending_prompt before running the agent.
     This callback reads it and sets it as the LlmRequest contents.
     """
-    agent = callback_context.agent
+    agent = callback_context._invocation_context.agent
     pending_prompt = getattr(agent, "_pending_prompt", None)
 
     if pending_prompt:
@@ -52,7 +52,7 @@ def worker_before_model(
                 )
             llm_request.contents = contents
 
-    # --- Per-invocation token accounting ---
+    # --- Per-invocation token accounting (append to lists for parallel safety) ---
     total_prompt_chars = sum(
         len(part.text or "")
         for content in llm_request.contents
@@ -61,8 +61,17 @@ def worker_before_model(
     )
     content_count = len(llm_request.contents)
 
-    callback_context.state[TEMP_WORKER_PROMPT_CHARS] = total_prompt_chars
-    callback_context.state[TEMP_WORKER_CONTENT_COUNT] = content_count
+    prompt_chars_list = callback_context.state.get(WORKER_PROMPT_CHARS, [])
+    if not isinstance(prompt_chars_list, list):
+        prompt_chars_list = [prompt_chars_list]
+    prompt_chars_list.append(total_prompt_chars)
+    callback_context.state[WORKER_PROMPT_CHARS] = prompt_chars_list
+
+    content_count_list = callback_context.state.get(WORKER_CONTENT_COUNT, [])
+    if not isinstance(content_count_list, list):
+        content_count_list = [content_count_list]
+    content_count_list.append(content_count)
+    callback_context.state[WORKER_CONTENT_COUNT] = content_count_list
 
     return None  # Proceed with model call
 
@@ -78,19 +87,27 @@ def worker_after_model(
         )
 
     # Write to the worker's output_key in state
-    agent = callback_context.agent
+    agent = callback_context._invocation_context.agent
     output_key = getattr(agent, "output_key", None)
     if output_key:
         callback_context.state[output_key] = response_text
 
-    # --- Per-invocation token accounting from usage_metadata ---
+    # --- Per-invocation token accounting from usage_metadata (append to lists) ---
     usage = llm_response.usage_metadata
     if usage:
-        callback_context.state[TEMP_WORKER_INPUT_TOKENS] = (
-            getattr(usage, "prompt_token_count", 0) or 0
-        )
-        callback_context.state[TEMP_WORKER_OUTPUT_TOKENS] = (
-            getattr(usage, "candidates_token_count", 0) or 0
-        )
+        input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+
+        input_list = callback_context.state.get(WORKER_INPUT_TOKENS, [])
+        if not isinstance(input_list, list):
+            input_list = [input_list]
+        input_list.append(input_tokens)
+        callback_context.state[WORKER_INPUT_TOKENS] = input_list
+
+        output_list = callback_context.state.get(WORKER_OUTPUT_TOKENS, [])
+        if not isinstance(output_list, list):
+            output_list = [output_list]
+        output_list.append(output_tokens)
+        callback_context.state[WORKER_OUTPUT_TOKENS] = output_list
 
     return None

@@ -20,9 +20,9 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
-    TEMP_IDEMPOTENCY_KEY,
-    TEMP_POLICY_VIOLATION,
-    TEMP_REQUEST_ID,
+    IDEMPOTENCY_KEY,
+    POLICY_VIOLATION,
+    REQUEST_ID,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ class PolicyPlugin(BasePlugin):
 
         # Generate unique request ID
         request_id = f"req-{uuid.uuid4().hex[:12]}"
-        state[TEMP_REQUEST_ID] = request_id
+        state[REQUEST_ID] = request_id
 
         # Generate idempotency key from message content
         message_text = ""
@@ -68,7 +68,7 @@ class PolicyPlugin(BasePlugin):
         user_id = invocation_context.session.user_id or ""
         session_id = invocation_context.session.id or ""
         idem_source = f"{user_id}:{session_id}:{message_text}"
-        state[TEMP_IDEMPOTENCY_KEY] = (
+        state[IDEMPOTENCY_KEY] = (
             f"idem-{hashlib.sha256(idem_source.encode()).hexdigest()[:16]}"
         )
 
@@ -97,9 +97,9 @@ class PolicyPlugin(BasePlugin):
         for pattern in self._blocked_patterns:
             match = pattern.search(prompt_text)
             if match:
-                request_id = callback_context.state.get(TEMP_REQUEST_ID, "unknown")
+                request_id = callback_context.state.get(REQUEST_ID, "unknown")
                 violation = f"blocked: pattern '{pattern.pattern}' matched"
-                callback_context.state[TEMP_POLICY_VIOLATION] = violation
+                callback_context.state[POLICY_VIOLATION] = violation
 
                 logger.warning(
                     "[%s] Policy violation: %s", request_id, violation
@@ -140,13 +140,13 @@ class PolicyPlugin(BasePlugin):
         required_rank = level_order.get(required_level, 0)
 
         if user_rank < required_rank:
-            request_id = state.get(TEMP_REQUEST_ID, "unknown")
+            request_id = state.get(REQUEST_ID, "unknown")
             tool_name = getattr(tool, "name", str(tool))
             violation = (
                 f"Unauthorized: tool '{tool_name}' requires '{required_level}', "
                 f"user has '{user_auth_level}'"
             )
-            state[TEMP_POLICY_VIOLATION] = violation
+            state[POLICY_VIOLATION] = violation
 
             logger.warning("[%s] Policy violation: %s", request_id, violation)
 

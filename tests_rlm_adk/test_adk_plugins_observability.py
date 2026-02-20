@@ -14,12 +14,12 @@ from google.genai import types
 
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.state import (
+    INVOCATION_START_TIME,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
-    TEMP_INVOCATION_START_TIME,
     obs_model_usage_key,
 )
 
@@ -171,7 +171,7 @@ class TestObservabilityTiming:
     @pytest.mark.asyncio
     async def test_records_execution_time(self):
         plugin = ObservabilityPlugin()
-        state = {TEMP_INVOCATION_START_TIME: time.time() - 1.0}
+        state = {INVOCATION_START_TIME: time.time() - 1.0}
         inv_ctx = _make_invocation_context(state)
 
         await plugin.after_run_callback(invocation_context=inv_ctx)
@@ -188,7 +188,7 @@ class TestObservabilityTiming:
 
         await plugin.before_agent_callback(agent=agent, callback_context=ctx)
 
-        assert TEMP_INVOCATION_START_TIME in state
+        assert INVOCATION_START_TIME in state
 
 
 class TestObservabilityNonBlocking:

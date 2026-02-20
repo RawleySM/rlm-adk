@@ -21,29 +21,29 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
+    CONTEXT_WINDOW_SNAPSHOT,
+    FINAL_ANSWER,
+    ITERATION_COUNT,
+    OBS_ARTIFACT_BYTES_SAVED,
+    OBS_ARTIFACT_SAVES,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
     OBS_WORKER_DISPATCH_LATENCY_MS,
     OBS_WORKER_TOTAL_DISPATCHES,
-    TEMP_CONTEXT_WINDOW_SNAPSHOT,
-    TEMP_FINAL_ANSWER,
-    TEMP_ITERATION_COUNT,
-    TEMP_REASONING_CONTENT_COUNT,
-    TEMP_REASONING_HISTORY_MSG_COUNT,
-    TEMP_REASONING_INPUT_TOKENS,
-    TEMP_REASONING_OUTPUT_TOKENS,
-    TEMP_REASONING_PROMPT_CHARS,
-    TEMP_REASONING_SYSTEM_CHARS,
-    TEMP_REQUEST_ID,
-    TEMP_WORKER_CONTENT_COUNT,
-    TEMP_WORKER_DISPATCH_COUNT,
-    TEMP_WORKER_EVENTS_DRAINED,
-    TEMP_WORKER_INPUT_TOKENS,
-    TEMP_WORKER_OUTPUT_TOKENS,
-    TEMP_WORKER_PROMPT_CHARS,
-    TEMP_WORKER_RESULTS_COMMITTED,
+    REASONING_CONTENT_COUNT,
+    REASONING_HISTORY_MSG_COUNT,
+    REASONING_INPUT_TOKENS,
+    REASONING_PROMPT_CHARS,
+    REASONING_SYSTEM_CHARS,
+    REQUEST_ID,
+    WORKER_CONTENT_COUNT,
+    WORKER_DISPATCH_COUNT,
+    WORKER_EVENTS_DRAINED,
+    WORKER_INPUT_TOKENS,
+    WORKER_PROMPT_CHARS,
+    WORKER_RESULTS_COMMITTED,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ class DebugLoggingPlugin(BasePlugin):
         try:
             state = callback_context.state
             agent_name = getattr(agent, "name", "unknown")
-            iteration = state.get(TEMP_ITERATION_COUNT, 0)
+            iteration = state.get(ITERATION_COUNT, 0)
             print(
                 f"[RLM] agent={agent_name} iter={iteration} event=before_agent",
                 flush=True,
@@ -90,7 +90,7 @@ class DebugLoggingPlugin(BasePlugin):
                 "event": "before_agent",
                 "timestamp": time.time(),
                 "agent_name": agent_name,
-                "request_id": state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": state.get(REQUEST_ID, "unknown"),
             }
             if self._include_session_state:
                 entry["state_snapshot"] = _safe_state_snapshot(state)
@@ -109,7 +109,7 @@ class DebugLoggingPlugin(BasePlugin):
         """Record agent exit."""
         try:
             agent_name = getattr(agent, "name", "unknown")
-            iteration = callback_context.state.get(TEMP_ITERATION_COUNT, 0)
+            iteration = callback_context.state.get(ITERATION_COUNT, 0)
             print(
                 f"[RLM] agent={agent_name} iter={iteration} event=after_agent",
                 flush=True,
@@ -118,7 +118,7 @@ class DebugLoggingPlugin(BasePlugin):
                 "event": "after_agent",
                 "timestamp": time.time(),
                 "agent_name": agent_name,
-                "request_id": callback_context.state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": callback_context.state.get(REQUEST_ID, "unknown"),
             })
         except Exception as e:
             print(f"[RLM_ERR] after_agent: {e}", file=sys.stdout, flush=True)
@@ -135,17 +135,17 @@ class DebugLoggingPlugin(BasePlugin):
         try:
             state = callback_context.state
             model = llm_request.model or "unknown"
-            iteration = state.get(TEMP_ITERATION_COUNT, 0)
+            iteration = state.get(ITERATION_COUNT, 0)
             num_contents = len(llm_request.contents)
 
             # Build focused one-line stdout summary with token accounting
             # Detect agent type from state keys set by before_model callbacks
-            reasoning_chars = state.get(TEMP_REASONING_PROMPT_CHARS)
-            worker_chars = state.get(TEMP_WORKER_PROMPT_CHARS)
+            reasoning_chars = state.get(REASONING_PROMPT_CHARS)
+            worker_chars = state.get(WORKER_PROMPT_CHARS)
 
             if reasoning_chars is not None:
-                history_msgs = state.get(TEMP_REASONING_HISTORY_MSG_COUNT, 0)
-                sys_chars = state.get(TEMP_REASONING_SYSTEM_CHARS, 0)
+                history_msgs = state.get(REASONING_HISTORY_MSG_COUNT, 0)
+                sys_chars = state.get(REASONING_SYSTEM_CHARS, 0)
                 print(
                     f"[RLM] iter={iteration} model={model} "
                     f"prompt_chars={reasoning_chars} system_chars={sys_chars} "
@@ -153,7 +153,7 @@ class DebugLoggingPlugin(BasePlugin):
                     flush=True,
                 )
             elif worker_chars is not None:
-                worker_contents = state.get(TEMP_WORKER_CONTENT_COUNT, 0)
+                worker_contents = state.get(WORKER_CONTENT_COUNT, 0)
                 print(
                     f"[RLM] iter={iteration} model={model} "
                     f"worker_prompt_chars={worker_chars} "
@@ -171,7 +171,7 @@ class DebugLoggingPlugin(BasePlugin):
                 "event": "before_model",
                 "timestamp": time.time(),
                 "model": model,
-                "request_id": state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": state.get(REQUEST_ID, "unknown"),
                 "num_contents": num_contents,
             }
             # Record prompt text
@@ -189,18 +189,18 @@ class DebugLoggingPlugin(BasePlugin):
                     entry["system_instruction_preview"] = str(si)[:500]
 
             # Capture per-invocation token accounting from state
-            context_snapshot = state.get(TEMP_CONTEXT_WINDOW_SNAPSHOT)
+            context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
             if context_snapshot:
                 entry["context_window_snapshot"] = context_snapshot
 
             token_accounting = {}
             for key, label in [
-                (TEMP_REASONING_PROMPT_CHARS, "reasoning_prompt_chars"),
-                (TEMP_REASONING_SYSTEM_CHARS, "reasoning_system_chars"),
-                (TEMP_REASONING_CONTENT_COUNT, "reasoning_content_count"),
-                (TEMP_REASONING_HISTORY_MSG_COUNT, "reasoning_history_msg_count"),
-                (TEMP_WORKER_PROMPT_CHARS, "worker_prompt_chars"),
-                (TEMP_WORKER_CONTENT_COUNT, "worker_content_count"),
+                (REASONING_PROMPT_CHARS, "reasoning_prompt_chars"),
+                (REASONING_SYSTEM_CHARS, "reasoning_system_chars"),
+                (REASONING_CONTENT_COUNT, "reasoning_content_count"),
+                (REASONING_HISTORY_MSG_COUNT, "reasoning_history_msg_count"),
+                (WORKER_PROMPT_CHARS, "worker_prompt_chars"),
+                (WORKER_CONTENT_COUNT, "worker_content_count"),
             ]:
                 val = state.get(key)
                 if val is not None:
@@ -223,7 +223,7 @@ class DebugLoggingPlugin(BasePlugin):
         """Record model response details."""
         try:
             state = callback_context.state
-            iteration = state.get(TEMP_ITERATION_COUNT, 0)
+            iteration = state.get(ITERATION_COUNT, 0)
 
             # Extract token usage from response metadata
             tokens_in = 0
@@ -237,8 +237,8 @@ class DebugLoggingPlugin(BasePlugin):
                 ) or 0
 
             # Determine agent type from state keys
-            reasoning_in = state.get(TEMP_REASONING_INPUT_TOKENS)
-            worker_in = state.get(TEMP_WORKER_INPUT_TOKENS)
+            reasoning_in = state.get(REASONING_INPUT_TOKENS)
+            worker_in = state.get(WORKER_INPUT_TOKENS)
 
             if reasoning_in is not None:
                 agent_label = "reasoning"
@@ -248,8 +248,8 @@ class DebugLoggingPlugin(BasePlugin):
                 agent_label = "unknown"
 
             # Worker dispatch info
-            dispatch_count = state.get(TEMP_WORKER_DISPATCH_COUNT, 0)
-            results_committed = state.get(TEMP_WORKER_RESULTS_COMMITTED, False)
+            dispatch_count = state.get(WORKER_DISPATCH_COUNT, 0)
+            results_committed = state.get(WORKER_RESULTS_COMMITTED, False)
 
             parts = [
                 f"[RLM] iter={iteration} response",
@@ -274,7 +274,7 @@ class DebugLoggingPlugin(BasePlugin):
             entry: dict[str, Any] = {
                 "event": "after_model",
                 "timestamp": time.time(),
-                "request_id": state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": state.get(REQUEST_ID, "unknown"),
             }
             # Record response text
             if llm_response.content and llm_response.content.parts:
@@ -295,19 +295,19 @@ class DebugLoggingPlugin(BasePlugin):
                 entry["error_code"] = llm_response.error_code
                 entry["error_message"] = llm_response.error_message
 
-            # Capture per-agent-type response token breakdowns from state
-            response_tokens = {}
-            for key, label in [
-                (TEMP_REASONING_INPUT_TOKENS, "reasoning_input_tokens"),
-                (TEMP_REASONING_OUTPUT_TOKENS, "reasoning_output_tokens"),
-                (TEMP_WORKER_INPUT_TOKENS, "worker_input_tokens"),
-                (TEMP_WORKER_OUTPUT_TOKENS, "worker_output_tokens"),
-            ]:
-                val = state.get(key)
-                if val is not None:
-                    response_tokens[label] = val
-            if response_tokens:
-                entry["per_agent_tokens"] = response_tokens
+            # Capture per-agent-type response token breakdowns from
+            # llm_response.usage_metadata directly (not from state, which
+            # lags by one iteration -- see bug-005).
+            if llm_response.usage_metadata:
+                response_tokens = {}
+                if reasoning_in is not None:
+                    response_tokens["reasoning_input_tokens"] = tokens_in
+                    response_tokens["reasoning_output_tokens"] = tokens_out
+                elif worker_in is not None:
+                    response_tokens["worker_input_tokens"] = tokens_in
+                    response_tokens["worker_output_tokens"] = tokens_out
+                if response_tokens:
+                    entry["per_agent_tokens"] = response_tokens
 
             self._traces.append(entry)
         except Exception as e:
@@ -325,7 +325,7 @@ class DebugLoggingPlugin(BasePlugin):
         """Record model error details."""
         try:
             model = llm_request.model or "unknown"
-            iteration = callback_context.state.get(TEMP_ITERATION_COUNT, 0)
+            iteration = callback_context.state.get(ITERATION_COUNT, 0)
             print(
                 f"[RLM_ERR] iter={iteration} model={model} "
                 f"{type(error).__name__}: {error}",
@@ -335,7 +335,7 @@ class DebugLoggingPlugin(BasePlugin):
                 "event": "model_error",
                 "timestamp": time.time(),
                 "model": model,
-                "request_id": callback_context.state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": callback_context.state.get(REQUEST_ID, "unknown"),
                 "error_type": type(error).__name__,
                 "error_message": str(error),
             })
@@ -358,7 +358,7 @@ class DebugLoggingPlugin(BasePlugin):
                 "timestamp": time.time(),
                 "tool_name": getattr(tool, "name", str(tool)),
                 "args": {k: str(v)[:200] for k, v in tool_args.items()},
-                "request_id": tool_context.state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": tool_context.state.get(REQUEST_ID, "unknown"),
             })
         except Exception as e:
             logger.debug("DebugLogging before_tool error: %s", e)
@@ -379,7 +379,7 @@ class DebugLoggingPlugin(BasePlugin):
                 "timestamp": time.time(),
                 "tool_name": getattr(tool, "name", str(tool)),
                 "result_preview": str(result)[:500],
-                "request_id": tool_context.state.get(TEMP_REQUEST_ID, "unknown"),
+                "request_id": tool_context.state.get(REQUEST_ID, "unknown"),
             })
         except Exception as e:
             logger.debug("DebugLogging after_tool error: %s", e)
@@ -391,7 +391,7 @@ class DebugLoggingPlugin(BasePlugin):
         invocation_context: InvocationContext,
         event: Event,
     ) -> Optional[Event]:
-        """Record events."""
+        """Record events including artifact deltas."""
         try:
             entry: dict[str, Any] = {
                 "event": "on_event",
@@ -410,6 +410,17 @@ class DebugLoggingPlugin(BasePlugin):
                         f"state_delta=[{', '.join(short_keys)}]",
                         flush=True,
                     )
+
+            # Track artifact deltas
+            if event.actions and event.actions.artifact_delta:
+                artifact_delta = event.actions.artifact_delta
+                entry["artifact_delta"] = dict(artifact_delta)
+                for filename, version in artifact_delta.items():
+                    print(
+                        f"[RLM] artifact saved: {filename} v{version}",
+                        flush=True,
+                    )
+
             self._traces.append(entry)
         except Exception as e:
             print(f"[RLM_ERR] on_event: {e}", file=sys.stdout, flush=True)
@@ -425,12 +436,12 @@ class DebugLoggingPlugin(BasePlugin):
             state = invocation_context.session.state
 
             # --- Print run summary to stdout ---
-            total_iters = state.get(TEMP_ITERATION_COUNT, 0)
+            total_iters = state.get(ITERATION_COUNT, 0)
             total_in = state.get(OBS_TOTAL_INPUT_TOKENS, 0)
             total_out = state.get(OBS_TOTAL_OUTPUT_TOKENS, 0)
             total_calls = state.get(OBS_TOTAL_CALLS, 0)
             total_time = state.get(OBS_TOTAL_EXECUTION_TIME, 0)
-            final_answer = state.get(TEMP_FINAL_ANSWER, "")
+            final_answer = state.get(FINAL_ANSWER, "")
             answer_len = len(final_answer) if final_answer else 0
 
             summary_parts = [
@@ -445,7 +456,7 @@ class DebugLoggingPlugin(BasePlugin):
             total_dispatches = state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
             if total_dispatches > 0:
                 latencies = state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
-                events_drained = state.get(TEMP_WORKER_EVENTS_DRAINED, 0)
+                events_drained = state.get(WORKER_EVENTS_DRAINED, 0)
                 avg_latency = (
                     sum(latencies) / len(latencies) if latencies else 0
                 )
@@ -453,6 +464,15 @@ class DebugLoggingPlugin(BasePlugin):
                     f"worker_dispatches={total_dispatches} "
                     f"events_drained={events_drained} "
                     f"avg_latency_ms={avg_latency:.1f}"
+                )
+
+            # Artifact stats
+            artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+            if artifact_saves > 0:
+                artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+                summary_parts.append(
+                    f"artifact_saves={artifact_saves} "
+                    f"artifact_bytes={artifact_bytes}"
                 )
 
             print(" ".join(summary_parts), flush=True)

@@ -12,6 +12,7 @@ Architecture:
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any
 
@@ -26,8 +27,8 @@ from rlm_adk.state import (
     OBS_WORKER_DISPATCH_LATENCY_MS,
     OBS_WORKER_TOTAL_BATCH_DISPATCHES,
     OBS_WORKER_TOTAL_DISPATCHES,
-    TEMP_WORKER_DIRTY_READ_COUNT,
-    TEMP_WORKER_DISPATCH_COUNT,
+    WORKER_DIRTY_READ_COUNT,
+    WORKER_DISPATCH_COUNT,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,8 @@ class WorkerPool:
             pool_size: Override pool size for this model. Defaults to self.pool_size.
         """
         size = pool_size or self.pool_size
-        queue: asyncio.Queue[LlmAgent] = asyncio.Queue(maxsize=size)
+        # Unbounded queue so that dynamically-created workers can be returned
+        queue: asyncio.Queue[LlmAgent] = asyncio.Queue()
 
         for _ in range(size):
             worker = self._create_worker(model_name)
@@ -112,6 +114,9 @@ class WorkerPool:
     async def acquire(self, model: str | None = None) -> LlmAgent:
         """Acquire a worker from the appropriate pool.
 
+        If the pool is empty, creates a new worker on demand to prevent
+        deadlocks when batch size exceeds pool capacity.
+
         Args:
             model: Model name. None uses the depth=1 default (other_model).
 
@@ -124,10 +129,21 @@ class WorkerPool:
             # Auto-register on first use for dynamically-specified models
             self.register_model(target_model)
 
-        return await self._pools[target_model].get()
+        try:
+            return self._pools[target_model].get_nowait()
+        except asyncio.QueueEmpty:
+            # Pool exhausted — create a worker on demand to avoid deadlock
+            logger.info(
+                "Pool '%s' exhausted, creating worker on demand", target_model
+            )
+            return self._create_worker(target_model)
 
     async def release(self, worker: LlmAgent, model: str | None = None):
         """Return a worker to its pool after dispatch completes.
+
+        Only returns the worker if the pool has not yet reached its
+        configured pool_size. On-demand workers created during pool
+        exhaustion are discarded to prevent unbounded pool growth.
 
         Args:
             worker: The LlmAgent to return.
@@ -135,7 +151,13 @@ class WorkerPool:
         """
         target_model = model or self.other_model
         if target_model in self._pools:
-            await self._pools[target_model].put(worker)
+            if self._pools[target_model].qsize() < self.pool_size:
+                await self._pools[target_model].put(worker)
+            else:
+                logger.debug(
+                    "Pool '%s' at capacity (%d), discarding on-demand worker %s",
+                    target_model, self.pool_size, worker.name,
+                )
 
     def ensure_initialized(self):
         """Ensure default and other model pools are created.
@@ -192,12 +214,10 @@ def create_dispatch_closures(
     async def llm_query_batched_async(
         prompts: list[str], model: str | None = None
     ) -> list[str]:
-        """Dispatch K sub-LM queries via ParallelAgent.
+        """Dispatch K sub-LM queries via ParallelAgent, chunked by max_concurrent.
 
-        Acquires K workers from the pool, injects prompts via
-        _pending_prompt, dispatches via ParallelAgent (or directly
-        for K=1), collects results from output_key state, and
-        returns workers to the pool.
+        When K > max_concurrent, prompts are split into sequential batches
+        of at most max_concurrent, each batch dispatched in parallel.
 
         Args:
             prompts: List of text prompts to send concurrently.
@@ -209,13 +229,13 @@ def create_dispatch_closures(
         if not prompts:
             return []
 
-        workers: list[LlmAgent] = []
+        max_concurrent = int(os.getenv("RLM_MAX_CONCURRENT_WORKERS", "4"))
         k = len(prompts)
         dispatch_start = time.perf_counter()
 
-        # Track dispatch count (invocation-scoped)
-        prev_dispatch_count = ctx.session.state.get(TEMP_WORKER_DISPATCH_COUNT, 0)
-        ctx.session.state[TEMP_WORKER_DISPATCH_COUNT] = prev_dispatch_count + k
+        # Track dispatch count
+        prev_dispatch_count = ctx.session.state.get(WORKER_DISPATCH_COUNT, 0)
+        ctx.session.state[WORKER_DISPATCH_COUNT] = prev_dispatch_count + k
 
         # Track batch vs single dispatches (session-scoped)
         if k > 1:
@@ -224,73 +244,82 @@ def create_dispatch_closures(
         prev_total = ctx.session.state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
         ctx.session.state[OBS_WORKER_TOTAL_DISPATCHES] = prev_total + k
 
-        try:
-            # Acquire K workers and inject prompts
-            for prompt in prompts:
-                worker = await worker_pool.acquire(model)
-                worker._pending_prompt = prompt  # type: ignore[attr-defined]
-                workers.append(worker)
+        all_results: list[str] = []
 
-            if len(workers) == 1:
-                # Single worker - dispatch directly (no ParallelAgent overhead)
-                async for event in workers[0].run_async(ctx):
-                    event_queue.put_nowait(event)
-            else:
-                # Multiple workers - dispatch concurrently via ParallelAgent
-                parallel = ParallelAgent(
-                    name=f"batch_{len(workers)}",
-                    sub_agents=workers,
+        # Split prompts into chunks of max_concurrent
+        for batch_idx in range(0, k, max_concurrent):
+            batch_prompts = prompts[batch_idx : batch_idx + max_concurrent]
+            batch_num = batch_idx // max_concurrent + 1
+            total_batches = (k + max_concurrent - 1) // max_concurrent
+
+            if total_batches > 1:
+                print(
+                    f"[RLM] worker batch {batch_num}/{total_batches} "
+                    f"({len(batch_prompts)} prompts)",
+                    flush=True,
                 )
-                async for event in parallel.run_async(ctx):
-                    event_queue.put_nowait(event)
 
-            # Record dispatch latency (session-scoped, append to list)
-            dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
-            latencies = ctx.session.state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
-            latencies.append(round(dispatch_elapsed_ms, 2))
-            ctx.session.state[OBS_WORKER_DISPATCH_LATENCY_MS] = latencies
+            workers: list[LlmAgent] = []
+            try:
+                # Acquire workers and inject prompts for this batch
+                for prompt in batch_prompts:
+                    worker = await worker_pool.acquire(model)
+                    worker._pending_prompt = prompt  # type: ignore[attr-defined]
+                    workers.append(worker)
 
-            # --- State timing guard: dirty read of worker results ---
-            # Worker after_model callbacks write to output_key in local state.
-            # These writes are NOT committed by the Runner yet (events are in
-            # event_queue, not yielded). We perform a dirty read here, which
-            # is valid within the same invocation but must be tracked.
-            results = []
-            dirty_read_count = ctx.session.state.get(TEMP_WORKER_DIRTY_READ_COUNT, 0)
-            mismatches = ctx.session.state.get(OBS_WORKER_DIRTY_READ_MISMATCHES, 0)
-
-            for worker in workers:
-                output_key = worker.output_key
-                result = ctx.session.state.get(output_key, "")
-                dirty_read_count += 1
-
-                if not result:
-                    # Guard: output_key missing after dispatch -- state write
-                    # from worker_after_model may not have propagated locally.
-                    # This indicates a potential timing issue.
-                    logger.warning(
-                        "State timing guard: worker %s output_key '%s' "
-                        "returned empty after dispatch (dirty read). "
-                        "Events pending in queue: %d",
-                        worker.name, output_key, event_queue.qsize(),
+                if len(workers) == 1:
+                    async for event in workers[0].run_async(ctx):
+                        event_queue.put_nowait(event)
+                else:
+                    parallel = ParallelAgent(
+                        name=f"batch_{batch_num}_{len(workers)}",
+                        sub_agents=workers,
                     )
-                    mismatches += 1
+                    async for event in parallel.run_async(ctx):
+                        event_queue.put_nowait(event)
 
-                results.append(str(result) if result else "")
+                # Dirty-read results for this batch
+                dirty_read_count = ctx.session.state.get(WORKER_DIRTY_READ_COUNT, 0)
+                mismatches = ctx.session.state.get(OBS_WORKER_DIRTY_READ_MISMATCHES, 0)
 
-            ctx.session.state[TEMP_WORKER_DIRTY_READ_COUNT] = dirty_read_count
-            ctx.session.state[OBS_WORKER_DIRTY_READ_MISMATCHES] = mismatches
+                for worker in workers:
+                    output_key = worker.output_key
+                    result = ctx.session.state.get(output_key, "")
+                    dirty_read_count += 1
 
-            return results
+                    if not result:
+                        logger.warning(
+                            "State timing guard: worker %s output_key '%s' "
+                            "returned empty after dispatch (dirty read). "
+                            "Events pending in queue: %d",
+                            worker.name, output_key, event_queue.qsize(),
+                        )
+                        mismatches += 1
 
-        except Exception as e:
-            logger.error(f"Worker dispatch error: {e}")
-            return [f"Error: {e}"] * len(prompts)
+                    all_results.append(str(result) if result else "")
 
-        finally:
-            # Always return workers to pool, even on error
-            for worker in workers:
-                worker._pending_prompt = None  # type: ignore[attr-defined]
-                await worker_pool.release(worker, model)
+                ctx.session.state[WORKER_DIRTY_READ_COUNT] = dirty_read_count
+                ctx.session.state[OBS_WORKER_DIRTY_READ_MISMATCHES] = mismatches
+
+            except Exception as e:
+                logger.error(f"Worker dispatch error in batch {batch_num}: {e}")
+                all_results.extend([f"Error: {e}"] * len(batch_prompts))
+
+            finally:
+                for worker in workers:
+                    worker._pending_prompt = None  # type: ignore[attr-defined]
+                    # Detach from ParallelAgent parent so the worker can be
+                    # re-used in a future batch (ADK sets parent_agent in
+                    # model_post_init and raises if already set).
+                    worker.parent_agent = None
+                    await worker_pool.release(worker, model)
+
+        # Record total dispatch latency
+        dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
+        latencies = ctx.session.state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
+        latencies.append(round(dispatch_elapsed_ms, 2))
+        ctx.session.state[OBS_WORKER_DISPATCH_LATENCY_MS] = latencies
+
+        return all_results
 
     return llm_query_async, llm_query_batched_async

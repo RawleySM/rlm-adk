@@ -1,0 +1,2048 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files and files not matching ignore patterns, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: rlm_adk/**
+- Files matching these patterns are excluded: __pycache__/**
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+rlm_adk/
+  .adk/
+    session.db
+  callbacks/
+    __init__.py
+    reasoning.py
+    worker.py
+  plugins/
+    __init__.py
+    cache.py
+    debug_logging.py
+    langfuse_tracing.py
+    observability.py
+    policy.py
+  repl/
+    __init__.py
+    ast_rewriter.py
+    local_repl.py
+  utils/
+    __init__.py
+    parsing.py
+    prompts.py
+    rlm_utils.py
+  __init__.py
+  agent.py
+  artifacts.py
+  dispatch.py
+  orchestrator.py
+  state.py
+  types.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="rlm_adk/plugins/langfuse_tracing.py">
+"""LangfuseTracingPlugin - OpenTelemetry-based tracing to self-hosted Langfuse.
+
+Initializes the Langfuse client and Google ADK OpenInference instrumentor
+so that every model call, tool invocation, and agent transition is captured
+as an OTel span and forwarded to Langfuse automatically.
+
+The plugin is a thin wrapper: all actual tracing is handled by the
+``openinference-instrumentation-google-adk`` package.  This plugin simply
+ensures initialization happens once and in the right order.
+
+Requires environment variables:
+    LANGFUSE_PUBLIC_KEY  - Project public key
+    LANGFUSE_SECRET_KEY  - Project secret key
+    LANGFUSE_BASE_URL    - Self-hosted Langfuse URL (e.g. http://localhost:3100)
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+_INSTRUMENTED = False
+⋮----
+def _init_langfuse_instrumentation() -> bool
+⋮----
+"""One-time initialization of Langfuse + GoogleADK OTel instrumentation.
+
+    Returns True if instrumentation was successfully initialized.
+    """
+⋮----
+public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+base_url = os.getenv("LANGFUSE_BASE_URL")
+⋮----
+# Authenticate the Langfuse client
+client = get_client()
+⋮----
+# Instrument Google ADK with OpenInference
+⋮----
+_INSTRUMENTED = True
+⋮----
+class LangfuseTracingPlugin(BasePlugin)
+⋮----
+"""ADK Plugin that enables Langfuse OpenTelemetry tracing.
+
+    All actual span creation is handled automatically by the
+    ``GoogleADKInstrumentor``.  This plugin's role is to:
+
+    1. Trigger one-time initialization of the instrumentor.
+    2. Provide a clean on/off toggle via the plugin system.
+    3. Log whether tracing is active for operational visibility.
+
+    The plugin is safe to include even when Langfuse env vars are not set:
+    initialization is skipped with a warning and no callbacks fire.
+    """
+⋮----
+def __init__(self, *, name: str = "langfuse_tracing")
+⋮----
+@property
+    def enabled(self) -> bool
+</file>
+
+<file path="rlm_adk/artifacts.py">
+"""Artifact helper functions for the RLM ADK application.
+
+Provides convenience wrappers around ADK's BaseArtifactService for common
+artifact operations within the RLM orchestrator loop and callbacks.
+
+Design principles:
+- All functions accept InvocationContext (or CallbackContext via extraction)
+- All functions return None/[]/False gracefully when no artifact service is configured
+- All async functions wrap operations in try/except with warning-level logging (NFR-004)
+- should_offload_to_artifact and get_invocation_context are synchronous
+- Naming conventions: repl_output_iter_{N}.txt, worker_{name}_iter_{N}.txt, final_answer.md
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+"""Extract InvocationContext from either InvocationContext or CallbackContext.
+
+    Args:
+        ctx: An InvocationContext or CallbackContext instance.
+
+    Returns:
+        The underlying InvocationContext.
+    """
+⋮----
+def should_offload_to_artifact(data: Union[str, bytes], threshold: int = 10240) -> bool
+⋮----
+"""Determine if data should be stored as artifact vs. inline in state.
+
+    Args:
+        data: The data to check (string or bytes).
+        threshold: Byte threshold (default 10KB). Data larger than this
+            should be offloaded to an artifact.
+
+    Returns:
+        True if len(data) > threshold.
+    """
+⋮----
+"""Save REPL output as a versioned artifact.
+
+    The artifact is named ``repl_output_iter_{iteration}.txt``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        iteration: The current orchestrator iteration number.
+        stdout: Standard output text from the REPL execution.
+        stderr: Standard error text (optional).
+        mime_type: MIME type for the artifact (default text/plain).
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+inv_ctx = get_invocation_context(ctx)
+⋮----
+filename = f"repl_output_iter_{iteration}.txt"
+content = stdout
+⋮----
+content = f"{stdout}\n--- STDERR ---\n{stderr}"
+⋮----
+artifact = types.Part.from_bytes(data=content.encode("utf-8"), mime_type=mime_type)
+version = await inv_ctx.artifact_service.save_artifact(
+⋮----
+"""Save worker result as a versioned artifact.
+
+    The artifact is named ``worker_{worker_name}_iter_{iteration}.txt``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        worker_name: Name of the worker agent.
+        iteration: The current orchestrator iteration number.
+        result_text: The worker's text response.
+        mime_type: MIME type for the artifact (default text/plain).
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+filename = f"worker_{worker_name}_iter_{iteration}.txt"
+⋮----
+artifact = types.Part.from_bytes(data=result_text.encode("utf-8"), mime_type=mime_type)
+⋮----
+"""Save the final answer as an artifact.
+
+    The artifact is named ``final_answer.md``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        answer: The final answer text.
+        mime_type: MIME type for the artifact (default text/markdown).
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+filename = "final_answer.md"
+⋮----
+artifact = types.Part.from_bytes(data=answer.encode("utf-8"), mime_type=mime_type)
+⋮----
+"""Save arbitrary binary data as an artifact.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        filename: The artifact filename.
+        data: Raw binary data.
+        mime_type: MIME type of the binary data.
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+artifact = types.Part.from_bytes(data=data, mime_type=mime_type)
+⋮----
+"""Load an artifact by filename, optionally at a specific version.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        filename: The artifact filename to load.
+        version: Specific version to load. None loads the latest.
+
+    Returns:
+        The Part data, or None if not found, no service configured,
+        or if the load operation fails.
+    """
+⋮----
+result = await inv_ctx.artifact_service.load_artifact(
+⋮----
+state = inv_ctx.session.state
+⋮----
+"""List all artifact filenames in the current session scope.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+
+    Returns:
+        List of artifact filenames, or empty list if no service configured
+        or if the operation fails.
+    """
+⋮----
+"""Delete an artifact and all its versions.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        filename: The artifact filename to delete.
+
+    Returns:
+        True if deleted (or no-op for nonexistent), False if no service
+        configured or if the operation fails.
+    """
+⋮----
+"""Update session state with artifact save tracking metadata.
+
+    Args:
+        ctx: The InvocationContext.
+        filename: The saved artifact filename.
+        version: The version number returned by the service.
+        size_bytes: Size of the saved data in bytes.
+    """
+⋮----
+state = ctx.session.state
+</file>
+
+<file path="rlm_adk/plugins/cache.py">
+"""CachePlugin - Global LLM response cache using intervene pattern.
+
+Trigger points: before_model_callback (check), after_model_callback (store)
+State keys: cache:store, cache:hit_count, cache:miss_count, cache:last_hit_key
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# State key for passing fingerprint from before_model to after_model
+_CACHE_PENDING_FP = "cache_pending_fingerprint"
+⋮----
+class CachePlugin(BasePlugin)
+⋮----
+"""Caches LLM responses by request fingerprint.
+
+    - before_model_callback: Check cache. If hit, return cached response (intervene).
+      Also stores fingerprint in temp state for after_model_callback.
+    - after_model_callback: Store response in cache using the pending fingerprint.
+    """
+⋮----
+"""Check cache for matching request. Store fingerprint for after_model."""
+⋮----
+state = callback_context.state
+fingerprint = _fingerprint(llm_request)
+⋮----
+# Always store fingerprint so after_model_callback can use it
+⋮----
+cache_store: dict = state.get(CACHE_STORE, {})
+⋮----
+entry = cache_store[fingerprint]
+⋮----
+"""Store response in cache after successful model call."""
+⋮----
+pending_fp = state.get(_CACHE_PENDING_FP)
+⋮----
+# LRU eviction if over capacity
+⋮----
+sorted_keys = sorted(
+⋮----
+def _fingerprint(llm_request: LlmRequest) -> str
+⋮----
+"""Generate cache key from LlmRequest.
+
+    Key format: SHA-256(model || prompt_normalized || system_instruction_hash || temperature)
+    """
+parts: list[str] = []
+⋮----
+# Model name
+model = (llm_request.model or "").lower().strip()
+⋮----
+# Prompt content - concatenate all text parts
+content_text = ""
+⋮----
+# System instruction hash
+sys_instruction = ""
+⋮----
+si = getattr(llm_request.config, "system_instruction", None)
+⋮----
+sys_instruction = str(si)
+⋮----
+# Temperature
+temperature = 0.0
+⋮----
+temp = getattr(llm_request.config, "temperature", None)
+⋮----
+temperature = float(temp)
+⋮----
+combined = "||".join(parts)
+⋮----
+def _serialize_response(llm_response: LlmResponse) -> dict
+⋮----
+"""Serialize LlmResponse to JSON-safe dict."""
+⋮----
+text = ""
+⋮----
+def _deserialize_response(data: dict) -> LlmResponse
+⋮----
+"""Deserialize cached response back to LlmResponse."""
+text = data.get("text", "")
+</file>
+
+<file path="rlm_adk/plugins/policy.py">
+"""PolicyPlugin - Auth/safety guardrails.
+
+Trigger points: before_model_callback, before_tool_callback, on_user_message_callback
+Intervene pattern: blocks when policy violated.
+Fail fast, fail loud per rlm culture.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class PolicyPlugin(BasePlugin)
+⋮----
+"""Enforces auth/safety policies.
+
+    - on_user_message_callback: Generate request_id and idempotency_key.
+    - before_model_callback: Check blocked patterns against prompt.
+    - before_tool_callback: Check auth level against tool requirements.
+    """
+⋮----
+"""Generate request_id and idempotency_key for the invocation."""
+state = invocation_context.session.state
+⋮----
+# Generate unique request ID
+request_id = f"req-{uuid.uuid4().hex[:12]}"
+⋮----
+# Generate idempotency key from message content
+message_text = ""
+⋮----
+user_id = invocation_context.session.user_id or ""
+session_id = invocation_context.session.id or ""
+idem_source = f"{user_id}:{session_id}:{message_text}"
+⋮----
+"""Check blocked patterns against prompt content."""
+⋮----
+# Extract text from request contents
+prompt_text = ""
+⋮----
+# Check each blocked pattern
+⋮----
+match = pattern.search(prompt_text)
+⋮----
+request_id = callback_context.state.get(REQUEST_ID, "unknown")
+violation = f"blocked: pattern '{pattern.pattern}' matched"
+⋮----
+"""Check auth level against tool requirements."""
+state = tool_context.state
+⋮----
+# Check if tool has an auth_level requirement (convention: tool attribute)
+required_level = getattr(tool, "required_auth_level", None)
+⋮----
+user_auth_level = state.get("user:auth_level", "user")
+# Simple level hierarchy: admin > user > guest
+level_order = {"guest": 0, "user": 1, "admin": 2}
+user_rank = level_order.get(user_auth_level, 0)
+required_rank = level_order.get(required_level, 0)
+⋮----
+request_id = state.get(REQUEST_ID, "unknown")
+tool_name = getattr(tool, "name", str(tool))
+violation = (
+</file>
+
+<file path="rlm_adk/repl/__init__.py">
+"""RLM ADK REPL - Local REPL execution and AST rewriting."""
+</file>
+
+<file path="rlm_adk/repl/ast_rewriter.py">
+"""AST rewriter for sync-to-async bridge in REPL code execution.
+
+Transforms LM-generated Python code so that:
+- llm_query(p) -> await llm_query_async(p)
+- llm_query_batched(ps) -> await llm_query_batched_async(ps)
+- Wraps code in: async def _repl_exec(): ... return locals()
+
+Only rewrites if the code actually contains llm_query calls.
+If no LM calls, code runs synchronously via regular exec().
+"""
+⋮----
+def has_llm_calls(code: str) -> bool
+⋮----
+"""Check if code contains llm_query or llm_query_batched calls.
+
+    Uses AST parsing to detect calls accurately (not just string matching,
+    which could match comments or string literals).
+
+    Returns False if code has syntax errors (will be caught during execution).
+    """
+⋮----
+tree = ast.parse(code)
+⋮----
+func = node.func
+⋮----
+class LlmCallRewriter(ast.NodeTransformer)
+⋮----
+"""Transforms llm_query/llm_query_batched calls to their async equivalents.
+
+    Transformations:
+    - llm_query(args) -> await llm_query_async(args)
+    - llm_query_batched(args) -> await llm_query_batched_async(args)
+
+    Preserves all arguments including keyword args (model=, etc).
+    Handles nested calls, calls inside expressions, assignments, loops, etc.
+    """
+⋮----
+_SYNC_TO_ASYNC = {
+⋮----
+def visit_Call(self, node: ast.Call) -> ast.AST
+⋮----
+"""Transform sync LM calls to async await expressions."""
+# Transform children first (handles nested calls like
+# llm_query(llm_query("inner")))
+⋮----
+# Replace function name with async variant
+⋮----
+# Wrap in Await node
+⋮----
+def rewrite_for_async(code: str) -> ast.Module
+⋮----
+"""Rewrite code block for async execution.
+
+    1. Parse the code into AST
+    2. Transform llm_query -> await llm_query_async
+    3. Wrap in async def _repl_exec(): ... return locals()
+    4. Return the modified AST module (ready for compile())
+
+    Args:
+        code: Python source code from LM-generated ```repl``` block
+
+    Returns:
+        ast.Module ready for compile() and exec()
+
+    Raises:
+        SyntaxError: If code cannot be parsed
+    """
+# Parse original code
+⋮----
+# Transform LM calls to async awaits
+rewriter = LlmCallRewriter()
+tree = rewriter.visit(tree)
+⋮----
+# Take all statements from the module body
+body_stmts = tree.body
+⋮----
+# Add 'return locals()' at the end so the caller can extract
+# variables created during execution
+return_locals = ast.Return(
+⋮----
+# Create async def _repl_exec(): <body>
+async_func = ast.AsyncFunctionDef(
+⋮----
+# Create new module with just the async function definition
+new_module = ast.Module(body=[async_func], type_ignores=[])
+⋮----
+# Fix missing line numbers (required for compile())
+⋮----
+def compile_repl_code(code: str) -> tuple[Any, bool]
+⋮----
+"""Compile REPL code, handling both sync and async cases.
+
+    If the code contains llm_query/llm_query_batched calls, it is
+    AST-rewritten to an async function wrapper. Otherwise it is
+    compiled as regular synchronous code.
+
+    Returns:
+        (compiled_code, is_async): The compiled code object and whether
+        it needs async execution via _repl_exec().
+    """
+⋮----
+rewritten = rewrite_for_async(code)
+</file>
+
+<file path="rlm_adk/utils/__init__.py">
+"""RLM ADK Utilities - Parsing, prompts, and helper functions."""
+</file>
+
+<file path="rlm_adk/utils/parsing.py">
+"""
+Parsing utilities for RLM trjaectories.
+"""
+⋮----
+class REPLEnvironment(Protocol)
+⋮----
+"""Protocol for REPL environments that can execute code."""
+⋮----
+def execute_code(self, code: str) -> REPLResult: ...
+⋮----
+def find_code_blocks(text: str) -> list[str]
+⋮----
+"""
+    Find REPL code blocks in text wrapped in triple backticks and return List of content(s).
+    Returns None if no code blocks are found.
+    """
+pattern = r"```repl\s*\n(.*?)\n```"
+results = []
+⋮----
+code_content = match.group(1).strip()
+⋮----
+def find_final_answer(text: str, environment: Any = None) -> str | None
+⋮----
+"""
+    Find FINAL(...) or FINAL_VAR(...) statement in response and return the final answer string.
+
+    If FINAL_VAR is found and an environment is provided, executes code to retrieve the variable value.
+    Returns None if neither pattern is found.
+
+    Args:
+        text: The response text to parse
+        environment: Optional environment to execute code for FINAL_VAR retrieval
+
+    Returns:
+        The final answer string, or None if no final answer pattern is found
+    """
+# Check for FINAL_VAR pattern first - must be at start of line
+final_var_pattern = r"^\s*FINAL_VAR\((.*?)\)"
+match = re.search(final_var_pattern, text, re.MULTILINE | re.DOTALL)
+⋮----
+variable_name = match.group(1).strip().strip('"').strip("'")
+⋮----
+result = environment.execute_code(f"print(FINAL_VAR({variable_name!r}))")
+final_answer = result.stdout.strip()
+⋮----
+final_answer = result.stderr.strip() or ""
+⋮----
+# Check for FINAL pattern - must be at start of line
+# Use greedy matching to capture content with nested parentheses
+final_pattern = r"^\s*FINAL\((.*)\)\s*$"
+match = re.search(final_pattern, text, re.MULTILINE | re.DOTALL)
+⋮----
+"""
+    Format an RLM iteration (including all code blocks) to append to the message history for
+    the prompt of the LM in the next iteration. We also truncate code execution results
+    that exceed the max_character_length.
+
+    Args:
+        iteration: The iteration to format
+        max_character_length: The maximum character length of the result
+
+    Returns:
+        A list of messages to add to the next prompt
+    """
+messages = [{"role": "assistant", "content": iteration.response}]
+⋮----
+code = code_block.code
+result = code_block.result
+result = format_execution_result(result)
+⋮----
+result = (
+⋮----
+execution_message = {
+⋮----
+################
+# TODO: Remove and refactor these soon
+⋮----
+def format_execution_result(result: REPLResult) -> str
+⋮----
+"""
+    Format the execution result as a string for display.
+
+    Args:
+        result: The REPLResult object to format.
+    """
+result_parts = []
+⋮----
+# Show some key variables (excluding internal ones)
+important_vars = {}
+⋮----
+# Only show simple types or short representations
+⋮----
+def check_for_final_answer(response: str, repl_env, logger) -> str | None
+⋮----
+"""Check if response contains a final answer."""
+# Use the new find_final_answer function which handles both FINAL and FINAL_VAR
+⋮----
+def convert_context_for_repl(context)
+⋮----
+"""
+    Convert REPL context to either some
+    """
+⋮----
+context_data = context
+context_str = None
+⋮----
+context_data = None
+context_str = context
+⋮----
+context_data = [msg.get("content", "") for msg in context]
+</file>
+
+<file path="rlm_adk/utils/rlm_utils.py">
+def filter_sensitive_keys(kwargs: dict[str, Any]) -> dict[str, Any]
+⋮----
+"""Filter out sensitive keys like API keys from kwargs."""
+filtered = {}
+⋮----
+key_lower = key.lower()
+</file>
+
+<file path="rlm_adk/callbacks/__init__.py">
+"""Callback functions for RLM ADK agents."""
+⋮----
+__all__ = [
+</file>
+
+<file path="rlm_adk/callbacks/reasoning.py">
+"""Reasoning Agent callbacks.
+
+before_model_callback: Injects the current message_history from state
+    into the LlmRequest contents.  Preserves ADK-set system_instruction (from
+    static_instruction) and relocates the ADK-resolved dynamic instruction
+    (from instruction= template) into system_instruction to maintain proper
+    Gemini user/model role alternation in contents.
+    Sets reasoning_call_start timestamp.
+    The agent's include_contents='none' means conversation is injected here.
+
+after_model_callback: Extracts the text response and writes it to
+    last_reasoning_response in the state.
+"""
+⋮----
+def _extract_system_instruction_text(llm_request: LlmRequest) -> str
+⋮----
+"""Extract system_instruction text that ADK set from static_instruction."""
+⋮----
+si = llm_request.config.system_instruction
+⋮----
+# system_instruction may be a Content object with parts
+⋮----
+def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str
+⋮----
+"""Extract the resolved instruction template that ADK placed in contents.
+
+    When both static_instruction and instruction are set, ADK resolves the
+    instruction template and appends it to contents as a user Content.
+    We extract and remove it so it can be relocated to system_instruction.
+    """
+dynamic_text = ""
+⋮----
+"""Inject the current message_history into the LlmRequest.
+
+    ADK has already set:
+      - system_instruction from static_instruction (the stable system prompt)
+      - resolved instruction template in contents (dynamic context metadata)
+
+    This callback:
+      1. Preserves system_instruction from static_instruction
+      2. Extracts the resolved dynamic instruction from contents
+      3. Appends the dynamic metadata to system_instruction
+      4. Injects conversation messages from message_history into contents
+    """
+⋮----
+# --- Extract what ADK set ---
+# static_instruction -> system_instruction (stable system prompt)
+static_si = _extract_system_instruction_text(llm_request)
+# instruction template -> resolved and placed in contents as user content
+dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
+⋮----
+# --- Build system_instruction: static prompt + dynamic metadata ---
+system_instruction_text = static_si
+⋮----
+system_instruction_text = dynamic_instruction
+⋮----
+# --- Build contents from message_history ---
+# message_history now contains only conversation messages (user prompts,
+# model responses, REPL output).  System prompt and metadata are handled
+# above via ADK's static_instruction and instruction parameters.
+message_history = callback_context.state.get(MESSAGE_HISTORY, [])
+contents = []
+⋮----
+role = msg.get("role", "user")
+content_text = msg.get("content", "")
+⋮----
+# Legacy safety: if a system message is still present in
+# message_history, append it to system_instruction.
+⋮----
+adk_role = "model" if role == "assistant" else "user"
+⋮----
+# --- Per-invocation token accounting ---
+total_prompt_chars = sum(
+system_chars = len(system_instruction_text)
+content_count = len(contents)
+history_msg_count = sum(1 for msg in message_history if msg.get("role") != "system")
+⋮----
+"""Extract the text response and store in state, with token accounting."""
+response_text = ""
+⋮----
+response_text = "".join(
+⋮----
+# --- Per-invocation token accounting from usage_metadata ---
+usage = llm_response.usage_metadata
+⋮----
+# Return None -- observe only, don't alter the response
+</file>
+
+<file path="rlm_adk/callbacks/worker.py">
+"""Worker LlmAgent callbacks for sub-LM dispatch.
+
+worker_before_model: AMEND - Injects the single prompt from the dispatch closure
+    into LlmRequest. Sets model override if model= was specified in llm_query().
+
+worker_after_model: OBSERVE - Extracts text response, writes to worker's output_key.
+"""
+⋮----
+"""Inject prompt from dispatch closure into LlmRequest.
+
+    The dispatch closure sets worker._pending_prompt before running the agent.
+    This callback reads it and sets it as the LlmRequest contents.
+    """
+agent = callback_context._invocation_context.agent
+pending_prompt = getattr(agent, "_pending_prompt", None)
+⋮----
+# Message list format [{role: ..., content: ...}, ...]
+contents = []
+⋮----
+role = msg.get("role", "user")
+adk_role = "model" if role == "assistant" else "user"
+⋮----
+# --- Per-invocation token accounting (append to lists for parallel safety) ---
+total_prompt_chars = sum(
+content_count = len(llm_request.contents)
+⋮----
+prompt_chars_list = callback_context.state.get(WORKER_PROMPT_CHARS, [])
+⋮----
+prompt_chars_list = [prompt_chars_list]
+⋮----
+content_count_list = callback_context.state.get(WORKER_CONTENT_COUNT, [])
+⋮----
+content_count_list = [content_count_list]
+⋮----
+return None  # Proceed with model call
+⋮----
+"""Extract response text and store in state under output_key, with token accounting."""
+response_text = ""
+⋮----
+response_text = "".join(
+⋮----
+# Write to the worker's output_key in state
+⋮----
+output_key = getattr(agent, "output_key", None)
+⋮----
+# --- Per-invocation token accounting from usage_metadata (append to lists) ---
+usage = llm_response.usage_metadata
+⋮----
+input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+⋮----
+input_list = callback_context.state.get(WORKER_INPUT_TOKENS, [])
+⋮----
+input_list = [input_list]
+⋮----
+output_list = callback_context.state.get(WORKER_OUTPUT_TOKENS, [])
+⋮----
+output_list = [output_list]
+</file>
+
+<file path="rlm_adk/plugins/__init__.py">
+"""RLM ADK Plugins - Before/after agent callbacks for cross-cutting concerns."""
+⋮----
+__all__ = [
+</file>
+
+<file path="rlm_adk/plugins/debug_logging.py">
+"""DebugLoggingPlugin - Development-only detailed tracing.
+
+Wraps/extends logging with full interaction traces.
+Development only - not for production.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class DebugLoggingPlugin(BasePlugin)
+⋮----
+"""Full interaction trace logging for development.
+
+    Records prompts, responses, tool calls, and state snapshots.
+    Writes traces to YAML on after_run_callback.
+    Not for production use.
+    """
+⋮----
+"""Record agent entry with state snapshot."""
+⋮----
+state = callback_context.state
+agent_name = getattr(agent, "name", "unknown")
+iteration = state.get(ITERATION_COUNT, 0)
+⋮----
+entry: dict[str, Any] = {
+⋮----
+"""Record agent exit."""
+⋮----
+iteration = callback_context.state.get(ITERATION_COUNT, 0)
+⋮----
+"""Record model request details."""
+⋮----
+model = llm_request.model or "unknown"
+⋮----
+num_contents = len(llm_request.contents)
+⋮----
+# Build focused one-line stdout summary with token accounting
+# Detect agent type from state keys set by before_model callbacks
+reasoning_chars = state.get(REASONING_PROMPT_CHARS)
+worker_chars = state.get(WORKER_PROMPT_CHARS)
+⋮----
+history_msgs = state.get(REASONING_HISTORY_MSG_COUNT, 0)
+sys_chars = state.get(REASONING_SYSTEM_CHARS, 0)
+⋮----
+worker_contents = state.get(WORKER_CONTENT_COUNT, 0)
+⋮----
+# Record prompt text
+prompt_parts = []
+⋮----
+si = getattr(llm_request.config, "system_instruction", None)
+⋮----
+# Capture per-invocation token accounting from state
+context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
+⋮----
+token_accounting = {}
+⋮----
+val = state.get(key)
+⋮----
+"""Record model response details."""
+⋮----
+# Extract token usage from response metadata
+tokens_in = 0
+tokens_out = 0
+⋮----
+tokens_in = getattr(
+tokens_out = getattr(
+⋮----
+# Determine agent type from state keys
+reasoning_in = state.get(REASONING_INPUT_TOKENS)
+worker_in = state.get(WORKER_INPUT_TOKENS)
+⋮----
+agent_label = "reasoning"
+⋮----
+agent_label = "worker"
+⋮----
+agent_label = "unknown"
+⋮----
+# Worker dispatch info
+dispatch_count = state.get(WORKER_DISPATCH_COUNT, 0)
+results_committed = state.get(WORKER_RESULTS_COMMITTED, False)
+⋮----
+parts = [
+⋮----
+# Record response text
+⋮----
+response_text = ""
+⋮----
+# Record usage metadata
+⋮----
+# Capture per-agent-type response token breakdowns from
+# llm_response.usage_metadata directly (not from state, which
+# lags by one iteration -- see bug-005).
+⋮----
+response_tokens = {}
+⋮----
+"""Record model error details."""
+⋮----
+"""Record tool invocation."""
+⋮----
+"""Record tool result."""
+⋮----
+"""Record events including artifact deltas."""
+⋮----
+delta_keys = list(event.actions.state_delta.keys())
+⋮----
+# Only print state delta summaries for non-trivial deltas
+⋮----
+# Compact display: show key names without the prefix
+short_keys = [k.split(":")[-1] if ":" in k else k for k in delta_keys]
+⋮----
+# Track artifact deltas
+⋮----
+artifact_delta = event.actions.artifact_delta
+⋮----
+"""Write all traces to YAML file and print run summary."""
+⋮----
+state = invocation_context.session.state
+⋮----
+# --- Print run summary to stdout ---
+total_iters = state.get(ITERATION_COUNT, 0)
+total_in = state.get(OBS_TOTAL_INPUT_TOKENS, 0)
+total_out = state.get(OBS_TOTAL_OUTPUT_TOKENS, 0)
+total_calls = state.get(OBS_TOTAL_CALLS, 0)
+total_time = state.get(OBS_TOTAL_EXECUTION_TIME, 0)
+final_answer = state.get(FINAL_ANSWER, "")
+answer_len = len(final_answer) if final_answer else 0
+⋮----
+summary_parts = [
+⋮----
+# Worker dispatch stats
+total_dispatches = state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
+⋮----
+latencies = state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
+events_drained = state.get(WORKER_EVENTS_DRAINED, 0)
+avg_latency = (
+⋮----
+# Artifact stats
+artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+⋮----
+artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+⋮----
+state_snapshot = None
+⋮----
+state_snapshot = _safe_state_snapshot(
+⋮----
+output = {
+⋮----
+def _safe_state_snapshot(state: Any) -> dict
+⋮----
+"""Create a JSON-safe snapshot of session state."""
+snapshot = {}
+⋮----
+# state may be a dict-like object
+items = state.items() if hasattr(state, "items") else {}
+⋮----
+# Only include serializable values
+</file>
+
+<file path="rlm_adk/plugins/observability.py">
+"""ObservabilityPlugin - Usage tracking, timings, and audit trail.
+
+Trigger points: ALL (before/after agent, model, tool; on_event, after_run)
+Observe only - never returns a value, never blocks execution.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class ObservabilityPlugin(BasePlugin)
+⋮----
+"""Tracks usage metrics, timings, and provides structured audit trail.
+
+    Observe-only: never returns a value, never blocks execution.
+    Logging errors are caught and suppressed.
+    """
+⋮----
+def __init__(self, *, name: str = "observability")
+⋮----
+"""Record agent entry."""
+⋮----
+state = callback_context.state
+⋮----
+agent_name = getattr(agent, "name", "unknown")
+request_id = state.get(REQUEST_ID, "unknown")
+⋮----
+"""Record agent exit."""
+⋮----
+request_id = callback_context.state.get(REQUEST_ID, "unknown")
+⋮----
+"""Record pre-model call metrics."""
+⋮----
+model = llm_request.model or "unknown"
+⋮----
+"""Record post-model call metrics: token usage, call counts."""
+⋮----
+# Increment total calls
+⋮----
+# Extract token usage from response
+usage = llm_response.usage_metadata
+⋮----
+input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+⋮----
+# Per-model tracking via agent_name as proxy since after_model
+# does not receive llm_request
+model = "unknown"
+# Try to get model from response's model_version field
+⋮----
+model = llm_response.model_version
+model_key = obs_model_usage_key(model)
+model_usage = state.get(
+⋮----
+# --- Per-iteration token breakdown ---
+# Read agent-specific token accounting written by before/after callbacks
+iteration = state.get(ITERATION_COUNT, 0)
+context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
+⋮----
+breakdown_entry: dict[str, Any] = {
+⋮----
+# Include agent-type-specific prompt characterization
+reasoning_prompt_chars = state.get(REASONING_PROMPT_CHARS)
+⋮----
+worker_prompt_chars = state.get(WORKER_PROMPT_CHARS)
+⋮----
+breakdowns: list = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
+⋮----
+"""Record tool invocation."""
+⋮----
+tool_name = getattr(tool, "name", str(tool))
+state = tool_context.state
+summary: dict = state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+⋮----
+"""Record tool completion."""
+⋮----
+"""Enrich events with request ID for correlation and track artifact deltas."""
+⋮----
+state = invocation_context.session.state
+request_id = state.get(REQUEST_ID)
+⋮----
+# Log event for audit trail
+⋮----
+# Track artifact operations from event artifact_delta
+⋮----
+artifact_count = len(event.actions.artifact_delta)
+⋮----
+"""Record final execution summary."""
+⋮----
+start_time = state.get(INVOCATION_START_TIME, 0)
+⋮----
+total_time = time.time() - start_time
+⋮----
+# Store last successful call ID for cross-session reference
+⋮----
+breakdowns = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
+reasoning_calls = sum(
+worker_calls = sum(
+⋮----
+artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+⋮----
+log_msg = (
+log_args = [
+</file>
+
+<file path="rlm_adk/repl/local_repl.py">
+"""Local REPL environment adapted for ADK.
+
+Provides sandboxed Python code execution with:
+- Safe builtins (blocks eval/exec/input)
+- Context loading (context_0, context_1, ...)
+- FINAL_VAR and SHOW_VARS helpers
+- stdout/stderr capture
+- Slots for async llm_query/llm_query_batched closures (injected by orchestrator)
+"""
+⋮----
+# Task-local stdout/stderr capture (CRIT-3.4)
+_capture_stdout: contextvars.ContextVar[io.StringIO | None] = contextvars.ContextVar(
+_capture_stderr: contextvars.ContextVar[io.StringIO | None] = contextvars.ContextVar(
+⋮----
+class _TaskLocalStream
+⋮----
+"""Proxy stream that routes writes to a task-local ContextVar buffer when set,
+    otherwise falls through to the original stream."""
+⋮----
+def __init__(self, original: io.TextIOBase, ctx_var: contextvars.ContextVar)
+⋮----
+@property
+    def encoding(self)
+⋮----
+def isatty(self)
+⋮----
+def write(self, s)
+⋮----
+buf = self._ctx_var.get(None)
+⋮----
+def flush(self)
+⋮----
+def fileno(self)
+⋮----
+# Safe builtins - blocks dangerous operations like eval/exec/input
+_SAFE_BUILTINS = {
+⋮----
+# Core types and functions
+⋮----
+# Exceptions
+⋮----
+# Blocked
+⋮----
+class LocalREPL
+⋮----
+"""Local REPL environment for ADK-based execution.
+
+    Unlike the original LocalREPL which used socket-based llm_query,
+    this version accepts callable closures for LM dispatch that are
+    injected by the orchestrator.
+    """
+⋮----
+# Setup globals and locals
+⋮----
+# Register helper functions
+⋮----
+# Register LM query functions
+⋮----
+def set_llm_query_fns(self, llm_query_fn: Callable, llm_query_batched_fn: Callable) -> None
+⋮----
+"""Set/update the sync LM query functions (called by orchestrator)."""
+⋮----
+"""Set async LM query functions for AST-rewritten code."""
+⋮----
+def _final_var(self, variable_name: str) -> str
+⋮----
+"""Return the value of a variable as a final answer."""
+variable_name = variable_name.strip().strip("\"'")
+⋮----
+available = [k for k in self.locals.keys() if not k.startswith("_")]
+⋮----
+def _show_vars(self) -> str
+⋮----
+"""Show all available variables in the REPL environment."""
+available = {k: type(v).__name__ for k, v in self.locals.items() if not k.startswith("_")}
+⋮----
+"""Store conversation history as a versioned variable.
+
+        Args:
+            message_history: The list of message dicts from a completion call
+            history_index: Optional explicit index. If None, auto-increments.
+
+        Returns:
+            The history index used.
+        """
+⋮----
+history_index = self._history_count
+⋮----
+var_name = f"history_{history_index}"
+⋮----
+# Alias history_0 as 'history' for convenience
+⋮----
+def get_history_count(self) -> int
+⋮----
+"""Return the number of conversation histories stored."""
+⋮----
+@contextmanager
+    def _capture_output(self)
+⋮----
+"""Context manager to capture stdout/stderr."""
+⋮----
+@contextmanager
+    def _temp_cwd(self)
+⋮----
+"""Temporarily change to temp directory for execution."""
+old_cwd = os.getcwd()
+⋮----
+def execute_code(self, code: str) -> REPLResult
+⋮----
+"""Execute code synchronously in the sandboxed namespace."""
+start_time = time.perf_counter()
+⋮----
+combined = {**self.globals, **self.locals}
+⋮----
+# Update locals with new variables
+⋮----
+stdout = stdout_buf.getvalue()
+stderr = stderr_buf.getvalue()
+⋮----
+stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
+⋮----
+async def execute_code_async(self, code: str, repl_exec_fn: Any) -> REPLResult
+⋮----
+"""Execute AST-rewritten async code.
+
+        Args:
+            code: The original code (before AST rewriting -- for reference/logging)
+            repl_exec_fn: The compiled async function from AST rewriter
+        """
+⋮----
+tok_out = _capture_stdout.set(stdout_buf)
+tok_err = _capture_stderr.set(stderr_buf)
+⋮----
+# Run the async _repl_exec function
+new_locals = await repl_exec_fn()
+⋮----
+# Update locals with results
+⋮----
+def cleanup(self) -> None
+⋮----
+"""Clean up temp directory and reset state."""
+⋮----
+def __enter__(self)
+⋮----
+def __exit__(self, exc_type, exc_val, exc_tb)
+⋮----
+def __del__(self)
+</file>
+
+<file path="rlm_adk/utils/prompts.py">
+# ---------------------------------------------------------------------------
+# STATIC INSTRUCTION (for LlmAgent static_instruction= parameter)
+⋮----
+# The complete RLM system prompt INCLUDING repomix-python guidance.
+# Passed as LlmAgent static_instruction= which ADK places into
+# system_instruction WITHOUT template processing, so raw curly braces
+# in Python f-string code examples are safe and correct.
+#
+# Usage:
+#   static_instruction = RLM_STATIC_INSTRUCTION  (raw, not template-processed)
+#   instruction        = RLM_DYNAMIC_INSTRUCTION  (template with {var?})
+⋮----
+RLM_STATIC_INSTRUCTION = textwrap.dedent("""\
+⋮----
+# DYNAMIC INSTRUCTION (uses ADK state variable injection)
+⋮----
+# This string is set as the LlmAgent instruction= parameter.
+# ADK replaces {var} with session state values at runtime.
+# The ? suffix makes vars optional (no error if missing).
+⋮----
+RLM_DYNAMIC_INSTRUCTION = textwrap.dedent("""\
+⋮----
+USER_PROMPT = """Think step-by-step on what to do using the REPL environment to answer the prompt.\n\nUse the REPL to load and analyze any data referenced in the prompt, querying sub-LLMs by writing to ```repl``` tags, and determine your answer. Your next action:"""
+USER_PROMPT_WITH_ROOT = """Think step-by-step on what to do using the REPL environment to answer the original prompt: \"{root_prompt}\".\n\nUse the REPL to load and analyze any data referenced in the prompt, querying sub-LLMs by writing to ```repl``` tags, and determine your answer. Your next action:"""
+⋮----
+safeguard = "You have not interacted with the REPL environment yet. Your next action should be to look through and figure out how to answer the prompt, so don't just provide a final answer yet.\n\n"
+prompt = safeguard + (
+⋮----
+prompt = "The history before is your previous interactions with the REPL environment. " + (
+⋮----
+# Inform model about prior conversation histories if present
+</file>
+
+<file path="rlm_adk/__init__.py">
+"""RLM ADK - Recursive Language Models on Google Agent Development Kit."""
+⋮----
+__all__ = [
+</file>
+
+<file path="rlm_adk/agent.py">
+"""RLM ADK Application - Wires all components into a runnable ADK App.
+
+This module provides:
+- create_rlm_runner(): Factory to create the configured Runner (App + plugins + services)
+- create_rlm_app(): Factory to create the configured App with plugins
+- create_rlm_orchestrator(): Factory to create the configured orchestrator
+- create_reasoning_agent(): Factory to create the reasoning LlmAgent
+
+Architecture (per ADK runtime event-loop):
+
+    Agent -> App (plugins) -> Runner (services + event loop)
+
+The ``Runner`` is the central orchestrator.  It drives the event loop,
+receives Events yielded by agent logic, commits state/artifact changes
+via Services, and forwards processed events upstream.
+
+The ADK CLI (``adk run``, ``adk web``) discovers the module-level ``app``
+symbol and creates its own ``Runner`` internally.  Programmatic callers
+should use ``create_rlm_runner()`` which returns an ``InMemoryRunner``
+with plugins, session service, and artifact service already wired.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# Load repo-root .env so model and API key env vars are available.
+⋮----
+_DEFAULT_RETRY_OPTIONS = HttpRetryOptions(
+⋮----
+"""Build a GenerateContentConfig with HTTP retry options.
+
+    Args:
+        retry_config: Optional dict with keys matching ``HttpRetryOptions``
+            fields (``attempts``, ``initial_delay``, ``max_delay``,
+            ``exp_base``, ``jitter``, ``http_status_codes``).  When ``None``,
+            sensible defaults (3 attempts, exponential backoff) are used.
+            Pass an empty dict ``{}`` to use the SDK's built-in defaults.
+    """
+⋮----
+retry_opts = HttpRetryOptions(**retry_config) if retry_config else None
+⋮----
+retry_opts = _DEFAULT_RETRY_OPTIONS
+⋮----
+"""Create the ReasoningAgent (main LLM for depth=0 reasoning).
+
+    Args:
+        model: The LLM model identifier.
+        static_instruction: Stable system prompt content (code examples, REPL
+            guidance, repomix docs).  Passed as LlmAgent ``static_instruction=``
+            which ADK places into ``system_instruction`` *without* template
+            processing, so raw curly braces in code examples are safe.
+        dynamic_instruction: Template string with ``{var?}`` state-variable
+            placeholders (repo_url, root_prompt, etc.).
+            Passed as LlmAgent ``instruction=``; when ``static_instruction``
+            is also set, ADK resolves the template and appends the result to
+            ``contents`` as user content.  The before_model callback then
+            relocates it into ``system_instruction`` to maintain proper Gemini
+            role alternation in contents.
+        thinking_budget: Token budget for the model's built-in thinking/planning.
+            Passed to ``BuiltInPlanner`` via ``ThinkingConfig``.  Set to ``0``
+            to disable the planner.
+        retry_config: Optional dict of retry options passed to the Gemini model's
+            ``HttpRetryOptions``.  Keys: ``attempts``, ``initial_delay``,
+            ``max_delay``, ``exp_base``, ``jitter``, ``http_status_codes``.
+            When ``None`` (default), uses sensible defaults (3 attempts,
+            exponential backoff).  Pass an empty dict ``{}`` to use the SDK's
+            built-in defaults only.
+    """
+planner = None
+⋮----
+planner = BuiltInPlanner(
+⋮----
+gcc = _build_generate_content_config(retry_config)
+⋮----
+"""Create the RLMOrchestratorAgent with the reasoning sub-agent."""
+reasoning = create_reasoning_agent(
+⋮----
+# Default WorkerPool if none provided
+⋮----
+worker_pool = WorkerPool(default_model=model)
+⋮----
+kwargs: dict[str, Any] = {
+⋮----
+def _default_plugins(*, debug: bool = True, langfuse: bool = True) -> list[BasePlugin]
+⋮----
+"""Build the default plugin list.
+
+    ObservabilityPlugin is always included (observe-only, zero overhead on the
+    happy path).  DebugLoggingPlugin is included by default.  Set *debug* to
+    ``False`` **and** leave ``RLM_ADK_DEBUG`` unset to disable it.
+
+    LangfuseTracingPlugin is included by default when *langfuse* is ``True``
+    (or ``RLM_ADK_LANGFUSE=1``).  It is safe to include even when Langfuse
+    env vars (``LANGFUSE_PUBLIC_KEY``, etc.) are not set -- initialization is
+    skipped with a warning and tracing simply stays off.
+    """
+plugins: list[BasePlugin] = [ObservabilityPlugin()]
+_debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
+⋮----
+_langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
+⋮----
+"""Create the full RLM ADK App with plugins wired in.
+
+    This is the recommended entry point for programmatic usage.  The returned
+    ``App`` carries the ``ObservabilityPlugin`` (always) and the
+    ``DebugLoggingPlugin`` (enabled by default).  Pass *plugins* to override
+    the default plugin list entirely.
+
+    Args:
+        model: The LLM model identifier.
+        root_prompt: Initial user prompt for the RLM loop.
+        persistent: Whether to persist REPL state across invocations.
+        worker_pool: Optional WorkerPool for sub-agent dispatch.
+        repl: Optional pre-configured REPL environment.
+        static_instruction: Stable system prompt content.
+        dynamic_instruction: Template string with state-variable placeholders.
+        repo_url: Optional repository URL for context.
+        plugins: Explicit plugin list.  When ``None`` (default), uses
+            :func:`_default_plugins`.
+        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
+            via ``RLM_ADK_DEBUG`` env-var).
+        thinking_budget: Token budget for the reasoning agent's built-in
+            planner.  Set to ``0`` to disable.
+    """
+orchestrator = create_rlm_orchestrator(
+resolved_plugins = plugins if plugins is not None else _default_plugins(debug=debug)
+⋮----
+"""Create the full RLM ADK Runner: App + plugins + in-memory services.
+
+    This is the recommended entry point for programmatic usage.  The returned
+    ``InMemoryRunner`` has:
+
+    - The ``App`` with ``ObservabilityPlugin`` (always) and
+      ``DebugLoggingPlugin`` (enabled by default).
+    - An in-memory ``SessionService`` for state persistence across the
+      event loop.
+    - An in-memory ``ArtifactService`` for binary artifact storage.
+
+    The ``Runner`` drives the ADK event loop: it calls
+    ``agent.run_async(ctx)``, receives yielded ``Event`` objects, commits
+    ``state_delta`` / ``artifact_delta`` via services, and forwards
+    processed events upstream.
+
+    Usage::
+
+        runner = create_rlm_runner(model="gemini-2.5-flash")
+        session = await runner.session_service.create_session(
+            app_name="rlm_adk", user_id="user",
+        )
+        async for event in runner.run_async(
+            user_id="user", session_id=session.id, new_message=content,
+        ):
+            print(event)
+
+    Args:
+        model: The LLM model identifier.
+        root_prompt: Initial user prompt for the RLM loop.
+        persistent: Whether to persist REPL state across invocations.
+        worker_pool: Optional WorkerPool for sub-agent dispatch.
+        repl: Optional pre-configured REPL environment.
+        static_instruction: Stable system prompt content.
+        dynamic_instruction: Template string with state-variable placeholders.
+        repo_url: Optional repository URL for context.
+        plugins: Explicit plugin list.  When ``None`` (default), uses
+            :func:`_default_plugins`.
+        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
+            via ``RLM_ADK_DEBUG`` env-var).
+        thinking_budget: Token budget for the reasoning agent's built-in
+            planner.  Set to ``0`` to disable.
+        artifact_service: Optional artifact service to use.  When ``None``
+            (default), ``InMemoryRunner`` creates its own
+            ``InMemoryArtifactService``.  Pass a custom service to override.
+    """
+rlm_app = create_rlm_app(
+runner = InMemoryRunner(app=rlm_app)
+⋮----
+def _root_agent_model() -> str
+⋮----
+"""Resolve model used by ADK CLI-discoverable root_agent."""
+return os.getenv("RLM_ADK_MODEL", "gemini-3-pro-preview") #AGENT: DO NOT CHANGE WITHOUT ASKING USER
+⋮----
+# ADK CLI entrypoint (`adk run rlm_adk`, `adk web`) discovers the ``app``
+# symbol first (preferred) with plugins wired in.  The CLI creates its own
+# ``Runner`` wrapping the ``App``.  ``root_agent`` is kept for backward
+# compatibility with callers that import it directly.
+app = create_rlm_app(model=_root_agent_model())
+root_agent = app.root_agent
+</file>
+
+<file path="rlm_adk/dispatch.py">
+"""Worker pool and dispatch mechanism for sub-LM calls.
+
+Replaces the TCP socket-based LMHandler with ADK LlmAgent workers
+dispatched via ParallelAgent.
+
+Architecture:
+- WorkerPool: Pre-allocated asyncio.Queue of LlmAgent instances per model
+- llm_query_async: Acquire 1 worker, dispatch, return string
+- llm_query_batched_async: Acquire K workers, dispatch via ParallelAgent, return K strings
+- Model routing: model=None uses depth-based default; model="X" uses specific pool
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class WorkerPool
+⋮----
+"""Manages pools of pre-allocated LlmAgent workers per model backend.
+
+    Each registered model has its own asyncio.Queue of LlmAgent instances.
+    Workers are configured per HIGH-3:
+    - include_contents='none'
+    - disallow_transfer_to_parent=True
+    - disallow_transfer_to_peers=True
+    """
+⋮----
+"""Initialize worker pools.
+
+        Args:
+            default_model: Model name for depth=0 (main backend)
+            other_model: Model name for depth=1 (sub-call backend)
+            pool_size: Number of workers per model pool
+        """
+⋮----
+def register_model(self, model_name: str, pool_size: int | None = None)
+⋮----
+"""Register a model and create its worker pool.
+
+        Args:
+            model_name: The model identifier (e.g. "gemini-2.5-flash")
+            pool_size: Override pool size for this model. Defaults to self.pool_size.
+        """
+size = pool_size or self.pool_size
+# Unbounded queue so that dynamically-created workers can be returned
+queue: asyncio.Queue[LlmAgent] = asyncio.Queue()
+⋮----
+worker = self._create_worker(model_name)
+⋮----
+def _create_worker(self, model_name: str) -> LlmAgent
+⋮----
+"""Create a single LlmAgent worker configured per HIGH-3.
+
+        Workers are isolated: they receive prompts only via
+        before_model_callback (include_contents='none') and cannot
+        transfer to parent or peer agents.
+        """
+⋮----
+worker_name = f"worker_{self._worker_counter}"
+⋮----
+worker = LlmAgent(
+# Slot for the dispatch closure to inject the prompt before dispatch.
+# The worker's before_model_callback reads this to build the LlmRequest.
+worker._pending_prompt = None  # type: ignore[attr-defined]
+⋮----
+async def acquire(self, model: str | None = None) -> LlmAgent
+⋮----
+"""Acquire a worker from the appropriate pool.
+
+        If the pool is empty, creates a new worker on demand to prevent
+        deadlocks when batch size exceeds pool capacity.
+
+        Args:
+            model: Model name. None uses the depth=1 default (other_model).
+
+        Returns:
+            An LlmAgent worker ready for prompt injection and dispatch.
+        """
+target_model = model or self.other_model
+⋮----
+# Auto-register on first use for dynamically-specified models
+⋮----
+# Pool exhausted — create a worker on demand to avoid deadlock
+⋮----
+async def release(self, worker: LlmAgent, model: str | None = None)
+⋮----
+"""Return a worker to its pool after dispatch completes.
+
+        Only returns the worker if the pool has not yet reached its
+        configured pool_size. On-demand workers created during pool
+        exhaustion are discarded to prevent unbounded pool growth.
+
+        Args:
+            worker: The LlmAgent to return.
+            model: The model pool to return it to. None uses the depth=1 default.
+        """
+⋮----
+def ensure_initialized(self)
+⋮----
+"""Ensure default and other model pools are created.
+
+        Called during App/orchestrator initialization to pre-allocate workers.
+        """
+⋮----
+"""Create llm_query_async and llm_query_batched_async closures.
+
+    These closures capture the worker pool and invocation context,
+    and are injected into the REPL namespace so that LM-generated code
+    can call sub-LM queries.
+
+    The closures are async functions. The AST rewriter transforms
+    llm_query(p) -> await llm_query_async(p) so that the REPL code
+    can call them natively from within async def _repl_exec().
+
+    Args:
+        worker_pool: The pre-allocated worker pool
+        ctx: Current invocation context
+        event_queue: Queue for collecting events from worker dispatch.
+            The orchestrator's _run_async_impl drain loop yields these
+            to the Runner.
+
+    Returns:
+        (llm_query_async, llm_query_batched_async) tuple of async callables
+    """
+⋮----
+async def llm_query_async(prompt: str, model: str | None = None) -> str
+⋮----
+"""Dispatch a single sub-LM query via worker pool.
+
+        This is the K=1 case: delegates to llm_query_batched_async.
+
+        Args:
+            prompt: The text prompt to send to the sub-LM.
+            model: Optional model name override. None uses depth-based default.
+
+        Returns:
+            The LM's text response as a string.
+        """
+results = await llm_query_batched_async([prompt], model=model)
+⋮----
+"""Dispatch K sub-LM queries via ParallelAgent, chunked by max_concurrent.
+
+        When K > max_concurrent, prompts are split into sequential batches
+        of at most max_concurrent, each batch dispatched in parallel.
+
+        Args:
+            prompts: List of text prompts to send concurrently.
+            model: Optional model name override. None uses depth-based default.
+
+        Returns:
+            List of LM text responses, in the same order as prompts.
+        """
+⋮----
+max_concurrent = int(os.getenv("RLM_MAX_CONCURRENT_WORKERS", "4"))
+k = len(prompts)
+dispatch_start = time.perf_counter()
+⋮----
+# Track dispatch count
+prev_dispatch_count = ctx.session.state.get(WORKER_DISPATCH_COUNT, 0)
+⋮----
+# Track batch vs single dispatches (session-scoped)
+⋮----
+prev_batch = ctx.session.state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
+⋮----
+prev_total = ctx.session.state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
+⋮----
+all_results: list[str] = []
+⋮----
+# Split prompts into chunks of max_concurrent
+⋮----
+batch_prompts = prompts[batch_idx : batch_idx + max_concurrent]
+batch_num = batch_idx // max_concurrent + 1
+total_batches = (k + max_concurrent - 1) // max_concurrent
+⋮----
+workers: list[LlmAgent] = []
+⋮----
+# Acquire workers and inject prompts for this batch
+⋮----
+worker = await worker_pool.acquire(model)
+worker._pending_prompt = prompt  # type: ignore[attr-defined]
+⋮----
+parallel = ParallelAgent(
+⋮----
+# Dirty-read results for this batch
+dirty_read_count = ctx.session.state.get(WORKER_DIRTY_READ_COUNT, 0)
+mismatches = ctx.session.state.get(OBS_WORKER_DIRTY_READ_MISMATCHES, 0)
+⋮----
+output_key = worker.output_key
+result = ctx.session.state.get(output_key, "")
+⋮----
+# Record total dispatch latency
+dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
+latencies = ctx.session.state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
+</file>
+
+<file path="rlm_adk/orchestrator.py">
+"""RLM Orchestrator Agent - Custom BaseAgent implementing the RLM iteration loop.
+
+This is the ADK equivalent of rlm.core.rlm.RLM.completion().
+It orchestrates: prompt -> reason -> extract code -> execute -> check final -> repeat.
+
+CRIT-1: All state writes inside _run_async_impl use yield Event(actions=EventActions(state_delta={})).
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# Transient HTTP status codes that warrant a retry.
+_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+⋮----
+def is_transient_error(exc: Exception) -> bool
+⋮----
+"""Classify an exception as transient (retryable) using type-based checks.
+
+    Only ``google.genai.errors.ServerError`` and ``ClientError`` with known
+    transient HTTP status codes are considered retryable.  Generic exceptions
+    are never retried, even if their message happens to contain a status code
+    string like "503".
+    """
+⋮----
+class RLMOrchestratorAgent(BaseAgent)
+⋮----
+"""Custom BaseAgent that implements the RLM recursive iteration loop.
+
+    Configuration (set via session state at invocation start):
+    - app:max_depth: Maximum recursion depth (default 1)
+    - app:max_iterations: Maximum iteration count (default 30)
+
+    Sub-agents:
+    - reasoning_agent: LlmAgent for main reasoning (depth=0)
+
+    The orchestrator does NOT use ADK's built-in agent transfer.
+    Instead, it manually dispatches to sub-agents and processes their output.
+    """
+⋮----
+model_config = {"arbitrary_types_allowed": True}
+⋮----
+# Sub-agents declared as Pydantic fields so ADK recognizes them
+reasoning_agent: LlmAgent
+⋮----
+# Configuration fields
+root_prompt: str | None = None
+repo_url: str | None = None
+persistent: bool = False
+worker_pool: Any = None
+repl: Any = None
+⋮----
+"""Main iteration loop - the core of the RLM port.
+
+        CRIT-1: All state writes MUST yield Event with EventActions(state_delta).
+        """
+_default_max_iter = int(os.getenv("RLM_MAX_ITERATIONS", "30"))
+max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
+max_depth = ctx.session.state.get(APP_MAX_DEPTH, 1)
+⋮----
+# Initialize REPL environment (BUG-8: reuse persistent REPL if provided)
+⋮----
+repl = self.repl
+⋮----
+repl = LocalREPL(depth=1)
+⋮----
+# Wire up WorkerPool dispatch closures (BUG-3)
+event_queue: asyncio.Queue | None = None
+⋮----
+event_queue = asyncio.Queue()
+⋮----
+def sync_llm_query_unsupported(*args, **kwargs)
+⋮----
+# Message history starts empty — ADK handles the system prompt
+# via static_instruction= and context metadata via instruction=
+# template resolution.  Only iterative conversation messages
+# (user prompts, model responses, REPL output) go here.
+message_history: list[dict[str, str]] = []
+⋮----
+# Build initial state delta.
+# - Unprefixed keys are session-scoped.
+# - DYN_ keys are session-scoped for ADK instruction
+#   template resolution ({repo_url?}, {root_prompt?}).
+initial_state: dict[str, Any] = {
+⋮----
+# Yield initial state
+⋮----
+# Build current prompt = message history + user prompt suffix
+history_count = repl.get_history_count()
+current_prompt = message_history + [
+⋮----
+# --- Inject prompt into state for reasoning_before_model callback ---
+⋮----
+# --- Dispatch to ReasoningAgent (with retry for transient errors) ---
+max_retries = int(os.getenv("RLM_LLM_MAX_RETRIES", "3"))
+base_delay = float(os.getenv("RLM_LLM_RETRY_DELAY", "5.0"))
+⋮----
+delay = base_delay * (2 ** attempt)
+⋮----
+# Drain worker event queue (BUG-3)
+# After drain, yield a sync-point event so the Runner commits
+# worker state_deltas before we read any worker results.
+⋮----
+drained = 0
+⋮----
+prev_drained = ctx.session.state.get(WORKER_EVENTS_DRAINED, 0)
+⋮----
+# Get response from state (written by reasoning_after_model callback)
+response = ctx.session.state.get(LAST_REASONING_RESPONSE, "")
+⋮----
+# --- Extract and execute code blocks ---
+code_block_strs = find_code_blocks(response)
+code_blocks: list[CodeBlock] = []
+⋮----
+# Check if code contains llm_query calls that need AST rewriting
+⋮----
+has_llm_calls = None
+rewrite_for_async = None
+⋮----
+needs_async = has_llm_calls is not None and has_llm_calls(code_str)
+⋮----
+# AST rewrite and execute async
+⋮----
+rewritten = rewrite_for_async(code_str)
+ns = {**repl.globals, **repl.locals}
+⋮----
+repl_exec_fn = ns["_repl_exec"]
+result = await repl.execute_code_async(code_str, repl_exec_fn)
+⋮----
+result = REPLResult(
+⋮----
+# No LM calls (or no AST rewriter available) - execute synchronously
+result = repl.execute_code(code_str)
+⋮----
+# --- Check for final answer ---
+final_answer = find_final_answer(response, environment=repl)
+⋮----
+# Yield final content event
+⋮----
+# Store message history in persistent environment
+⋮----
+# --- Format iteration and update history ---
+iteration = RLMIteration(
+new_messages = format_iteration(iteration)
+⋮----
+# Yield iteration state delta
+⋮----
+# --- Max iterations exhausted ---
+⋮----
+exhausted_msg = (
+</file>
+
+<file path="rlm_adk/state.py">
+"""State key constants for the RLM ADK application.
+
+ADK state key prefix scoping:
+- (none): Session scope - persists within session
+- user: : User scope - persists across sessions for same user
+- app: : Application scope - persists across all users/sessions
+
+Note: cache: and obs: prefixes are naming conventions only (session-scoped).
+"""
+⋮----
+# Flow Control Keys
+APP_MAX_DEPTH = "app:max_depth"
+APP_MAX_ITERATIONS = "app:max_iterations"
+CURRENT_DEPTH = "current_depth"
+ITERATION_COUNT = "iteration_count"
+SHOULD_STOP = "should_stop"
+POLICY_VIOLATION = "policy_violation"
+⋮----
+# REPL Execution Keys
+MESSAGE_HISTORY = "message_history"
+CURRENT_CODE_BLOCKS = "current_code_blocks"
+LAST_REPL_RESULT = "last_repl_result"
+FINAL_ANSWER = "final_answer"
+LAST_REASONING_RESPONSE = "last_reasoning_response"
+⋮----
+# Persistence Keys
+HISTORY_COUNT = "history_count"
+# message_history_{N} are dynamic
+⋮----
+# Context Metadata Keys (used by callbacks/observability)
+REPO_URL = "repo_url"
+ROOT_PROMPT = "root_prompt"
+⋮----
+# Dynamic Instruction State Keys (session-scoped for ADK instruction template resolution)
+# These match the {var?} placeholders in RLM_DYNAMIC_INSTRUCTION so ADK can
+# resolve them at runtime via its built-in state variable injection.
+DYN_REPO_URL = "repo_url"
+DYN_ROOT_PROMPT = "root_prompt"
+⋮----
+# Caching Keys (session-scoped despite : separator)
+CACHE_STORE = "cache:store"
+CACHE_HIT_COUNT = "cache:hit_count"
+CACHE_MISS_COUNT = "cache:miss_count"
+CACHE_LAST_HIT_KEY = "cache:last_hit_key"
+⋮----
+# Observability Keys (session-scoped)
+OBS_TOTAL_INPUT_TOKENS = "obs:total_input_tokens"
+OBS_TOTAL_OUTPUT_TOKENS = "obs:total_output_tokens"
+OBS_TOTAL_CALLS = "obs:total_calls"
+OBS_ITERATION_TIMES = "obs:iteration_times"
+OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
+OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
+OBS_PER_ITERATION_TOKEN_BREAKDOWN = "obs:per_iteration_token_breakdown"
+INVOCATION_START_TIME = "invocation_start_time"
+REASONING_CALL_START = "reasoning_call_start"
+⋮----
+# Per-Invocation Token Accounting Keys
+REASONING_PROMPT_CHARS = "reasoning_prompt_chars"
+REASONING_SYSTEM_CHARS = "reasoning_system_chars"
+REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
+REASONING_CONTENT_COUNT = "reasoning_content_count"
+REASONING_INPUT_TOKENS = "reasoning_input_tokens"
+REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
+# Worker accounting keys store LISTS (not scalars) to preserve all workers'
+# data when multiple workers run in parallel via ParallelAgent.
+# Each worker callback appends its value to the list.  (Bug 002 fix)
+WORKER_PROMPT_CHARS = "worker_prompt_chars"
+WORKER_CONTENT_COUNT = "worker_content_count"
+WORKER_INPUT_TOKENS = "worker_input_tokens"
+WORKER_OUTPUT_TOKENS = "worker_output_tokens"
+CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
+⋮----
+# Type Validation Keys
+VALIDATION_PASS = "validation_pass"
+VALIDATION_ERRORS = "validation_errors"
+OBS_VALIDATION_FAIL_COUNT = "obs:validation_fail_count"
+⋮----
+# Worker Dispatch Lifecycle Keys
+WORKER_DISPATCH_COUNT = "worker_dispatch_count"
+WORKER_RESULTS_COMMITTED = "worker_results_committed"
+WORKER_DIRTY_READ_COUNT = "worker_dirty_read_count"
+WORKER_EVENTS_DRAINED = "worker_events_drained"
+⋮----
+# Worker Dispatch Timing Keys (session-scoped for cross-invocation tracking)
+OBS_WORKER_DISPATCH_LATENCY_MS = "obs:worker_dispatch_latency_ms"
+OBS_WORKER_TOTAL_DISPATCHES = "obs:worker_total_dispatches"
+OBS_WORKER_TOTAL_BATCH_DISPATCHES = "obs:worker_total_batch_dispatches"
+OBS_WORKER_DIRTY_READ_MISMATCHES = "obs:worker_dirty_read_mismatches"
+⋮----
+# API/Messaging Keys
+REQUEST_ID = "request_id"
+IDEMPOTENCY_KEY = "idempotency_key"
+USER_LAST_SUCCESSFUL_CALL_ID = "user:last_successful_call_id"
+⋮----
+# Artifact Tracking Keys (session-scoped)
+ARTIFACT_SAVE_COUNT = "artifact_save_count"
+ARTIFACT_LOAD_COUNT = "artifact_load_count"
+ARTIFACT_TOTAL_BYTES_SAVED = "artifact_total_bytes_saved"
+ARTIFACT_LAST_SAVED_FILENAME = "artifact_last_saved_filename"
+ARTIFACT_LAST_SAVED_VERSION = "artifact_last_saved_version"
+⋮----
+# Artifact Observability Keys (session-scoped)
+OBS_ARTIFACT_SAVES = "obs:artifact_saves"
+OBS_ARTIFACT_LOADS = "obs:artifact_loads"
+OBS_ARTIFACT_DELETES = "obs:artifact_deletes"
+OBS_ARTIFACT_BYTES_SAVED = "obs:artifact_bytes_saved"
+OBS_ARTIFACT_SAVE_LATENCY_MS = "obs:artifact_save_latency_ms"
+⋮----
+# Artifact Configuration Keys (app-scoped)
+APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"
+⋮----
+def obs_worker_dispatch_key(worker_name: str) -> str
+⋮----
+"""Generate the observability key for a specific worker's dispatch timing."""
+⋮----
+def obs_model_usage_key(model_name: str) -> str
+⋮----
+"""Generate the observability key for a specific model's usage stats."""
+⋮----
+def message_history_key(index: int) -> str
+⋮----
+"""Generate the session state key for a message history."""
+</file>
+
+<file path="rlm_adk/types.py">
+ClientBackend = Literal[
+EnvironmentType = Literal["local", "docker", "modal", "prime", "daytona", "e2b"]
+⋮----
+def _serialize_value(value: Any) -> Any
+⋮----
+"""Convert a value to a JSON-serializable representation."""
+⋮----
+# Try to convert to string for other types
+⋮----
+########################################################
+########    Types for LM Cost Tracking         #########
+⋮----
+@dataclass
+class ModelUsageSummary
+⋮----
+total_calls: int
+total_input_tokens: int
+total_output_tokens: int
+⋮----
+def to_dict(self)
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "ModelUsageSummary"
+⋮----
+@dataclass
+class UsageSummary
+⋮----
+model_usage_summaries: dict[str, ModelUsageSummary]
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "UsageSummary"
+⋮----
+########   Types for REPL and RLM Iterations   #########
+⋮----
+@dataclass
+class RLMChatCompletion
+⋮----
+"""Record of a single LLM call made from within the environment."""
+⋮----
+root_model: str
+prompt: str | dict[str, Any]
+response: str
+usage_summary: UsageSummary
+execution_time: float
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "RLMChatCompletion"
+⋮----
+@dataclass
+class REPLResult
+⋮----
+stdout: str
+stderr: str
+locals: dict
+⋮----
+llm_calls: list["RLMChatCompletion"]
+⋮----
+def __str__(self)
+⋮----
+@dataclass
+class CodeBlock
+⋮----
+code: str
+result: REPLResult
+⋮----
+@dataclass
+class RLMIteration
+⋮----
+code_blocks: list[CodeBlock]
+final_answer: str | None = None
+iteration_time: float | None = None
+⋮----
+########   Types for RLM Metadata   #########
+⋮----
+@dataclass
+class RLMMetadata
+⋮----
+"""Metadata about the RLM configuration."""
+⋮----
+max_depth: int
+max_iterations: int
+backend: str
+backend_kwargs: dict[str, Any]
+environment_type: str
+environment_kwargs: dict[str, Any]
+other_backends: list[str] | None = None
+</file>
+
+</files>

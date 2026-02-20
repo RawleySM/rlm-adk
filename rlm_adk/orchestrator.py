@@ -9,37 +9,58 @@ CRIT-1: All state writes inside _run_async_impl use yield Event(actions=EventAct
 import asyncio
 import logging
 import os
+import time
+import uuid
 from typing import Any, AsyncGenerator
 
 from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
+from google.genai.errors import APIError, ClientError, ServerError
 
+from rlm_adk.artifacts import save_final_answer, save_repl_code, save_repl_output
 from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.state import (
     APP_MAX_DEPTH,
     APP_MAX_ITERATIONS,
+    CURRENT_DEPTH,
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
-    TEMP_CURRENT_DEPTH,
-    TEMP_FINAL_ANSWER,
-    TEMP_ITERATION_COUNT,
-    TEMP_LAST_REASONING_RESPONSE,
-    TEMP_LAST_REPL_RESULT,
-    TEMP_MESSAGE_HISTORY,
-    TEMP_REPO_URL,
-    TEMP_ROOT_PROMPT,
-    TEMP_SHOULD_STOP,
-    TEMP_WORKER_EVENTS_DRAINED,
-    TEMP_WORKER_RESULTS_COMMITTED,
+    FINAL_ANSWER,
+    ITERATION_COUNT,
+    LAST_REASONING_RESPONSE,
+    LAST_REPL_RESULT,
+    MESSAGE_HISTORY,
+    REPO_URL,
+    REQUEST_ID,
+    ROOT_PROMPT,
+    SHOULD_STOP,
+    WORKER_EVENTS_DRAINED,
+    WORKER_RESULTS_COMMITTED,
 )
 from rlm_adk.types import CodeBlock, REPLResult, RLMIteration
 from rlm_adk.utils.parsing import find_code_blocks, find_final_answer, format_iteration
 from rlm_adk.utils.prompts import build_user_prompt
 
 logger = logging.getLogger(__name__)
+
+# Transient HTTP status codes that warrant a retry.
+_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+
+
+def is_transient_error(exc: Exception) -> bool:
+    """Classify an exception as transient (retryable) using type-based checks.
+
+    Only ``google.genai.errors.ServerError`` and ``ClientError`` with known
+    transient HTTP status codes are considered retryable.  Generic exceptions
+    are never retried, even if their message happens to contain a status code
+    string like "503".
+    """
+    if isinstance(exc, (ServerError, ClientError)):
+        return getattr(exc, "code", None) in _TRANSIENT_STATUS_CODES
+    return False
 
 
 class RLMOrchestratorAgent(BaseAgent):
@@ -112,19 +133,20 @@ class RLMOrchestratorAgent(BaseAgent):
             message_history: list[dict[str, str]] = []
 
             # Build initial state delta.
-            # - temp: keys are invocation-scoped (callbacks, observability).
-            # - Unprefixed DYN_ keys are session-scoped for ADK instruction
+            # - Unprefixed keys are session-scoped.
+            # - DYN_ keys are session-scoped for ADK instruction
             #   template resolution ({repo_url?}, {root_prompt?}).
             initial_state: dict[str, Any] = {
-                TEMP_MESSAGE_HISTORY: message_history,
-                TEMP_CURRENT_DEPTH: 1,
-                TEMP_ITERATION_COUNT: 0,
+                MESSAGE_HISTORY: message_history,
+                CURRENT_DEPTH: 1,
+                ITERATION_COUNT: 0,
+                REQUEST_ID: str(uuid.uuid4()),
             }
             if self.root_prompt:
-                initial_state[TEMP_ROOT_PROMPT] = self.root_prompt
+                initial_state[ROOT_PROMPT] = self.root_prompt
                 initial_state[DYN_ROOT_PROMPT] = self.root_prompt
             if self.repo_url:
-                initial_state[TEMP_REPO_URL] = self.repo_url
+                initial_state[REPO_URL] = self.repo_url
                 initial_state[DYN_REPO_URL] = self.repo_url
 
             # Yield initial state
@@ -151,13 +173,32 @@ class RLMOrchestratorAgent(BaseAgent):
                     invocation_id=ctx.invocation_id,
                     author=self.name,
                     actions=EventActions(state_delta={
-                        TEMP_MESSAGE_HISTORY: current_prompt,
+                        MESSAGE_HISTORY: current_prompt,
                     }),
                 )
 
-                # --- Dispatch to ReasoningAgent ---
-                async for event in self.reasoning_agent.run_async(ctx):
-                    yield event
+                # --- Dispatch to ReasoningAgent (with retry for transient errors) ---
+                max_retries = int(os.getenv("RLM_LLM_MAX_RETRIES", "3"))
+                base_delay = float(os.getenv("RLM_LLM_RETRY_DELAY", "5.0"))
+                for attempt in range(max_retries + 1):
+                    try:
+                        async for event in self.reasoning_agent.run_async(ctx):
+                            yield event
+                        break
+                    except Exception as exc:
+                        if not is_transient_error(exc) or attempt >= max_retries:
+                            raise
+                        delay = base_delay * (2 ** attempt)
+                        print(
+                            f"[RLM] iter={i} transient error (attempt {attempt + 1}/{max_retries + 1}): "
+                            f"{type(exc).__name__}. Retrying in {delay:.1f}s...",
+                            flush=True,
+                        )
+                        logger.warning(
+                            "Transient LLM error at iter=%d attempt=%d: %s. Retrying in %.1fs",
+                            i, attempt + 1, exc, delay,
+                        )
+                        await asyncio.sleep(delay)
 
                 # Drain worker event queue (BUG-3)
                 # After drain, yield a sync-point event so the Runner commits
@@ -168,13 +209,13 @@ class RLMOrchestratorAgent(BaseAgent):
                         yield event_queue.get_nowait()
                         drained += 1
                     if drained > 0:
-                        prev_drained = ctx.session.state.get(TEMP_WORKER_EVENTS_DRAINED, 0)
+                        prev_drained = ctx.session.state.get(WORKER_EVENTS_DRAINED, 0)
                         yield Event(
                             invocation_id=ctx.invocation_id,
                             author=self.name,
                             actions=EventActions(state_delta={
-                                TEMP_WORKER_EVENTS_DRAINED: prev_drained + drained,
-                                TEMP_WORKER_RESULTS_COMMITTED: True,
+                                WORKER_EVENTS_DRAINED: prev_drained + drained,
+                                WORKER_RESULTS_COMMITTED: True,
                             }),
                         )
                         print(
@@ -183,7 +224,7 @@ class RLMOrchestratorAgent(BaseAgent):
                         )
 
                 # Get response from state (written by reasoning_after_model callback)
-                response = ctx.session.state.get(TEMP_LAST_REASONING_RESPONSE, "")
+                response = ctx.session.state.get(LAST_REASONING_RESPONSE, "")
 
                 if not response:
                     print(
@@ -226,11 +267,25 @@ class RLMOrchestratorAgent(BaseAgent):
 
                     code_blocks.append(CodeBlock(code=code_str, result=result))
 
+                    # Auto-save REPL code as artifact
+                    turn_idx = len(code_blocks) - 1
+                    await save_repl_code(ctx, iteration=i, turn=turn_idx, code=code_str)
+
                 print(
                     f"[RLM] iter={i} code_blocks={len(code_blocks)} "
                     f"has_output={any(cb.result.stdout for cb in code_blocks)}",
                     flush=True,
                 )
+
+                # Auto-save REPL outputs as artifacts
+                for cb_idx, cb in enumerate(code_blocks):
+                    if cb.result.stdout or cb.result.stderr:
+                        await save_repl_output(
+                            ctx,
+                            iteration=i,
+                            stdout=cb.result.stdout,
+                            stderr=cb.result.stderr,
+                        )
 
                 # --- Check for final answer ---
                 final_answer = find_final_answer(response, environment=repl)
@@ -241,13 +296,17 @@ class RLMOrchestratorAgent(BaseAgent):
                         f"length={len(final_answer)}",
                         flush=True,
                     )
+
+                    # Auto-save final answer as artifact
+                    await save_final_answer(ctx, answer=final_answer)
+
                     yield Event(
                         invocation_id=ctx.invocation_id,
                         author=self.name,
                         actions=EventActions(state_delta={
-                            TEMP_FINAL_ANSWER: final_answer,
-                            TEMP_SHOULD_STOP: True,
-                            TEMP_ITERATION_COUNT: i + 1,
+                            FINAL_ANSWER: final_answer,
+                            SHOULD_STOP: True,
+                            ITERATION_COUNT: i + 1,
                         }),
                     )
                     # Yield final content event
@@ -280,8 +339,8 @@ class RLMOrchestratorAgent(BaseAgent):
                     invocation_id=ctx.invocation_id,
                     author=self.name,
                     actions=EventActions(state_delta={
-                        TEMP_ITERATION_COUNT: i + 1,
-                        TEMP_LAST_REPL_RESULT: {
+                        ITERATION_COUNT: i + 1,
+                        LAST_REPL_RESULT: {
                             "code_blocks": len(code_blocks),
                             "has_output": any(cb.result.stdout for cb in code_blocks),
                         },
@@ -315,9 +374,9 @@ class RLMOrchestratorAgent(BaseAgent):
                 invocation_id=ctx.invocation_id,
                 author=self.name,
                 actions=EventActions(state_delta={
-                    TEMP_FINAL_ANSWER: exhausted_msg,
-                    TEMP_SHOULD_STOP: True,
-                    TEMP_ITERATION_COUNT: max_iterations,
+                    FINAL_ANSWER: exhausted_msg,
+                    SHOULD_STOP: True,
+                    ITERATION_COUNT: max_iterations,
                 }),
             )
             yield Event(

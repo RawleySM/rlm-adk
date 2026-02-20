@@ -1,7 +1,7 @@
 {
   "state": {
     "repo_url": "https://github.com/google/adk-python",
-    "app:max_iterations": 20,
+    "app:max_iterations": 10,
     "app:max_depth": 1
   },
   "queries": [
