@@ -178,6 +178,7 @@ class LocalREPL:
         self.original_cwd = os.getcwd()
         self._history_count: int = 0
         self._pending_llm_calls: list[RLMChatCompletion] = []
+        self._last_exec_error: str | None = None
 
         # Setup globals and locals
         self.globals: dict[str, Any] = {
@@ -217,16 +218,21 @@ class LocalREPL:
             return str(self.locals[variable_name])
 
         available = [k for k in self.locals.keys() if not k.startswith("_")]
+        error_hint = ""
+        if self._last_exec_error:
+            error_hint = f" Last execution error: {self._last_exec_error}"
         if available:
             return (
                 f"Error: Variable '{variable_name}' not found. "
                 f"Available variables: {available}. "
                 f"You must create and assign a variable BEFORE calling FINAL_VAR on it."
+                f"{error_hint}"
             )
         return (
             f"Error: Variable '{variable_name}' not found. "
             f"No variables have been created yet. "
             f"You must create and assign a variable in a REPL block BEFORE calling FINAL_VAR on it."
+            f"{error_hint}"
         )
 
     def _show_vars(self) -> str:
@@ -303,9 +309,11 @@ class LocalREPL:
 
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
+                self._last_exec_error = None
             except Exception as e:
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
+                self._last_exec_error = f"{type(e).__name__}: {e}"
 
         return REPLResult(
             stdout=stdout,
@@ -343,9 +351,11 @@ class LocalREPL:
 
             stdout = stdout_buf.getvalue()
             stderr = stderr_buf.getvalue()
+            self._last_exec_error = None
         except Exception as e:
             stdout = stdout_buf.getvalue()
             stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
+            self._last_exec_error = f"{type(e).__name__}: {e}"
         finally:
             _capture_stdout.reset(tok_out)
             _capture_stderr.reset(tok_err)

@@ -288,7 +288,20 @@ class RLMOrchestratorAgent(BaseAgent):
                         )
 
                 # --- Check for final answer ---
-                final_answer = find_final_answer(response, environment=repl)
+                # Skip FINAL_VAR resolution when code blocks had errors: the
+                # variable likely doesn't exist yet and the error string would
+                # be returned as the "final answer", terminating the loop
+                # before the reasoning agent can see the error and retry.
+                any_code_error = any(cb.result.stderr for cb in code_blocks)
+
+                if any_code_error and code_blocks:
+                    logger.warning(
+                        "Skipping FINAL_VAR resolution at iter %d: code block had errors",
+                        i,
+                    )
+                    final_answer = None
+                else:
+                    final_answer = find_final_answer(response, environment=repl)
 
                 if final_answer is not None:
                     print(

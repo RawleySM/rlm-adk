@@ -250,3 +250,80 @@ class TestREPLFailures:
         result = repl.execute_code(code)
         assert "before error" in result.stdout
         assert "RuntimeError" in result.stderr
+
+    def test_last_exec_error_set_on_failure(self, repl):
+        repl.execute_code("1/0")
+        assert repl._last_exec_error is not None
+        assert "ZeroDivisionError" in repl._last_exec_error
+
+    def test_last_exec_error_cleared_on_success(self, repl):
+        repl.execute_code("1/0")
+        assert repl._last_exec_error is not None
+        repl.execute_code("x = 1")
+        assert repl._last_exec_error is None
+
+    def test_final_var_includes_exec_error_context(self, repl):
+        """When a code block errors, _final_var should mention the last error."""
+        repl.execute_code("total = 0.0\ntotal += 'not a number'")
+        assert repl._last_exec_error is not None
+        msg = repl._final_var("total")
+        assert "Error" in msg
+        assert "TypeError" in msg
+        assert "Last execution error" in msg
+
+    def test_final_var_no_error_hint_on_success(self, repl):
+        """When no error, _final_var should not mention execution errors."""
+        repl.execute_code("x = 42")
+        msg = repl._final_var("missing")
+        assert "Last execution error" not in msg
+
+
+# ── BUG-008 FINAL_VAR skip on code errors ──────────────────────────────
+
+
+class TestFinalVarSkipOnCodeError:
+    """BUG-008: FINAL_VAR should not resolve when code blocks errored."""
+
+    def test_code_error_plus_final_var_should_not_produce_answer(self):
+        """Simulates the orchestrator check: code errors -> skip FINAL_VAR."""
+        from rlm_adk.types import CodeBlock, REPLResult
+
+        # Simulate a code block that errored
+        error_result = REPLResult(
+            stdout="",
+            stderr="\nTypeError: unsupported operand type(s) for +=: 'float' and 'str'",
+            locals={},
+        )
+        code_blocks = [CodeBlock(code="total += row", result=error_result)]
+
+        # This is the same check the orchestrator now uses
+        any_code_error = any(cb.result.stderr for cb in code_blocks)
+        assert any_code_error is True
+
+        # When there are code errors, orchestrator sets final_answer = None
+        # instead of calling find_final_answer
+        if any_code_error and code_blocks:
+            final_answer = None
+        else:
+            final_answer = find_final_answer(
+                "FINAL_VAR(total)", environment=LocalREPL()
+            )
+
+        assert final_answer is None
+
+    def test_no_code_error_allows_final_var_resolution(self):
+        """When code succeeds, FINAL_VAR should resolve normally."""
+        from rlm_adk.types import CodeBlock, REPLResult
+
+        repl = LocalREPL()
+        repl.execute_code("total = 42")
+
+        ok_result = REPLResult(stdout="42", stderr="", locals={"total": 42})
+        code_blocks = [CodeBlock(code="total = 42", result=ok_result)]
+
+        any_code_error = any(cb.result.stderr for cb in code_blocks)
+        assert any_code_error is False
+
+        final_answer = find_final_answer("FINAL_VAR(total)", environment=repl)
+        assert final_answer == "42"
+        repl.cleanup()
