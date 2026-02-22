@@ -36,19 +36,60 @@ answer = llm_query(f"What is the magic number? Here is the chunk: {chunk}")
 print(answer)
 ```
 
-As an example, suppose you're trying to answer a question about a book. You can load the book, chunk it section by section, query an LLM on each chunk, and track relevant information in a buffer.
+As an example, suppose you need to analyze a repository to answer a question. You can pack the repo with repomix, split it into directory-aware chunks, query an LLM on each chunk, and aggregate the results with a single final `llm_query` call.
 ```repl
-query = "In Harry Potter and the Sorcerer's Stone, did Gryffindor win the House Cup because they led?"
-with open("/path/to/book.txt") as f:
-    sections = f.read().split("\\n\\n")
-buffers = []
-for i, section in enumerate(sections):
-    if i == len(sections) - 1:
-        buffer = llm_query(f"You are on the last section of the book. So far you know that: {buffers}. Gather from this last section to answer {query}. Here is the section: {section}")
-        print(f"Based on reading iteratively through the book, the answer is: {buffer}")
-    else:
-        buffer = llm_query(f"You are iteratively looking through a book, and are on section {i} of {len(sections)}. Gather information to help answer {query}. Here is the section: {section}")
-        print(f"After section {i} of {len(sections)}, you have tracked: {buffer}")
+from repomix import RepoProcessor, RepomixConfig
+from repomix.core.file.file_search import search_files
+from repomix.core.file.file_collect import collect_files
+from repomix.core.file.file_process import process_files
+from repomix.core.output.output_generate import generate_output
+from repomix.core.output.output_split import generate_split_output_parts
+
+query = "What design patterns does this codebase use and how do modules depend on each other?"
+
+# Pack the repo (use repo_url= for remote repos, directory= for local)
+config = RepomixConfig()
+config.output.file_path = "/tmp/repo.xml"
+config.output.style = "xml"
+config.output.calculate_tokens = True
+processor = RepoProcessor(repo_url="https://github.com/org/repo", config=config)
+result = processor.process()
+print(f"Files: {result.total_files}, Tokens: {result.total_tokens}")
+
+if result.total_tokens < 125_000:
+    # Small repo — analyze in one shot
+    analysis = llm_query(f"{query}\\n\\n{result.output_content}")
+    print(analysis)
+else:
+    # Large repo — split at directory boundaries and analyze per chunk
+    import subprocess
+    repo_path = "/tmp/my_repo"
+    subprocess.run(["git", "clone", "--depth=1", "https://github.com/org/repo", repo_path], check=True)
+    search_result = search_files(repo_path, config)
+    raw_files = collect_files(search_result.file_paths, repo_path)
+    processed_files = process_files(raw_files, config)
+    file_char_counts = {pf.path: len(pf.content) for pf in processed_files}
+    file_token_counts = {pf.path: 0 for pf in processed_files}
+    all_file_paths = [pf.path for pf in processed_files]
+    parts = generate_split_output_parts(
+        processed_files=processed_files, all_file_paths=all_file_paths,
+        max_bytes_per_part=500 * 1024, base_config=config,
+        generate_output_fn=generate_output,
+        file_char_counts=file_char_counts, file_token_counts=file_token_counts,
+    )
+    chunks = [part.content for part in parts]
+    print(f"Split into {len(chunks)} chunks")
+
+    # Query each chunk concurrently
+    prompts = [f"{query}\\n\\n{chunk}" for chunk in chunks]
+    analyses = llm_query_batched(prompts)
+    for i, a in enumerate(analyses):
+        print(f"Chunk {i}: {a[:200]}...")
+
+    # Aggregate with a single llm_query call
+    combined = "\\n\\n---\\n\\n".join(f"Part {i+1}:\\n{a}" for i, a in enumerate(analyses))
+    final_answer = llm_query(f"Synthesize these partial analyses into one answer for: {query}\\n\\n{combined}")
+    print(final_answer)
 ```
 
 As another example, when the data isn't that long (e.g. <100M characters), a simple but viable strategy is to split it into chunks and recursively query an LLM over each chunk using `llm_query_batched` for concurrent processing:
@@ -111,9 +152,17 @@ Think step by step carefully, plan, and execute this plan immediately in your re
 
 When your context includes a repository URL or source code, use `repomix-python` in the REPL to pack and analyze repositories entirely in memory. Always use **xml** output style — its structured tags (`<file>`, `<path>`, `<content>`) give sub-LLMs explicit file boundaries for more reliable parsing than markdown or plain text.
 
-### Packing a Repository into an In-Memory Variable
+### API Reference
 
-Use `RepoProcessor` to convert a repository into packed XML, then read the output into a Python variable immediately — keep everything in memory rather than referencing files on disk:
+`RepoProcessor` accepts these key parameters (use keyword arguments):
+- `directory="/path/to/local/repo"` — local directory path
+- `repo_url="https://github.com/org/repo"` — remote URL (auto-clones to a temp dir)
+- `config=config` — a `RepomixConfig` object
+
+IMPORTANT: Do NOT pass a URL as the first positional argument — that is the `directory` parameter and expects a local path. Use `repo_url=` for remote repositories.
+
+### Packing a Local Repository
+
 ```repl
 from repomix import RepoProcessor, RepomixConfig
 
@@ -122,62 +171,101 @@ config.output.file_path = "/tmp/repo.xml"
 config.output.style = "xml"
 config.output.calculate_tokens = True
 
-processor = RepoProcessor("/path/to/repo", config=config)
+processor = RepoProcessor("/path/to/local/repo", config=config)
 result = processor.process()
 print(f"Files: {result.total_files}, Tokens: {result.total_tokens}")
 
-# Read packed output into memory immediately
-packed = open("/tmp/repo.xml").read()
+packed = result.output_content  # already in memory — no need to read from disk
 print(f"Packed size: {len(packed)} chars")
+```
+
+### Packing a Remote Repository
+
+```repl
+from repomix import RepoProcessor, RepomixConfig
+
+config = RepomixConfig()
+config.output.file_path = "/tmp/repo.xml"
+config.output.style = "xml"
+config.output.calculate_tokens = True
+
+processor = RepoProcessor(repo_url="https://github.com/org/repo", config=config)
+result = processor.process()
+packed = result.output_content
+print(f"Files: {result.total_files}, Tokens: {result.total_tokens}, Chars: {len(packed)}")
 ```
 
 ### Choosing a Strategy Based on Token Count
 
-Enable token counting to decide whether the repo fits in one sub-LLM call or needs splitting:
 ```repl
-from repomix import RepoProcessor, RepomixConfig
-
-config = RepomixConfig()
-config.output.file_path = "/tmp/repo.xml"
-config.output.style = "xml"
-config.output.calculate_tokens = True
-
-processor = RepoProcessor("/path/to/repo", config=config)
-result = processor.process()
-
 if result.total_tokens < 125_000:
-    # Small enough — read into memory and analyze in one shot
-    packed = open("/tmp/repo.xml").read()
+    # Small enough — analyze in one shot
     analysis = llm_query(f"Analyze this repository:\\n\\n{packed}")
     print(analysis)
 else:
-    print(f"Large repo ({result.total_tokens} tokens) — use output splitting")
+    print(f"Large repo ({result.total_tokens} tokens) — use directory-aware splitting")
 ```
 
-### Splitting Large Repos and Loading into Memory
+### Splitting Large Repos with generate_split_output_parts
 
-For repositories too large for one context window, split the packed output and load all parts into a Python list — no loose files, everything stays in memory:
+For repos too large for one context window, use `generate_split_output_parts()` to split output at directory boundaries. This groups files by top-level directory and packs groups into parts that stay under the byte limit.
+
+NOTE: Do NOT use `config.output.split_output` — it is defined in the config schema but never wired into `RepoProcessor`. You must call `generate_split_output_parts()` directly.
+
 ```repl
 from repomix import RepoProcessor, RepomixConfig
-import glob
+from repomix.core.file.file_search import search_files
+from repomix.core.file.file_collect import collect_files
+from repomix.core.file.file_process import process_files
+from repomix.core.output.output_generate import generate_output
+from repomix.core.output.output_split import generate_split_output_parts
 
 config = RepomixConfig()
 config.output.file_path = "/tmp/repo.xml"
 config.output.style = "xml"
-config.output.split_output = 500 * 1024  # ~500KB per part (~125K tokens)
 
-processor = RepoProcessor("/path/to/repo", config=config)
-result = processor.process()
+# Step 1: Collect and process files
+repo_path = "/path/to/repo"  # must be a local directory
+search_result = search_files(repo_path, config)
+raw_files = collect_files(search_result.file_paths, repo_path)
+processed_files = process_files(raw_files, config)
 
-# Load every split part into an in-memory list
-parts = sorted(glob.glob("/tmp/repo*.xml"))
-chunks = [open(p).read() for p in parts]
-print(f"Split into {len(chunks)} in-memory chunks ({sum(len(c) for c in chunks)} total chars)")
+# Step 2: Build file metadata
+file_char_counts = {pf.path: len(pf.content) for pf in processed_files}
+file_token_counts = {pf.path: 0 for pf in processed_files}
+all_file_paths = [pf.path for pf in processed_files]
+
+# Step 3: Split into ~500KB parts at directory boundaries
+parts = generate_split_output_parts(
+    processed_files=processed_files,
+    all_file_paths=all_file_paths,
+    max_bytes_per_part=500 * 1024,
+    base_config=config,
+    generate_output_fn=generate_output,
+    file_char_counts=file_char_counts,
+    file_token_counts=file_token_counts,
+)
+
+# Step 4: Load all parts into memory
+chunks = [part.content for part in parts]
+for i, part in enumerate(parts):
+    groups = [g.root_entry for g in part.groups]
+    print(f"Chunk {i}: {len(part.content)} chars, dirs: {groups}")
+print(f"Total: {len(chunks)} chunks, {sum(len(c) for c in chunks)} chars")
+```
+
+If the repo is remote, clone it first:
+```repl
+import subprocess, shutil
+repo_path = "/tmp/my_repo"
+if not os.path.exists(repo_path):
+    subprocess.run(["git", "clone", "--depth=1", "https://github.com/org/repo", repo_path], check=True)
+# Then use repo_path in the splitting code above
 ```
 
 ### Concurrent Chunk Analysis with llm_query_batched
 
-After loading chunks into memory, use `llm_query_batched` to dispatch one prompt per chunk concurrently — this is the fastest strategy for large repos:
+After splitting into chunks, use `llm_query_batched` to dispatch one prompt per chunk concurrently:
 ```repl
 query = "Identify the key modules, public APIs, architecture patterns, and inter-module dependencies in this section of the codebase."
 prompts = [f"{query}\\n\\n{chunk}" for chunk in chunks]
@@ -186,7 +274,6 @@ analyses = llm_query_batched(prompts)
 for i, a in enumerate(analyses):
     print(f"--- Part {i+1} ---\\n{a[:200]}...")
 
-# Aggregate into a final comprehensive summary
 combined = "\\n\\n---\\n\\n".join(
     f"Part {i+1}:\\n{a}" for i, a in enumerate(analyses)
 )
@@ -201,9 +288,9 @@ print(final_summary)
 ### Recommended Strategy for Repository Analysis
 
 1. Pack the repo with `style = "xml"` and `calculate_tokens = True`
-2. Read the output into a Python variable — keep everything in memory
-3. If `result.total_tokens` < ~125K, analyze in a single `llm_query` call
-4. Otherwise enable `split_output`, load all parts into a list, and use `llm_query_batched` to analyze concurrently
+2. Use `result.output_content` to get the packed output in memory
+3. If `result.total_tokens` < ~50K, analyze in a single `llm_query` call
+4. Otherwise use `generate_split_output_parts()` to split at directory boundaries, load parts into a list, and use `llm_query_batched` to analyze concurrently
 5. Aggregate partial results with a final `llm_query` call
 """)
 
