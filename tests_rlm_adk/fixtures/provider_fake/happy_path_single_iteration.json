@@ -1,0 +1,45 @@
+{
+  "scenario_id": "happy_path_single_iteration",
+  "description": "Reasoning agent returns FINAL(42) on first iteration. No code blocks, no workers.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "After analyzing the problem, the answer is straightforward.\n\nFINAL(42)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 170
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "42",
+    "total_iterations": 1,
+    "total_model_calls": 1
+  }
+}

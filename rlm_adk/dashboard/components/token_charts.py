@@ -98,20 +98,26 @@ def build_iteration_breakdown_table(
         {"name": "iter", "label": "Iter", "field": "iter", "align": "left"},
         {"name": "input", "label": "Input Tokens", "field": "input", "align": "right"},
         {"name": "output", "label": "Output Tokens", "field": "output", "align": "right"},
+        {"name": "delta", "label": "Delta", "field": "delta", "align": "right"},
         {"name": "workers", "label": "Workers", "field": "workers", "align": "right"},
     ]
 
     rows = []
+    prev_total = 0
     for it in iterations:
         total_in = it.reasoning_input_tokens + it.worker_input_tokens
         total_out = it.reasoning_output_tokens + it.worker_output_tokens
+        current_total = total_in + total_out
+        delta = current_total - prev_total
         worker_count = len(it.worker_windows)
         rows.append({
             "iter": it.iteration_index,
             "input": f"{total_in:,}",
             "output": f"{total_out:,}",
+            "delta": f"{delta:+,}" if it.iteration_index > 0 else "-",
             "workers": str(worker_count) if worker_count > 0 else "-",
         })
+        prev_total = current_total
 
     ui.label("Per-Iteration Breakdown").classes("text-subtitle1")
 

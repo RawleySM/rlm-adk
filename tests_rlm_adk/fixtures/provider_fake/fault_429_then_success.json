@@ -1,0 +1,58 @@
+{
+  "scenario_id": "fault_429_then_success",
+  "description": "First reasoning call returns 429 (rate limit). Retry succeeds with FINAL(ok). Tests SDK + app-level retry.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The system recovered from the transient error.\n\nFINAL(ok)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 165
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 0,
+      "fault_type": "http_error",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Resource has been exhausted (e.g. check quota).",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "final_answer": "ok",
+    "total_iterations": 1,
+    "total_model_calls": 2
+  }
+}

@@ -14,6 +14,7 @@ from rlm_adk.dashboard.data_models import (
     APITokenUsage,
     ContextChunk,
     IterationData,
+    ModelOutput,
     SessionSummary,
     TokenReconciliation,
 )
@@ -29,6 +30,7 @@ class DashboardState:
     iterations: list[IterationData] = field(default_factory=list)
     current_iteration: int = 0
     selected_chunk: ContextChunk | None = None
+    selected_worker_chunk: ContextChunk | None = None
     api_usage: APITokenUsage | None = None
     reconciliation: TokenReconciliation | None = None
     is_loading: bool = False
@@ -38,6 +40,14 @@ class DashboardState:
         """Return the IterationData for the current iteration index."""
         if 0 <= self.current_iteration < len(self.iterations):
             return self.iterations[self.current_iteration]
+        return None
+
+    @property
+    def current_reasoning_output(self) -> ModelOutput | None:
+        """Return the ModelOutput for the reasoning agent in the current iteration."""
+        it_data = self.current_iteration_data
+        if it_data is not None:
+            return it_data.reasoning_output
         return None
 
     @property
@@ -66,6 +76,7 @@ class DashboardController:
             self.state.iterations = iterations
             self.state.current_iteration = 0
             self.state.selected_chunk = None
+            self.state.selected_worker_chunk = None
             self.state.reconciliation = None
             self.state.api_usage = None
         finally:
@@ -93,6 +104,10 @@ class DashboardController:
     def select_chunk(self, chunk: ContextChunk) -> None:
         """Select a chunk for detail display."""
         self.state.selected_chunk = chunk
+
+    def select_worker_chunk(self, chunk: ContextChunk) -> None:
+        """Select a worker chunk for the worker detail panel."""
+        self.state.selected_worker_chunk = chunk
 
     def find_chunk_by_id(self, chunk_id: str) -> ContextChunk | None:
         """Find a chunk by its chunk_id in the current iteration."""

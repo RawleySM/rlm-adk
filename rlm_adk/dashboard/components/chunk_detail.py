@@ -66,6 +66,44 @@ def render_chunk_detail(controller: DashboardController) -> None:
                     _render_text_preview(chunk.full_text)
 
 
+def render_worker_detail(controller: DashboardController) -> None:
+    """Render the worker prompt detail panel (right-most of three panels)."""
+    chunk = controller.state.selected_worker_chunk
+    if chunk is None:
+        ui.label("Click a worker badge to view details").classes(
+            "text-body2 text-grey-7"
+        )
+        return
+
+    is_code = chunk.category == ChunkCategory.REPL_CODE
+
+    with ui.card().classes("w-full").style("border-left: 4px solid #F43F5E"):
+        ui.label(chunk.title).classes("text-h6")
+
+        with ui.row().style("gap: 0.75rem"):
+            ui.badge(f"{chunk.char_count:,} chars", color="grey-7")
+            ui.badge(f"~{chunk.estimated_tokens:,} tokens", color="primary")
+
+        if is_code:
+            ui.code(chunk.text_preview_head, language="python").classes("w-full")
+        else:
+            _render_text_preview(chunk.text_preview_head)
+
+        if chunk.text_preview_tail != chunk.text_preview_head:
+            ui.label("...").classes("text-center text-grey-6")
+            if is_code:
+                ui.code(chunk.text_preview_tail, language="python").classes("w-full")
+            else:
+                _render_text_preview(chunk.text_preview_tail)
+
+        with ui.expansion("Show full text").classes("w-full"):
+            with ui.scroll_area().style("max-height: 400px; min-height: 100px"):
+                if is_code:
+                    ui.code(chunk.full_text, language="python").classes("w-full")
+                else:
+                    _render_text_preview(chunk.full_text)
+
+
 def _render_text_preview(text: str) -> None:
     """Render arbitrary text faithfully without markdown interpretation.
 

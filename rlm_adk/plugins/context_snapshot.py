@@ -57,13 +57,17 @@ class ContextWindowSnapshotPlugin(BasePlugin):
         *,
         name: str = "context_snapshot",
         output_path: str = ".adk/context_snapshots.jsonl",
+        output_capture_path: str = ".adk/model_outputs.jsonl",
     ):
         super().__init__(name=name)
         self._output_path = Path(output_path)
+        self._output_capture_path = Path(output_capture_path)
         # Dict keyed by agent name for concurrent worker safety
         self._pending: dict[str, dict[str, Any]] = {}
         self._file_handle: TextIOWrapper | None = None
+        self._output_file_handle: TextIOWrapper | None = None
         self._write_lock = asyncio.Lock()
+        self._output_write_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # before_model_callback: stash reference (do NOT decompose yet)
@@ -149,6 +153,27 @@ class ContextWindowSnapshotPlugin(BasePlugin):
 
             await self._flush_entry(entry)
 
+            # --- Model output capture ---
+            output_text, thought_text = self._extract_response_text(llm_response)
+            output_entry: dict[str, Any] = {
+                "timestamp": pending["timestamp"],
+                "session_id": pending["session_id"],
+                "iteration": pending["iteration"],
+                "agent_type": agent_type,
+                "agent_name": agent_name,
+                "model": llm_request.model or "unknown",
+                "model_version": llm_response.model_version or "unknown",
+                "output_text": output_text,
+                "output_chars": len(output_text),
+                "thought_chars": len(thought_text),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "thoughts_tokens": thoughts_tokens,
+                "error": False,
+                "error_message": None,
+            }
+            await self._flush_output_entry(output_entry)
+
         except Exception as e:
             print(
                 f"[RLM_SNAP] after_model error: {e}", file=sys.stdout, flush=True
@@ -202,6 +227,27 @@ class ContextWindowSnapshotPlugin(BasePlugin):
 
             await self._flush_entry(entry)
 
+            # --- Model output capture (error case) ---
+            error_msg = f"{type(error).__name__}: {error}"
+            output_entry: dict[str, Any] = {
+                "timestamp": pending["timestamp"],
+                "session_id": pending["session_id"],
+                "iteration": pending["iteration"],
+                "agent_type": agent_type,
+                "agent_name": agent_name,
+                "model": llm_request.model or "unknown",
+                "model_version": "unknown",
+                "output_text": "",
+                "output_chars": 0,
+                "thought_chars": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "thoughts_tokens": 0,
+                "error": True,
+                "error_message": error_msg,
+            }
+            await self._flush_output_entry(output_entry)
+
         except Exception as e:
             print(
                 f"[RLM_SNAP] on_model_error error: {e}",
@@ -220,13 +266,19 @@ class ContextWindowSnapshotPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
     ) -> None:
-        """Close the JSONL file handle."""
+        """Close the JSONL file handles."""
         try:
             if self._file_handle is not None:
                 self._file_handle.close()
                 self._file_handle = None
                 logger.info(
                     "Context snapshots written to %s", self._output_path
+                )
+            if self._output_file_handle is not None:
+                self._output_file_handle.close()
+                self._output_file_handle = None
+                logger.info(
+                    "Model outputs written to %s", self._output_capture_path
                 )
         except Exception as e:
             logger.debug("ContextSnapshot after_run error: %s", e)
@@ -554,6 +606,29 @@ class ContextWindowSnapshotPlugin(BasePlugin):
         return chunk
 
     # ------------------------------------------------------------------
+    # Response text extraction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]:
+        """Extract visible output text and thought text from LlmResponse.
+
+        Returns:
+            (output_text, thought_text) tuple.
+        """
+        output_parts: list[str] = []
+        thought_parts: list[str] = []
+        if llm_response.content and llm_response.content.parts:
+            for p in llm_response.content.parts:
+                if not isinstance(p, types.Part) or not p.text:
+                    continue
+                if getattr(p, "thought", False):
+                    thought_parts.append(p.text)
+                else:
+                    output_parts.append(p.text)
+        return "".join(output_parts), "".join(thought_parts)
+
+    # ------------------------------------------------------------------
     # JSONL file I/O
     # ------------------------------------------------------------------
 
@@ -562,6 +637,14 @@ class ContextWindowSnapshotPlugin(BasePlugin):
         if self._file_handle is None:
             self._output_path.parent.mkdir(parents=True, exist_ok=True)
             self._file_handle = open(self._output_path, "a", encoding="utf-8")
+
+    def _ensure_output_file_open(self) -> None:
+        """Lazily open the model outputs JSONL file on first write."""
+        if self._output_file_handle is None:
+            self._output_capture_path.parent.mkdir(parents=True, exist_ok=True)
+            self._output_file_handle = open(
+                self._output_capture_path, "a", encoding="utf-8"
+            )
 
     async def _flush_entry(self, entry: dict[str, Any]) -> None:
         """Write a single JSONL line atomically (asyncio.Lock for safety)."""
@@ -577,3 +660,20 @@ class ContextWindowSnapshotPlugin(BasePlugin):
                 f"[RLM_SNAP] flush error: {e}", file=sys.stdout, flush=True
             )
             logger.debug("ContextSnapshot flush error: %s", e)
+
+    async def _flush_output_entry(self, entry: dict[str, Any]) -> None:
+        """Write a model output JSONL line atomically."""
+        try:
+            line = json.dumps(entry, ensure_ascii=False)
+            async with self._output_write_lock:
+                self._ensure_output_file_open()
+                assert self._output_file_handle is not None
+                self._output_file_handle.write(line + "\n")
+                self._output_file_handle.flush()
+        except Exception as e:
+            print(
+                f"[RLM_SNAP] output flush error: {e}",
+                file=sys.stdout,
+                flush=True,
+            )
+            logger.debug("ContextSnapshot output flush error: %s", e)

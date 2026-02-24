@@ -87,6 +87,39 @@ class ContextWindow:
 
 
 @dataclass
+class ModelOutput:
+    timestamp: float
+    session_id: str
+    iteration: int
+    agent_type: str  # "reasoning" | "worker"
+    agent_name: str
+    model: str
+    model_version: str
+    output_text: str
+    output_chars: int
+    thought_chars: int
+    input_tokens: int
+    output_tokens: int
+    thoughts_tokens: int
+    error: bool = False
+    error_message: str | None = None
+
+    @property
+    def text_preview_head(self) -> str:
+        """First 5 lines of output text."""
+        lines = self.output_text.split("\n")
+        return "\n".join(lines[:5])
+
+    @property
+    def text_preview_tail(self) -> str:
+        """Last 5 lines of output text."""
+        lines = self.output_text.split("\n")
+        if len(lines) > 5:
+            return "\n".join(lines[-5:])
+        return self.text_preview_head
+
+
+@dataclass
 class IterationData:
     iteration_index: int
     reasoning_window: ContextWindow | None
@@ -98,6 +131,8 @@ class IterationData:
     has_workers: bool = False
     timestamp_start: float = 0.0
     timestamp_end: float = 0.0
+    reasoning_output: ModelOutput | None = None
+    worker_outputs: list[ModelOutput] = field(default_factory=list)
 
 
 @dataclass

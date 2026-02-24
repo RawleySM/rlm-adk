@@ -1,0 +1,46 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.venv/lib/python3.11/site-packages/google/adk/models/google_llm.py",
+  "library": "google-genai",
+  "import_prefix": "google.genai",
+  "imported_classes": [
+    "Client",
+    "ClientError",
+    "types"
+  ],
+  "call_sites": [
+    {
+      "symbol": "Client",
+      "instances": [
+        {
+          "name": null,
+          "line": 307
+        },
+        {
+          "name": null,
+          "line": 339
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass Client(\n    *,\n    vertexai: bool | None = None,\n    api_key: str | None = None,\n    credentials: Unknown | None = None,\n    project: str | None = None,\n    location: str | None = None,\n    debug_config: DebugConfig | None = None,\n    http_options: HttpOptions | HttpOptionsDict | None = None\n)\n```\n---\nInitializes the client.\n\nArgs:  \n&nbsp;&nbsp;&nbsp;vertexai (bool): Indicates whether the client should use the Vertex AI  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;API endpoints. Defaults to False (uses Gemini Developer API endpoints).\nApplies to the Vertex AI API only.  \n&nbsp;&nbsp;&nbsp;api\\_key (str): The `API key  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<https://ai.google.dev/gemini-api/docs/api-key>`\\_ to use for\nauthentication. Applies to the Gemini Developer API only.  \n&nbsp;&nbsp;&nbsp;credentials (google.auth.credentials.Credentials): The credentials to use  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for authentication when calling the Vertex AI APIs. Credentials can be\nobtained from environment variables and default credentials. For more\ninformation, see `Set up Application Default Credentials\n<https://cloud.google.com/docs/authentication/provide-credentials-adc>`\\_.\nApplies to the Vertex AI API only.  \n&nbsp;&nbsp;&nbsp;project (str): The `Google Cloud project ID  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<https://cloud.google.com/vertex-ai/docs/start/cloud-environment>`\\_ to\nuse for quota. Can be obtained from environment variables (for example,\n`GOOGLE_CLOUD_PROJECT`). Applies to the Vertex AI API only.  \n&nbsp;&nbsp;&nbsp;location (str): The `location  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations>`\\_\nto send API requests to (for example, `us-central1`). Can be obtained\nfrom environment variables. Applies to the Vertex AI API only.  \n&nbsp;&nbsp;&nbsp;debug\\_config (DebugConfig): Config settings that control network behavior  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;of the client. This is typically used when running test code.  \n&nbsp;&nbsp;&nbsp;http\\_options (Union\\[HttpOptions, HttpOptionsDict\\]): Http options to use  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for the client."
+      }
+    }
+  ],
+  "type_annotations": [
+    {
+      "symbol": "ClientError",
+      "usages": [
+        {
+          "context": "base:_ResourceExhaustedError",
+          "line": 61
+        },
+        {
+          "context": "param:client_error",
+          "line": 66
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) ClientError\n```\n---\nClient error raised by the GenAI API."
+      }
+    }
+  ]
+}

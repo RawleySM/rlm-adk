@@ -1,75 +1,52 @@
-"""API token usage and reconciliation card."""
+"""Worker token usage panel -- horizontal badge bar."""
 
 from __future__ import annotations
+
+from typing import Callable
 
 from nicegui import ui
 
 from rlm_adk.dashboard.controller import DashboardController
 
 
-def build_api_usage_card(controller: DashboardController) -> None:
-    """Render the API token usage and reconciliation panel.
+def build_workers_panel(
+    controller: DashboardController,
+    on_worker_click: Callable[[str], None] | None = None,
+) -> None:
+    """Render a horizontal workers bar: ``worker_1 <in><out> | worker_2 ...``
 
-    Three states:
-    1. Credentials available, data available: Full reconciliation table
-    2. Credentials available, no data: Info message
-    3. No credentials (default): Shows local metrics only
+    Spans full width, sitting directly below the reasoning agent context bar.
+    When *on_worker_click* is provided, the ``{N} in`` badges become
+    clickable and trigger the callback with the worker's ``agent_name``.
     """
-    summary = controller.state.session_summary
-    reconciliation = controller.state.reconciliation
+    it_data = controller.state.current_iteration_data
+    if it_data is None or not it_data.worker_outputs:
+        return
 
-    with ui.card().classes("w-full"):
-        ui.label("API Token Usage").classes("text-subtitle1")
+    with ui.element("div").style(
+        "display: flex; flex-direction: row; align-items: center; "
+        "gap: 0.25rem; flex-wrap: wrap; align-self: flex-end"
+    ):
+        ui.label("WORKERS").classes(
+            "text-body2 text-weight-bold"
+        ).style("color: #F43F5E; margin-right: 0.5rem")
 
-        if summary is None:
-            ui.label("No session loaded").classes("text-body2 text-grey-7")
-            return
-
-        # Always show local metrics
-        with ui.element("div").style(
-            "display: flex; flex-direction: column; gap: 0.25rem"
-        ):
-            ui.label(f"Local Input: {summary.total_input_tokens:,}").classes(
-                "text-body2"
-            )
-            ui.label(f"Local Output: {summary.total_output_tokens:,}").classes(
-                "text-body2"
-            )
-            ui.label(f"Total Calls: {summary.total_calls}").classes("text-body2")
-
-        if reconciliation is None:
-            ui.label(
-                "Cloud usage data unavailable -- showing local metrics only"
-            ).classes("text-body2 text-grey-7 q-mt-sm")
-            return
-
-        if reconciliation.error_message:
-            ui.label(reconciliation.error_message).classes(
-                "text-body2 text-grey-7 q-mt-sm"
-            )
-            return
-
-        # Full reconciliation display
-        ui.separator().classes("q-my-sm")
-
-        with ui.element("div").style(
-            "display: flex; flex-direction: column; gap: 0.25rem"
-        ):
-            ui.label(
-                f"GCloud Input: {reconciliation.api_input_tokens:,}"
-            ).classes("text-body2")
-            ui.label(f"GCloud Output: N/A (not tracked)").classes(
-                "text-body2 text-grey-7"
-            )
-
-            delta_str = f"{reconciliation.input_delta:+,}"
-            if reconciliation.input_match:
-                ui.label(f"Delta: {delta_str} input").classes(
-                    "text-body2 text-positive"
+        for i, wo in enumerate(it_data.worker_outputs):
+            if i > 0:
+                ui.label("|").classes("text-body2 text-grey-6").style(
+                    "margin: 0 0.25rem"
                 )
-                ui.badge("MATCH", color="positive")
+            ui.label(wo.agent_name).classes("text-body2").style(
+                "color: #F43F5E"
+            )
+            if on_worker_click:
+                with ui.element("span").style("cursor: pointer").on(
+                    "click",
+                    lambda _e, name=wo.agent_name: on_worker_click(name),
+                ):
+                    ui.badge(f"{wo.input_tokens:,} in", color="blue-7")
             else:
-                ui.label(f"Delta: {delta_str} input").classes(
-                    "text-body2 text-negative"
-                )
-                ui.badge("MISMATCH", color="negative")
+                ui.badge(f"{wo.input_tokens:,} in", color="blue-7")
+            ui.badge(f"{wo.output_tokens:,} out", color="green-7")
+            if wo.error:
+                ui.badge("ERR", color="negative")

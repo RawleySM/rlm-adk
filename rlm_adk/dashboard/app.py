@@ -21,14 +21,17 @@ from rlm_adk.dashboard.components.header import build_header
 from rlm_adk.dashboard.components.summary_bar import build_summary_bar
 from rlm_adk.dashboard.components.navigator import build_navigator
 from rlm_adk.dashboard.components.context_bar import build_context_bar_options
-from rlm_adk.dashboard.components.chunk_detail import render_chunk_detail
-from rlm_adk.dashboard.components.worker_panel import render_worker_panel
+from rlm_adk.dashboard.components.chunk_detail import (
+    render_chunk_detail,
+    render_worker_detail,
+)
 from rlm_adk.dashboard.components.token_charts import (
     build_cumulative_chart_options,
     build_iteration_breakdown_table,
 )
 from rlm_adk.dashboard.components.color_legend import build_color_legend
-from rlm_adk.dashboard.components.api_usage import build_api_usage_card
+from rlm_adk.dashboard.components.api_usage import build_workers_panel
+from rlm_adk.dashboard.components.output_panel import render_output_panel
 
 
 @ui.page("/dashboard")
@@ -52,6 +55,25 @@ async def dashboard_page() -> None:
     # ------------------------------------------------------------------
 
     @ui.refreshable
+    def cumulative_chart_section() -> None:
+        if controller.state.iterations:
+            options = build_cumulative_chart_options(
+                controller.state.iterations,
+                controller.state.current_iteration,
+            )
+            ui.label("Cumulative Token Usage").classes("text-subtitle1")
+            ui.echart(options).classes("w-full").style("height: 200px")
+
+    @ui.refreshable
+    def iter_table_section() -> None:
+        if controller.state.iterations:
+            build_iteration_breakdown_table(
+                controller.state.iterations,
+                controller.state.current_iteration,
+                on_row_click=lambda idx: _navigate_to_iter(idx),
+            )
+
+    @ui.refreshable
     def reasoning_chart_section() -> None:
         it_data = controller.state.current_iteration_data
         if it_data is None or it_data.reasoning_window is None:
@@ -67,44 +89,70 @@ async def dashboard_page() -> None:
             chunk_id = e.series_name
             chunk = controller.find_chunk_by_id(chunk_id)
             if chunk:
-                controller.select_chunk(chunk)
-                chunk_detail_section.refresh()
+                # Navigate to origin iteration if it differs from current
+                if (
+                    chunk.iteration_origin >= 0
+                    and chunk.iteration_origin != controller.state.current_iteration
+                ):
+                    controller.navigate_to(chunk.iteration_origin)
+                    dashboard_ui.refresh_all()
+                else:
+                    controller.select_chunk(chunk)
+                    chunk_detail_section.refresh()
 
-        ui.label("Reasoning Agent Context Window").classes("text-subtitle1")
+        # Token summary computed for title row
+        cum_input = sum(
+            it.reasoning_input_tokens + it.worker_input_tokens
+            for it in controller.state.iterations[: controller.state.current_iteration + 1]
+        )
+        cum_output = sum(
+            it.reasoning_output_tokens + it.worker_output_tokens
+            for it in controller.state.iterations[: controller.state.current_iteration + 1]
+        )
+        session_total = 0
+        if controller.state.session_summary:
+            session_total = (
+                controller.state.session_summary.total_input_tokens
+                + controller.state.session_summary.total_output_tokens
+            )
+
+        # Title row: label + token summaries on same line
+        with ui.element("div").style(
+            "display: flex; align-items: baseline; gap: 1.5rem"
+        ):
+            ui.label("Reasoning Agent Context Window").classes("text-subtitle1")
+            ui.label(f"{cum_input + cum_output:,} tokens (sum to iteration)").classes(
+                "text-caption text-grey-5"
+            )
+            ui.label(f"{session_total:,} tokens (session total)").classes(
+                "text-caption text-grey-5"
+            )
+
         ui.echart(options, on_point_click=on_bar_click).classes("w-full").style(
             "height: 80px"
         )
 
+        # Color legend below bar chart
+        build_color_legend()
+
     @ui.refreshable
-    def worker_charts_section() -> None:
-        it_data = controller.state.current_iteration_data
-        if it_data is None or not it_data.has_workers:
-            return
-        render_worker_panel(
-            it_data.worker_windows,
+    def workers_bar_section() -> None:
+        build_workers_panel(
             controller,
-            on_chunk_selected=lambda: chunk_detail_section.refresh(),
+            on_worker_click=_handle_worker_badge_click,
         )
+
+    @ui.refreshable
+    def output_section() -> None:
+        render_output_panel(controller)
 
     @ui.refreshable
     def chunk_detail_section() -> None:
         render_chunk_detail(controller)
 
     @ui.refreshable
-    def right_panel_section() -> None:
-        build_api_usage_card(controller)
-        if controller.state.iterations:
-            build_iteration_breakdown_table(
-                controller.state.iterations,
-                controller.state.current_iteration,
-                on_row_click=lambda idx: _navigate_to_iter(idx),
-            )
-            options = build_cumulative_chart_options(
-                controller.state.iterations,
-                controller.state.current_iteration,
-            )
-            ui.label("Cumulative Token Usage").classes("text-subtitle1")
-            ui.echart(options).classes("w-full").style("height: 250px")
+    def worker_detail_section() -> None:
+        render_worker_detail(controller)
 
     @ui.refreshable
     def summary_section() -> None:
@@ -115,20 +163,35 @@ async def dashboard_page() -> None:
         build_navigator(controller, dashboard_ui)
 
     # Register all refreshables
+    dashboard_ui.register(cumulative_chart_section)
+    dashboard_ui.register(iter_table_section)
     dashboard_ui.register(reasoning_chart_section)
-    dashboard_ui.register(worker_charts_section)
+    dashboard_ui.register(workers_bar_section)
+    dashboard_ui.register(output_section)
     dashboard_ui.register(chunk_detail_section)
-    dashboard_ui.register(right_panel_section)
+    dashboard_ui.register(worker_detail_section)
     dashboard_ui.register(summary_section)
     dashboard_ui.register(nav_section)
 
     # ------------------------------------------------------------------
-    # Helper for table row click navigation
+    # Helpers
     # ------------------------------------------------------------------
 
     def _navigate_to_iter(idx: int) -> None:
         controller.navigate_to(idx)
         dashboard_ui.refresh_all()
+
+    def _handle_worker_badge_click(agent_name: str) -> None:
+        """Select a worker's first context chunk for the worker detail panel."""
+        it_data = controller.state.current_iteration_data
+        if it_data is None:
+            return
+        for ww in it_data.worker_windows:
+            if ww.agent_name == agent_name:
+                if ww.chunks:
+                    controller.select_worker_chunk(ww.chunks[0])
+                    worker_detail_section.refresh()
+                return
 
     # ------------------------------------------------------------------
     # Session change handler
@@ -144,28 +207,37 @@ async def dashboard_page() -> None:
     # ------------------------------------------------------------------
 
     build_header(controller, on_session_change)
-    summary_section()
+
+    # Top row: summary cards + cumulative chart + per-iteration table
+    with ui.element("div").style(
+        "display: flex; flex-direction: row; width: 100%; gap: 1rem; "
+        "align-items: stretch"
+    ):
+        with ui.element("div"):
+            summary_section()
+        with ui.element("div").style("flex: 1; min-width: 200px"):
+            cumulative_chart_section()
+        with ui.element("div").style("flex: 1; min-width: 200px"):
+            iter_table_section()
+
     nav_section()
 
-    # Main 70/30 layout (NiceGUI review: single .style() call, min-width: 0)
+    # Reasoning agent context bar (full width)
+    reasoning_chart_section()
+
+    # Workers horizontal bar (right-aligned via align-self in component)
+    workers_bar_section()
+
+    # Three equal panels: chunk detail | output | worker detail
     with ui.element("div").style(
-        "display: flex; flex-direction: row; width: 100%; gap: 1.5rem"
+        "display: flex; flex-direction: row; width: 100%; gap: 1rem"
     ):
-        # Left panel (charts)
-        with ui.element("div").style(
-            "flex: 7; min-width: 0; display: flex; flex-direction: column; gap: 1rem"
-        ):
-            reasoning_chart_section()
-            worker_charts_section()
+        with ui.element("div").style("flex: 1; min-width: 0"):
             chunk_detail_section()
-
-        # Right panel (stats + line chart)
-        with ui.element("div").style(
-            "flex: 3; min-width: 0; display: flex; flex-direction: column; gap: 1rem"
-        ):
-            right_panel_section()
-
-    build_color_legend()
+        with ui.element("div").style("flex: 1; min-width: 0"):
+            output_section()
+        with ui.element("div").style("flex: 1; min-width: 0"):
+            worker_detail_section()
 
     # ------------------------------------------------------------------
     # Keyboard navigation (NiceGUI review: use e.key.arrow_left property)
