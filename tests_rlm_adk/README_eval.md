@@ -14,7 +14,7 @@ The `--replay` flag feeds the JSON file's `state` as initial session state and s
 
 | Variable | Default | Description |
 |---|---|---|
-| `RLM_ADK_MODEL` | `gemini-3-pro-preview` | Model for reasoning agent (depth=0) |
+| `RLM_ADK_MODEL` | `gemini-3.1-pro-preview` | Model for reasoning agent (depth=0) |
 | `RLM_MAX_ITERATIONS` | `30` | Hard ceiling on REPL iterations |
 | `RLM_MAX_CONCURRENT_WORKERS` | `4` | Max parallel sub-LM dispatches per batch |
 | `RLM_LLM_MAX_RETRIES` | `3` | Retry count for transient LLM errors |

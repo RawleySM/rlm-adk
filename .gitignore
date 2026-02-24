@@ -1,0 +1,21 @@
+# Environment
+.env
+.gemini/.env
+
+# Python
+__pycache__/
+*.egg-info/
+*.pyc
+
+# Build artifacts
+repomix-output.xml
+
+# IDE / local settings
+.claude/settings.local.json
+
+# ADK runtime data (traces, sessions, artifacts)
+.adk/
+rlm_adk/.adk/
+
+# Debug config
+rlm_adk_debug.yaml

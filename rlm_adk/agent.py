@@ -271,6 +271,10 @@ def _default_plugins(
     _langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
     if langfuse or _langfuse_env:
         plugins.append(LangfuseTracingPlugin())
+    _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
+    if _snapshot_env:
+        from rlm_adk.plugins.context_snapshot import ContextWindowSnapshotPlugin
+        plugins.append(ContextWindowSnapshotPlugin())
     return plugins
 
 
@@ -440,7 +444,7 @@ def create_rlm_runner(
 
 def _root_agent_model() -> str:
     """Resolve model used by ADK CLI-discoverable root_agent."""
-    return os.getenv("RLM_ADK_MODEL", "gemini-3-pro-preview") #AGENT: DO NOT CHANGE WITHOUT ASKING USER
+    return os.getenv("RLM_ADK_MODEL", "gemini-3.1-pro-preview") #AGENT: DO NOT CHANGE WITHOUT ASKING USER
 
 
 # ADK CLI entrypoint (`adk run rlm_adk`, `adk web`) discovers the ``app``

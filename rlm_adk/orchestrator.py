@@ -287,6 +287,20 @@ class RLMOrchestratorAgent(BaseAgent):
                             stderr=cb.result.stderr,
                         )
 
+                # --- Mid-iteration event queue drain (Fix 7) ---
+                # Drain worker events from llm_query calls in code blocks
+                # BEFORE checking for the final answer.
+                if event_queue is not None:
+                    mid_drained = 0
+                    while not event_queue.empty():
+                        yield event_queue.get_nowait()
+                        mid_drained += 1
+                    if mid_drained > 0:
+                        print(
+                            f"[RLM] iter={i} mid-iteration worker_events_drained={mid_drained}",
+                            flush=True,
+                        )
+
                 # --- Check for final answer ---
                 # Skip FINAL_VAR resolution when code blocks had errors: the
                 # variable likely doesn't exist yet and the error string would
@@ -309,6 +323,11 @@ class RLMOrchestratorAgent(BaseAgent):
                         f"length={len(final_answer)}",
                         flush=True,
                     )
+
+                    # Drain event queue before yielding final answer (Fix 3)
+                    if event_queue is not None:
+                        while not event_queue.empty():
+                            yield event_queue.get_nowait()
 
                     # Auto-save final answer as artifact
                     await save_final_answer(ctx, answer=final_answer)
@@ -364,6 +383,11 @@ class RLMOrchestratorAgent(BaseAgent):
                     f"[RLM] --- iter={i} END ---",
                     flush=True,
                 )
+
+            # --- Drain event queue before max-iterations exhausted (Fix 3) ---
+            if event_queue is not None:
+                while not event_queue.empty():
+                    yield event_queue.get_nowait()
 
             # --- Max iterations exhausted ---
             logger.warning(

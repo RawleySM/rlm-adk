@@ -8,6 +8,11 @@ Architecture:
 - llm_query_async: Acquire 1 worker, dispatch, return string
 - llm_query_batched_async: Acquire K workers, dispatch via ParallelAgent, return K strings
 - Model routing: model=None uses depth-based default; model="X" uses specific pool
+
+State mutation discipline:
+- All state writes go through Event objects via event_queue (AR-CRIT-001).
+- Reads from ctx.session.state.get() are acceptable.
+- Worker results are read from agent objects (_result, _result_ready) not state.
 """
 
 import asyncio
@@ -18,10 +23,14 @@ from typing import Any
 
 from google.adk.agents import LlmAgent, ParallelAgent
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event
+from google.adk.events import Event, EventActions
 from google.genai import types
 
-from rlm_adk.callbacks.worker import worker_before_model, worker_after_model
+from rlm_adk.callbacks.worker import (
+    worker_before_model,
+    worker_after_model,
+    worker_on_model_error,
+)
 from rlm_adk.state import (
     OBS_WORKER_DIRTY_READ_MISMATCHES,
     OBS_WORKER_DISPATCH_LATENCY_MS,
@@ -29,6 +38,10 @@ from rlm_adk.state import (
     OBS_WORKER_TOTAL_DISPATCHES,
     WORKER_DIRTY_READ_COUNT,
     WORKER_DISPATCH_COUNT,
+    WORKER_INPUT_TOKENS,
+    WORKER_OUTPUT_TOKENS,
+    WORKER_PROMPT_CHARS,
+    WORKER_CONTENT_COUNT,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,6 +100,9 @@ class WorkerPool:
         Workers are isolated: they receive prompts only via
         before_model_callback (include_contents='none') and cannot
         transfer to parent or peer agents.
+
+        Each worker is initialized with result carrier attributes for
+        the dispatch closure to read after dispatch completes.
         """
         self._worker_counter += 1
         worker_name = f"worker_{self._worker_counter}"
@@ -102,6 +118,7 @@ class WorkerPool:
             output_key=f"{worker_name}_output",
             before_model_callback=worker_before_model,
             after_model_callback=worker_after_model,
+            on_model_error_callback=worker_on_model_error,
             generate_content_config=types.GenerateContentConfig(
                 temperature=0.0,
             ),
@@ -109,6 +126,17 @@ class WorkerPool:
         # Slot for the dispatch closure to inject the prompt before dispatch.
         # The worker's before_model_callback reads this to build the LlmRequest.
         worker._pending_prompt = None  # type: ignore[attr-defined]
+
+        # Result carrier attributes (written by after_model / on_model_error callbacks)
+        worker._result = None  # type: ignore[attr-defined]
+        worker._result_ready = False  # type: ignore[attr-defined]
+        worker._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
+        worker._result_error = False  # type: ignore[attr-defined]
+
+        # Prompt metrics (written by before_model callback)
+        worker._prompt_chars = 0  # type: ignore[attr-defined]
+        worker._content_count = 0  # type: ignore[attr-defined]
+
         return worker
 
     async def acquire(self, model: str | None = None) -> LlmAgent:
@@ -219,6 +247,9 @@ def create_dispatch_closures(
         When K > max_concurrent, prompts are split into sequential batches
         of at most max_concurrent, each batch dispatched in parallel.
 
+        All state mutations are emitted as Event objects via event_queue
+        (AR-CRIT-001: no direct ctx.session.state writes).
+
         Args:
             prompts: List of text prompts to send concurrently.
             model: Optional model name override. None uses depth-based default.
@@ -233,16 +264,24 @@ def create_dispatch_closures(
         k = len(prompts)
         dispatch_start = time.perf_counter()
 
-        # Track dispatch count
+        # Read previous counts for delta computation (reads are safe)
         prev_dispatch_count = ctx.session.state.get(WORKER_DISPATCH_COUNT, 0)
-        ctx.session.state[WORKER_DISPATCH_COUNT] = prev_dispatch_count + k
-
-        # Track batch vs single dispatches (session-scoped)
-        if k > 1:
-            prev_batch = ctx.session.state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
-            ctx.session.state[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = prev_batch + 1
         prev_total = ctx.session.state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
-        ctx.session.state[OBS_WORKER_TOTAL_DISPATCHES] = prev_total + k
+        prev_batch = ctx.session.state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
+
+        # Emit dispatch accounting as a proper Event via event_queue
+        dispatch_delta: dict[str, Any] = {
+            WORKER_DISPATCH_COUNT: prev_dispatch_count + k,
+            OBS_WORKER_TOTAL_DISPATCHES: prev_total + k,
+        }
+        if k > 1:
+            dispatch_delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = prev_batch + 1
+
+        event_queue.put_nowait(Event(
+            invocation_id=ctx.invocation_id,
+            author="dispatch",
+            actions=EventActions(state_delta=dispatch_delta),
+        ))
 
         all_results: list[str] = []
 
@@ -264,7 +303,11 @@ def create_dispatch_closures(
                 # Acquire workers and inject prompts for this batch
                 for prompt in batch_prompts:
                     worker = await worker_pool.acquire(model)
+                    # Reset result carrier before dispatch
                     worker._pending_prompt = prompt  # type: ignore[attr-defined]
+                    worker._result = None  # type: ignore[attr-defined]
+                    worker._result_ready = False  # type: ignore[attr-defined]
+                    worker._result_error = False  # type: ignore[attr-defined]
                     workers.append(worker)
 
                 if len(workers) == 1:
@@ -273,33 +316,40 @@ def create_dispatch_closures(
                 else:
                     parallel = ParallelAgent(
                         name=f"batch_{batch_num}_{len(workers)}",
-                        sub_agents=workers,
+                        sub_agents=list(workers),  # type: ignore[arg-type]
                     )
                     async for event in parallel.run_async(ctx):
                         event_queue.put_nowait(event)
 
-                # Dirty-read results for this batch
-                dirty_read_count = ctx.session.state.get(WORKER_DIRTY_READ_COUNT, 0)
-                mismatches = ctx.session.state.get(OBS_WORKER_DIRTY_READ_MISMATCHES, 0)
-
+                # Read results from worker objects (no dirty state reads)
+                dirty_read_count = 0
+                mismatches = 0
                 for worker in workers:
-                    output_key = worker.output_key
-                    result = ctx.session.state.get(output_key, "")
                     dirty_read_count += 1
-
-                    if not result:
-                        logger.warning(
-                            "State timing guard: worker %s output_key '%s' "
-                            "returned empty after dispatch (dirty read). "
-                            "Events pending in queue: %d",
-                            worker.name, output_key, event_queue.qsize(),
+                    if not worker._result_ready:  # type: ignore[attr-defined]
+                        logger.error(
+                            "Worker %s produced no result. Events pending: %d",
+                            worker.name, event_queue.qsize(),
                         )
+                        all_results.append("")
                         mismatches += 1
+                    else:
+                        if getattr(worker, '_result_error', False):
+                            logger.warning(
+                                "Worker %s returned error result: %s",
+                                worker.name, worker._result,  # type: ignore[attr-defined]
+                            )
+                        all_results.append(worker._result)  # type: ignore[attr-defined]
 
-                    all_results.append(str(result) if result else "")
-
-                ctx.session.state[WORKER_DIRTY_READ_COUNT] = dirty_read_count
-                ctx.session.state[OBS_WORKER_DIRTY_READ_MISMATCHES] = mismatches
+                # Emit post-dispatch accounting via event_queue
+                event_queue.put_nowait(Event(
+                    invocation_id=ctx.invocation_id,
+                    author="dispatch",
+                    actions=EventActions(state_delta={
+                        WORKER_DIRTY_READ_COUNT: dirty_read_count,
+                        OBS_WORKER_DIRTY_READ_MISMATCHES: mismatches,
+                    }),
+                ))
 
             except Exception as e:
                 logger.error(f"Worker dispatch error in batch {batch_num}: {e}")
@@ -308,17 +358,29 @@ def create_dispatch_closures(
             finally:
                 for worker in workers:
                     worker._pending_prompt = None  # type: ignore[attr-defined]
+                    worker._result = None  # type: ignore[attr-defined]
+                    worker._result_error = False  # type: ignore[attr-defined]
                     # Detach from ParallelAgent parent so the worker can be
                     # re-used in a future batch (ADK sets parent_agent in
                     # model_post_init and raises if already set).
                     worker.parent_agent = None
                     await worker_pool.release(worker, model)
 
-        # Record total dispatch latency
+        # Aggregate token accounting from worker objects (sequential, no race)
+        # Note: workers have been released back to pool at this point, but we
+        # already read all needed data above. For latency, we still have the
+        # timing from dispatch_start.
         dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
         latencies = ctx.session.state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
-        latencies.append(round(dispatch_elapsed_ms, 2))
-        ctx.session.state[OBS_WORKER_DISPATCH_LATENCY_MS] = latencies
+        latencies_new = list(latencies) + [round(dispatch_elapsed_ms, 2)]
+
+        event_queue.put_nowait(Event(
+            invocation_id=ctx.invocation_id,
+            author="dispatch",
+            actions=EventActions(state_delta={
+                OBS_WORKER_DISPATCH_LATENCY_MS: latencies_new,
+            }),
+        ))
 
         return all_results
 

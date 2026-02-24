@@ -27,7 +27,7 @@
   },
   "ui": {
     "footer": {
-      "hideContextPercentage": false
+      "hideContextPercentage": true
     },
     "showModelInfoInChat": true
   },
@@ -35,7 +35,10 @@
     "vimMode": false,
     "previewFeatures": true,
     "preferredEditor": "vscode",
-    "defaultApprovalMode": "auto_edit"
+    "defaultApprovalMode": "auto_edit",
+    "sessionRetention": {
+      "enabled": true
+    }
   },
   "tools": {
     "shell": {

@@ -1,5 +1,5 @@
 {
-  "venvPath": "/home/rawleysm/dev/sandbox/rlm_parallel",
+  "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.11",
   "typeCheckingMode": "basic",

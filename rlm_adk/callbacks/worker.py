@@ -1,22 +1,20 @@
 """Worker LlmAgent callbacks for sub-LM dispatch.
 
 worker_before_model: AMEND - Injects the single prompt from the dispatch closure
-    into LlmRequest. Sets model override if model= was specified in llm_query().
+    into LlmRequest. Stores prompt metrics on agent object for dispatch aggregation.
 
-worker_after_model: OBSERVE - Extracts text response, writes to worker's output_key.
+worker_after_model: OBSERVE - Extracts text response, writes to worker's output_key
+    in state (for ADK persistence) and onto agent object (for dispatch closure reads).
+
+worker_on_model_error: ERROR ISOLATION - Handles LLM errors gracefully without
+    crashing ParallelAgent. Writes error result onto agent object and returns
+    an LlmResponse so the agent completes normally.
 """
 
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
-
-from rlm_adk.state import (
-    WORKER_CONTENT_COUNT,
-    WORKER_INPUT_TOKENS,
-    WORKER_OUTPUT_TOKENS,
-    WORKER_PROMPT_CHARS,
-)
 
 
 def worker_before_model(
@@ -26,6 +24,9 @@ def worker_before_model(
 
     The dispatch closure sets worker._pending_prompt before running the agent.
     This callback reads it and sets it as the LlmRequest contents.
+
+    Stores _prompt_chars and _content_count on the agent object for
+    aggregation in the dispatch closure (no state writes for accounting).
     """
     agent = callback_context._invocation_context.agent
     pending_prompt = getattr(agent, "_pending_prompt", None)
@@ -52,7 +53,7 @@ def worker_before_model(
                 )
             llm_request.contents = contents
 
-    # --- Per-invocation token accounting (append to lists for parallel safety) ---
+    # --- Store prompt metrics on agent object for dispatch aggregation ---
     total_prompt_chars = sum(
         len(part.text or "")
         for content in llm_request.contents
@@ -61,17 +62,8 @@ def worker_before_model(
     )
     content_count = len(llm_request.contents)
 
-    prompt_chars_list = callback_context.state.get(WORKER_PROMPT_CHARS, [])
-    if not isinstance(prompt_chars_list, list):
-        prompt_chars_list = [prompt_chars_list]
-    prompt_chars_list.append(total_prompt_chars)
-    callback_context.state[WORKER_PROMPT_CHARS] = prompt_chars_list
-
-    content_count_list = callback_context.state.get(WORKER_CONTENT_COUNT, [])
-    if not isinstance(content_count_list, list):
-        content_count_list = [content_count_list]
-    content_count_list.append(content_count)
-    callback_context.state[WORKER_CONTENT_COUNT] = content_count_list
+    agent._prompt_chars = total_prompt_chars  # type: ignore[attr-defined]
+    agent._content_count = content_count  # type: ignore[attr-defined]
 
     return None  # Proceed with model call
 
@@ -79,35 +71,63 @@ def worker_before_model(
 def worker_after_model(
     callback_context: CallbackContext, llm_response: LlmResponse
 ) -> LlmResponse | None:
-    """Extract response text and store in state under output_key, with token accounting."""
+    """Extract response text, write to state output_key and agent object.
+
+    Writes result onto the agent object (_result, _result_ready, _result_usage)
+    for the dispatch closure to read after ParallelAgent completes.
+    Also writes to callback_context.state[output_key] for ADK persistence.
+    """
     response_text = ""
     if llm_response.content and llm_response.content.parts:
         response_text = "".join(
             part.text for part in llm_response.content.parts if part.text and not part.thought
         )
 
-    # Write to the worker's output_key in state
     agent = callback_context._invocation_context.agent
-    output_key = getattr(agent, "output_key", None)
-    if output_key:
-        callback_context.state[output_key] = response_text
 
-    # --- Per-invocation token accounting from usage_metadata (append to lists) ---
+    # Write result onto agent object for dispatch closure reads
+    agent._result = response_text  # type: ignore[attr-defined]
+    agent._result_ready = True  # type: ignore[attr-defined]
+
+    # Extract usage from response metadata onto agent object
     usage = llm_response.usage_metadata
     if usage:
         input_tokens = getattr(usage, "prompt_token_count", 0) or 0
         output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+        agent._result_usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}  # type: ignore[attr-defined]
+    else:
+        agent._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
 
-        input_list = callback_context.state.get(WORKER_INPUT_TOKENS, [])
-        if not isinstance(input_list, list):
-            input_list = [input_list]
-        input_list.append(input_tokens)
-        callback_context.state[WORKER_INPUT_TOKENS] = input_list
-
-        output_list = callback_context.state.get(WORKER_OUTPUT_TOKENS, [])
-        if not isinstance(output_list, list):
-            output_list = [output_list]
-        output_list.append(output_tokens)
-        callback_context.state[WORKER_OUTPUT_TOKENS] = output_list
+    # Write to the worker's output_key in state (for ADK persistence)
+    output_key = getattr(agent, "output_key", None)
+    if output_key:
+        callback_context.state[output_key] = response_text
 
     return None
+
+
+def worker_on_model_error(
+    callback_context: CallbackContext,
+    llm_request: LlmRequest,
+    error: Exception,
+) -> LlmResponse | None:
+    """Handle worker LLM errors gracefully without crashing ParallelAgent.
+
+    Sets error result on the agent object so the dispatch closure can detect
+    the failure and include the error message in the results list. Returns
+    an LlmResponse so the agent completes normally within ParallelAgent.
+    """
+    agent = callback_context._invocation_context.agent
+    error_msg = f"[Worker {agent.name} error: {type(error).__name__}: {error}]"
+
+    agent._result = error_msg  # type: ignore[attr-defined]
+    agent._result_ready = True  # type: ignore[attr-defined]
+    agent._result_error = True  # type: ignore[attr-defined]
+    agent._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
+
+    return LlmResponse(
+        content=types.Content(
+            role="model",
+            parts=[types.Part.from_text(text=error_msg)],
+        )
+    )
