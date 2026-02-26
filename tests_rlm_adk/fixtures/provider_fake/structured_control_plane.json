@@ -1,0 +1,153 @@
+{
+  "scenario_id": "structured_control_plane",
+  "description": "Section 1: Pydantic-typed decision gates. Iter 1: reasoning emits code that defines TriageDecision schema, creates test records/entities, and calls llm_query_batched to triage 3 records. Workers return valid TriageDecision JSON. Iter 2: reasoning inspects results and returns FINAL with disposition summary.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I'll implement a Pydantic-typed triage pipeline. First, let me define the schema and classify three records against known entities.\n\n```repl\nimport json\nfrom enum import Enum\nfrom pydantic import BaseModel, Field, model_validator\nfrom typing import Optional\n\nclass Disposition(str, Enum):\n    EXACT_MATCH = \"exact_match\"\n    FUZZY_MATCH = \"fuzzy_match\"\n    NEEDS_CONTEXT = \"needs_context\"\n    ANOMALY = \"anomaly\"\n    SKIP = \"skip\"\n\nclass TriageDecision(BaseModel):\n    record_id: str\n    disposition: Disposition\n    confidence: float = Field(ge=0.0, le=1.0)\n    rationale: str = Field(max_length=300)\n    matched_entity_id: Optional[str] = None\n    missing_fields: list[str] = Field(default_factory=list)\n\n    @model_validator(mode=\"after\")\n    def enforce_match_has_entity(self) -> \"TriageDecision\":\n        if self.disposition in (Disposition.EXACT_MATCH, Disposition.FUZZY_MATCH):\n            if not self.matched_entity_id:\n                raise ValueError(f\"disposition={self.disposition.value} requires matched_entity_id\")\n        return self\n\nrecords = [\n    {\"id\": \"REC-001\", \"name\": \"Medtronic Inc\", \"city\": \"Minneapolis\"},\n    {\"id\": \"REC-002\", \"name\": \"Jhonson & Johnson\", \"city\": \"New Brunswick\"},\n    {\"id\": \"REC-003\", \"name\": \"Unknown Pharma XYZ\", \"city\": \"\"}\n]\n\nknown_entities = [\n    {\"id\": \"ENT-100\", \"canonical_name\": \"Medtronic PLC\"},\n    {\"id\": \"ENT-200\", \"canonical_name\": \"Johnson & Johnson\"}\n]\n\nsymbol_table = \"\\n\".join(f\"  {e['id']}: {e['canonical_name']}\" for e in known_entities)\nschema_json = json.dumps(TriageDecision.model_json_schema(), indent=2)\n\nprompts = []\nfor r in records:\n    prompts.append(\n        f\"Classify this record. Known entities:\\n{symbol_table}\\n\"\n        f\"Schema:\\n{schema_json}\\nRecord:\\n{json.dumps(r)}\\nReturn JSON only.\"\n    )\n\nraw_responses = llm_query_batched(prompts)\n\ndecisions = []\nerrors = []\nfor r, raw in zip(records, raw_responses):\n    try:\n        cleaned = raw.strip()\n        if cleaned.startswith(\"```\"):\n            cleaned = cleaned.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\n        obj = json.loads(cleaned)\n        decision = TriageDecision.model_validate(obj)\n        if decision.matched_entity_id and decision.matched_entity_id not in symbol_table:\n            raise ValueError(f\"Hallucinated entity ID: {decision.matched_entity_id}\")\n        decisions.append(decision)\n    except Exception as exc:\n        errors.append({\"record_id\": r[\"id\"], \"error\": str(exc)})\n\nprint(f\"Decisions: {len(decisions)}, Errors: {len(errors)}\")\nfor d in decisions:\n    print(f\"  {d.record_id} -> {d.disposition.value} (conf={d.confidence})\")\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 500,
+          "totalTokenCount": 800
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"REC-001\", \"disposition\": \"exact_match\", \"confidence\": 0.95, \"rationale\": \"Medtronic Inc closely matches Medtronic PLC - same company different suffix\", \"matched_entity_id\": \"ENT-100\", \"missing_fields\": []}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 60,
+          "totalTokenCount": 210
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"REC-002\", \"disposition\": \"fuzzy_match\", \"confidence\": 0.82, \"rationale\": \"Jhonson is likely a typo for Johnson - fuzzy match to Johnson & Johnson\", \"matched_entity_id\": \"ENT-200\", \"missing_fields\": []}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 55,
+          "totalTokenCount": 205
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"REC-003\", \"disposition\": \"anomaly\", \"confidence\": 0.30, \"rationale\": \"Unknown Pharma XYZ does not match any known entity and has empty city field\", \"matched_entity_id\": null, \"missing_fields\": [\"city\"]}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 55,
+          "totalTokenCount": 205
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The triage pipeline successfully classified all 3 records:\n- REC-001: exact_match to ENT-100 (Medtronic) with 0.95 confidence\n- REC-002: fuzzy_match to ENT-200 (Johnson & Johnson) with 0.82 confidence\n- REC-003: anomaly with 0.30 confidence (unknown entity, missing city)\n\nAll Pydantic validations passed, grounding checks confirmed entity IDs exist in the symbol table.\n\nFINAL(3 decisions: 1 exact_match, 1 fuzzy_match, 1 anomaly. 0 errors.)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 600,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 700
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "3 decisions: 1 exact_match, 1 fuzzy_match, 1 anomaly. 0 errors.",
+    "total_iterations": 2,
+    "total_model_calls": 5
+  }
+}

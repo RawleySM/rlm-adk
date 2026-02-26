@@ -54,6 +54,14 @@ logger = logging.getLogger(__name__)
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
+def _project_root() -> Path:
+    """Resolve the project root directory (contains pyproject.toml).
+
+    Uses __file__ to anchor resolution, matching the .env pattern at line 54.
+    """
+    return Path(__file__).resolve().parents[1]
+
+
 _DEFAULT_RETRY_OPTIONS = HttpRetryOptions(
     attempts=3,
     initial_delay=1.0,
@@ -61,8 +69,8 @@ _DEFAULT_RETRY_OPTIONS = HttpRetryOptions(
     exp_base=2.0,
 )
 
-_DEFAULT_DB_PATH = ".adk/session.db"
-_DEFAULT_ARTIFACT_ROOT = ".adk/artifacts"
+_DEFAULT_DB_PATH = str(_project_root() / ".adk" / "session.db")
+_DEFAULT_ARTIFACT_ROOT = str(_project_root() / ".adk" / "artifacts")
 
 _SQLITE_STARTUP_PRAGMAS = """
 PRAGMA journal_mode = WAL;
@@ -133,7 +141,10 @@ def _build_generate_content_config(
         return None
 
     return GenerateContentConfig(
-        http_options=HttpOptions(retry_options=retry_opts),
+        http_options=HttpOptions(
+            timeout=int(os.getenv("RLM_REASONING_HTTP_TIMEOUT", "300000")),
+            retry_options=retry_opts,
+        ),
     )
 
 
@@ -177,6 +188,11 @@ def create_reasoning_agent(
                 thinking_budget=thinking_budget,
             )
         )
+
+    # Append repomix skill instructions to static instruction
+    from rlm_adk.skills.repomix_skill import build_skill_instruction_block
+
+    static_instruction = static_instruction + "\n" + build_skill_instruction_block()
 
     gcc = _build_generate_content_config(retry_config)
 
@@ -260,21 +276,37 @@ def _default_plugins(
     plugins: list[BasePlugin] = [ObservabilityPlugin()]
     _debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
     if debug or _debug_env:
-        plugins.append(DebugLoggingPlugin())
+        plugins.append(DebugLoggingPlugin(
+            output_path=str(_project_root() / "rlm_adk_debug.yaml"),
+        ))
     _sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")
     if sqlite_tracing or _sqlite_env:
         try:
             from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
-            plugins.append(SqliteTracingPlugin())
+            plugins.append(SqliteTracingPlugin(
+                db_path=str(_project_root() / ".adk" / "traces.db"),
+            ))
         except ImportError:
             logger.debug("SqliteTracingPlugin not available, skipping")
     _langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
     if langfuse or _langfuse_env:
         plugins.append(LangfuseTracingPlugin())
+    _repl_trace_env = int(os.getenv("RLM_REPL_TRACE", "0"))
+    if _repl_trace_env > 0:
+        try:
+            from rlm_adk.plugins.repl_tracing import REPLTracingPlugin
+            plugins.append(REPLTracingPlugin())
+        except ImportError:
+            logger.debug("REPLTracingPlugin not available, skipping")
+
     _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
     if _snapshot_env:
         from rlm_adk.plugins.context_snapshot import ContextWindowSnapshotPlugin
-        plugins.append(ContextWindowSnapshotPlugin())
+        _adk_dir = str(_project_root() / ".adk")
+        plugins.append(ContextWindowSnapshotPlugin(
+            output_path=f"{_adk_dir}/context_snapshots.jsonl",
+            output_capture_path=f"{_adk_dir}/model_outputs.jsonl",
+        ))
     return plugins
 
 

@@ -123,7 +123,10 @@ def format_execution_result(result: REPLResult) -> str:
     if result.stderr:
         result_parts.append(f"\n{result.stderr}")
 
-    # Show some key variables (excluding internal ones)
+    if result.execution_time is not None:
+        result_parts.append(f"Execution time: {result.execution_time:.2f}s")
+
+    # Show some key variables (excluding internal ones) with values
     important_vars = {}
     for key, value in result.locals.items():
         if not key.startswith("_") and key not in [
@@ -133,10 +136,33 @@ def format_execution_result(result: REPLResult) -> str:
         ]:
             # Only show simple types or short representations
             if isinstance(value, (str, int, float, bool, list, dict, tuple)):
-                important_vars[key] = ""
+                str_val = repr(value)
+                if len(str_val) > 200:
+                    str_val = str_val[:200] + "..."
+                important_vars[key] = str_val
 
     if important_vars:
-        result_parts.append(f"REPL variables: {list(important_vars.keys())}\n")
+        var_lines = [f"  {k} = {v}" for k, v in important_vars.items()]
+        result_parts.append("REPL variables:\n" + "\n".join(var_lines) + "\n")
+
+    # Show worker LLM call summaries if any
+    if result.llm_calls:
+        call_lines = []
+        for call in result.llm_calls:
+            prompt_preview = call.prompt
+            if isinstance(prompt_preview, str) and len(prompt_preview) > 80:
+                prompt_preview = prompt_preview[:80] + "..."
+            resp_preview = call.response
+            if len(resp_preview) > 80:
+                resp_preview = resp_preview[:80] + "..."
+            tokens = call.usage_summary.model_usage_summaries
+            total_in = sum(m.total_input_tokens for m in tokens.values())
+            total_out = sum(m.total_output_tokens for m in tokens.values())
+            call_lines.append(
+                f"  [{call.root_model}] prompt={prompt_preview!r} -> "
+                f"response={resp_preview!r} (in={total_in}, out={total_out})"
+            )
+        result_parts.append("Worker LLM calls:\n" + "\n".join(call_lines) + "\n")
 
     return "\n\n".join(result_parts) if result_parts else "No output"
 

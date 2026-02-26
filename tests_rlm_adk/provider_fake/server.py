@@ -101,7 +101,9 @@ class FakeGeminiServer:
         )
 
         # Get next scripted response
-        status_code, response_body = self.router.next_response(body)
+        status_code, response_body = self.router.next_response(
+            body, request_meta={"model": model_name},
+        )
 
         # Handle malformed JSON fault
         if status_code == -1:

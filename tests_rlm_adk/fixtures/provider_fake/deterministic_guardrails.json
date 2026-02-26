@@ -1,0 +1,126 @@
+{
+  "scenario_id": "deterministic_guardrails",
+  "description": "Section 2: Deterministic guardrails. Iter 1: reasoning emits code with parse_with_retry + dedup ring. First llm_query returns malformed JSON, retry prompt sent, second llm_query returns valid JSON. Also tests DeduplicationRing across records. Iter 2: reasoning verifies self-healing worked and dedup stats, returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I'll test the self-healing retry loop and deduplication ring. First, I'll call an LLM that returns bad JSON, triggering the correction micro-loop.\n\n```repl\nimport json\nimport hashlib\nfrom pydantic import BaseModel, Field, ValidationError\nfrom typing import Optional\n\nclass ClassificationResult(BaseModel):\n    label: str\n    confidence: float = Field(ge=0.0, le=1.0)\n    reasoning: str\n\nclass RetryExhausted(Exception):\n    pass\n\ndef parse_with_retry(raw_text, model_cls, record, schema_str, max_retries=2):\n    last_error = None\n    raw = raw_text\n    for attempt in range(1 + max_retries):\n        cleaned = raw.strip()\n        if cleaned.startswith(\"```\"):\n            cleaned = cleaned.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\n        try:\n            obj = json.loads(cleaned)\n            return model_cls.model_validate(obj)\n        except (json.JSONDecodeError, ValidationError, ValueError) as exc:\n            last_error = exc\n            if attempt < max_retries:\n                correction_prompt = (\n                    f\"Your previous response failed validation.\\n\"\n                    f\"ERROR: {type(exc).__name__}: {exc}\\n\"\n                    f\"YOUR OUTPUT: {raw[:200]}\\n\"\n                    f\"RECORD: {json.dumps(record)}\\n\"\n                    f\"SCHEMA: {schema_str}\\n\"\n                    f\"Fix and return ONLY the corrected JSON.\"\n                )\n                raw = llm_query(correction_prompt)\n    raise RetryExhausted(f\"Failed after {1 + max_retries} attempts. Last: {last_error}\")\n\n# --- Deduplication Ring ---\nclass DeduplicationRing:\n    def __init__(self):\n        self._hashes = set()\n    def content_hash(self, record):\n        canonical = json.dumps(record, sort_keys=True, default=str)\n        return hashlib.sha256(canonical.encode()).hexdigest()\n    def is_duplicate(self, record):\n        return self.content_hash(record) in self._hashes\n    def mark_processed(self, record):\n        self._hashes.add(self.content_hash(record))\n    def deduplicate_batch(self, records):\n        unique, skipped = [], 0\n        for r in records:\n            if self.is_duplicate(r):\n                skipped += 1\n            else:\n                unique.append(r)\n        return unique, skipped\n\nrecord = {\"id\": \"R-1\", \"text\": \"Aspirin 100mg\"}\nschema_str = json.dumps(ClassificationResult.model_json_schema(), indent=2)\n\n# This first call will return bad JSON, triggering a retry\nfirst_response = llm_query(\n    f\"Classify this record as JSON matching schema:\\n{schema_str}\\nRecord: {json.dumps(record)}\"\n)\n\nresult = parse_with_retry(first_response, ClassificationResult, record, schema_str, max_retries=1)\nprint(f\"Parse succeeded after retry: {result.label}, conf={result.confidence}\")\n\n# --- Test dedup ring ---\ndedup = DeduplicationRing()\nbatch = [\n    {\"id\": \"R-1\", \"text\": \"Aspirin 100mg\"},\n    {\"id\": \"R-2\", \"text\": \"Ibuprofen 200mg\"},\n    {\"id\": \"R-1\", \"text\": \"Aspirin 100mg\"},\n    {\"id\": \"R-3\", \"text\": \"Paracetamol 500mg\"},\n    {\"id\": \"R-2\", \"text\": \"Ibuprofen 200mg\"}\n]\nfor r in batch[:3]:\n    dedup.mark_processed(r)\n\nunique, skipped = dedup.deduplicate_batch(batch)\nprint(f\"Dedup: {len(unique)} unique, {skipped} skipped out of {len(batch)}\")\nprint(f\"Ring size: {len(dedup._hashes)}\")\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 600,
+          "totalTokenCount": 900
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Sure! Here's the classification:\n{label: medication, confidence: 0.9, reasoning: common OTC drug"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 130
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"label\": \"medication\", \"confidence\": 0.92, \"reasoning\": \"Aspirin is a well-known OTC medication\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 180,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 215
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The self-healing retry loop worked correctly:\n- First LLM response was malformed JSON (missing quotes, no closing brace)\n- Correction prompt was sent with the error details\n- Second response was valid JSON that parsed into ClassificationResult\n- Dedup ring correctly identified 2 duplicates out of 5 records\n\nFINAL(parse_with_retry self-healed: label=medication conf=0.92. Dedup: 2 unique from 5 with 3 skipped.)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 800,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 880
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "parse_with_retry self-healed: label=medication conf=0.92. Dedup: 2 unique from 5 with 3 skipped.",
+    "total_iterations": 2,
+    "total_model_calls": 4
+  }
+}

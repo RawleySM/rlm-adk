@@ -20,6 +20,13 @@ import uuid
 from contextlib import contextmanager
 from typing import Any, Callable
 
+from rlm_adk.repl.trace import (
+    REPLTrace,
+    TRACE_HEADER,
+    TRACE_HEADER_MEMORY,
+    TRACE_FOOTER,
+    TRACE_FOOTER_MEMORY,
+)
 from rlm_adk.types import REPLResult, RLMChatCompletion
 
 # Task-local stdout/stderr capture (CRIT-3.4)
@@ -128,6 +135,8 @@ _SAFE_BUILTINS = {
     "staticmethod": staticmethod,
     "classmethod": classmethod,
     "__import__": __import__,
+    "__build_class__": __build_class__,
+    "exec": exec,
     "open": open,
     # Exceptions
     "Exception": Exception,
@@ -152,7 +161,6 @@ _SAFE_BUILTINS = {
     # Blocked
     "input": None,
     "eval": None,
-    "exec": None,
     "compile": None,
     "globals": None,
     "locals": locals,
@@ -292,17 +300,28 @@ class LocalREPL:
         finally:
             os.chdir(old_cwd)
 
-    def execute_code(self, code: str) -> REPLResult:
+    def execute_code(self, code: str, trace: REPLTrace | None = None) -> REPLResult:
         """Execute code synchronously in the sandboxed namespace."""
         start_time = time.perf_counter()
-        self._pending_llm_calls = []
+        self._pending_llm_calls.clear()
+        trace_level = int(os.environ.get("RLM_REPL_TRACE", "0"))
 
         with self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
             try:
                 combined = {**self.globals, **self.locals}
-                exec(code, combined, combined)
 
-                # Update locals with new variables
+                if trace is not None:
+                    combined["_rlm_trace"] = trace
+                    if trace_level >= 2:
+                        instrumented = TRACE_HEADER_MEMORY + "\n" + code + "\n" + TRACE_FOOTER_MEMORY
+                    else:
+                        instrumented = TRACE_HEADER + "\n" + code + "\n" + TRACE_FOOTER
+                else:
+                    instrumented = code
+
+                exec(instrumented, combined, combined)
+
+                # Update locals with new variables (underscore filter hides _rlm_*)
                 for key, value in combined.items():
                     if key not in self.globals and not key.startswith("_"):
                         self.locals[key] = value
@@ -321,17 +340,21 @@ class LocalREPL:
             locals=self.locals.copy(),
             execution_time=time.perf_counter() - start_time,
             llm_calls=self._pending_llm_calls.copy(),
+            trace=trace.to_dict() if trace else None,
         )
 
-    async def execute_code_async(self, code: str, repl_exec_fn: Any) -> REPLResult:
+    async def execute_code_async(
+        self, code: str, repl_exec_fn: Any, trace: REPLTrace | None = None,
+    ) -> REPLResult:
         """Execute AST-rewritten async code.
 
         Args:
             code: The original code (before AST rewriting -- for reference/logging)
             repl_exec_fn: The compiled async function from AST rewriter
+            trace: Optional REPLTrace accumulator for this code block
         """
         start_time = time.perf_counter()
-        self._pending_llm_calls = []
+        self._pending_llm_calls.clear()
 
         stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
         tok_out = _capture_stdout.set(stdout_buf)
@@ -340,8 +363,17 @@ class LocalREPL:
         try:
             os.chdir(self.temp_dir)
 
+            if trace is not None:
+                # Inject trace into the globals the compiled function sees
+                self.globals["_rlm_trace"] = trace
+                trace.start_time = time.perf_counter()
+                trace.execution_mode = "async"
+
             # Run the async _repl_exec function
             new_locals = await repl_exec_fn()
+
+            if trace is not None:
+                trace.end_time = time.perf_counter()
 
             # Update locals with results
             if isinstance(new_locals, dict):
@@ -356,10 +388,14 @@ class LocalREPL:
             stdout = stdout_buf.getvalue()
             stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
             self._last_exec_error = f"{type(e).__name__}: {e}"
+            if trace is not None:
+                trace.end_time = time.perf_counter()
         finally:
             _capture_stdout.reset(tok_out)
             _capture_stderr.reset(tok_err)
             os.chdir(old_cwd)
+            # Clean up trace from globals to avoid leaking between blocks
+            self.globals.pop("_rlm_trace", None)
 
         return REPLResult(
             stdout=stdout,
@@ -367,6 +403,7 @@ class LocalREPL:
             locals=self.locals.copy(),
             execution_time=time.perf_counter() - start_time,
             llm_calls=self._pending_llm_calls.copy(),
+            trace=trace.to_dict() if trace else None,
         )
 
     def cleanup(self) -> None:

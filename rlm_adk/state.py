@@ -61,13 +61,12 @@ REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
 REASONING_CONTENT_COUNT = "reasoning_content_count"
 REASONING_INPUT_TOKENS = "reasoning_input_tokens"
 REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
-# Worker accounting keys use temp: prefix (scoped to current invocation,
-# discarded after).  Values are aggregated from worker objects in the
-# dispatch closure — no longer list-appended in callbacks.
-WORKER_PROMPT_CHARS = "temp:worker_prompt_chars"
-WORKER_CONTENT_COUNT = "temp:worker_content_count"
-WORKER_INPUT_TOKENS = "temp:worker_input_tokens"
-WORKER_OUTPUT_TOKENS = "temp:worker_output_tokens"
+# Worker accounting keys (session-scoped, cumulative across invocations).
+# Values are aggregated from worker objects in the dispatch closure.
+WORKER_PROMPT_CHARS = "worker_prompt_chars"
+WORKER_CONTENT_COUNT = "worker_content_count"
+WORKER_INPUT_TOKENS = "worker_input_tokens"
+WORKER_OUTPUT_TOKENS = "worker_output_tokens"
 CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
 
 # Type Validation Keys
@@ -75,17 +74,31 @@ VALIDATION_PASS = "validation_pass"
 VALIDATION_ERRORS = "validation_errors"
 OBS_VALIDATION_FAIL_COUNT = "obs:validation_fail_count"
 
-# Worker Dispatch Lifecycle Keys (temp: scoped to current invocation)
-WORKER_DISPATCH_COUNT = "temp:worker_dispatch_count"
-WORKER_RESULTS_COMMITTED = "temp:worker_results_committed"
-WORKER_DIRTY_READ_COUNT = "temp:worker_dirty_read_count"
-WORKER_EVENTS_DRAINED = "temp:worker_events_drained"
+# Worker Dispatch Lifecycle Keys (session-scoped, cumulative)
+WORKER_DISPATCH_COUNT = "worker_dispatch_count"
+WORKER_RESULTS_COMMITTED = "worker_results_committed"
+WORKER_DIRTY_READ_COUNT = "worker_dirty_read_count"
+WORKER_EVENTS_DRAINED = "worker_events_drained"
 
-# Worker Dispatch Timing Keys (temp: scoped to current invocation)
-OBS_WORKER_DISPATCH_LATENCY_MS = "temp:obs_worker_dispatch_latency_ms"
-OBS_WORKER_TOTAL_DISPATCHES = "temp:obs_worker_total_dispatches"
-OBS_WORKER_TOTAL_BATCH_DISPATCHES = "temp:obs_worker_total_batch_dispatches"
-OBS_WORKER_DIRTY_READ_MISMATCHES = "temp:obs_worker_dirty_read_mismatches"
+# Worker Dispatch Timing Keys (session-scoped, cumulative)
+OBS_WORKER_DISPATCH_LATENCY_MS = "obs:worker_dispatch_latency_ms"
+OBS_WORKER_TOTAL_DISPATCHES = "obs:worker_total_dispatches"
+OBS_WORKER_TOTAL_BATCH_DISPATCHES = "obs:worker_total_batch_dispatches"
+OBS_WORKER_DIRTY_READ_MISMATCHES = "obs:worker_dirty_read_mismatches"
+
+# Finish Reason Tracking (written by ObservabilityPlugin)
+OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
+OBS_FINISH_RECITATION_COUNT = "obs:finish_recitation_count"
+OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
+
+# Worker Error Classification (written by dispatch closures)
+OBS_WORKER_TIMEOUT_COUNT = "obs:worker_timeout_count"
+OBS_WORKER_RATE_LIMIT_COUNT = "obs:worker_rate_limit_count"
+OBS_WORKER_ERROR_COUNTS = "obs:worker_error_counts"  # dict[category, count]
+
+# Zero-Progress Tracking (written by orchestrator)
+OBS_ZERO_PROGRESS_ITERATIONS = "obs:zero_progress_iterations"
+OBS_CONSECUTIVE_ZERO_PROGRESS = "obs:consecutive_zero_progress"
 
 # API/Messaging Keys
 REQUEST_ID = "request_id"

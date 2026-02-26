@@ -19,9 +19,10 @@ from google.adk.events import Event, EventActions
 from google.genai import types
 from google.genai.errors import APIError, ClientError, ServerError
 
-from rlm_adk.artifacts import save_final_answer, save_repl_code, save_repl_output
+from rlm_adk.artifacts import save_final_answer, save_repl_code, save_repl_output, save_repl_trace
 from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
 from rlm_adk.repl.local_repl import LocalREPL
+from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
     APP_MAX_DEPTH,
     APP_MAX_ITERATIONS,
@@ -33,6 +34,8 @@ from rlm_adk.state import (
     LAST_REASONING_RESPONSE,
     LAST_REPL_RESULT,
     MESSAGE_HISTORY,
+    OBS_CONSECUTIVE_ZERO_PROGRESS,
+    OBS_ZERO_PROGRESS_ITERATIONS,
     REPO_URL,
     REQUEST_ID,
     ROOT_PROMPT,
@@ -40,7 +43,7 @@ from rlm_adk.state import (
     WORKER_EVENTS_DRAINED,
     WORKER_RESULTS_COMMITTED,
 )
-from rlm_adk.types import CodeBlock, REPLResult, RLMIteration
+from rlm_adk.types import CodeBlock, LLMResult, REPLResult, RLMIteration
 from rlm_adk.utils.parsing import find_code_blocks, find_final_answer, format_iteration
 from rlm_adk.utils.prompts import build_user_prompt
 
@@ -53,13 +56,19 @@ _TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 def is_transient_error(exc: Exception) -> bool:
     """Classify an exception as transient (retryable) using type-based checks.
 
-    Only ``google.genai.errors.ServerError`` and ``ClientError`` with known
-    transient HTTP status codes are considered retryable.  Generic exceptions
-    are never retried, even if their message happens to contain a status code
-    string like "503".
+    Recognizes google.genai errors, asyncio timeouts, and network-level
+    exceptions as transient.  Generic exceptions are never retried.
     """
     if isinstance(exc, (ServerError, ClientError)):
         return getattr(exc, "code", None) in _TRANSIENT_STATUS_CODES
+    if isinstance(exc, (asyncio.TimeoutError, ConnectionError, OSError)):
+        return True
+    try:
+        import httpx as _httpx
+        if isinstance(exc, (_httpx.ConnectError, _httpx.TimeoutException)):
+            return True
+    except ImportError:
+        pass
     return False
 
 
@@ -99,6 +108,7 @@ class RLMOrchestratorAgent(BaseAgent):
         _default_max_iter = int(os.getenv("RLM_MAX_ITERATIONS", "30"))
         max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
         max_depth = ctx.session.state.get(APP_MAX_DEPTH, 1)
+        trace_level = int(os.getenv("RLM_REPL_TRACE", "0"))
 
         # Initialize REPL environment (BUG-8: reuse persistent REPL if provided)
         if self.repl is not None:
@@ -106,13 +116,22 @@ class RLMOrchestratorAgent(BaseAgent):
         else:
             repl = LocalREPL(depth=1)
 
+        # Inject LLMResult into REPL namespace for skill functions
+        repl.globals["LLMResult"] = LLMResult
+
+        # Mutable trace holder: trace_holder[0] is the current REPLTrace per code block.
+        # Dispatch closures read this to record per-call timing.
+        trace_holder: list[REPLTrace | None] = [None]
+
         # Wire up WorkerPool dispatch closures (BUG-3)
         event_queue: asyncio.Queue | None = None
         if self.worker_pool is not None:
             self.worker_pool.ensure_initialized()
             event_queue = asyncio.Queue()
             llm_query_async, llm_query_batched_async = create_dispatch_closures(
-                self.worker_pool, ctx, event_queue
+                self.worker_pool, ctx, event_queue,
+                call_log_sink=repl._pending_llm_calls,
+                trace_sink=trace_holder if trace_level > 0 else None,
             )
             repl.set_async_llm_query_fns(llm_query_async, llm_query_batched_async)
 
@@ -124,6 +143,13 @@ class RLMOrchestratorAgent(BaseAgent):
                 )
 
             repl.set_llm_query_fns(sync_llm_query_unsupported, sync_llm_query_unsupported)
+
+        # Inject repomix skill helpers into REPL globals
+        from rlm_adk.skills.repomix_helpers import pack_repo, probe_repo, shard_repo
+
+        repl.globals["probe_repo"] = probe_repo
+        repl.globals["pack_repo"] = pack_repo
+        repl.globals["shard_repo"] = shard_repo
 
         try:
             # Message history starts empty — ADK handles the system prompt
@@ -237,7 +263,39 @@ class RLMOrchestratorAgent(BaseAgent):
                 code_block_strs = find_code_blocks(response)
                 code_blocks: list[CodeBlock] = []
 
+                # --- Zero-progress detection ---
+                if not code_block_strs and response.strip():
+                    if not find_final_answer(response):
+                        zero_count = ctx.session.state.get(OBS_ZERO_PROGRESS_ITERATIONS, 0) + 1
+                        consec = ctx.session.state.get(OBS_CONSECUTIVE_ZERO_PROGRESS, 0) + 1
+                        yield Event(
+                            invocation_id=ctx.invocation_id,
+                            author=self.name,
+                            actions=EventActions(state_delta={
+                                OBS_ZERO_PROGRESS_ITERATIONS: zero_count,
+                                OBS_CONSECUTIVE_ZERO_PROGRESS: consec,
+                            }),
+                        )
+                        if consec >= 3:
+                            logger.warning(
+                                "[RLM] %d consecutive zero-progress iterations", consec,
+                            )
+                elif code_block_strs:
+                    # Reset consecutive counter on progress
+                    if ctx.session.state.get(OBS_CONSECUTIVE_ZERO_PROGRESS, 0) > 0:
+                        yield Event(
+                            invocation_id=ctx.invocation_id,
+                            author=self.name,
+                            actions=EventActions(state_delta={
+                                OBS_CONSECUTIVE_ZERO_PROGRESS: 0,
+                            }),
+                        )
+
                 for code_str in code_block_strs:
+                    # Create per-block trace if tracing enabled
+                    trace = REPLTrace() if trace_level > 0 else None
+                    trace_holder[0] = trace  # dispatch closures now see this trace
+
                     # Check if code contains llm_query calls that need AST rewriting
                     try:
                         from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
@@ -254,7 +312,9 @@ class RLMOrchestratorAgent(BaseAgent):
                             ns = {**repl.globals, **repl.locals}
                             exec(compile(rewritten, "<repl>", "exec"), ns)
                             repl_exec_fn = ns["_repl_exec"]
-                            result = await repl.execute_code_async(code_str, repl_exec_fn)
+                            result = await repl.execute_code_async(
+                                code_str, repl_exec_fn, trace=trace,
+                            )
                         except SyntaxError as e:
                             result = REPLResult(
                                 stdout="",
@@ -263,13 +323,26 @@ class RLMOrchestratorAgent(BaseAgent):
                             )
                     else:
                         # No LM calls (or no AST rewriter available) - execute synchronously
-                        result = repl.execute_code(code_str)
+                        result = repl.execute_code(code_str, trace=trace)
+
+                    # Post-execution trace enrichment
+                    if trace is not None:
+                        if not trace.end_time:
+                            trace.end_time = time.perf_counter()
+                        trace.snapshot_vars(
+                            {k: v for k, v in repl.locals.items() if not k.startswith("_")},
+                            label="post_execution",
+                        )
 
                     code_blocks.append(CodeBlock(code=code_str, result=result))
 
                     # Auto-save REPL code as artifact
                     turn_idx = len(code_blocks) - 1
                     await save_repl_code(ctx, iteration=i, turn=turn_idx, code=code_str)
+
+                    # Auto-save REPL trace as artifact
+                    if trace is not None and result.trace:
+                        await save_repl_trace(ctx, iteration=i, turn=turn_idx, trace_dict=result.trace)
 
                 print(
                     f"[RLM] iter={i} code_blocks={len(code_blocks)} "
@@ -296,6 +369,14 @@ class RLMOrchestratorAgent(BaseAgent):
                         yield event_queue.get_nowait()
                         mid_drained += 1
                     if mid_drained > 0:
+                        prev_drained = ctx.session.state.get(WORKER_EVENTS_DRAINED, 0)
+                        yield Event(
+                            invocation_id=ctx.invocation_id,
+                            author=self.name,
+                            actions=EventActions(state_delta={
+                                WORKER_EVENTS_DRAINED: prev_drained + mid_drained,
+                            }),
+                        )
                         print(
                             f"[RLM] iter={i} mid-iteration worker_events_drained={mid_drained}",
                             flush=True,
@@ -366,16 +447,43 @@ class RLMOrchestratorAgent(BaseAgent):
                 new_messages = format_iteration(iteration)
                 message_history.extend(new_messages)
 
+                # Build LAST_REPL_RESULT with optional trace summary
+                repl_result_delta: dict[str, Any] = {
+                    "code_blocks": len(code_blocks),
+                    "has_output": any(cb.result.stdout for cb in code_blocks),
+                    "has_errors": any(cb.result.stderr for cb in code_blocks),
+                    "total_llm_calls": sum(
+                        len(cb.result.llm_calls) for cb in code_blocks
+                    ),
+                }
+
+                # Enrich with trace summaries if tracing enabled
+                if trace_level > 0:
+                    traces = [cb.result.trace for cb in code_blocks if cb.result.trace]
+                    if traces:
+                        repl_result_delta["trace_summary"] = {
+                            "total_wall_time_ms": sum(
+                                t.get("wall_time_ms", 0) for t in traces if isinstance(t, dict)
+                            ),
+                            "total_llm_calls_traced": sum(
+                                len(t.get("llm_calls", [])) for t in traces if isinstance(t, dict)
+                            ),
+                            "failed_llm_calls": sum(
+                                sum(1 for c in t.get("llm_calls", []) if c.get("error"))
+                                for t in traces if isinstance(t, dict)
+                            ),
+                            "data_flow_edges": sum(
+                                len(t.get("data_flow_edges", [])) for t in traces if isinstance(t, dict)
+                            ),
+                        }
+
                 # Yield iteration state delta
                 yield Event(
                     invocation_id=ctx.invocation_id,
                     author=self.name,
                     actions=EventActions(state_delta={
                         ITERATION_COUNT: i + 1,
-                        LAST_REPL_RESULT: {
-                            "code_blocks": len(code_blocks),
-                            "has_output": any(cb.result.stdout for cb in code_blocks),
-                        },
+                        LAST_REPL_RESULT: repl_result_delta,
                     }),
                 )
 

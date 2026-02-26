@@ -1,0 +1,152 @@
+{
+  "scenario_id": "sliding_window_chunking",
+  "description": "Section 3: Boundary & dependency management. Iter 1: reasoning emits code that creates a SlidingWindow chunker (window_size=4, prefix_ratio=0.5), chunks 8 records, and calls llm_query_batched per chunk with prefix context. Workers return classifications for each actionable record. Iter 2: reasoning verifies chunk overlap worked correctly, returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I'll implement sliding-window chunking with prefix overlap to maintain cross-boundary continuity.\n\n```repl\nimport json\nfrom dataclasses import dataclass\nfrom typing import Any\n\n@dataclass\nclass SlidingWindow:\n    window_size: int = 4\n    prefix_ratio: float = 0.5\n\n    @property\n    def stride(self):\n        return int(self.window_size * (1 - self.prefix_ratio))\n\n    def chunks(self, data):\n        result = []\n        overlap = self.window_size - self.stride\n        for start in range(0, len(data), self.stride):\n            end = min(start + self.window_size, len(data))\n            full_window = data[start:end]\n            if start == 0:\n                prefix, actionable = [], full_window\n            else:\n                prefix = full_window[:overlap]\n                actionable = full_window[overlap:]\n            if actionable:\n                result.append((prefix, actionable))\n        return result\n\nrecords = [\n    {\"id\": f\"R-{i}\", \"vendor\": name}\n    for i, name in enumerate([\"Acme Corp\", \"Beta LLC\", \"Gamma Inc\",\n        \"Delta Ltd\", \"Epsilon SA\", \"Zeta GmbH\", \"Eta BV\", \"Theta AG\"])\n]\n\nwindow = SlidingWindow(window_size=4, prefix_ratio=0.5)\nchunks = window.chunks(records)\nprint(f\"Total records: {len(records)}, Chunks: {len(chunks)}, Stride: {window.stride}\")\n\nall_results = []\nfor chunk_idx, (prefix, actionable) in enumerate(chunks):\n    prefix_ids = [r['id'] for r in prefix]\n    action_ids = [r['id'] for r in actionable]\n    print(f\"Chunk {chunk_idx}: prefix={prefix_ids}, actionable={action_ids}\")\n\n    prefix_ctx = \"\"\n    if prefix:\n        prefix_ctx = f\"Previously classified (read-only): {json.dumps(prefix)}\\n\"\n\n    prompts = [\n        f\"{prefix_ctx}Classify this vendor record. Return JSON with fields: id, category, confidence.\\nRecord: {json.dumps(r)}\"\n        for r in actionable\n    ]\n    raw_responses = llm_query_batched(prompts)\n\n    for r, raw in zip(actionable, raw_responses):\n        try:\n            obj = json.loads(raw.strip())\n            all_results.append(obj)\n        except json.JSONDecodeError:\n            all_results.append({\"id\": r[\"id\"], \"error\": \"parse_failed\"})\n\nprint(f\"Total classified: {len(all_results)}\")\nfor res in all_results:\n    print(f\"  {res.get('id', '?')} -> {res.get('category', 'ERROR')}\")\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 500,
+          "totalTokenCount": 800
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-0\", \"category\": \"manufacturing\", \"confidence\": 0.88}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 80, "candidatesTokenCount": 25, "totalTokenCount": 105 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-1\", \"category\": \"consulting\", \"confidence\": 0.75}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 80, "candidatesTokenCount": 25, "totalTokenCount": 105 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-2\", \"category\": \"technology\", \"confidence\": 0.91}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 80, "candidatesTokenCount": 25, "totalTokenCount": 105 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-3\", \"category\": \"logistics\", \"confidence\": 0.83}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 80, "candidatesTokenCount": 25, "totalTokenCount": 105 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-4\", \"category\": \"energy\", \"confidence\": 0.79}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 25, "totalTokenCount": 125 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 6,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-5\", \"category\": \"chemicals\", \"confidence\": 0.86}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 25, "totalTokenCount": 125 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-6\", \"category\": \"finance\", \"confidence\": 0.90}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 25, "totalTokenCount": 125 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 8,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-7\", \"category\": \"pharma\", \"confidence\": 0.94}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 25, "totalTokenCount": 125 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 9,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Sliding window chunking worked correctly:\n- 8 records processed in 4 chunks with window_size=4, stride=2\n- Chunk 0: no prefix, 4 actionable (R-0..R-3)\n- Chunk 1: prefix [R-2,R-3], actionable [R-4,R-5]\n- Chunk 2: prefix [R-4,R-5], actionable [R-6,R-7]\n- Chunk 3 would be empty, skipped\n- All 8 records classified with valid categories\n- Prefix overlap ensured cross-boundary context for chunks 1-2\n\nFINAL(8 records classified across 3 chunks with 50% prefix overlap. All parses succeeded.)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 900,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 1000
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "8 records classified across 3 chunks with 50% prefix overlap. All parses succeeded.",
+    "total_iterations": 2,
+    "total_model_calls": 10
+  }
+}

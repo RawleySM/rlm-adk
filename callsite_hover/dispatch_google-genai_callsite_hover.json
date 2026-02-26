@@ -1,0 +1,37 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/dispatch.py",
+  "library": "google-genai",
+  "import_prefix": "google.genai",
+  "imported_classes": [
+    "HttpOptions",
+    "HttpRetryOptions",
+    "types"
+  ],
+  "call_sites": [
+    {
+      "symbol": "HttpOptions",
+      "instances": [
+        {
+          "name": null,
+          "line": 127
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass HttpOptions(\n    *,\n    base_url: str | None = None,\n    base_url_resource_scope: ResourceScope | None = None,\n    api_version: str | None = None,\n    headers: dict[str, str] | None = None,\n    timeout: int | None = None,\n    client_args: dict[str, Any] | None = None,\n    async_client_args: dict[str, Any] | None = None,\n    extra_body: dict[str, Any] | None = None,\n    retry_options: HttpRetryOptions | None = None,\n    httpx_client: HttpxClient | None = None,\n    httpx_async_client: HttpxAsyncClient | None = None\n)\n```\n---\nHTTP options to be used in each of the requests."
+      }
+    },
+    {
+      "symbol": "HttpRetryOptions",
+      "instances": [
+        {
+          "name": null,
+          "line": 129
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass HttpRetryOptions(\n    *,\n    attempts: int | None = None,\n    initial_delay: float | None = None,\n    max_delay: float | None = None,\n    exp_base: float | None = None,\n    jitter: float | None = None,\n    http_status_codes: list[int] | None = None\n)\n```\n---\nHTTP retry options to be used in each of the requests."
+      }
+    }
+  ],
+  "type_annotations": []
+}

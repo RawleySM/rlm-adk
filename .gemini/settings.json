@@ -27,9 +27,11 @@
   },
   "ui": {
     "footer": {
-      "hideContextPercentage": true
+      "hideContextPercentage": false
     },
-    "showModelInfoInChat": true
+    "showModelInfoInChat": true,
+    "terminalBackgroundPollingInterval": 30,
+    "inlineThinkingMode": "full"
   },
   "general": {
     "vimMode": false,
@@ -47,6 +49,7 @@
   },
   "mcpServers": {},
   "experimental": {
-    "skills": true
+    "skills": true,
+    "enableAgents": true 
   }
 }

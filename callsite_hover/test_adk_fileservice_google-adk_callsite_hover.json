@@ -1,0 +1,41 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_adk_fileservice.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "BaseSessionService",
+    "FileArtifactService",
+    "InMemoryArtifactService"
+  ],
+  "call_sites": [
+    {
+      "symbol": "InMemoryArtifactService",
+      "instances": [
+        {
+          "name": "mem_service",
+          "line": 46
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass InMemoryArtifactService(\n    *,\n    artifacts: dict[str, list[_ArtifactEntry]] = dict\n)\n```\n---\nAn in-memory implementation of the artifact service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
+      }
+    },
+    {
+      "symbol": "FileArtifactService",
+      "instances": [
+        {
+          "name": null,
+          "line": 60
+        },
+        {
+          "name": "service",
+          "line": 66
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass FileArtifactService(root_dir: Path | str)\n```\n---\nInitializes the file-based artifact service.\n\nArgs:  \n&nbsp;&nbsp;root\\_dir: The directory that will contain artifact data."
+      }
+    }
+  ],
+  "type_annotations": []
+}

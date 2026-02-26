@@ -1,0 +1,23 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.venv/lib/python3.12/site-packages/google/adk/events/event_actions.py",
+  "library": "google-genai",
+  "import_prefix": "google.genai",
+  "imported_classes": [
+    "Content"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "Content",
+      "usages": [
+        {
+          "context": "variable:compacted_content",
+          "line": 46
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) Content\n```\n---\nContains the multi-part content of a message."
+      }
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "scenario_id": "skill_helper",
+  "description": "Skill helper e2e: Iter 1 reasoning calls probe_repo + pack_repo on a temp dir (no workers). Iter 2 reasoning calls shard_repo + llm_query_batched with 2 prompts (2 workers). Iter 3 reasoning returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Iteration 1: Validate probe_repo and pack_repo on a temp directory.\n\n```repl\nimport os, pathlib, tempfile, shutil\n\ntd = tempfile.mkdtemp(prefix=\"skill_test_\")\nfor name, content in [\n    (\"alpha/a.py\", \"x = 1\\n\" * 50),\n    (\"beta/b.py\", \"y = 2\\n\" * 50),\n    (\"gamma/c.py\", \"z = 3\\n\" * 50),\n    (\"delta/d.py\", \"w = 4\\n\" * 50),\n]:\n    p = pathlib.Path(td) / name\n    p.parent.mkdir(parents=True, exist_ok=True)\n    p.write_text(content)\n\ninfo = probe_repo(td, calculate_tokens=False)\nassert info.total_files == 4, f\"Expected 4 files, got {info.total_files}\"\nassert info.total_chars > 0, \"Expected non-zero chars\"\nprint(f\"probe: files={info.total_files}, chars={info.total_chars}\")\n\nxml = pack_repo(td, calculate_tokens=False)\nassert \"<file\" in xml, \"Expected <file tag in XML output\"\nassert len(xml) > 100, f\"Expected substantial XML, got {len(xml)} chars\"\nprint(f\"pack: xml_len={len(xml)}\")\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 300,
+          "totalTokenCount": 500
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Iteration 2: Validate shard_repo and dispatch 2 workers via llm_query_batched.\n\n```repl\nsr = shard_repo(td, calculate_tokens=False)\nassert len(sr.chunks) >= 1, f\"Expected >= 1 chunk, got {len(sr.chunks)}\"\nassert sr.total_files == 4, f\"Expected 4 files in shards, got {sr.total_files}\"\nprint(f\"shard: chunks={len(sr.chunks)}, files={sr.total_files}\")\n\nprompts = [\n    f\"Summarize section A:\\n{sr.chunks[0][:200]}\",\n    f\"Summarize section B:\\n{sr.chunks[-1][:200]}\"\n]\nanalyses = llm_query_batched(prompts)\nassert len(analyses) == 2, f\"Expected 2 analyses, got {len(analyses)}\"\ncombined = \" | \".join(analyses)\nprint(f\"analyses: {combined}\")\n\nshutil.rmtree(td)\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 250,
+          "totalTokenCount": 650
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Section A contains Python variable assignments (x=1, y=2) repeated across alpha and beta modules."
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 125
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Section B contains Python variable assignments (z=3, w=4) in gamma and delta modules."
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 125
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "All three skill helpers validated:\n- probe_repo: 4 files found\n- pack_repo: XML output with <file tags\n- shard_repo: chunks produced, worker analyses returned\n\nFINAL(skill_helpers_validated: probe=4_files, pack=xml_ok, shard=chunks_ok, batched=2_analyses)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 550
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "skill_helpers_validated: probe=4_files, pack=xml_ok, shard=chunks_ok, batched=2_analyses",
+    "total_iterations": 3,
+    "total_model_calls": 5
+  }
+}

@@ -150,6 +150,52 @@ async def save_repl_code(
         return None
 
 
+async def save_repl_trace(
+    ctx: Union[InvocationContext, CallbackContext],
+    iteration: int,
+    turn: int,
+    trace_dict: dict,
+) -> Optional[int]:
+    """Save detailed REPL trace as a JSON artifact.
+
+    The artifact is named ``repl_trace_iter_{iteration}_turn_{turn}.json``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        iteration: The current orchestrator iteration number.
+        turn: The code block index within this iteration (0-based).
+        trace_dict: The serialized REPLTrace dict.
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+    inv_ctx = get_invocation_context(ctx)
+    if inv_ctx.artifact_service is None:
+        return None
+
+    import json
+    filename = f"repl_trace_iter_{iteration}_turn_{turn}.json"
+    data = json.dumps(trace_dict, indent=2)
+
+    try:
+        artifact = types.Part.from_bytes(
+            data=data.encode("utf-8"), mime_type="application/json",
+        )
+        version = await inv_ctx.artifact_service.save_artifact(
+            app_name=inv_ctx.app_name,
+            user_id=inv_ctx.session.user_id,
+            session_id=inv_ctx.session.id,
+            filename=filename,
+            artifact=artifact,
+        )
+        _update_save_tracking(inv_ctx, filename, version, len(data.encode("utf-8")))
+        return version
+    except Exception as e:
+        logger.warning("Failed to save REPL trace artifact: %s", e)
+        return None
+
+
 async def save_worker_result(
     ctx: Union[InvocationContext, CallbackContext],
     worker_name: str,

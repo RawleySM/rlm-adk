@@ -1,0 +1,149 @@
+{
+  "scenario_id": "adaptive_confidence_gating",
+  "description": "Section 6: Adaptive confidence gating. Iter 1: reasoning emits code that creates AdaptiveGate, runs a first triage batch of 3 records with llm_query_batched, records confidences, and observes the gate recommends a larger batch size. Iter 2: reasoning emits code for a second batch with the gate's recommended batch size, workers return low-confidence results, gate reduces batch size. Iter 3: reasoning sees gate adaptation in telemetry, returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I'll implement the adaptive confidence gating pattern. The gate dynamically adjusts batch sizes based on rolling confidence metrics.\n\n```repl\nimport json\nfrom dataclasses import dataclass, field\n\n@dataclass\nclass AdaptiveGate:\n    high_confidence_threshold: float = 0.85\n    low_confidence_threshold: float = 0.50\n    min_batch_size: int = 5\n    max_batch_size: int = 50\n    default_batch_size: int = 25\n    _recent_confidences: list = field(default_factory=list)\n    _window: int = 50\n\n    def record_confidence(self, conf):\n        self._recent_confidences.append(conf)\n        if len(self._recent_confidences) > self._window:\n            self._recent_confidences = self._recent_confidences[-self._window:]\n\n    @property\n    def rolling_mean(self):\n        if not self._recent_confidences:\n            return 0.5\n        return sum(self._recent_confidences) / len(self._recent_confidences)\n\n    @property\n    def recommended_batch_size(self):\n        mean = self.rolling_mean\n        if mean >= self.high_confidence_threshold:\n            return self.max_batch_size\n        elif mean <= self.low_confidence_threshold:\n            return self.min_batch_size\n        else:\n            ratio = (mean - self.low_confidence_threshold) / (self.high_confidence_threshold - self.low_confidence_threshold)\n            return int(self.min_batch_size + ratio * (self.max_batch_size - self.min_batch_size))\n\n    @property\n    def recommended_max_retries(self):\n        return 3 if self.rolling_mean < self.low_confidence_threshold else 1\n\n    def telemetry(self):\n        return {\n            \"rolling_mean_confidence\": round(self.rolling_mean, 4),\n            \"sample_size\": len(self._recent_confidences),\n            \"recommended_batch_size\": self.recommended_batch_size,\n            \"recommended_max_retries\": self.recommended_max_retries,\n        }\n\ngate = AdaptiveGate()\n\n# Batch 1: High-confidence records\nbatch1 = [\n    {\"id\": \"R-1\", \"name\": \"Pfizer\"},\n    {\"id\": \"R-2\", \"name\": \"Roche\"},\n    {\"id\": \"R-3\", \"name\": \"Novartis\"}\n]\nprompts = [f\"Classify: {json.dumps(r)}. Return JSON: {{id, confidence: 0-1}}\" for r in batch1]\nraw = llm_query_batched(prompts)\n\nfor r in raw:\n    obj = json.loads(r.strip())\n    gate.record_confidence(obj[\"confidence\"])\n\nprint(f\"After batch 1: {gate.telemetry()}\")\nbatch1_size = gate.recommended_batch_size\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 450,
+          "totalTokenCount": 750
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-1\", \"confidence\": 0.95}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 40, "candidatesTokenCount": 15, "totalTokenCount": 55 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-2\", \"confidence\": 0.91}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 40, "candidatesTokenCount": 15, "totalTokenCount": 55 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-3\", \"confidence\": 0.89}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 40, "candidatesTokenCount": 15, "totalTokenCount": 55 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Batch 1 had high confidence (mean ~0.917), so the gate recommends max batch size. Now I'll simulate a low-confidence batch to see the gate adapt downward.\n\n```repl\n# Batch 2: Low-confidence records (ambiguous names)\nbatch2 = [\n    {\"id\": \"R-4\", \"name\": \"MedTech Solutions\"},\n    {\"id\": \"R-5\", \"name\": \"Global Health Inc\"}\n]\nprompts2 = [f\"Classify: {json.dumps(r)}. Return JSON: {{id, confidence: 0-1}}\" for r in batch2]\nraw2 = llm_query_batched(prompts2)\n\nfor r in raw2:\n    obj = json.loads(r.strip())\n    gate.record_confidence(obj[\"confidence\"])\n\nprint(f\"After batch 2: {gate.telemetry()}\")\nbatch2_size = gate.recommended_batch_size\nprint(f\"Batch size adapted: {batch1_size} -> {batch2_size}\")\nprint(f\"Max retries: {gate.recommended_max_retries}\")\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 700,
+          "candidatesTokenCount": 200,
+          "totalTokenCount": 900
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-4\", \"confidence\": 0.35}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 40, "candidatesTokenCount": 15, "totalTokenCount": 55 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 6,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"id\": \"R-5\", \"confidence\": 0.28}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 40, "candidatesTokenCount": 15, "totalTokenCount": 55 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The adaptive gate correctly responded to confidence changes:\n\n- After batch 1 (high conf ~0.92): recommended batch_size=50 (max), retries=1\n- After batch 2 (low conf R-4=0.35, R-5=0.28): rolling mean dropped, gate reduced batch size and increased retries\n\nThe gate's rolling mean now reflects the full 5-sample window. The batch size recommendation decreased from 50 toward the minimum, demonstrating adaptive behavior.\n\nFINAL(AdaptiveGate: batch1_conf=0.92 size=50, after low-conf batch rolling_mean dropped, batch_size reduced, retries=3.)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 1000,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 1100
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "AdaptiveGate: batch1_conf=0.92 size=50, after low-conf batch rolling_mean dropped, batch_size reduced, retries=3.",
+    "total_iterations": 3,
+    "total_model_calls": 8
+  }
+}

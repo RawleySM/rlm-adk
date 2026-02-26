@@ -73,9 +73,11 @@ class MigrationPlugin(BasePlugin):
         """
         super().__init__(name=name)
 
+        from rlm_adk.agent import _project_root
+
         self._postgres_url = postgres_url or os.getenv("RLM_POSTGRES_URL")
         self._sqlite_path = sqlite_db_path or os.getenv(
-            "RLM_SESSION_DB", ".adk/session.db"
+            "RLM_SESSION_DB", str(_project_root() / ".adk" / "session.db")
         )
         self._retention = retention_count
         if self._retention is None:

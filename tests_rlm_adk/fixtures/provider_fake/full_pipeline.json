@@ -1,0 +1,149 @@
+{
+  "scenario_id": "full_pipeline",
+  "description": "Section 9: Full pipeline orchestration (entry point). Iter 1: reasoning emits code that sets up dedup ring, adaptive gate, sliding window, deduplicates 6 records (2 are dupes), triages 4 unique records via llm_query_batched, routes results by disposition, and generates a battlefield report. Workers return triage decisions. Iter 2: reasoning analyzes the report, notes 1 error needs retry, calls llm_query for the failed record. Worker succeeds on retry. Iter 3: reasoning generates final report, returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I'll execute the full pipeline: dedup -> triage -> route -> battlefield report.\n\n```repl\nimport json\nimport hashlib\nimport time\nfrom collections import defaultdict\nfrom dataclasses import dataclass, field\n\n# --- Infrastructure ---\nclass DeduplicationRing:\n    def __init__(self):\n        self._hashes = set()\n    def content_hash(self, r):\n        return hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest()\n    def is_duplicate(self, r):\n        return self.content_hash(r) in self._hashes\n    def mark_processed(self, r):\n        self._hashes.add(self.content_hash(r))\n    def deduplicate_batch(self, records):\n        unique, skipped = [], 0\n        for r in records:\n            if self.is_duplicate(r): skipped += 1\n            else: unique.append(r)\n        return unique, skipped\n    def __len__(self):\n        return len(self._hashes)\n\n@dataclass\nclass PhaseResult:\n    phase_name: str\n    items: list\n    errors: list = field(default_factory=list)\n\n# --- Input data (with duplicates) ---\nrecords = [\n    {\"id\": \"V-1\", \"name\": \"Pfizer Inc\"},\n    {\"id\": \"V-2\", \"name\": \"Roche AG\"},\n    {\"id\": \"V-1\", \"name\": \"Pfizer Inc\"},\n    {\"id\": \"V-3\", \"name\": \"Unknown Corp\"},\n    {\"id\": \"V-4\", \"name\": \"Novartis Pharma\"},\n    {\"id\": \"V-2\", \"name\": \"Roche AG\"}\n]\n\nentities = [\n    {\"id\": \"E-10\", \"name\": \"Pfizer Inc.\"},\n    {\"id\": \"E-20\", \"name\": \"Roche Holding AG\"},\n    {\"id\": \"E-30\", \"name\": \"Novartis AG\"}\n]\nsymbol_table = \"\\n\".join(f\"  {e['id']}: {e['name']}\" for e in entities)\n\n# --- Phase 0: Dedup ---\ndedup = DeduplicationRing()\nunique, skipped = dedup.deduplicate_batch(records)\nfor r in unique:\n    dedup.mark_processed(r)\nprint(f\"[DEDUP] {skipped} duplicates skipped, {len(unique)} to process\")\n\n# --- Phase 1: Triage ---\nprompts = [\n    f\"Triage record against entities. Return JSON: {{record_id, disposition (exact_match|fuzzy_match|anomaly), confidence, matched_entity_id (null if none)}}.\\nEntities: {symbol_table}\\nRecord: {json.dumps(r)}\"\n    for r in unique\n]\nraw = llm_query_batched(prompts)\n\ndecisions = []\nerrors = []\nfor r, resp in zip(unique, raw):\n    try:\n        obj = json.loads(resp.strip())\n        decisions.append(obj)\n    except Exception as e:\n        errors.append({\"record_id\": r[\"id\"], \"error\": str(e)})\n\n# --- Phase 2: Route ---\nbuckets = defaultdict(list)\nfor d in decisions:\n    buckets[d[\"disposition\"]].append(d)\n\nresults = {}\nfor disp, items in buckets.items():\n    results[disp] = PhaseResult(disp, items)\nif errors:\n    results[\"_errors\"] = PhaseResult(\"errors\", [], errors=errors)\n\nprint(f\"Triage: {len(decisions)} decisions, {len(errors)} errors\")\nfor disp, pr in results.items():\n    print(f\"  {disp}: {len(pr.items)} items, {len(pr.errors)} errors\")\npipeline_errors = errors\npipeline_decisions = decisions\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 550,
+          "totalTokenCount": 850
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-1\", \"disposition\": \"exact_match\", \"confidence\": 0.96, \"matched_entity_id\": \"E-10\"}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 30, "totalTokenCount": 130 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-2\", \"disposition\": \"fuzzy_match\", \"confidence\": 0.80, \"matched_entity_id\": \"E-20\"}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 30, "totalTokenCount": 130 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "I think this is Unknown Corp so let me say {bad json" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 20, "totalTokenCount": 120 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-4\", \"disposition\": \"fuzzy_match\", \"confidence\": 0.75, \"matched_entity_id\": \"E-30\"}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 30, "totalTokenCount": 130 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The first pass had 1 parse error on V-3 (Unknown Corp). Let me retry that record with a correction prompt.\n\n```repl\n# Retry the failed record V-3\nfailed_record = {\"id\": \"V-3\", \"name\": \"Unknown Corp\"}\nretry_prompt = (\n    f\"Your previous response was not valid JSON. Return ONLY a JSON object: \"\n    f\"{{record_id, disposition (exact_match|fuzzy_match|anomaly), confidence, matched_entity_id}}.\\n\"\n    f\"Entities: {symbol_table}\\nRecord: {json.dumps(failed_record)}\"\n)\nretry_raw = llm_query(retry_prompt)\ntry:\n    retry_decision = json.loads(retry_raw.strip())\n    pipeline_decisions.append(retry_decision)\n    pipeline_errors = []  # cleared\n    print(f\"Retry succeeded: {retry_decision}\")\nexcept Exception as e:\n    print(f\"Retry also failed: {e}\")\n\n# Final tally\nprint(f\"Final: {len(pipeline_decisions)} decisions, {len(pipeline_errors)} errors\")\nfinal_summary = f\"{len(pipeline_decisions)} triaged, {skipped} deduped, {len(pipeline_errors)} errors\"\n```"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 1000,
+          "candidatesTokenCount": 200,
+          "totalTokenCount": 1200
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 6,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-3\", \"disposition\": \"anomaly\", \"confidence\": 0.40, \"matched_entity_id\": null}" }] }, "finishReason": "STOP", "index": 0 }],
+        "usageMetadata": { "promptTokenCount": 120, "candidatesTokenCount": 30, "totalTokenCount": 150 },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Full pipeline completed:\n- Dedup: 2 duplicates removed from 6 records, 4 unique processed\n- Triage: 3 succeeded on first pass, 1 failed (V-3 malformed JSON)\n- Retry: V-3 succeeded on retry -> anomaly (conf 0.40)\n- Final: 4 decisions (1 exact_match, 2 fuzzy_match, 1 anomaly), 0 errors\n\nFINAL(Pipeline: 4 triaged, 2 deduped, 0 errors. Dispositions: 1 exact, 2 fuzzy, 1 anomaly.)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 1500,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 1600
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Pipeline: 4 triaged, 2 deduped, 0 errors. Dispositions: 1 exact, 2 fuzzy, 1 anomaly.",
+    "total_iterations": 2,
+    "total_model_calls": 8
+  }
+}

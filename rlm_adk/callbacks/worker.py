@@ -11,10 +11,30 @@ worker_on_model_error: ERROR ISOLATION - Handles LLM errors gracefully without
     an LlmResponse so the agent completes normally.
 """
 
+import asyncio
+
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+
+
+def _classify_error(error: Exception) -> str:
+    """Classify an exception into an error category for observability."""
+    code = getattr(error, "code", None)
+    if isinstance(error, asyncio.TimeoutError):
+        return "TIMEOUT"
+    if code == 429:
+        return "RATE_LIMIT"
+    if code in (401, 403):
+        return "AUTH"
+    if code and isinstance(code, int) and code >= 500:
+        return "SERVER"
+    if code and isinstance(code, int) and code >= 400:
+        return "CLIENT"
+    if isinstance(error, (ConnectionError, OSError)):
+        return "NETWORK"
+    return "UNKNOWN"
 
 
 def worker_before_model(
@@ -98,6 +118,17 @@ def worker_after_model(
     else:
         agent._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
 
+    # Write call record onto agent object for dispatch closure to accumulate
+    agent._call_record = {  # type: ignore[attr-defined]
+        "prompt": getattr(agent, "_pending_prompt", None),
+        "response": response_text,
+        "input_tokens": agent._result_usage["input_tokens"],  # type: ignore[attr-defined]
+        "output_tokens": agent._result_usage["output_tokens"],  # type: ignore[attr-defined]
+        "model": getattr(llm_response, "model_version", None),
+        "finish_reason": str(llm_response.finish_reason) if llm_response.finish_reason else None,
+        "error": False,
+    }
+
     # Write to the worker's output_key in state (for ADK persistence)
     output_key = getattr(agent, "output_key", None)
     if output_key:
@@ -124,6 +155,19 @@ def worker_on_model_error(
     agent._result_ready = True  # type: ignore[attr-defined]
     agent._result_error = True  # type: ignore[attr-defined]
     agent._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
+
+    # Write error call record onto agent object for dispatch closure
+    agent._call_record = {  # type: ignore[attr-defined]
+        "prompt": getattr(agent, "_pending_prompt", None),
+        "response": error_msg,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "model": None,
+        "finish_reason": None,
+        "error": True,
+        "error_category": _classify_error(error),
+        "http_status": getattr(error, "code", None),
+    }
 
     return LlmResponse(
         content=types.Content(

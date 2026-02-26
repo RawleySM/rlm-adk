@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import threading
@@ -9,6 +10,70 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _preview(body: dict[str, Any] | None, max_len: int = 200) -> str:
+    """Extract first text content from a request/response body, truncated."""
+    if not body:
+        return ""
+    # Try candidates (response) first
+    for candidate in body.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            if "text" in part:
+                text = part["text"]
+                return text[:max_len] + ("..." if len(text) > max_len else "")
+    # Try contents (request) — first content, first part
+    for content in body.get("contents", []):
+        for part in content.get("parts", []):
+            if "text" in part:
+                text = part["text"]
+                return text[:max_len] + ("..." if len(text) > max_len else "")
+    return ""
+
+
+@dataclasses.dataclass
+class ContractResult:
+    """Structured result from running a fixture through the contract runner."""
+
+    fixture_path: str
+    scenario_id: str
+    passed: bool
+    checks: list[dict[str, Any]]       # [{field, expected, actual, ok}, ...]
+    call_summary: list[dict[str, Any]]  # from request_log
+    total_elapsed_s: float
+
+    def diagnostics(self) -> str:
+        """Multi-line human-readable diagnostic report."""
+        lines = [
+            f"{'PASS' if self.passed else 'FAIL'}: {self.scenario_id}  ({self.fixture_path})",
+            f"  elapsed: {self.total_elapsed_s:.2f}s",
+            "",
+            "  Checks:",
+        ]
+        for c in self.checks:
+            mark = "ok" if c["ok"] else "MISMATCH"
+            lines.append(
+                f"    [{mark}] {c['field']}: expected={c['expected']!r}  actual={c['actual']!r}"
+            )
+        lines.append("")
+        lines.append(f"  Call log ({len(self.call_summary)} calls):")
+        for entry in self.call_summary:
+            preview = entry.get("first_content_preview", "")
+            model = entry.get("model", "?")
+            lines.append(
+                f"    #{entry['call_index']}  model={model}  "
+                f"sys={entry.get('has_system_instruction', '?')}  "
+                f"contents={entry.get('contents_count', '?')}  "
+                f"preview={preview[:80]!r}"
+            )
+        return "\n".join(lines)
+
+    def summary_line(self) -> str:
+        """One-liner for batch output."""
+        status = "PASS" if self.passed else "FAIL"
+        failed = [c["field"] for c in self.checks if not c["ok"]]
+        detail = f"  mismatches: {', '.join(failed)}" if failed else ""
+        return f"[{status}] {self.scenario_id} ({self.total_elapsed_s:.2f}s){detail}"
 
 
 class ScenarioRouter:
@@ -53,23 +118,36 @@ class ScenarioRouter:
     def request_log(self) -> list[dict[str, Any]]:
         return list(self._request_log)
 
-    def next_response(self, request_body: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
+    def next_response(
+        self,
+        request_body: dict[str, Any] | None = None,
+        request_meta: dict[str, Any] | None = None,
+    ) -> tuple[int, dict[str, Any]]:
         """Return ``(status_code, response_body)`` for the next call.
 
         Thread-safe: multiple worker calls may arrive concurrently.
+
+        Args:
+            request_body: The parsed JSON request body (optional).
+            request_meta: Extra metadata from the server handler, e.g.
+                ``{"model": "gemini-fake"}``.  Merged into the request log
+                entry for diagnostics.
         """
         with self._lock:
             idx = self._call_index
             self._call_index += 1
 
             # Log the request (sanitised — drop large content arrays)
-            self._request_log.append({
+            log_entry: dict[str, Any] = {
                 "call_index": idx,
                 "has_system_instruction": bool(
                     request_body.get("systemInstruction") if request_body else False
                 ),
                 "contents_count": len(request_body.get("contents", [])) if request_body else 0,
-            })
+                "model": (request_meta or {}).get("model", "unknown"),
+                "first_content_preview": _preview(request_body),
+            }
+            self._request_log.append(log_entry)
 
             # Check fault injection first
             if idx in self._faults:
@@ -121,6 +199,65 @@ class ScenarioRouter:
                 self.scenario_id, idx, self._response_pointer - 1, status,
             )
             return status, body
+
+    def check_expectations(
+        self,
+        final_state: dict[str, Any],
+        fixture_path: str | Path,
+        elapsed_s: float,
+    ) -> ContractResult:
+        """Compare actual run results against fixture ``expected`` values.
+
+        Checks ``final_answer``, ``total_iterations``, and ``total_model_calls``
+        when present in the fixture's ``expected`` block.  Missing expected keys
+        are skipped (not failures).  Missing actual values produce ``actual=None``.
+        """
+        from rlm_adk.state import FINAL_ANSWER, ITERATION_COUNT
+
+        checks: list[dict[str, Any]] = []
+
+        # final_answer
+        if "final_answer" in self.expected:
+            actual = final_state.get(FINAL_ANSWER)
+            expected = self.expected["final_answer"]
+            checks.append({
+                "field": "final_answer",
+                "expected": expected,
+                "actual": actual,
+                "ok": actual == expected,
+            })
+
+        # total_iterations
+        if "total_iterations" in self.expected:
+            actual_iter = final_state.get(ITERATION_COUNT)
+            expected_iter = self.expected["total_iterations"]
+            checks.append({
+                "field": "total_iterations",
+                "expected": expected_iter,
+                "actual": actual_iter,
+                "ok": actual_iter == expected_iter,
+            })
+
+        # total_model_calls
+        if "total_model_calls" in self.expected:
+            expected_calls = self.expected["total_model_calls"]
+            actual_calls = self._call_index
+            checks.append({
+                "field": "total_model_calls",
+                "expected": expected_calls,
+                "actual": actual_calls,
+                "ok": actual_calls == expected_calls,
+            })
+
+        passed = all(c["ok"] for c in checks)
+        return ContractResult(
+            fixture_path=str(fixture_path),
+            scenario_id=self.scenario_id,
+            passed=passed,
+            checks=checks,
+            call_summary=list(self._request_log),
+            total_elapsed_s=elapsed_s,
+        )
 
     def reset(self) -> None:
         """Reset state for reuse between tests."""

@@ -36,6 +36,42 @@ def _serialize_value(value: Any) -> Any:
 
 
 ########################################################
+########    Types for Worker LLM Results       #########
+########################################################
+
+
+class LLMResult(str):
+    """String subclass carrying worker call metadata.
+
+    Backward-compatible: passes isinstance(x, str), works in f-strings,
+    concatenation, etc. But REPL code can inspect error state:
+
+        result = llm_query("prompt")
+        if result.error:
+            if result.error_category == "TIMEOUT":
+                raise RuntimeError(f"Worker timed out: {result}")
+            elif result.error_category == "RATE_LIMIT":
+                await asyncio.sleep(5)
+                result = llm_query("prompt")  # retry
+    """
+
+    error: bool = False
+    error_category: str | None = None  # TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT, NETWORK, FORMAT, UNKNOWN
+    http_status: int | None = None
+    finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model: str | None = None
+    wall_time_ms: float = 0.0
+
+    def __new__(cls, text: str, **kwargs: Any) -> "LLMResult":
+        instance = super().__new__(cls, text)
+        for k, v in kwargs.items():
+            setattr(instance, k, v)
+        return instance
+
+
+########################################################
 ########    Types for LM Cost Tracking         #########
 ########################################################
 
@@ -122,34 +158,40 @@ class REPLResult:
     stdout: str
     stderr: str
     locals: dict
-    execution_time: float
+    execution_time: float | None
     llm_calls: list["RLMChatCompletion"]
+    trace: dict[str, Any] | None
 
     def __init__(
         self,
         stdout: str,
         stderr: str,
         locals: dict,
-        execution_time: float = None,
-        llm_calls: list["RLMChatCompletion"] = None,
+        execution_time: float | None = None,
+        llm_calls: list["RLMChatCompletion"] | None = None,
+        trace: dict[str, Any] | None = None,
     ):
         self.stdout = stdout
         self.stderr = stderr
         self.locals = locals
         self.execution_time = execution_time
         self.llm_calls = llm_calls or []
+        self.trace = trace
 
     def __str__(self):
         return f"REPLResult(stdout={self.stdout}, stderr={self.stderr}, locals={self.locals}, execution_time={self.execution_time}, llm_calls={len(self.llm_calls)})"
 
     def to_dict(self):
-        return {
+        result = {
             "stdout": self.stdout,
             "stderr": self.stderr,
             "locals": {k: _serialize_value(v) for k, v in self.locals.items()},
             "execution_time": self.execution_time,
             "llm_calls": [call.to_dict() for call in self.llm_calls],
         }
+        if self.trace is not None:
+            result["trace"] = self.trace
+        return result
 
 
 @dataclass

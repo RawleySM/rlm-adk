@@ -1,0 +1,57 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/plugins/repl_tracing.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "BasePlugin",
+    "Event",
+    "InvocationContext"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "BasePlugin",
+      "usages": [
+        {
+          "context": "base:REPLTracingPlugin",
+          "line": 23
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BasePlugin\n```\n---\nBase class for creating plugins.\n\nPlugins provide a structured way to intercept and modify agent, tool, and\nLLM behaviors at critical execution points in a callback manner. While agent\ncallbacks apply to a particular agent, plugins applies globally to all\nagents added in the runner. Plugins are best used for adding custom behaviors\nlike logging, monitoring, caching, or modifying requests and responses at key\nstages.\n\nA plugin can implement one or more methods of callbacks, but should not\nimplement the same method of callback for multiple times.\n\nRelation with [Agent callbacks](https://google.github.io/adk-docs/callbacks/):\n\n\\*\\*Execution Order\\*\\*\nSimilar to Agent callbacks, Plugins are executed in the order they are\nregistered. However, Plugin and Agent Callbacks are executed sequentially,\nwith Plugins takes precedence over agent callbacks. When the callback in a\nplugin returns a value, it will short circuit all remaining plugins and\nagent callbacks, causing all remaining plugins and agent callbacks\nto be skipped.\n\n\\*\\*Change Propagation\\*\\*\nPlugins and agent callbacks can both modify the value of the input parameters,\nincluding agent input, tool input, and LLM request/response, etc. They work in\nthe exactly same way. The modifications will be visible and passed to the next\ncallback in the chain. For example, if a plugin modifies the tool input with\nbefore\\_tool\\_callback, the modified tool input will be passed to the\nbefore\\_tool\\_callback of the next plugin, and further passed to the agent\ncallbacks if not short-circuited.\n\nTo use a plugin, implement the desired callback methods and pass an instance\nof your custom plugin class to the ADK Runner.\n\nExamples:  \n&nbsp;&nbsp;&nbsp;&nbsp;A simple plugin that logs every tool call.\n\n```\n>>> class ToolLoggerPlugin(BasePlugin):\n..   def __init__(self):\n..     super().__init__(name=\"tool_logger\")\n..\n..   async def before_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict[str, Any],\ntool_context:\nToolContext\n..   ):\n..     print(f\"[{self.name}] Calling tool '{tool.name}' with args:\n{tool_args}\")\n..\n..   async def after_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict, tool_context:\nToolContext, result: dict\n..   ):\n..     print(f\"[{self.name}] Tool '{tool.name}' finished with result:\n{result}\")\n..\n>>> # Add the plugin to ADK Runner\n>>> # runner = Runner(\n>>> #     ...\n>>> #     plugins=[ToolLoggerPlugin(), AgentPolicyPlugin()],\n>>> # )\n```"
+      }
+    },
+    {
+      "symbol": "InvocationContext",
+      "usages": [
+        {
+          "context": "param:invocation_context",
+          "line": 33
+        },
+        {
+          "context": "param:invocation_context",
+          "line": 52
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) InvocationContext\n```\n---\nAn invocation context represents the data of a single invocation of an agent.\n\nAn invocation:\n  1. Starts with a user message and ends with a final response.\n  2. Can contain one or multiple agent calls.\n  3. Is handled by runner.run\\_async().\n\nAn invocation runs an agent until it does not request to transfer to another\nagent.\n\nAn agent call:\n  1. Is handled by agent.run().\n  2. Ends when agent.run() ends.\n\nAn LLM agent call is an agent with a BaseLLMFlow.\nAn LLM agent call can contain one or multiple steps.\n\nAn LLM agent runs steps in a loop until:\n  1. A final response is generated.\n  2. The agent transfers to another agent.\n  3. The end\\_invocation is set to true by any callbacks or tools.\n\nA step:\n  1. Calls the LLM only once and yields its response.\n  2. Calls the tools and yields their responses if requested.\n\nThe summarization of the function response is considered another step, since\nit is another llm call.\nA step ends when it's done calling llm and tools, or if the end\\_invocation\nis set to true at any time.\n\n```\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 invocation \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 llm_agent_call_1 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510 \u250c\u2500 agent_call_2 \u2500\u2510\n   \u250c\u2500\u2500\u2500\u2500 step_1 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510 \u250c\u2500\u2500\u2500\u2500\u2500 step_2 \u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   [call_llm] [call_tool] [call_llm] [transfer]\n```"
+      }
+    },
+    {
+      "symbol": "Event",
+      "usages": [
+        {
+          "context": "param:event",
+          "line": 34
+        },
+        {
+          "context": "return",
+          "line": 35
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) Event\n```\n---\nRepresents an event in a conversation between agents and users.\n\nIt is used to store the content of the conversation, as well as the actions\ntaken by the agents like function calls, etc."
+      }
+    }
+  ]
+}

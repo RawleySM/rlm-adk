@@ -148,6 +148,12 @@ class ObservabilityPlugin(BasePlugin):
                 model_usage["output_tokens"] += output_tokens
                 state[model_key] = model_usage
 
+            # --- Record finish_reason ---
+            finish_reason = str(llm_response.finish_reason) if llm_response.finish_reason else None
+            if finish_reason and finish_reason != "STOP":
+                key = f"obs:finish_{finish_reason.lower()}_count"
+                state[key] = state.get(key, 0) + 1
+
             # --- Per-iteration token breakdown ---
             # Read agent-specific token accounting written by before/after callbacks
             iteration = state.get(ITERATION_COUNT, 0)
@@ -158,6 +164,7 @@ class ObservabilityPlugin(BasePlugin):
                 "call_number": state.get(OBS_TOTAL_CALLS, 0),
                 "input_tokens": input_tokens if usage else 0,
                 "output_tokens": output_tokens if usage else 0,
+                "finish_reason": finish_reason,
             }
 
             # Include agent-type-specific prompt characterization
