@@ -11,11 +11,12 @@ Architecture:
 
 State mutation discipline:
 - All state writes go through Event objects via event_queue (AR-CRIT-001).
-- Reads from ctx.session.state.get() are acceptable.
+- Local accumulators in the closure replace ctx.session.state reads.
 - Worker results are read from agent objects (_result, _result_ready) not state.
 """
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -24,14 +25,17 @@ from typing import Any
 from google.adk.agents import LlmAgent, ParallelAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
+from google.adk.tools.set_model_response_tool import SetModelResponseTool
 from google.genai import types
 from google.genai.types import HttpOptions, HttpRetryOptions
+from pydantic import BaseModel
 
 from rlm_adk.callbacks.worker import (
     worker_before_model,
     worker_after_model,
     worker_on_model_error,
 )
+from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
 from rlm_adk.repl.trace import DataFlowTracker
 from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 from rlm_adk.state import (
@@ -41,10 +45,6 @@ from rlm_adk.state import (
     OBS_WORKER_TOTAL_DISPATCHES,
     WORKER_DIRTY_READ_COUNT,
     WORKER_DISPATCH_COUNT,
-    WORKER_INPUT_TOKENS,
-    WORKER_OUTPUT_TOKENS,
-    WORKER_PROMPT_CHARS,
-    WORKER_CONTENT_COUNT,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,7 +253,17 @@ def create_dispatch_closures(
         (llm_query_async, llm_query_batched_async) tuple of async callables
     """
 
-    async def llm_query_async(prompt: str, model: str | None = None) -> LLMResult:
+    # Local accumulators — replaces ctx.session.state reads (AR-CRIT-001)
+    _acc_dispatch_count = 0
+    _acc_total_dispatches = 0
+    _acc_batch_dispatches = 0
+    _acc_latencies: list[float] = []
+
+    async def llm_query_async(
+        prompt: str,
+        model: str | None = None,
+        output_schema: type[BaseModel] | None = None,
+    ) -> LLMResult:
         """Dispatch a single sub-LM query via worker pool.
 
         This is the K=1 case: delegates to llm_query_batched_async.
@@ -261,9 +271,13 @@ def create_dispatch_closures(
         Args:
             prompt: The text prompt to send to the sub-LM.
             model: Optional model name override. None uses depth-based default.
+            output_schema: Optional Pydantic model for structured output validation.
+                When provided, the worker uses SetModelResponseTool + ReflectAndRetry
+                for self-healing structured output.
 
         Returns:
-            An LLMResult (str subclass) with metadata.
+            An LLMResult (str subclass) with metadata. If output_schema was provided,
+            result.parsed contains the validated dict.
         """
         current_trace = trace_sink[0] if trace_sink else None
         call_index = -1
@@ -275,7 +289,9 @@ def create_dispatch_closures(
             current_trace.record_llm_start(call_index, prompt, "single")
             call_start = time.perf_counter()
 
-        results = await llm_query_batched_async([prompt], model=model)
+        results = await llm_query_batched_async(
+            [prompt], model=model, output_schema=output_schema,
+        )
 
         if current_trace is not None:
             elapsed_ms = (time.perf_counter() - call_start) * 1000
@@ -287,7 +303,9 @@ def create_dispatch_closures(
         return results[0]
 
     async def llm_query_batched_async(
-        prompts: list[str], model: str | None = None
+        prompts: list[str],
+        model: str | None = None,
+        output_schema: type[BaseModel] | None = None,
     ) -> list[LLMResult]:
         """Dispatch K sub-LM queries via ParallelAgent, chunked by max_concurrent.
 
@@ -300,6 +318,7 @@ def create_dispatch_closures(
         Args:
             prompts: List of text prompts to send concurrently.
             model: Optional model name override. None uses depth-based default.
+            output_schema: Optional Pydantic model for structured output validation.
 
         Returns:
             List of LLMResult (str subclass) responses, in the same order as prompts.
@@ -324,18 +343,20 @@ def create_dispatch_closures(
         else:
             batch_start_index = 0
 
-        # Read previous counts for delta computation (reads are safe)
-        prev_dispatch_count = ctx.session.state.get(WORKER_DISPATCH_COUNT, 0)
-        prev_total = ctx.session.state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
-        prev_batch = ctx.session.state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
+        # Update local accumulators (no ctx.session.state reads)
+        nonlocal _acc_dispatch_count, _acc_total_dispatches, _acc_batch_dispatches
+        _acc_dispatch_count += k
+        _acc_total_dispatches += k
+        if k > 1:
+            _acc_batch_dispatches += 1
 
-        # Emit dispatch accounting as a proper Event via event_queue
+        # Emit absolute values via EventActions.state_delta
         dispatch_delta: dict[str, Any] = {
-            WORKER_DISPATCH_COUNT: prev_dispatch_count + k,
-            OBS_WORKER_TOTAL_DISPATCHES: prev_total + k,
+            WORKER_DISPATCH_COUNT: _acc_dispatch_count,
+            OBS_WORKER_TOTAL_DISPATCHES: _acc_total_dispatches,
         }
         if k > 1:
-            dispatch_delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = prev_batch + 1
+            dispatch_delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = _acc_batch_dispatches
 
         event_queue.put_nowait(Event(
             invocation_id=ctx.invocation_id,
@@ -368,6 +389,16 @@ def create_dispatch_closures(
                     worker._result = None  # type: ignore[attr-defined]
                     worker._result_ready = False  # type: ignore[attr-defined]
                     worker._result_error = False  # type: ignore[attr-defined]
+
+                    # Wire structured output when output_schema provided
+                    if output_schema is not None:
+                        worker.output_schema = output_schema
+                        worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
+                        after_cb, error_cb = make_worker_tool_callbacks(max_retries=2)
+                        worker.after_tool_callback = after_cb  # type: ignore[assignment]
+                        worker.on_tool_error_callback = error_cb  # type: ignore[assignment]
+                        worker._structured_result = None  # type: ignore[attr-defined]
+
                     workers.append(worker)
 
                 if len(workers) == 1:
@@ -426,13 +457,20 @@ def create_dispatch_closures(
                             model=record.get("model"),
                         ))
                     else:
+                        # Extract structured result if available
+                        structured = getattr(worker, "_structured_result", None)
+                        if structured is not None:
+                            result_text = json.dumps(structured)
+                        else:
+                            result_text = worker._result  # type: ignore[attr-defined]
                         all_results.append(LLMResult(
-                            worker._result,  # type: ignore[attr-defined]
+                            result_text,
                             error=False,
                             finish_reason=record.get("finish_reason"),
                             input_tokens=record.get("input_tokens", 0),
                             output_tokens=record.get("output_tokens", 0),
                             model=record.get("model"),
+                            parsed=structured,
                         ))
 
                 # Accumulate call records into sink for REPLResult.llm_calls
@@ -522,25 +560,29 @@ def create_dispatch_closures(
                     worker._result = None  # type: ignore[attr-defined]
                     worker._result_error = False  # type: ignore[attr-defined]
                     worker._call_record = None  # type: ignore[attr-defined]
+                    # Reset structured output wiring
+                    if output_schema is not None:
+                        worker.output_schema = None
+                        worker.tools = []
+                        worker.after_tool_callback = None
+                        worker.on_tool_error_callback = None
+                        if hasattr(worker, "_structured_result"):
+                            worker._structured_result = None  # type: ignore[attr-defined]
                     # Detach from ParallelAgent parent so the worker can be
                     # re-used in a future batch (ADK sets parent_agent in
                     # model_post_init and raises if already set).
                     worker.parent_agent = None
                     await worker_pool.release(worker, model)
 
-        # Aggregate token accounting from worker objects (sequential, no race)
-        # Note: workers have been released back to pool at this point, but we
-        # already read all needed data above. For latency, we still have the
-        # timing from dispatch_start.
+        # Aggregate latency via local accumulator (no ctx.session.state reads)
         dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
-        latencies = ctx.session.state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
-        latencies_new = list(latencies) + [round(dispatch_elapsed_ms, 2)]
+        _acc_latencies.append(round(dispatch_elapsed_ms, 2))
 
         event_queue.put_nowait(Event(
             invocation_id=ctx.invocation_id,
             author="dispatch",
             actions=EventActions(state_delta={
-                OBS_WORKER_DISPATCH_LATENCY_MS: latencies_new,
+                OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies),
             }),
         ))
 

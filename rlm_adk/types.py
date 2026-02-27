@@ -63,6 +63,7 @@ class LLMResult(str):
     output_tokens: int = 0
     model: str | None = None
     wall_time_ms: float = 0.0
+    parsed: dict | None = None  # Validated structured output (set when output_schema used)
 
     def __new__(cls, text: str, **kwargs: Any) -> "LLMResult":
         instance = super().__new__(cls, text)
