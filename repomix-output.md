@@ -630,8 +630,13 @@ class LocalREPL:
         stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
         tok_out = _capture_stdout.set(stdout_buf)
         tok_err = _capture_stderr.set(stderr_buf)
+        # Also replace sys.stdout/stderr directly: the _TaskLocalStream proxy
+        # installed at module load may have been displaced (e.g. by pytest
+        # capture), so the ContextVar route alone is not reliable.
+        old_stdout, old_stderr = sys.stdout, sys.stderr
         old_cwd = os.getcwd()
         try:
+            sys.stdout, sys.stderr = stdout_buf, stderr_buf
             os.chdir(self.temp_dir)
 
             if trace is not None:
@@ -662,6 +667,7 @@ class LocalREPL:
             if trace is not None:
                 trace.end_time = time.perf_counter()
         finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
             _capture_stdout.reset(tok_out)
             _capture_stderr.reset(tok_err)
             os.chdir(old_cwd)
@@ -913,8 +919,8 @@ except Exception:
 </repository_files>
 <statistics>
   <total_files>4</total_files>
-  <total_chars>28961</total_chars>
+  <total_chars>29357</total_chars>
   <total_tokens>0</total_tokens>
-  <generated_at>2026-02-26 14:26:34</generated_at>
+  <generated_at>2026-02-26 15:53:34</generated_at>
 </statistics>
 </repository>

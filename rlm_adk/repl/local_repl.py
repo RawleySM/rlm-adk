@@ -359,8 +359,13 @@ class LocalREPL:
         stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
         tok_out = _capture_stdout.set(stdout_buf)
         tok_err = _capture_stderr.set(stderr_buf)
+        # Also replace sys.stdout/stderr directly: the _TaskLocalStream proxy
+        # installed at module load may have been displaced (e.g. by pytest
+        # capture), so the ContextVar route alone is not reliable.
+        old_stdout, old_stderr = sys.stdout, sys.stderr
         old_cwd = os.getcwd()
         try:
+            sys.stdout, sys.stderr = stdout_buf, stderr_buf
             os.chdir(self.temp_dir)
 
             if trace is not None:
@@ -391,6 +396,7 @@ class LocalREPL:
             if trace is not None:
                 trace.end_time = time.perf_counter()
         finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
             _capture_stdout.reset(tok_out)
             _capture_stderr.reset(tok_err)
             os.chdir(old_cwd)

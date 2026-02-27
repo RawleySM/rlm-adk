@@ -10,23 +10,44 @@ Usage::
 
     result = await run_fixture_contract(Path("tests_rlm_adk/fixtures/provider_fake/full_pipeline.json"))
     assert result.passed, result.diagnostics()
+
+    # Plugin-aware variant:
+    from tests_rlm_adk.provider_fake.contract_runner import run_fixture_contract_with_plugins
+
+    result = await run_fixture_contract_with_plugins(fixture_path, traces_db_path="/tmp/traces.db")
+    assert result.contract.passed
+    assert result.traces_db_path is not None
 """
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import time
 from pathlib import Path
 from typing import Any
 
+from google.adk.artifacts import InMemoryArtifactService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from rlm_adk.agent import create_rlm_app
+from rlm_adk.agent import create_rlm_app, create_rlm_runner
 
 from .fixtures import ContractResult, ScenarioRouter
 from .server import FakeGeminiServer
+
+
+@dataclasses.dataclass
+class PluginContractResult:
+    """Enriched result from a plugin-aware fixture run."""
+
+    contract: ContractResult
+    events: list[Any]
+    final_state: dict[str, Any]
+    artifact_service: InMemoryArtifactService
+    traces_db_path: str | None
+    router: ScenarioRouter
 
 
 # Env vars we override for the fake server; restored after each run.
@@ -38,6 +59,7 @@ _ENV_KEYS = (
     "RLM_LLM_RETRY_DELAY",
     "RLM_LLM_MAX_RETRIES",
     "RLM_MAX_ITERATIONS",
+    "RLM_REPL_TRACE",
 )
 
 
@@ -141,6 +163,112 @@ async def run_fixture_contract(
         elapsed = time.monotonic() - t0
 
         return router.check_expectations(final_state, fixture_path, elapsed)
+    finally:
+        await server.stop()
+        _restore_env(saved)
+
+
+async def run_fixture_contract_with_plugins(
+    fixture_path: Path,
+    prompt: str = "test prompt",
+    traces_db_path: str | None = None,
+    repl_trace_level: int = 1,
+) -> PluginContractResult:
+    """Execute a fixture through the full plugin-enabled pipeline.
+
+    Uses ``create_rlm_runner()`` with:
+    - ``InMemoryArtifactService`` for volatile artifact storage
+    - ``InMemorySessionService`` for test isolation
+    - ``ObservabilityPlugin`` (always on)
+    - ``SqliteTracingPlugin`` pointing to *traces_db_path*
+    - ``REPLTracingPlugin`` (when *repl_trace_level* > 0)
+    - ``DebugLoggingPlugin`` disabled (noisy in CI)
+    - ``LangfuseTracingPlugin`` disabled (requires external service)
+
+    Args:
+        fixture_path: Path to the fixture JSON file.
+        prompt: User prompt to send to the runner.
+        traces_db_path: Path for SqliteTracingPlugin DB.  ``None`` disables
+            sqlite tracing.
+        repl_trace_level: ``RLM_REPL_TRACE`` env var value (0 = off).
+
+    Returns:
+        A :class:`PluginContractResult` with contract result, events,
+        final state, artifact service reference, and traces DB path.
+    """
+    from rlm_adk.plugins.observability import ObservabilityPlugin
+    from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
+    from rlm_adk.plugins.repl_tracing import REPLTracingPlugin
+
+    router = ScenarioRouter.from_file(fixture_path)
+    server = FakeGeminiServer(router=router, host="127.0.0.1", port=0)
+
+    saved = _save_env()
+    try:
+        base_url = await server.start()
+        _set_env(base_url, router)
+        os.environ["RLM_REPL_TRACE"] = str(repl_trace_level)
+
+        # Build plugin list
+        from google.adk.plugins.base_plugin import BasePlugin
+        plugins: list[BasePlugin] = [ObservabilityPlugin()]
+        if traces_db_path:
+            plugins.append(SqliteTracingPlugin(db_path=traces_db_path))
+        if repl_trace_level > 0:
+            plugins.append(REPLTracingPlugin())
+
+        artifact_service = InMemoryArtifactService()
+        session_service = InMemorySessionService()
+
+        runner = create_rlm_runner(
+            model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
+            thinking_budget=router.config.get("thinking_budget", 0),
+            plugins=plugins,
+            artifact_service=artifact_service,
+            session_service=session_service,
+            debug=False,
+            langfuse=False,
+            sqlite_tracing=False,
+        )
+
+        session = await session_service.create_session(
+            app_name="rlm_adk",
+            user_id="test-user",
+        )
+
+        t0 = time.monotonic()
+        content = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=prompt)],
+        )
+        events = []
+        async for event in runner.run_async(
+            user_id="test-user",
+            session_id=session.id,
+            new_message=content,
+        ):
+            events.append(event)
+
+        elapsed = time.monotonic() - t0
+
+        # Re-fetch session to get final state
+        final_session = await runner.session_service.get_session(
+            app_name="rlm_adk",
+            user_id="test-user",
+            session_id=session.id,
+        )
+        final_state = final_session.state if final_session else {}
+
+        contract = router.check_expectations(final_state, fixture_path, elapsed)
+
+        return PluginContractResult(
+            contract=contract,
+            events=events,
+            final_state=final_state,
+            artifact_service=artifact_service,
+            traces_db_path=traces_db_path,
+            router=router,
+        )
     finally:
         await server.stop()
         _restore_env(saved)

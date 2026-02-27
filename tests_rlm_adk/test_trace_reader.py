@@ -10,6 +10,8 @@ import uuid
 
 import pytest
 
+pytest.importorskip("duckdb", reason="duckdb not installed")
+
 
 def _create_test_db(
     db_path: str,

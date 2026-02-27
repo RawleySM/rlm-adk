@@ -19,8 +19,6 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-import duckdb
-
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +49,8 @@ class TraceReader:
         if not Path(self.db_path).exists():
             raise FileNotFoundError(f"Session database not found: {self.db_path}")
 
+        import duckdb
+
         self._conn = duckdb.connect(":memory:")
         self._conn.execute("INSTALL sqlite; LOAD sqlite;")
         self._conn.execute(
@@ -59,7 +59,7 @@ class TraceReader:
         logger.info("TraceReader attached: %s (read_only=%s)", self.db_path, read_only)
 
     @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
+    def conn(self) -> Any:
         """The underlying DuckDB connection."""
         return self._conn
 

@@ -7,7 +7,8 @@
     "EventActions",
     "InvocationContext",
     "LlmAgent",
-    "ParallelAgent"
+    "ParallelAgent",
+    "SetModelResponseTool"
   ],
   "call_sites": [
     {
@@ -27,15 +28,15 @@
       "instances": [
         {
           "name": null,
-          "line": 340
+          "line": 361
         },
         {
           "name": null,
-          "line": 539
+          "line": 581
         },
         {
           "name": null,
-          "line": 471
+          "line": 509
         }
       ],
       "hover": {
@@ -47,15 +48,15 @@
       "instances": [
         {
           "name": null,
-          "line": 343
+          "line": 364
         },
         {
           "name": null,
-          "line": 542
+          "line": 584
         },
         {
           "name": null,
-          "line": 474
+          "line": 512
         }
       ],
       "hover": {
@@ -67,11 +68,23 @@
       "instances": [
         {
           "name": "parallel",
-          "line": 384
+          "line": 415
         }
       ],
       "hover": {
         "markdown": "```python\nclass ParallelAgent(\n    *,\n    name: str,\n    description: str = '',\n    sub_agents: list[BaseAgent] = list,\n    before_agent_callback: BeforeAgentCallback | None = None,\n    after_agent_callback: AfterAgentCallback | None = None\n)\n```\n---\nA shell agent that runs its sub-agents in parallel in an isolated manner.\n\nThis approach is beneficial for scenarios requiring multiple perspectives or\nattempts on a single task, such as:\n\n- Running different algorithms simultaneously.\n- Generating multiple responses for review by a subsequent evaluation agent."
+      }
+    },
+    {
+      "symbol": "SetModelResponseTool",
+      "instances": [
+        {
+          "name": null,
+          "line": 396
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass SetModelResponseTool(output_schema: type[BaseModel])\n```\n---\nInitialize the tool with the expected output schema.\n\nArgs:  \n&nbsp;&nbsp;output\\_schema: The pydantic model class defining the expected output  \n&nbsp;&nbsp;&nbsp;&nbsp;structure."
       }
     }
   ],
