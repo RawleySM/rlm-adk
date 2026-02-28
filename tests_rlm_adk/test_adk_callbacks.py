@@ -16,7 +16,6 @@ from rlm_adk.callbacks.reasoning import (
 )
 from rlm_adk.callbacks.worker import worker_after_model, worker_before_model
 from rlm_adk.state import (
-    LAST_REASONING_RESPONSE,
     MESSAGE_HISTORY,
     REASONING_CALL_START,
 )
@@ -95,9 +94,13 @@ class TestReasoningBeforeModel:
 
 
 class TestReasoningAfterModel:
-    """Reasoning after_model_callback extracts text to state."""
+    """Reasoning after_model_callback no longer writes LAST_REASONING_RESPONSE.
 
-    def test_extracts_text_to_state(self):
+    Phase 5B: The collapsed orchestrator reads the final answer from the
+    output_key ("reasoning_output") instead of LAST_REASONING_RESPONSE.
+    """
+
+    def test_does_not_write_last_reasoning_response(self):
         state = {}
         ctx = _make_callback_context(state)
         response = _make_llm_response("The answer is 42.")
@@ -105,18 +108,18 @@ class TestReasoningAfterModel:
         result = reasoning_after_model(ctx, response)
 
         assert result is None  # observe only
-        assert state[LAST_REASONING_RESPONSE] == "The answer is 42."
+        assert "last_reasoning_response" not in state
 
-    def test_empty_response(self):
+    def test_empty_response_does_not_write_state(self):
         state = {}
         ctx = _make_callback_context(state)
         response = LlmResponse(content=None)
 
         reasoning_after_model(ctx, response)
-        assert state[LAST_REASONING_RESPONSE] == ""
+        assert "last_reasoning_response" not in state
 
-    def test_filters_thought_parts(self):
-        """Non-thought parts only should be extracted."""
+    def test_thought_parts_do_not_write_state(self):
+        """After model callback should not write response text to state."""
         state = {}
         ctx = _make_callback_context(state)
         response = LlmResponse(
@@ -130,7 +133,7 @@ class TestReasoningAfterModel:
         )
 
         reasoning_after_model(ctx, response)
-        assert state[LAST_REASONING_RESPONSE] == "visible"
+        assert "last_reasoning_response" not in state
 
 
 # ── Worker Callbacks ─────────────────────────────────────────────────────

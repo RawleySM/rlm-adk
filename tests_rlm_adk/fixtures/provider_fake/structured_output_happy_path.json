@@ -1,0 +1,111 @@
+{
+  "scenario_id": "structured_output_happy_path",
+  "description": "Iteration 1: reasoning returns REPL code with llm_query('Analyze the market data', output_schema=AnalysisResult). Worker responds via functionCall set_model_response (valid on first try). SetModelResponseTool terminates the worker — no confirmation text needed. Iteration 2: reasoning returns FINAL with parsed result.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass AnalysisResult(BaseModel):\n    summary: str\n    confidence: float\n\nresult = llm_query(\"Analyze the market data\", output_schema=AnalysisResult)\nprint(f\"Summary: {result.parsed['summary']}\")\nprint(f\"Confidence: {result.parsed['confidence']}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "functionCall: set_model_response with valid AnalysisResult — worker ends after tool success (no confirmation text needed)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Market trending up with strong momentum",
+                      "confidence": 0.95
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 130
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The structured analysis returned: Market trending up with strong momentum (confidence: 0.95).\n\nFINAL(Market trending up with strong momentum)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 430
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Market trending up with strong momentum",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

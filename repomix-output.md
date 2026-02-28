@@ -286,6 +286,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -343,6 +344,11 @@ class _TaskLocalStream:
 
 sys.stdout = _TaskLocalStream(sys.stdout, _capture_stdout)
 sys.stderr = _TaskLocalStream(sys.stderr, _capture_stderr)
+
+# Module-level lock protecting process-global state (os.chdir, sys.stdout/stderr)
+# during synchronous execute_code. Ensures concurrent REPLs running in threads
+# do not race on CWD or output capture.
+_EXEC_LOCK = threading.Lock()
 
 # Safe builtins - blocks dangerous operations like eval/exec/input
 _SAFE_BUILTINS = {
@@ -572,12 +578,17 @@ class LocalREPL:
             os.chdir(old_cwd)
 
     def execute_code(self, code: str, trace: REPLTrace | None = None) -&gt; REPLResult:
-        &quot;&quot;&quot;Execute code synchronously in the sandboxed namespace.&quot;&quot;&quot;
+        &quot;&quot;&quot;Execute code synchronously in the sandboxed namespace.
+
+        Uses _EXEC_LOCK to serialize access to process-global state
+        (os.chdir, sys.stdout/stderr) so that concurrent REPLs in
+        threads do not race.
+        &quot;&quot;&quot;
         start_time = time.perf_counter()
         self._pending_llm_calls.clear()
         trace_level = int(os.environ.get(&quot;RLM_REPL_TRACE&quot;, &quot;0&quot;))
 
-        with self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
+        with _EXEC_LOCK, self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
             try:
                 combined = {**self.globals, **self.locals}
 
@@ -919,8 +930,8 @@ except Exception:
 </repository_files>
 <statistics>
   <total_files>4</total_files>
-  <total_chars>29357</total_chars>
+  <total_chars>29791</total_chars>
   <total_tokens>0</total_tokens>
-  <generated_at>2026-02-26 15:53:34</generated_at>
+  <generated_at>2026-02-28 07:04:51</generated_at>
 </statistics>
 </repository>

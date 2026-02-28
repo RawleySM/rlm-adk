@@ -19,7 +19,12 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "I need to query a sub-model to compute this.\n\n```repl\nresult = llm_query('what is 2+2?')\nprint(result)\n```"
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query('what is 2+2?')\nprint(result)"
+                    }
+                  }
                 }
               ]
             },
@@ -93,7 +98,7 @@
   "fault_injections": [],
   "expected": {
     "final_answer": "4",
-    "total_iterations": 2,
+    "total_iterations": 1,
     "total_model_calls": 3
   }
 }

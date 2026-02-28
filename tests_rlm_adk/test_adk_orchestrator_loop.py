@@ -195,7 +195,7 @@ class TestCompletionContractShape:
 
         agent = create_reasoning_agent("test-model")
         assert agent.name == "reasoning_agent"
-        assert agent.include_contents == "none"
+        assert agent.include_contents == "default"
         assert agent.disallow_transfer_to_parent is True
         assert agent.disallow_transfer_to_peers is True
 

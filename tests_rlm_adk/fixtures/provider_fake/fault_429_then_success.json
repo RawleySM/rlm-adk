@@ -52,7 +52,7 @@
   ],
   "expected": {
     "final_answer": "ok",
-    "total_iterations": 1,
+    "total_iterations": 0,
     "total_model_calls": 2
   }
 }

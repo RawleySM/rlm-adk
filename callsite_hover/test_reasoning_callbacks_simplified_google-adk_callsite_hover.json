@@ -1,0 +1,48 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-acde7be1/tests_rlm_adk/test_reasoning_callbacks_simplified.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "LlmRequest",
+    "LlmResponse"
+  ],
+  "call_sites": [
+    {
+      "symbol": "LlmResponse",
+      "instances": [
+        {
+          "name": null,
+          "line": 53
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) LlmResponse: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "LlmRequest",
+      "instances": [
+        {
+          "name": "request",
+          "line": 87
+        },
+        {
+          "name": "request",
+          "line": 110
+        },
+        {
+          "name": "request",
+          "line": 124
+        },
+        {
+          "name": "request",
+          "line": 139
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) LlmRequest: Unknown\n```"
+      }
+    }
+  ],
+  "type_annotations": []
+}

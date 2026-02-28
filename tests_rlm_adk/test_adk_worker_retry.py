@@ -236,7 +236,7 @@ class TestDispatchOutputSchema:
         pool.ensure_initialized()
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
         sig = inspect.signature(llm_query_async)
         assert "output_schema" in sig.parameters
 
@@ -247,7 +247,7 @@ class TestDispatchOutputSchema:
         pool.ensure_initialized()
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
-        _, llm_query_batched_async = create_dispatch_closures(pool, ctx, eq)
+        _, llm_query_batched_async, _ = create_dispatch_closures(pool, ctx, eq)
         sig = inspect.signature(llm_query_batched_async)
         assert "output_schema" in sig.parameters
 
@@ -291,7 +291,7 @@ class TestDispatchSchemaWiring:
 
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
 
         await llm_query_async("test prompt", output_schema=TestSchema)
 
@@ -323,7 +323,7 @@ class TestDispatchSchemaWiring:
 
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
 
         await llm_query_async("test", output_schema=TestSchema)
 
@@ -364,7 +364,7 @@ class TestStructuredResultExtraction:
 
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
 
         result = await llm_query_async("analyze this", output_schema=TestSchema)
 
@@ -391,7 +391,7 @@ class TestStructuredResultExtraction:
 
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
 
         result = await llm_query_async("just a question")
 

@@ -16,7 +16,7 @@
       "instances": [
         {
           "name": "worker",
-          "line": 113
+          "line": 115
         }
       ],
       "hover": {
@@ -28,15 +28,15 @@
       "instances": [
         {
           "name": null,
-          "line": 361
+          "line": 378
         },
         {
           "name": null,
-          "line": 581
+          "line": 618
         },
         {
           "name": null,
-          "line": 509
+          "line": 545
         }
       ],
       "hover": {
@@ -44,31 +44,11 @@
       }
     },
     {
-      "symbol": "EventActions",
-      "instances": [
-        {
-          "name": null,
-          "line": 364
-        },
-        {
-          "name": null,
-          "line": 584
-        },
-        {
-          "name": null,
-          "line": 512
-        }
-      ],
-      "hover": {
-        "markdown": "```python\nclass EventActions(\n    *,\n    skip_summarization: bool | None = None,\n    state_delta: dict[str, object] = dict,\n    artifact_delta: dict[str, int] = dict,\n    transfer_to_agent: str | None = None,\n    escalate: bool | None = None,\n    requested_auth_configs: dict[str, AuthConfig] = dict,\n    requested_tool_confirmations: dict[str, ToolConfirmation] = dict,\n    compaction: EventCompaction | None = None,\n    end_of_agent: bool | None = None,\n    agent_state: dict[str, Any] | None = None,\n    rewind_before_invocation_id: str | None = None\n)\n```\n---\nRepresents the actions attached to an event."
-      }
-    },
-    {
       "symbol": "ParallelAgent",
       "instances": [
         {
           "name": "parallel",
-          "line": 415
+          "line": 444
         }
       ],
       "hover": {
@@ -76,11 +56,31 @@
       }
     },
     {
+      "symbol": "EventActions",
+      "instances": [
+        {
+          "name": null,
+          "line": 381
+        },
+        {
+          "name": null,
+          "line": 621
+        },
+        {
+          "name": null,
+          "line": 548
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass EventActions(\n    *,\n    skip_summarization: bool | None = None,\n    state_delta: dict[str, object] = dict,\n    artifact_delta: dict[str, int] = dict,\n    transfer_to_agent: str | None = None,\n    escalate: bool | None = None,\n    requested_auth_configs: dict[str, AuthConfig] = dict,\n    requested_tool_confirmations: dict[str, ToolConfirmation] = dict,\n    compaction: EventCompaction | None = None,\n    end_of_agent: bool | None = None,\n    agent_state: dict[str, Any] | None = None,\n    rewind_before_invocation_id: str | None = None\n)\n```\n---\nRepresents the actions attached to an event."
+      }
+    },
+    {
       "symbol": "SetModelResponseTool",
       "instances": [
         {
           "name": null,
-          "line": 396
+          "line": 419
         }
       ],
       "hover": {
@@ -94,7 +94,7 @@
       "usages": [
         {
           "context": "param:ctx",
-          "line": 227
+          "line": 235
         }
       ],
       "hover": {

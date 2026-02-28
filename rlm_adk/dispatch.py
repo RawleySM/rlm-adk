@@ -224,15 +224,21 @@ async def _drain_events(
         event_queue.put_nowait(event)
 
 
+async def _consume_events(run_iter: Any) -> None:
+    """Consume events from an agent's run_async iterator, discarding them."""
+    async for _ in run_iter:
+        pass
+
+
 def create_dispatch_closures(
     worker_pool: WorkerPool,
     ctx: InvocationContext,
-    event_queue: asyncio.Queue[Event],
+    event_queue: asyncio.Queue[Event] | None = None,
     call_log_sink: list | None = None,
     trace_sink: list | None = None,
     worker_repl: LocalREPL | None = None,
-) -> tuple[Any, Any]:
-    """Create llm_query_async and llm_query_batched_async closures.
+) -> tuple[Any, Any, Any]:
+    """Create llm_query_async, llm_query_batched_async, and flush_fn closures.
 
     These closures capture the worker pool and invocation context,
     and are injected into the REPL namespace so that LM-generated code
@@ -245,9 +251,11 @@ def create_dispatch_closures(
     Args:
         worker_pool: The pre-allocated worker pool
         ctx: Current invocation context
-        event_queue: Queue for collecting events from worker dispatch.
-            The orchestrator's _run_async_impl drain loop yields these
-            to the Runner.
+        event_queue: Optional queue for collecting events from worker dispatch.
+            When provided, the orchestrator's _run_async_impl drain loop yields
+            these to the Runner. When None, events are consumed and discarded
+            (results come from carrier attributes, telemetry from local
+            accumulators accessed via flush_fn).
         call_log_sink: Optional list to accumulate RLMChatCompletion records.
         trace_sink: Optional mutable list[REPLTrace | None] holder.
             trace_sink[0] is the current REPLTrace for per-call recording.
@@ -257,7 +265,8 @@ def create_dispatch_closures(
             at runtime).
 
     Returns:
-        (llm_query_async, llm_query_batched_async) tuple of async callables
+        (llm_query_async, llm_query_batched_async, flush_fn) 3-tuple.
+        flush_fn() returns a dict of accumulated state and resets accumulators.
     """
 
     # Local accumulators — replaces ctx.session.state reads (AR-CRIT-001)
@@ -365,11 +374,12 @@ def create_dispatch_closures(
         if k > 1:
             dispatch_delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = _acc_batch_dispatches
 
-        event_queue.put_nowait(Event(
-            invocation_id=ctx.invocation_id,
-            author="dispatch",
-            actions=EventActions(state_delta=dispatch_delta),
-        ))
+        if event_queue is not None:
+            event_queue.put_nowait(Event(
+                invocation_id=ctx.invocation_id,
+                author="dispatch",
+                actions=EventActions(state_delta=dispatch_delta),
+            ))
 
         all_results: list[LLMResult] = []
 
@@ -416,10 +426,16 @@ def create_dispatch_closures(
 
                 if len(workers) == 1:
                     try:
-                        await asyncio.wait_for(
-                            _drain_events(workers[0].run_async(ctx), event_queue),
-                            timeout=_WORKER_DISPATCH_TIMEOUT,
-                        )
+                        if event_queue is not None:
+                            await asyncio.wait_for(
+                                _drain_events(workers[0].run_async(ctx), event_queue),
+                                timeout=_WORKER_DISPATCH_TIMEOUT,
+                            )
+                        else:
+                            await asyncio.wait_for(
+                                _consume_events(workers[0].run_async(ctx)),
+                                timeout=_WORKER_DISPATCH_TIMEOUT,
+                            )
                     except asyncio.TimeoutError:
                         workers[0]._result = f"[Worker {workers[0].name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
                         workers[0]._result_ready = True  # type: ignore[attr-defined]
@@ -430,10 +446,16 @@ def create_dispatch_closures(
                         sub_agents=list(workers),  # type: ignore[arg-type]
                     )
                     try:
-                        await asyncio.wait_for(
-                            _drain_events(parallel.run_async(ctx), event_queue),
-                            timeout=_WORKER_DISPATCH_TIMEOUT,
-                        )
+                        if event_queue is not None:
+                            await asyncio.wait_for(
+                                _drain_events(parallel.run_async(ctx), event_queue),
+                                timeout=_WORKER_DISPATCH_TIMEOUT,
+                            )
+                        else:
+                            await asyncio.wait_for(
+                                _consume_events(parallel.run_async(ctx)),
+                                timeout=_WORKER_DISPATCH_TIMEOUT,
+                            )
                     except asyncio.TimeoutError:
                         for w in workers:
                             if not getattr(w, '_result_ready', False):
@@ -519,14 +541,15 @@ def create_dispatch_closures(
                             ))
 
                 # Emit post-dispatch accounting via event_queue
-                event_queue.put_nowait(Event(
-                    invocation_id=ctx.invocation_id,
-                    author="dispatch",
-                    actions=EventActions(state_delta={
-                        WORKER_DIRTY_READ_COUNT: dirty_read_count,
-                        OBS_WORKER_DIRTY_READ_MISMATCHES: mismatches,
-                    }),
-                ))
+                if event_queue is not None:
+                    event_queue.put_nowait(Event(
+                        invocation_id=ctx.invocation_id,
+                        author="dispatch",
+                        actions=EventActions(state_delta={
+                            WORKER_DIRTY_READ_COUNT: dirty_read_count,
+                            OBS_WORKER_DIRTY_READ_MISMATCHES: mismatches,
+                        }),
+                    ))
 
                 # Record batch-level trace entries and data flow edges
                 if current_trace is not None:
@@ -591,14 +614,37 @@ def create_dispatch_closures(
         dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
         _acc_latencies.append(round(dispatch_elapsed_ms, 2))
 
-        event_queue.put_nowait(Event(
-            invocation_id=ctx.invocation_id,
-            author="dispatch",
-            actions=EventActions(state_delta={
-                OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies),
-            }),
-        ))
+        if event_queue is not None:
+            event_queue.put_nowait(Event(
+                invocation_id=ctx.invocation_id,
+                author="dispatch",
+                actions=EventActions(state_delta={
+                    OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies),
+                }),
+            ))
 
         return all_results
 
-    return llm_query_async, llm_query_batched_async
+    def flush_fn() -> dict:
+        """Return accumulated dispatch state and reset accumulators.
+
+        Returns a dict suitable for merging into session state or
+        passing to tool_context.state.  After the call, all accumulators
+        are reset to zero so the next flush returns only new deltas.
+        """
+        nonlocal _acc_dispatch_count, _acc_total_dispatches, _acc_batch_dispatches
+        delta: dict[str, Any] = {
+            WORKER_DISPATCH_COUNT: _acc_dispatch_count,
+            OBS_WORKER_TOTAL_DISPATCHES: _acc_total_dispatches,
+            OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies),
+        }
+        if _acc_batch_dispatches > 0:
+            delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = _acc_batch_dispatches
+        # Reset accumulators
+        _acc_dispatch_count = 0
+        _acc_total_dispatches = 0
+        _acc_batch_dispatches = 0
+        _acc_latencies.clear()
+        return delta
+
+    return llm_query_async, llm_query_batched_async, flush_fn

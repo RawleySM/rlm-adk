@@ -19,7 +19,12 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "Iteration 1: Validate probe_repo and pack_repo on a temp directory.\n\n```repl\nimport os, pathlib, tempfile, shutil\n\ntd = tempfile.mkdtemp(prefix=\"skill_test_\")\nfor name, content in [\n    (\"alpha/a.py\", \"x = 1\\n\" * 50),\n    (\"beta/b.py\", \"y = 2\\n\" * 50),\n    (\"gamma/c.py\", \"z = 3\\n\" * 50),\n    (\"delta/d.py\", \"w = 4\\n\" * 50),\n]:\n    p = pathlib.Path(td) / name\n    p.parent.mkdir(parents=True, exist_ok=True)\n    p.write_text(content)\n\ninfo = probe_repo(td, calculate_tokens=False)\nassert info.total_files == 4, f\"Expected 4 files, got {info.total_files}\"\nassert info.total_chars > 0, \"Expected non-zero chars\"\nprint(f\"probe: files={info.total_files}, chars={info.total_chars}\")\n\nxml = pack_repo(td, calculate_tokens=False)\nassert \"<file\" in xml, \"Expected <file tag in XML output\"\nassert len(xml) > 100, f\"Expected substantial XML, got {len(xml)} chars\"\nprint(f\"pack: xml_len={len(xml)}\")\n```"
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "import os, pathlib, tempfile, shutil\n\ntd = tempfile.mkdtemp(prefix=\"skill_test_\")\nfor name, content in [\n    (\"alpha/a.py\", \"x = 1\\n\" * 50),\n    (\"beta/b.py\", \"y = 2\\n\" * 50),\n    (\"gamma/c.py\", \"z = 3\\n\" * 50),\n    (\"delta/d.py\", \"w = 4\\n\" * 50),\n]:\n    p = pathlib.Path(td) / name\n    p.parent.mkdir(parents=True, exist_ok=True)\n    p.write_text(content)\n\ninfo = probe_repo(td, calculate_tokens=False)\nassert info.total_files == 4, f\"Expected 4 files, got {info.total_files}\"\nassert info.total_chars > 0, \"Expected non-zero chars\"\nprint(f\"probe: files={info.total_files}, chars={info.total_chars}\")\n\nxml = pack_repo(td, calculate_tokens=False)\nassert \"<file\" in xml, \"Expected <file tag in XML output\"\nassert len(xml) > 100, f\"Expected substantial XML, got {len(xml)} chars\"\nprint(f\"pack: xml_len={len(xml)}\")"
+                    }
+                  }
                 }
               ]
             },
@@ -46,7 +51,12 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "Iteration 2: Validate shard_repo and dispatch 2 workers via llm_query_batched.\n\n```repl\nsr = shard_repo(td, calculate_tokens=False)\nassert len(sr.chunks) >= 1, f\"Expected >= 1 chunk, got {len(sr.chunks)}\"\nassert sr.total_files == 4, f\"Expected 4 files in shards, got {sr.total_files}\"\nprint(f\"shard: chunks={len(sr.chunks)}, files={sr.total_files}\")\n\nprompts = [\n    f\"Summarize section A:\\n{sr.chunks[0][:200]}\",\n    f\"Summarize section B:\\n{sr.chunks[-1][:200]}\"\n]\nanalyses = llm_query_batched(prompts)\nassert len(analyses) == 2, f\"Expected 2 analyses, got {len(analyses)}\"\ncombined = \" | \".join(analyses)\nprint(f\"analyses: {combined}\")\n\nshutil.rmtree(td)\n```"
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "sr = shard_repo(td, calculate_tokens=False)\nassert len(sr.chunks) >= 1, f\"Expected >= 1 chunk, got {len(sr.chunks)}\"\nassert sr.total_files == 4, f\"Expected 4 files in shards, got {sr.total_files}\"\nprint(f\"shard: chunks={len(sr.chunks)}, files={sr.total_files}\")\n\nprompts = [\n    f\"Summarize section A:\\n{sr.chunks[0][:200]}\",\n    f\"Summarize section B:\\n{sr.chunks[-1][:200]}\"\n]\nanalyses = llm_query_batched(prompts)\nassert len(analyses) == 2, f\"Expected 2 analyses, got {len(analyses)}\"\ncombined = \" | \".join(analyses)\nprint(f\"analyses: {combined}\")\n\nshutil.rmtree(td)"
+                    }
+                  }
                 }
               ]
             },
@@ -147,7 +157,7 @@
   "fault_injections": [],
   "expected": {
     "final_answer": "skill_helpers_validated: probe=4_files, pack=xml_ok, shard=chunks_ok, batched=2_analyses",
-    "total_iterations": 3,
+    "total_iterations": 2,
     "total_model_calls": 5
   }
 }

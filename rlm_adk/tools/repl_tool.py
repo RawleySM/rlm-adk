@@ -20,6 +20,7 @@ from google.genai.types import FunctionDeclaration, Schema, Type
 
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
+from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, WORKER_DISPATCH_COUNT
 
 _CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
 
@@ -76,6 +77,8 @@ class REPLTool(BaseTool):
         code = args["code"]
 
         self._call_count += 1
+        # Track iteration count in session state for observability
+        tool_context.state[ITERATION_COUNT] = self._call_count
         if self._call_count > self._max_calls:
             return {
                 "stdout": "",
@@ -92,8 +95,11 @@ class REPLTool(BaseTool):
                 llm_calls_made = True
                 tree = rewrite_for_async(code)
                 compiled = compile(tree, "<repl>", "exec")
-                exec(compiled, self.repl.globals)
-                repl_exec_fn = self.repl.globals["_repl_exec"]
+                # Merge globals and locals so _repl_exec sees variables from
+                # previous executions (imports, user-defined vars, etc.)
+                ns = {**self.repl.globals, **self.repl.locals}
+                exec(compiled, ns)
+                repl_exec_fn = ns["_repl_exec"]
                 result = await self.repl.execute_code_async(code, repl_exec_fn)
             else:
                 result = self.repl.execute_code(code)
@@ -117,16 +123,35 @@ class REPLTool(BaseTool):
                 self.trace_holder.append(result.to_dict())
 
         # Flush dispatch accumulators into tool_context.state
+        total_llm_calls = 0
         if self._flush_fn is not None:
             acc = self._flush_fn()
             for k, v in acc.items():
                 tool_context.state[k] = v
+            total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
 
-        # Extract simple-type variables from REPL locals
+        # Write LAST_REPL_RESULT summary for observability plugins
+        tool_context.state[LAST_REPL_RESULT] = {
+            "code_blocks": 1,
+            "has_errors": bool(result.stderr),
+            "has_output": bool(result.stdout),
+            "total_llm_calls": total_llm_calls,
+        }
+
+        # Extract JSON-serializable variables from REPL locals.
+        # We attempt json.dumps to catch nested non-serializable objects
+        # (e.g., a dict containing module references) that would cause ADK's
+        # deepcopy to fail with TypeError.
+        import json as _json
+
         variables: dict[str, Any] = {}
         for k, v in result.locals.items():
             if isinstance(v, (int, float, str, bool, list, dict)):
-                variables[k] = v
+                try:
+                    _json.dumps(v)
+                    variables[k] = v
+                except (TypeError, ValueError, OverflowError):
+                    pass  # Skip non-serializable values
 
         return {
             "stdout": result.stdout,

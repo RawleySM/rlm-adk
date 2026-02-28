@@ -19,7 +19,12 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "I'll implement hierarchical map-reduce summarization. The map phase extracts structured facts from each chunk in parallel, and the reduce phase synthesizes them into a single answer.\n\n```repl\nimport json\n\ndocument_chunks = [\n    \"Chapter 1: The company reported Q3 revenue of $4.2B, up 12% YoY. Operating margin improved to 28%. The pharmaceutical division contributed $2.1B, while medical devices added $1.8B.\",\n    \"Chapter 2: R&D spending reached $890M in Q3, focused on oncology pipeline. Three Phase III trials are underway for compounds AX-201, BZ-445, and CY-789. AX-201 showed 67% response rate in preliminary data.\",\n    \"Chapter 3: Management guided FY2025 revenue of $16.5-17.0B. Key risks include patent cliff on Blockbuster Drug X in 2026 and regulatory uncertainty in EU markets. The board approved a $2B share buyback program.\"\n]\n\nextraction_schema = {\n    \"revenue\": \"string or null\",\n    \"growth_rate\": \"string or null\",\n    \"key_products\": \"list of strings\",\n    \"risks\": \"list of strings\",\n    \"guidance\": \"string or null\",\n    \"rd_highlights\": \"list of strings\"\n}\nschema_str = json.dumps(extraction_schema, indent=2)\n\n# --- PASS 1: Parallel extraction (Map) ---\nmap_prompts = []\nfor i, chunk in enumerate(document_chunks):\n    map_prompts.append(\n        f\"Extract structured facts from this text. Return ONLY JSON matching this schema:\\n{schema_str}\\n\"\n        f\"If a field has no evidence, use null.\\n\\nChunk {i+1} of {len(document_chunks)}:\\n{chunk}\"\n    )\n\nmap_responses = llm_query_batched(map_prompts)\n\nextractions = []\nfor i, raw in enumerate(map_responses):\n    try:\n        cleaned = raw.strip()\n        if cleaned.startswith(\"```\"):\n            cleaned = cleaned.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\n        extractions.append(json.loads(cleaned))\n    except json.JSONDecodeError:\n        extractions.append({\"_parse_error\": True, \"chunk_idx\": i})\n\nprint(f\"Map phase: {len(extractions)} extractions, {sum(1 for e in extractions if '_parse_error' not in e)} valid\")\n\n# --- PASS 2: Synthesis (Reduce) ---\nglobal_question = \"What is the company's financial health and key risks for the upcoming year?\"\n\nreduce_prompt = (\n    f\"Synthesize these {len(extractions)} extractions into a single answer to: \\\"{global_question}\\\"\\n\\n\"\n    f\"Extractions:\\n{json.dumps(extractions, indent=2)}\\n\\n\"\n    f\"Return JSON: {{\\\"answer\\\": \\\"...\\\", \\\"confidence\\\": 0.0-1.0, \\\"evidence_chunks\\\": [...], \\\"conflicts\\\": [...]}}\"\n)\n\nreduce_raw = llm_query(reduce_prompt)\ncleaned = reduce_raw.strip()\nif cleaned.startswith(\"```\"):\n    cleaned = cleaned.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\nsynthesis = json.loads(cleaned)\n\nprint(f\"Synthesis confidence: {synthesis['confidence']}\")\nprint(f\"Evidence from chunks: {synthesis['evidence_chunks']}\")\nprint(f\"Answer: {synthesis['answer'][:200]}\")\nresult_summary = f\"confidence={synthesis['confidence']}, chunks_used={len(synthesis['evidence_chunks'])}, conflicts={len(synthesis.get('conflicts', []))}\"\n```"
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "import json\n\ndocument_chunks = [\n    \"Chapter 1: The company reported Q3 revenue of $4.2B, up 12% YoY. Operating margin improved to 28%. The pharmaceutical division contributed $2.1B, while medical devices added $1.8B.\",\n    \"Chapter 2: R&D spending reached $890M in Q3, focused on oncology pipeline. Three Phase III trials are underway for compounds AX-201, BZ-445, and CY-789. AX-201 showed 67% response rate in preliminary data.\",\n    \"Chapter 3: Management guided FY2025 revenue of $16.5-17.0B. Key risks include patent cliff on Blockbuster Drug X in 2026 and regulatory uncertainty in EU markets. The board approved a $2B share buyback program.\"\n]\n\nextraction_schema = {\n    \"revenue\": \"string or null\",\n    \"growth_rate\": \"string or null\",\n    \"key_products\": \"list of strings\",\n    \"risks\": \"list of strings\",\n    \"guidance\": \"string or null\",\n    \"rd_highlights\": \"list of strings\"\n}\nschema_str = json.dumps(extraction_schema, indent=2)\n\n# --- PASS 1: Parallel extraction (Map) ---\nmap_prompts = []\nfor i, chunk in enumerate(document_chunks):\n    map_prompts.append(\n        f\"Extract structured facts from this text. Return ONLY JSON matching this schema:\\n{schema_str}\\n\"\n        f\"If a field has no evidence, use null.\\n\\nChunk {i+1} of {len(document_chunks)}:\\n{chunk}\"\n    )\n\nmap_responses = llm_query_batched(map_prompts)\n\nextractions = []\nfor i, raw in enumerate(map_responses):\n    try:\n        cleaned = raw.strip()\n        if cleaned.startswith(\"```\"):\n            cleaned = cleaned.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\n        extractions.append(json.loads(cleaned))\n    except json.JSONDecodeError:\n        extractions.append({\"_parse_error\": True, \"chunk_idx\": i})\n\nprint(f\"Map phase: {len(extractions)} extractions, {sum(1 for e in extractions if '_parse_error' not in e)} valid\")\n\n# --- PASS 2: Synthesis (Reduce) ---\nglobal_question = \"What is the company's financial health and key risks for the upcoming year?\"\n\nreduce_prompt = (\n    f\"Synthesize these {len(extractions)} extractions into a single answer to: \\\"{global_question}\\\"\\n\\n\"\n    f\"Extractions:\\n{json.dumps(extractions, indent=2)}\\n\\n\"\n    f\"Return JSON: {{\\\"answer\\\": \\\"...\\\", \\\"confidence\\\": 0.0-1.0, \\\"evidence_chunks\\\": [...], \\\"conflicts\\\": [...]}}\"\n)\n\nreduce_raw = llm_query(reduce_prompt)\ncleaned = reduce_raw.strip()\nif cleaned.startswith(\"```\"):\n    cleaned = cleaned.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\nsynthesis = json.loads(cleaned)\n\nprint(f\"Synthesis confidence: {synthesis['confidence']}\")\nprint(f\"Evidence from chunks: {synthesis['evidence_chunks']}\")\nprint(f\"Answer: {synthesis['answer'][:200]}\")\nresult_summary = f\"confidence={synthesis['confidence']}, chunks_used={len(synthesis['evidence_chunks'])}, conflicts={len(synthesis.get('conflicts', []))}\""
+                    }
+                  }
                 }
               ]
             },
@@ -40,8 +45,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"revenue\": \"$4.2B in Q3\", \"growth_rate\": \"12% YoY\", \"key_products\": [\"pharmaceutical division ($2.1B)\", \"medical devices ($1.8B)\"], \"risks\": [], \"guidance\": null, \"rd_highlights\": []}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 150, "candidatesTokenCount": 50, "totalTokenCount": 200 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"revenue\": \"$4.2B in Q3\", \"growth_rate\": \"12% YoY\", \"key_products\": [\"pharmaceutical division ($2.1B)\", \"medical devices ($1.8B)\"], \"risks\": [], \"guidance\": null, \"rd_highlights\": []}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 200
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -50,8 +72,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"revenue\": null, \"growth_rate\": null, \"key_products\": [\"AX-201\", \"BZ-445\", \"CY-789\"], \"risks\": [], \"guidance\": null, \"rd_highlights\": [\"$890M R&D in Q3\", \"oncology focus\", \"AX-201 67% response rate\"]}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 150, "candidatesTokenCount": 55, "totalTokenCount": 205 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"revenue\": null, \"growth_rate\": null, \"key_products\": [\"AX-201\", \"BZ-445\", \"CY-789\"], \"risks\": [], \"guidance\": null, \"rd_highlights\": [\"$890M R&D in Q3\", \"oncology focus\", \"AX-201 67% response rate\"]}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 55,
+          "totalTokenCount": 205
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -60,8 +99,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"revenue\": null, \"growth_rate\": null, \"key_products\": [\"Blockbuster Drug X\"], \"risks\": [\"patent cliff on Drug X in 2026\", \"EU regulatory uncertainty\"], \"guidance\": \"FY2025 revenue $16.5-17.0B\", \"rd_highlights\": []}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 150, "candidatesTokenCount": 55, "totalTokenCount": 205 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"revenue\": null, \"growth_rate\": null, \"key_products\": [\"Blockbuster Drug X\"], \"risks\": [\"patent cliff on Drug X in 2026\", \"EU regulatory uncertainty\"], \"guidance\": \"FY2025 revenue $16.5-17.0B\", \"rd_highlights\": []}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 55,
+          "totalTokenCount": 205
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -84,7 +140,11 @@
             "index": 0
           }
         ],
-        "usageMetadata": { "promptTokenCount": 400, "candidatesTokenCount": 100, "totalTokenCount": 500 },
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 500
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -119,7 +179,7 @@
   "fault_injections": [],
   "expected": {
     "final_answer": "Map-reduce: 3 chunks extracted, synthesis confidence=0.87, evidence from all 3 chunks, 0 conflicts.",
-    "total_iterations": 2,
+    "total_iterations": 1,
     "total_model_calls": 6
   }
 }

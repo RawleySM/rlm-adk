@@ -1,0 +1,145 @@
+{
+  "scenario_id": "structured_output_retry_empty",
+  "description": "Iteration 1: reasoning returns REPL code with llm_query + output_schema. Worker's first functionCall has empty summary field — WorkerRetryPlugin.extract_error_from_result detects the empty string and returns ToolFailureResponse as the FunctionResponse. Model retries with valid data on second functionCall — tool succeeds, worker ends. Iteration 2: reasoning returns FINAL. Worker API calls: bad functionCall (empty) + corrected functionCall = 2.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass AnalysisResult(BaseModel):\n    summary: str\n    confidence: float\n\nresult = llm_query(\"Analyze the market data\", output_schema=AnalysisResult)\nprint(f\"Summary: {result.parsed['summary']}\")\nprint(f\"Confidence: {result.parsed['confidence']}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "functionCall with EMPTY summary field — Pydantic validation passes but WorkerRetryPlugin detects empty string",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "",
+                      "confidence": 0.0
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 120
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "corrected functionCall after reflection guidance — valid args, worker ends after tool success",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Market shows steady upward trend",
+                      "confidence": 0.88
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 180,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 210
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The structured analysis returned: Market shows steady upward trend (confidence: 0.88).\n\nFINAL(Market shows steady upward trend)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 450,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 480
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Market shows steady upward trend",
+    "total_iterations": 1,
+    "total_model_calls": 4
+  }
+}

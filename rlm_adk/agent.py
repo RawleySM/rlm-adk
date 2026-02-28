@@ -205,10 +205,11 @@ def create_reasoning_agent(
 
     gcc = _build_generate_content_config(retry_config)
 
-    # When tools are provided, ADK manages tool call/response history
-    # via include_contents='default'.  Without tools, the orchestrator's
-    # before_model callback injects message_history manually (legacy mode).
-    content_mode = "default" if tools else "none"
+    # ADK manages tool call/response history via include_contents='default'.
+    # In the collapsed orchestrator, tools are always wired at runtime.
+    # In legacy mode (if someone creates without tools), the before_model
+    # callback will detect no tools and inject message_history.
+    content_mode = "default"
 
     return LlmAgent(
         name="reasoning_agent",

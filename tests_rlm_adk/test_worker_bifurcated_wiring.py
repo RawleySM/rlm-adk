@@ -72,7 +72,7 @@ class TestBifurcatedWiringWithRepl:
         eq: asyncio.Queue = asyncio.Queue()
         mock_repl = MagicMock()  # stands in for LocalREPL
 
-        llm_query_async, _ = create_dispatch_closures(
+        llm_query_async, _, _ = create_dispatch_closures(
             pool, ctx, eq, worker_repl=mock_repl,
         )
 
@@ -117,7 +117,7 @@ class TestBifurcatedWiringWithoutRepl:
         eq: asyncio.Queue = asyncio.Queue()
 
         # No worker_repl parameter (or explicitly None)
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
 
         await llm_query_async("test prompt", output_schema=SampleSchema)
 
@@ -152,7 +152,7 @@ class TestBifurcatedWiringCleanup:
         eq: asyncio.Queue = asyncio.Queue()
         mock_repl = MagicMock()
 
-        llm_query_async, _ = create_dispatch_closures(
+        llm_query_async, _, _ = create_dispatch_closures(
             pool, ctx, eq, worker_repl=mock_repl,
         )
 
@@ -184,7 +184,7 @@ class TestBifurcatedWiringCleanup:
         ctx = _make_invocation_context()
         eq: asyncio.Queue = asyncio.Queue()
 
-        llm_query_async, _ = create_dispatch_closures(pool, ctx, eq)
+        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
 
         await llm_query_async("test", output_schema=SampleSchema)
 

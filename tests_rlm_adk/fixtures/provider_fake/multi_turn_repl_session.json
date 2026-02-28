@@ -19,7 +19,12 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "TURN 1: Initial triage of vendor records. I'll set up the pipeline and classify 5 records.\n\n```repl\nimport json\nimport hashlib\nfrom collections import defaultdict\nfrom dataclasses import dataclass, field\n\nclass DeduplicationRing:\n    def __init__(self):\n        self._hashes = set()\n    def content_hash(self, r):\n        return hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest()\n    def mark_processed(self, r):\n        self._hashes.add(self.content_hash(r))\n    def __len__(self):\n        return len(self._hashes)\n\n@dataclass\nclass PhaseResult:\n    phase_name: str\n    items: list\n    errors: list = field(default_factory=list)\n\nrecords = [\n    {\"id\": \"V-1\", \"vendor_name\": \"Medtronic PLC\", \"city\": \"Minneapolis\"},\n    {\"id\": \"V-2\", \"vendor_name\": \"j&j  inc.\", \"city\": \"new brunswick\"},\n    {\"id\": \"V-3\", \"vendor_name\": \"ABBOTT labs, corp.\", \"city\": \"abbott park\"},\n    {\"id\": \"V-4\", \"vendor_name\": \"NewVenture BioTech\", \"city\": \"Cambridge\"},\n    {\"id\": \"V-5\", \"vendor_name\": \"stryker corporation\", \"city\": \"kalamazoo\"}\n]\n\nentities = [\n    {\"id\": \"E-1\", \"canonical_name\": \"Medtronic PLC\"},\n    {\"id\": \"E-2\", \"canonical_name\": \"Johnson & Johnson\"},\n    {\"id\": \"E-3\", \"canonical_name\": \"Abbott Laboratories\"},\n    {\"id\": \"E-4\", \"canonical_name\": \"Stryker Corporation\"}\n]\nsymbol_table = \"\\n\".join(f\"  {e['id']}: {e['canonical_name']}\" for e in entities)\n\ndedup = DeduplicationRing()\n\nprompts = [\n    f\"Triage: {{record_id, disposition (exact_match|fuzzy_match|anomaly), confidence, matched_entity_id, rationale}}.\\nEntities:\\n{symbol_table}\\nRecord: {json.dumps(r)}\"\n    for r in records\n]\nraw = llm_query_batched(prompts)\n\ndecisions = []\nfor r, resp in zip(records, raw):\n    obj = json.loads(resp.strip())\n    decisions.append(obj)\n    dedup.mark_processed(r)\n\nbuckets = defaultdict(list)\nfor d in decisions:\n    buckets[d[\"disposition\"]].append(d)\n\nanomalies = buckets.get(\"anomaly\", [])\nprint(f\"Turn 1 results: {len(decisions)} triaged\")\nfor disp, items in sorted(buckets.items()):\n    print(f\"  {disp}: {len(items)}\")\nprint(f\"Anomalies to investigate: {[a['record_id'] for a in anomalies]}\")\nturn1_anomalies = anomalies\n```"
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "import json\nimport hashlib\nfrom collections import defaultdict\nfrom dataclasses import dataclass, field\n\nclass DeduplicationRing:\n    def __init__(self):\n        self._hashes = set()\n    def content_hash(self, r):\n        return hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest()\n    def mark_processed(self, r):\n        self._hashes.add(self.content_hash(r))\n    def __len__(self):\n        return len(self._hashes)\n\n@dataclass\nclass PhaseResult:\n    phase_name: str\n    items: list\n    errors: list = field(default_factory=list)\n\nrecords = [\n    {\"id\": \"V-1\", \"vendor_name\": \"Medtronic PLC\", \"city\": \"Minneapolis\"},\n    {\"id\": \"V-2\", \"vendor_name\": \"j&j  inc.\", \"city\": \"new brunswick\"},\n    {\"id\": \"V-3\", \"vendor_name\": \"ABBOTT labs, corp.\", \"city\": \"abbott park\"},\n    {\"id\": \"V-4\", \"vendor_name\": \"NewVenture BioTech\", \"city\": \"Cambridge\"},\n    {\"id\": \"V-5\", \"vendor_name\": \"stryker corporation\", \"city\": \"kalamazoo\"}\n]\n\nentities = [\n    {\"id\": \"E-1\", \"canonical_name\": \"Medtronic PLC\"},\n    {\"id\": \"E-2\", \"canonical_name\": \"Johnson & Johnson\"},\n    {\"id\": \"E-3\", \"canonical_name\": \"Abbott Laboratories\"},\n    {\"id\": \"E-4\", \"canonical_name\": \"Stryker Corporation\"}\n]\nsymbol_table = \"\\n\".join(f\"  {e['id']}: {e['canonical_name']}\" for e in entities)\n\ndedup = DeduplicationRing()\n\nprompts = [\n    f\"Triage: {{record_id, disposition (exact_match|fuzzy_match|anomaly), confidence, matched_entity_id, rationale}}.\\nEntities:\\n{symbol_table}\\nRecord: {json.dumps(r)}\"\n    for r in records\n]\nraw = llm_query_batched(prompts)\n\ndecisions = []\nfor r, resp in zip(records, raw):\n    obj = json.loads(resp.strip())\n    decisions.append(obj)\n    dedup.mark_processed(r)\n\nbuckets = defaultdict(list)\nfor d in decisions:\n    buckets[d[\"disposition\"]].append(d)\n\nanomalies = buckets.get(\"anomaly\", [])\nprint(f\"Turn 1 results: {len(decisions)} triaged\")\nfor disp, items in sorted(buckets.items()):\n    print(f\"  {disp}: {len(items)}\")\nprint(f\"Anomalies to investigate: {[a['record_id'] for a in anomalies]}\")\nturn1_anomalies = anomalies"
+                    }
+                  }
                 }
               ]
             },
@@ -40,8 +45,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-1\", \"disposition\": \"exact_match\", \"confidence\": 0.98, \"matched_entity_id\": \"E-1\", \"rationale\": \"Medtronic PLC exact match\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 120, "candidatesTokenCount": 40, "totalTokenCount": 160 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-1\", \"disposition\": \"exact_match\", \"confidence\": 0.98, \"matched_entity_id\": \"E-1\", \"rationale\": \"Medtronic PLC exact match\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 120,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 160
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -50,8 +72,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-2\", \"disposition\": \"anomaly\", \"confidence\": 0.35, \"matched_entity_id\": null, \"rationale\": \"j&j inc does not clearly match any entity - abbreviated and poorly formatted\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 120, "candidatesTokenCount": 45, "totalTokenCount": 165 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-2\", \"disposition\": \"anomaly\", \"confidence\": 0.35, \"matched_entity_id\": null, \"rationale\": \"j&j inc does not clearly match any entity - abbreviated and poorly formatted\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 120,
+          "candidatesTokenCount": 45,
+          "totalTokenCount": 165
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -60,8 +99,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-3\", \"disposition\": \"anomaly\", \"confidence\": 0.40, \"matched_entity_id\": null, \"rationale\": \"ABBOTT labs corp has legal suffixes and inconsistent casing, hard to match\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 120, "candidatesTokenCount": 45, "totalTokenCount": 165 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-3\", \"disposition\": \"anomaly\", \"confidence\": 0.40, \"matched_entity_id\": null, \"rationale\": \"ABBOTT labs corp has legal suffixes and inconsistent casing, hard to match\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 120,
+          "candidatesTokenCount": 45,
+          "totalTokenCount": 165
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -70,8 +126,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-4\", \"disposition\": \"anomaly\", \"confidence\": 0.20, \"matched_entity_id\": null, \"rationale\": \"NewVenture BioTech not in known entity list at all\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 120, "candidatesTokenCount": 40, "totalTokenCount": 160 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-4\", \"disposition\": \"anomaly\", \"confidence\": 0.20, \"matched_entity_id\": null, \"rationale\": \"NewVenture BioTech not in known entity list at all\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 120,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 160
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -80,8 +153,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-5\", \"disposition\": \"fuzzy_match\", \"confidence\": 0.72, \"matched_entity_id\": \"E-4\", \"rationale\": \"stryker corporation matches Stryker Corporation with case difference\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 120, "candidatesTokenCount": 45, "totalTokenCount": 165 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-5\", \"disposition\": \"fuzzy_match\", \"confidence\": 0.72, \"matched_entity_id\": \"E-4\", \"rationale\": \"stryker corporation matches Stryker Corporation with case difference\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 120,
+          "candidatesTokenCount": 45,
+          "totalTokenCount": 165
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -96,7 +186,12 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "TURN 2: 3 anomalies found (V-2, V-3, V-4). V-2 and V-3 look like formatting issues. I'll generate a cleaning transform and re-triage the anomalies.\n\n```repl\nimport re\n\n# Ask LLM to generate a cleaning function\nclean_prompt = (\n    \"Write a Python function: def clean_vendor(record: dict) -> dict\\n\"\n    \"It should: 1) Remove legal suffixes (Inc, Corp, LLC, Ltd, PLC) from vendor_name, \"\n    \"2) Expand common abbreviations (j&j -> Johnson & Johnson), \"\n    \"3) Title-case the vendor_name, 4) Title-case the city.\\n\"\n    \"Only import re. Return ONLY the Python code.\"\n)\nraw_code = llm_query(clean_prompt)\n\n# Safety check and exec\ncode = raw_code.strip()\nif code.startswith(\"```\"):\n    code = code.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\n\nfor forbidden in [\"exec(\", \"eval(\", \"os.\", \"subprocess\", \"open(\"]:\n    if forbidden in code:\n        raise RuntimeError(f\"Forbidden: {forbidden}\")\n\nsandbox = {}\nexec(code, sandbox)\nclean_fn = sandbox[\"clean_vendor\"]\n\n# Clean and re-triage anomalies\ncleaned_anomalies = [clean_fn(a.copy()) for a in [\n    {\"id\": \"V-2\", \"vendor_name\": \"j&j  inc.\", \"city\": \"new brunswick\"},\n    {\"id\": \"V-3\", \"vendor_name\": \"ABBOTT labs, corp.\", \"city\": \"abbott park\"},\n    {\"id\": \"V-4\", \"vendor_name\": \"NewVenture BioTech\", \"city\": \"Cambridge\"}\n]]\n\nfor c in cleaned_anomalies:\n    print(f\"  Cleaned: {c}\")\n\n# Re-triage cleaned records\nretriage_prompts = [\n    f\"Triage this CLEANED record: {{record_id, disposition (exact_match|fuzzy_match|anomaly), confidence, matched_entity_id}}.\\nEntities:\\n{symbol_table}\\nRecord: {json.dumps(r)}\"\n    for r in cleaned_anomalies\n]\nretriage_raw = llm_query_batched(retriage_prompts)\n\nretriage_decisions = [json.loads(r.strip()) for r in retriage_raw]\nretriage_anomalies = [d for d in retriage_decisions if d[\"disposition\"] == \"anomaly\"]\nprint(f\"Re-triage: {len(retriage_decisions)} classified, {len(retriage_anomalies)} still anomalies\")\nfor d in retriage_decisions:\n    print(f\"  {d['record_id']}: {d['disposition']} (conf={d['confidence']})\")\nturn2_remaining_anomalies = retriage_anomalies\n```"
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "import re\n\n# Ask LLM to generate a cleaning function\nclean_prompt = (\n    \"Write a Python function: def clean_vendor(record: dict) -> dict\\n\"\n    \"It should: 1) Remove legal suffixes (Inc, Corp, LLC, Ltd, PLC) from vendor_name, \"\n    \"2) Expand common abbreviations (j&j -> Johnson & Johnson), \"\n    \"3) Title-case the vendor_name, 4) Title-case the city.\\n\"\n    \"Only import re. Return ONLY the Python code.\"\n)\nraw_code = llm_query(clean_prompt)\n\n# Safety check and exec\ncode = raw_code.strip()\nif code.startswith(\"```\"):\n    code = code.split(\"\\n\", 1)[-1].rsplit(\"```\", 1)[0].strip()\n\nfor forbidden in [\"exec(\", \"eval(\", \"os.\", \"subprocess\", \"open(\"]:\n    if forbidden in code:\n        raise RuntimeError(f\"Forbidden: {forbidden}\")\n\nsandbox = {}\nexec(code, sandbox)\nclean_fn = sandbox[\"clean_vendor\"]\n\n# Clean and re-triage anomalies\ncleaned_anomalies = [clean_fn(a.copy()) for a in [\n    {\"id\": \"V-2\", \"vendor_name\": \"j&j  inc.\", \"city\": \"new brunswick\"},\n    {\"id\": \"V-3\", \"vendor_name\": \"ABBOTT labs, corp.\", \"city\": \"abbott park\"},\n    {\"id\": \"V-4\", \"vendor_name\": \"NewVenture BioTech\", \"city\": \"Cambridge\"}\n]]\n\nfor c in cleaned_anomalies:\n    print(f\"  Cleaned: {c}\")\n\n# Re-triage cleaned records\nretriage_prompts = [\n    f\"Triage this CLEANED record: {{record_id, disposition (exact_match|fuzzy_match|anomaly), confidence, matched_entity_id}}.\\nEntities:\\n{symbol_table}\\nRecord: {json.dumps(r)}\"\n    for r in cleaned_anomalies\n]\nretriage_raw = llm_query_batched(retriage_prompts)\n\nretriage_decisions = [json.loads(r.strip()) for r in retriage_raw]\nretriage_anomalies = [d for d in retriage_decisions if d[\"disposition\"] == \"anomaly\"]\nprint(f\"Re-triage: {len(retriage_decisions)} classified, {len(retriage_anomalies)} still anomalies\")\nfor d in retriage_decisions:\n    print(f\"  {d['record_id']}: {d['disposition']} (conf={d['confidence']})\")\nturn2_remaining_anomalies = retriage_anomalies"
+                    }
+                  }
                 }
               ]
             },
@@ -131,7 +226,11 @@
             "index": 0
           }
         ],
-        "usageMetadata": { "promptTokenCount": 150, "candidatesTokenCount": 150, "totalTokenCount": 300 },
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 150,
+          "totalTokenCount": 300
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -140,8 +239,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-2\", \"disposition\": \"exact_match\", \"confidence\": 0.94, \"matched_entity_id\": \"E-2\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 130, "candidatesTokenCount": 35, "totalTokenCount": 165 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-2\", \"disposition\": \"exact_match\", \"confidence\": 0.94, \"matched_entity_id\": \"E-2\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 130,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 165
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -150,8 +266,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-3\", \"disposition\": \"exact_match\", \"confidence\": 0.91, \"matched_entity_id\": \"E-3\"}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 130, "candidatesTokenCount": 35, "totalTokenCount": 165 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-3\", \"disposition\": \"exact_match\", \"confidence\": 0.91, \"matched_entity_id\": \"E-3\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 130,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 165
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -160,8 +293,25 @@
       "caller": "worker",
       "status": 200,
       "body": {
-        "candidates": [{ "content": { "role": "model", "parts": [{ "text": "{\"record_id\": \"V-4\", \"disposition\": \"anomaly\", \"confidence\": 0.15, \"matched_entity_id\": null}" }] }, "finishReason": "STOP", "index": 0 }],
-        "usageMetadata": { "promptTokenCount": 130, "candidatesTokenCount": 30, "totalTokenCount": 160 },
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"record_id\": \"V-4\", \"disposition\": \"anomaly\", \"confidence\": 0.15, \"matched_entity_id\": null}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 130,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 160
+        },
         "modelVersion": "gemini-fake"
       }
     },
@@ -176,7 +326,7 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "TURN 3: Final reconciliation. The cleaning transform resolved 2 of 3 anomalies:\n- V-2 (j&j inc) -> \"Johnson & Johnson\" -> exact_match (E-2, conf=0.94)\n- V-3 (ABBOTT labs corp) -> \"Abbott Laboratories\" -> exact_match (E-3, conf=0.91)\n- V-4 (NewVenture BioTech) -> still anomaly (conf=0.15) — genuinely novel vendor not in master DB\n\nFinal pipeline summary across all 3 turns:\n- 5 records processed (0 duplicates)\n- Turn 1: 1 exact (V-1), 1 fuzzy (V-5), 3 anomalies (V-2, V-3, V-4)\n- Turn 2: Generated cleaning transform, re-triaged 3 anomalies -> 2 resolved to exact_match\n- Turn 3: 1 remaining anomaly (V-4) routed to new-vendor intake\n\nFinal: 2 exact_match, 1 fuzzy_match from turn 1, 2 exact_match from turn 2, 1 new-vendor.\n\nFINAL(3-turn REPL: 5 records, 4 matched (2 exact + 1 fuzzy + 2 cleaned->exact), 1 new vendor. Transform resolved 2/3 anomalies.)"
+                  "text": "TURN 3: Final reconciliation. The cleaning transform resolved 2 of 3 anomalies:\n- V-2 (j&j inc) -> \"Johnson & Johnson\" -> exact_match (E-2, conf=0.94)\n- V-3 (ABBOTT labs corp) -> \"Abbott Laboratories\" -> exact_match (E-3, conf=0.91)\n- V-4 (NewVenture BioTech) -> still anomaly (conf=0.15) \u2014 genuinely novel vendor not in master DB\n\nFinal pipeline summary across all 3 turns:\n- 5 records processed (0 duplicates)\n- Turn 1: 1 exact (V-1), 1 fuzzy (V-5), 3 anomalies (V-2, V-3, V-4)\n- Turn 2: Generated cleaning transform, re-triaged 3 anomalies -> 2 resolved to exact_match\n- Turn 3: 1 remaining anomaly (V-4) routed to new-vendor intake\n\nFinal: 2 exact_match, 1 fuzzy_match from turn 1, 2 exact_match from turn 2, 1 new-vendor.\n\nFINAL(3-turn REPL: 5 records, 4 matched (2 exact + 1 fuzzy + 2 cleaned->exact), 1 new vendor. Transform resolved 2/3 anomalies.)"
                 }
               ]
             },
@@ -196,7 +346,7 @@
   "fault_injections": [],
   "expected": {
     "final_answer": "3-turn REPL: 5 records, 4 matched (2 exact + 1 fuzzy + 2 cleaned->exact), 1 new vendor. Transform resolved 2/3 anomalies.",
-    "total_iterations": 3,
+    "total_iterations": 2,
     "total_model_calls": 12
   }
 }

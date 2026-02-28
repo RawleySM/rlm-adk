@@ -1,0 +1,144 @@
+{
+  "scenario_id": "structured_output_retry_validation",
+  "description": "Iteration 1: reasoning returns REPL code with llm_query + output_schema. Worker's first functionCall has missing required 'confidence' field — SetModelResponseTool.run_async raises ValidationError, on_tool_error_callback returns reflection guidance as FunctionResponse. Model retries with all fields present — tool succeeds, worker ends. Iteration 2: reasoning returns FINAL. Worker API calls: bad functionCall (missing field) + corrected functionCall = 2.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass AnalysisResult(BaseModel):\n    summary: str\n    confidence: float\n\nresult = llm_query(\"Analyze the market data\", output_schema=AnalysisResult)\nprint(f\"Summary: {result.parsed['summary']}\")\nprint(f\"Confidence: {result.parsed['confidence']}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "functionCall MISSING required 'confidence' field — SetModelResponseTool raises ValidationError",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Market analysis incomplete"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 115
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "corrected functionCall after reflection guidance — all required fields present, worker ends after tool success",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Market recovering with moderate gains",
+                      "confidence": 0.78
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 250,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The structured analysis returned: Market recovering with moderate gains (confidence: 0.78).\n\nFINAL(Market recovering with moderate gains)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 530
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Market recovering with moderate gains",
+    "total_iterations": 1,
+    "total_model_calls": 4
+  }
+}

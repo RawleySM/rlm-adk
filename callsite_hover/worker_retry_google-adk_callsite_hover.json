@@ -4,31 +4,18 @@
   "import_prefix": "google.adk",
   "imported_classes": [
     "BaseTool",
-    "FunctionTool",
+    "REFLECT_AND_RETRY_RESPONSE_TYPE",
     "ReflectAndRetryToolPlugin",
     "ToolContext"
   ],
-  "call_sites": [
-    {
-      "symbol": "FunctionTool",
-      "instances": [
-        {
-          "name": "SUBMIT_ANSWER_TOOL",
-          "line": 31
-        }
-      ],
-      "hover": {
-        "markdown": "```python\nclass FunctionTool(\n    func: (...) -> Any,\n    *,\n    require_confirmation: bool | ((...) -> bool) = False\n)\n```\n---\nInitializes the FunctionTool. Extracts metadata from a callable object.\n\nArgs:  \n&nbsp;&nbsp;func: The function to wrap.  \n&nbsp;&nbsp;require\\_confirmation: Whether this tool requires confirmation. A boolean or  \n&nbsp;&nbsp;&nbsp;&nbsp;a callable that takes the function's arguments and returns a boolean. If\nthe callable returns True, the tool will require confirmation from the\nuser."
-      }
-    }
-  ],
+  "call_sites": [],
   "type_annotations": [
     {
       "symbol": "ReflectAndRetryToolPlugin",
       "usages": [
         {
           "context": "base:WorkerRetryPlugin",
-          "line": 34
+          "line": 36
         }
       ],
       "hover": {
@@ -40,7 +27,15 @@
       "usages": [
         {
           "context": "param:tool",
-          "line": 48
+          "line": 49
+        },
+        {
+          "context": "param:tool",
+          "line": 92
+        },
+        {
+          "context": "param:tool",
+          "line": 121
         }
       ],
       "hover": {
@@ -52,7 +47,15 @@
       "usages": [
         {
           "context": "param:tool_context",
-          "line": 50
+          "line": 51
+        },
+        {
+          "context": "param:tool_context",
+          "line": 94
+        },
+        {
+          "context": "param:tool_context",
+          "line": 123
         }
       ],
       "hover": {

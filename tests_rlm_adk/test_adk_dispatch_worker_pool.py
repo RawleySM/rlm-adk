@@ -143,6 +143,6 @@ class TestDispatchClosures:
         ctx.session.state = {}
         event_queue = asyncio.Queue()
 
-        _, batched_fn = create_dispatch_closures(pool, ctx, event_queue)
+        _, batched_fn, _ = create_dispatch_closures(pool, ctx, event_queue)
         results = await batched_fn([])
         assert results == []

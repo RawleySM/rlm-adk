@@ -20,7 +20,6 @@ import pytest
 from rlm_adk.state import (
     ARTIFACT_SAVE_COUNT,
     FINAL_ANSWER,
-    LAST_REPL_RESULT,
 )
 
 from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
@@ -220,34 +219,43 @@ async def test_sqlite_traces_recorded_multi_iteration(tmp_path: Path):
 
 
 async def test_repl_trace_in_events_multi_iteration(tmp_path: Path):
-    """REPL trace data flows through event stream for worker fixtures."""
+    """REPL execution results flow through function_response events.
+
+    In the collapsed orchestrator (Phase 5B), REPL execution happens inside
+    the REPLTool.  Results are returned as function_response content rather
+    than LAST_REPL_RESULT state deltas.  This test verifies that at least one
+    function_response event contains stdout from code execution and that the
+    llm_calls_made flag is set.
+    """
     result = await _run_with_plugins("multi_iteration_with_workers", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
 
-    # Extract LAST_REPL_RESULT from event state deltas
-    repl_snapshots = []
+    # Extract function_response content from events (tool execution results)
+    tool_results = []
     for event in result.events:
-        sd = getattr(getattr(event, "actions", None), "state_delta", None) or {}
-        if LAST_REPL_RESULT in sd:
-            repl_snapshots.append(sd[LAST_REPL_RESULT])
+        content = getattr(event, "content", None)
+        if content is None:
+            continue
+        for part in getattr(content, "parts", []):
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "name", "") == "execute_code":
+                response_data = getattr(fr, "response", None)
+                if isinstance(response_data, dict):
+                    tool_results.append(response_data)
 
-    print(f"  repl_snapshots: {len(repl_snapshots)}")
-    for idx, snap in enumerate(repl_snapshots):
-        print(f"    #{idx}: {snap}")
+    print(f"  tool_results: {len(tool_results)}")
+    for idx, tr in enumerate(tool_results):
+        stdout_preview = (tr.get("stdout", "") or "")[:80]
+        print(f"    #{idx}: stdout={stdout_preview!r} llm_calls={tr.get('llm_calls_made')}")
 
-    # At least one snapshot should have code blocks
-    iterations_with_code = [
-        s for s in repl_snapshots if isinstance(s, dict) and s.get("code_blocks", 0) > 0
-    ]
-    assert len(iterations_with_code) >= 1, (
-        f"No iteration had code blocks — repl_snapshots: {repl_snapshots}"
+    # At least one tool result should exist (code was executed)
+    assert len(tool_results) >= 1, (
+        f"No execute_code function_response events found"
     )
 
-    # At least one snapshot should have llm_calls recorded
-    total_repl_llm_calls = sum(
-        s.get("total_llm_calls", 0) for s in iterations_with_code
-    )
-    assert total_repl_llm_calls > 0, (
-        f"REPL recorded 0 llm_calls — iterations_with_code: {iterations_with_code}"
+    # At least one tool result should have llm_calls_made=True
+    results_with_llm = [tr for tr in tool_results if tr.get("llm_calls_made")]
+    assert len(results_with_llm) > 0, (
+        f"No tool result had llm_calls_made=True — tool_results: {tool_results}"
     )

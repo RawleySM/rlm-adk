@@ -7,14 +7,21 @@ Provides:
   wrapper functions with positional-arg signatures compatible with LlmAgent
   tool callbacks. These capture validated structured results on the worker
   agent and delegate retry logic to the plugin.
+- _patch_output_schema_postprocessor(): Module-level monkey-patch that
+  suppresses ADK's premature worker termination when callbacks signal retry
+  (BUG-13 workaround).
 
 Wiring: dispatch.py sets these callbacks on workers when output_schema is provided.
 """
 
+import json as _json
 import logging
 from typing import Any, Optional
 
-from google.adk.plugins.reflect_retry_tool_plugin import ReflectAndRetryToolPlugin
+from google.adk.plugins.reflect_retry_tool_plugin import (
+    REFLECT_AND_RETRY_RESPONSE_TYPE,
+    ReflectAndRetryToolPlugin,
+)
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 
@@ -133,3 +140,61 @@ def make_worker_tool_callbacks(
         )
 
     return after_tool_cb, on_tool_error_cb
+
+
+# ---------------------------------------------------------------------------
+# BUG-13 workaround: Patch ADK's output-schema postprocessor so that
+# ToolFailureResponse dicts (retry guidance from ReflectAndRetryToolPlugin)
+# are NOT treated as successful structured output.
+#
+# Without this patch, get_structured_model_response() matches any
+# func_response with name=='set_model_response' and converts it to a
+# text-only final event — terminating the worker loop before the model
+# gets a second turn.  The patch inspects the response content for the
+# REFLECT_AND_RETRY_RESPONSE_TYPE sentinel and returns None when found,
+# allowing the agent loop to continue for retry.
+#
+# Call site in ADK (module-attribute lookup, patchable):
+#   base_llm_flow.py:849  _output_schema_processor.get_structured_model_response(...)
+# ---------------------------------------------------------------------------
+
+
+def _patch_output_schema_postprocessor() -> None:
+    """Install a retry-aware wrapper around get_structured_model_response.
+
+    Idempotent — safe to call multiple times.
+    """
+    import google.adk.flows.llm_flows._output_schema_processor as _osp
+
+    # Guard against double-patching
+    if getattr(_osp.get_structured_model_response, "_rlm_patched", False):
+        return
+
+    _original = _osp.get_structured_model_response
+
+    def _retry_aware_get_structured_model_response(
+        function_response_event,
+    ) -> str | None:
+        result = _original(function_response_event)
+        if result is None:
+            return None
+        try:
+            parsed = _json.loads(result)
+        except (ValueError, TypeError):
+            return result
+        if (
+            isinstance(parsed, dict)
+            and parsed.get("response_type") == REFLECT_AND_RETRY_RESPONSE_TYPE
+        ):
+            logger.debug(
+                "BUG-13 patch: suppressing postprocessor for ToolFailureResponse"
+            )
+            return None
+        return result
+
+    _retry_aware_get_structured_model_response._rlm_patched = True  # type: ignore[attr-defined]
+    _osp.get_structured_model_response = _retry_aware_get_structured_model_response
+
+
+# Apply the patch at import time so it is active before any worker dispatch.
+_patch_output_schema_postprocessor()

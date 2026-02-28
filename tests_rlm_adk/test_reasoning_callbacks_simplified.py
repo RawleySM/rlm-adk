@@ -1,13 +1,11 @@
-"""Phase 3 Part C: Simplified reasoning callbacks tests.
+"""Phase 3/5 Part C: Simplified reasoning callbacks tests.
 
 Tests that the reasoning callbacks have been simplified for tool-calling mode:
 1. reasoning_before_model does NOT write to llm_request.contents
 2. reasoning_before_model DOES write system_instruction
 3. reasoning_after_model DOES write token accounting keys
-4. reasoning_after_model STILL writes LAST_REASONING_RESPONSE (backward compat
-   with legacy orchestrator loop -- removal deferred to Phase 4)
-
-RED: These tests will fail until callbacks/reasoning.py is modified.
+4. reasoning_after_model does NOT write LAST_REASONING_RESPONSE (Phase 5B:
+   collapsed orchestrator reads output_key instead)
 """
 
 from unittest.mock import MagicMock
@@ -21,7 +19,6 @@ from rlm_adk.callbacks.reasoning import (
     reasoning_before_model,
 )
 from rlm_adk.state import (
-    LAST_REASONING_RESPONSE,
     MESSAGE_HISTORY,
     REASONING_CALL_START,
     REASONING_INPUT_TOKENS,
@@ -144,19 +141,18 @@ class TestSimplifiedBeforeModel:
 
 
 class TestSimplifiedAfterModel:
-    """reasoning_after_model in simplified mode preserves backward compat."""
+    """reasoning_after_model no longer writes LAST_REASONING_RESPONSE."""
 
-    def test_still_writes_last_reasoning_response_for_legacy_compat(self):
-        """LAST_REASONING_RESPONSE is still written for the legacy orchestrator
-        loop which reads it to extract code blocks and FINAL answers.
-        Removal is deferred to Phase 4 when the orchestrator is also updated."""
+    def test_does_not_write_last_reasoning_response(self):
+        """Phase 5B: LAST_REASONING_RESPONSE is no longer written.
+        The collapsed orchestrator reads the output_key instead."""
         state = {}
         ctx = _make_callback_context(state)
         response = _make_llm_response("The answer is 42.")
 
         reasoning_after_model(ctx, response)
 
-        assert state[LAST_REASONING_RESPONSE] == "The answer is 42."
+        assert "last_reasoning_response" not in state
 
     def test_still_writes_token_accounting(self):
         """Token accounting from usage_metadata should still be written."""

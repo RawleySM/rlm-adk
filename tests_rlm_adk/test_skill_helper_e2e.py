@@ -59,7 +59,10 @@ def _extract_function_calls(code: str) -> set[str]:
 
 
 def _load_fixture_repl_code(fixture_path: Path) -> list[str]:
-    """Load fixture JSON and extract REPL blocks from reasoning responses."""
+    """Load fixture JSON and extract REPL code from reasoning responses.
+
+    Supports both legacy ```repl text blocks and functionCall execute_code args.
+    """
     import json
 
     with open(fixture_path) as f:
@@ -68,8 +71,15 @@ def _load_fixture_repl_code(fixture_path: Path) -> list[str]:
     for resp in fixture["responses"]:
         if resp.get("caller") != "reasoning":
             continue
-        text = resp["body"]["candidates"][0]["content"]["parts"][0]["text"]
-        blocks.extend(_extract_repl_blocks(text))
+        part = resp["body"]["candidates"][0]["content"]["parts"][0]
+        # functionCall format (execute_code tool)
+        if "functionCall" in part:
+            fc = part["functionCall"]
+            if fc.get("name") == "execute_code" and "code" in fc.get("args", {}):
+                blocks.append(fc["args"]["code"])
+        # Legacy text format with ```repl blocks
+        elif "text" in part:
+            blocks.extend(_extract_repl_blocks(part["text"]))
     return blocks
 
 
@@ -256,8 +266,6 @@ class TestSkillHelperE2E:
             f"Iteration 2 should have 2 llm_calls: {iters_with_code[1]}"
         )
 
-        # Worker events in stream
-        worker_events = [
-            e for e in events if getattr(e, "author", "").startswith("worker_")
-        ]
-        assert len(worker_events) > 0, "No worker-authored events in stream"
+        # Worker dispatches verified via total_llm_calls in REPL snapshots above.
+        # In the collapsed orchestrator, worker events are consumed internally
+        # by _consume_events and don't appear in the outer event stream.

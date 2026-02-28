@@ -1,13 +1,11 @@
-"""Tests for orchestrator event queue drain fixes:
+"""Tests for collapsed orchestrator structure (Phase 5B).
 
-Fix 3: Final-iteration event loss - drain event queue before yielding
-       final answer events AND before max-iterations exhausted path.
+These tests verify that the orchestrator has been collapsed to delegate
+to reasoning_agent.run_async with REPLTool instead of manually iterating
+with find_code_blocks and event_queue drains.
 
-Fix 7: Mid-iteration event queue drain - drain event queue after code
-       block execution and BEFORE find_final_answer() is called.
-
-These tests use static analysis of the orchestrator source to verify
-the drain patterns exist in the correct locations.
+Replaces the previous drain-pattern tests that verified event_queue drain
+locations in the old manual iteration loop.
 """
 
 import inspect
@@ -23,141 +21,64 @@ def _get_orchestrator_source() -> str:
     )
 
 
-class TestFinalAnswerDrain:
-    """Fix 3: The orchestrator must drain the event queue BEFORE yielding
-    the final answer state delta and content events.
+class TestCollapsedOrchestratorStructure:
+    """Verify the orchestrator delegates to reasoning_agent.run_async
+    instead of manually iterating with find_code_blocks."""
 
-    This prevents worker events from being lost when the final answer is
-    detected and the generator returns immediately.
-    """
-
-    def test_drain_before_final_answer_yield(self):
-        """The source must contain an event_queue drain within the
-        'if final_answer is not None:' block, BEFORE the FINAL_ANSWER state delta."""
+    def test_orchestrator_uses_reasoning_agent_run_async(self):
+        """The orchestrator source must contain reasoning_agent.run_async."""
         source = _get_orchestrator_source()
-        lines = source.split("\n")
-
-        # Find lines by content
-        final_answer_check_line = None
-        drain_line = None
-        final_answer_state_delta_line = None
-
-        for i, line in enumerate(lines):
-            if "if final_answer is not None:" in line:
-                final_answer_check_line = i
-            # After we find the final_answer check, look for drain and FINAL_ANSWER
-            if final_answer_check_line is not None:
-                if "event_queue" in line and "empty" in line and drain_line is None:
-                    drain_line = i
-                if "FINAL_ANSWER" in line and "final_answer" in line and "state_delta" not in line:
-                    # This is the FINAL_ANSWER: final_answer line in the state_delta dict
-                    pass
-                if "FINAL_ANSWER:" in line and final_answer_state_delta_line is None:
-                    final_answer_state_delta_line = i
-
-        assert final_answer_check_line is not None, (
-            "Could not find 'if final_answer is not None:' block"
-        )
-        assert drain_line is not None, (
-            "No event_queue drain found after final_answer check. "
-            "Worker events will be lost when final answer is detected."
-        )
-        assert final_answer_state_delta_line is not None, (
-            "Could not find FINAL_ANSWER in state_delta"
-        )
-        assert drain_line < final_answer_state_delta_line, (
-            f"Event queue drain (line {drain_line}) must come BEFORE "
-            f"FINAL_ANSWER state delta (line {final_answer_state_delta_line})"
+        assert "reasoning_agent.run_async" in source, (
+            "Orchestrator must delegate to self.reasoning_agent.run_async(ctx)"
         )
 
-
-class TestMaxIterationsDrain:
-    """The orchestrator must drain the event queue before the
-    max-iterations-exhausted path."""
-
-    def test_drain_before_max_iterations_exhausted(self):
-        """The source must contain an event_queue drain before
-        the max iterations exhausted section."""
+    def test_orchestrator_uses_repl_tool(self):
+        """The orchestrator source must reference REPLTool."""
         source = _get_orchestrator_source()
-        lines = source.split("\n")
-
-        exhausted_line = None
-        last_drain_before_exhausted = None
-
-        for i, line in enumerate(lines):
-            if "max_iterations" in line and "exhausted" in line.lower():
-                if exhausted_line is None:
-                    exhausted_line = i
-                continue
-
-            # Track drain lines that appear before exhausted
-            if exhausted_line is None:
-                if "event_queue" in line and ("empty" in line or "get_nowait" in line):
-                    last_drain_before_exhausted = i
-
-        assert exhausted_line is not None, (
-            "Could not find max_iterations exhausted section"
+        assert "REPLTool" in source, (
+            "Orchestrator must create and wire a REPLTool for the reasoning agent"
         )
-        assert last_drain_before_exhausted is not None, (
-            "No event_queue drain found before max_iterations exhausted section. "
-            "Worker events will be lost when max iterations is reached."
+
+    def test_orchestrator_does_not_use_find_code_blocks(self):
+        """The orchestrator source must NOT call find_code_blocks."""
+        source = _get_orchestrator_source()
+        assert "find_code_blocks" not in source, (
+            "Collapsed orchestrator should not call find_code_blocks -- "
+            "code execution is handled by REPLTool"
+        )
+
+    def test_orchestrator_does_not_drain_events(self):
+        """The orchestrator source must NOT drain an event queue."""
+        source = _get_orchestrator_source()
+        # The collapsed orchestrator should not reference event draining
+        assert "get_nowait" not in source, (
+            "Collapsed orchestrator should not drain events via get_nowait"
+        )
+
+    def test_orchestrator_wires_reasoning_output(self):
+        """The orchestrator should wire ReasoningOutput as output_schema."""
+        source = _get_orchestrator_source()
+        assert "ReasoningOutput" in source, (
+            "Orchestrator must wire ReasoningOutput as output_schema on reasoning_agent"
         )
 
 
 class TestMidIterationDrain:
-    """Fix 7: The orchestrator must drain the event queue after code block
-    execution and BEFORE find_final_answer() is called.
+    """Mid-iteration drain is no longer needed in collapsed mode.
+    Verify the orchestrator does not contain mid-iteration drain patterns."""
 
-    This ensures worker events from llm_query calls within code blocks
-    are yielded to the Runner before the orchestrator checks for the
-    final answer.
-    """
-
-    def test_drain_after_code_blocks_before_final_check(self):
-        """The source must contain an event_queue drain between the
-        code block execution loop and find_final_answer()."""
+    def test_no_mid_iteration_drain(self):
         source = _get_orchestrator_source()
-        lines = source.split("\n")
-
-        # Find lines with key markers
-        last_save_repl_output_line = None
-        find_final_answer_line = None
-        mid_drain_line = None
-
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-
-            if "save_repl_output" in stripped:
-                last_save_repl_output_line = i
-
-            if "find_final_answer" in stripped and "=" in stripped:
-                if find_final_answer_line is None:
-                    find_final_answer_line = i
-
-            # Mid-iteration drain between code blocks and find_final_answer
-            if last_save_repl_output_line is not None and find_final_answer_line is None:
-                if "event_queue" in stripped and ("empty" in stripped or "get_nowait" in stripped):
-                    mid_drain_line = i
-
-        assert find_final_answer_line is not None, (
-            "Could not find find_final_answer() call"
-        )
-        assert mid_drain_line is not None, (
-            "No mid-iteration event_queue drain found between code block "
-            "execution and find_final_answer(). Worker events from llm_query "
-            "calls in code blocks will not be yielded until the next iteration."
-        )
-        assert mid_drain_line < find_final_answer_line, (
-            f"Mid-iteration drain (line {mid_drain_line}) must come BEFORE "
-            f"find_final_answer (line {find_final_answer_line})"
+        assert "mid-iteration" not in source.lower(), (
+            "Collapsed orchestrator should not have mid-iteration drain logic"
         )
 
 
 class TestMidIterationDrainPrintsCount:
-    """Fix 7: The mid-iteration drain should print the count when events are drained."""
+    """Mid-iteration drain print is no longer needed in collapsed mode."""
 
-    def test_mid_iteration_drain_prints_message(self):
+    def test_no_mid_iteration_drain_print(self):
         source = _get_orchestrator_source()
-        assert "mid-iteration worker_events_drained" in source, (
-            "Mid-iteration drain should print a diagnostic message with drain count"
+        assert "mid-iteration worker_events_drained" not in source, (
+            "Collapsed orchestrator should not print mid-iteration drain count"
         )

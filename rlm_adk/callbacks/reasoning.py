@@ -13,9 +13,9 @@ before_model_callback: Merges the ADK-resolved dynamic instruction into
       this by checking whether the agent's tools list is non-empty and
       leaves contents untouched.
 
-after_model_callback: Extracts text response to LAST_REASONING_RESPONSE
-    for backward compatibility with the legacy orchestrator loop.
-    Records per-invocation token accounting from usage_metadata.
+after_model_callback: Records per-invocation token accounting from
+    usage_metadata.  The collapsed orchestrator reads the final answer
+    from the output_key ("reasoning_output") instead of state.
 """
 
 import time
@@ -27,7 +27,6 @@ from google.genai import types
 
 from rlm_adk.state import (
     CONTEXT_WINDOW_SNAPSHOT,
-    LAST_REASONING_RESPONSE,
     MESSAGE_HISTORY,
     REASONING_CALL_START,
     REASONING_CONTENT_COUNT,
@@ -192,22 +191,11 @@ def reasoning_before_model(
 def reasoning_after_model(
     callback_context: CallbackContext, llm_response: LlmResponse
 ) -> LlmResponse | None:
-    """Extract text response and record per-invocation token accounting.
+    """Record per-invocation token accounting from usage_metadata.
 
-    Writes LAST_REASONING_RESPONSE for backward compatibility with the
-    legacy orchestrator loop (which reads it to extract code blocks and
-    FINAL answers).  In tool-calling mode (Phase 4+) the orchestrator
-    will read the output_key instead, and this write can be removed.
+    The collapsed orchestrator reads the final answer from the output_key
+    ("reasoning_output") instead of LAST_REASONING_RESPONSE state.
     """
-    # Extract text response for legacy orchestrator compatibility
-    response_text = ""
-    if llm_response.content and llm_response.content.parts:
-        response_text = "".join(
-            part.text for part in llm_response.content.parts if part.text and not part.thought
-        )
-
-    callback_context.state[LAST_REASONING_RESPONSE] = response_text
-
     # --- Per-invocation token accounting from usage_metadata ---
     usage = llm_response.usage_metadata
     if usage:

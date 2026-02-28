@@ -39,7 +39,7 @@
   "fault_injections": [],
   "expected": {
     "final_answer": "42",
-    "total_iterations": 1,
+    "total_iterations": 0,
     "total_model_calls": 1
   }
 }
