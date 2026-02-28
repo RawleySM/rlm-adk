@@ -50,9 +50,15 @@ def _make_llm_response(text: str) -> LlmResponse:
 
 
 class TestReasoningBeforeModel:
-    """Reasoning before_model_callback injects message_history into LlmRequest."""
+    """Reasoning before_model_callback injects message_history in legacy mode.
 
-    def test_injects_user_messages(self):
+    Phase 3: Dual-mode behavior.  In legacy mode (no tools on agent),
+    the callback still injects message_history.  In tool-calling mode,
+    ADK manages contents via include_contents='default'.
+    """
+
+    def test_injects_user_messages_in_legacy_mode(self):
+        """Legacy mode (no tools): callback injects message_history into contents."""
         state = {
             MESSAGE_HISTORY: [
                 {"role": "user", "content": "Hello"},

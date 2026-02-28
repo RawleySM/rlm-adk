@@ -36,7 +36,9 @@ from rlm_adk.callbacks.worker import (
     worker_on_model_error,
 )
 from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
+from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.trace import DataFlowTracker
+from rlm_adk.tools.repl_tool import REPLTool
 from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 from rlm_adk.state import (
     OBS_WORKER_DIRTY_READ_MISMATCHES,
@@ -228,6 +230,7 @@ def create_dispatch_closures(
     event_queue: asyncio.Queue[Event],
     call_log_sink: list | None = None,
     trace_sink: list | None = None,
+    worker_repl: LocalREPL | None = None,
 ) -> tuple[Any, Any]:
     """Create llm_query_async and llm_query_batched_async closures.
 
@@ -248,6 +251,10 @@ def create_dispatch_closures(
         call_log_sink: Optional list to accumulate RLMChatCompletion records.
         trace_sink: Optional mutable list[REPLTrace | None] holder.
             trace_sink[0] is the current REPLTrace for per-call recording.
+        worker_repl: Optional LocalREPL for bifurcated wiring. When provided,
+            workers with output_schema get a REPLTool instead of
+            SetModelResponseTool (the processor injects SetModelResponseTool
+            at runtime).
 
     Returns:
         (llm_query_async, llm_query_batched_async) tuple of async callables
@@ -390,10 +397,16 @@ def create_dispatch_closures(
                     worker._result_ready = False  # type: ignore[attr-defined]
                     worker._result_error = False  # type: ignore[attr-defined]
 
-                    # Wire structured output when output_schema provided
+                    # Wire structured output when output_schema provided.
+                    # Bifurcated wiring (C3): when worker_repl is available,
+                    # use REPLTool (processor injects SetModelResponseTool at
+                    # runtime); otherwise use explicit SetModelResponseTool.
                     if output_schema is not None:
                         worker.output_schema = output_schema
-                        worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
+                        if worker_repl is not None:
+                            worker.tools = [REPLTool(worker_repl)]  # type: ignore[list-item]
+                        else:
+                            worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
                         after_cb, error_cb = make_worker_tool_callbacks(max_retries=2)
                         worker.after_tool_callback = after_cb  # type: ignore[assignment]
                         worker.on_tool_error_callback = error_cb  # type: ignore[assignment]

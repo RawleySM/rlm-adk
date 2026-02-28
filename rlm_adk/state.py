@@ -133,6 +133,26 @@ MIGRATION_TIMESTAMP = "migration:timestamp"
 MIGRATION_ERROR = "migration:error"
 
 
+DEPTH_SCOPED_KEYS: set[str] = {
+    MESSAGE_HISTORY, ITERATION_COUNT,
+    FINAL_ANSWER, LAST_REPL_RESULT, SHOULD_STOP,
+}
+# NOTE: LAST_REASONING_RESPONSE and CURRENT_CODE_BLOCKS excluded —
+# Phase 3 removes them from the write path entirely.
+
+
+def depth_key(key: str, depth: int = 0) -> str:
+    """Return a depth-scoped state key.
+
+    At depth 0 the original key is returned unchanged.
+    At depth N > 0 the key is suffixed with ``@dN`` so nested
+    reasoning agents operate on independent state.
+    """
+    if depth == 0:
+        return key
+    return f"{key}@d{depth}"
+
+
 def obs_worker_dispatch_key(worker_name: str) -> str:
     """Generate the observability key for a specific worker's dispatch timing."""
     return f"obs:worker_dispatch:{worker_name}"

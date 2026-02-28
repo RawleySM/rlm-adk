@@ -67,17 +67,20 @@ class TestSystemPromptContent:
     def test_mentions_llm_query_batched(self):
         assert "llm_query_batched" in RLM_STATIC_INSTRUCTION
 
-    def test_mentions_final(self):
-        assert "FINAL(" in RLM_STATIC_INSTRUCTION
+    def test_mentions_execute_code_tool(self):
+        """Phase 3: prompt references execute_code tool instead of FINAL()."""
+        assert "execute_code" in RLM_STATIC_INSTRUCTION
 
-    def test_mentions_final_var(self):
-        assert "FINAL_VAR" in RLM_STATIC_INSTRUCTION
+    def test_mentions_set_model_response_tool(self):
+        """Phase 3: prompt references set_model_response tool instead of FINAL_VAR()."""
+        assert "set_model_response" in RLM_STATIC_INSTRUCTION
 
     def test_mentions_show_vars(self):
         assert "SHOW_VARS" in RLM_STATIC_INSTRUCTION
 
-    def test_mentions_repl_tag(self):
-        assert "```repl" in RLM_STATIC_INSTRUCTION
+    def test_does_not_mention_repl_tag(self):
+        """Phase 3: ```repl code fences replaced by execute_code tool."""
+        assert "```repl" not in RLM_STATIC_INSTRUCTION
 
     def test_no_context_variable_reference(self):
         """Static instruction should not promise a pre-loaded context variable."""

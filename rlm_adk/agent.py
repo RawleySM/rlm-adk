@@ -154,6 +154,9 @@ def create_reasoning_agent(
     dynamic_instruction: str = RLM_DYNAMIC_INSTRUCTION,
     thinking_budget: int = 1024,
     retry_config: dict[str, Any] | None = None,
+    *,
+    tools: list | None = None,
+    output_schema: type | None = None,
 ) -> LlmAgent:
     """Create the ReasoningAgent (main LLM for depth=0 reasoning).
 
@@ -179,6 +182,12 @@ def create_reasoning_agent(
             When ``None`` (default), uses sensible defaults (3 attempts,
             exponential backoff).  Pass an empty dict ``{}`` to use the SDK's
             built-in defaults only.
+        tools: Optional list of tools (BaseTool, callables, or BaseToolset)
+            to attach to the agent.  When provided, the agent operates in
+            tool-calling mode (ADK manages tool call/response history).
+        output_schema: Optional Pydantic BaseModel subclass for structured
+            output.  When set, ADK injects a ``set_model_response`` tool
+            and validates the model's response against this schema.
     """
     planner = None
     if thinking_budget > 0:
@@ -196,13 +205,18 @@ def create_reasoning_agent(
 
     gcc = _build_generate_content_config(retry_config)
 
+    # When tools are provided, ADK manages tool call/response history
+    # via include_contents='default'.  Without tools, the orchestrator's
+    # before_model callback injects message_history manually (legacy mode).
+    content_mode = "default" if tools else "none"
+
     return LlmAgent(
         name="reasoning_agent",
         model=model,
         description="Main reasoning agent for RLM iteration loop",
         instruction=dynamic_instruction,
         static_instruction=static_instruction,
-        include_contents="none",
+        include_contents=content_mode,
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
         output_key="reasoning_output",
@@ -210,6 +224,8 @@ def create_reasoning_agent(
         generate_content_config=gcc,
         before_model_callback=reasoning_before_model,
         after_model_callback=reasoning_after_model,
+        tools=tools or [],
+        output_schema=output_schema,
     )
 
 

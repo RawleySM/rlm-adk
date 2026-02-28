@@ -2,6 +2,27 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any, Literal
 
+from pydantic import BaseModel, Field
+
+########################################################
+########   Structured Output Schema for Reasoning  #####
+########################################################
+
+
+class ReasoningOutput(BaseModel):
+    """Structured output schema for the reasoning agent's final answer.
+
+    Used as ``output_schema`` on the reasoning ``LlmAgent`` so ADK
+    emits a ``set_model_response`` tool call that the model fills with
+    validated JSON matching this schema.
+    """
+
+    final_answer: str = Field(description="Complete final answer to the query.")
+    reasoning_summary: str = Field(
+        default="", description="Brief reasoning summary."
+    )
+
+
 ClientBackend = Literal[
     "openai",
     "portkey",

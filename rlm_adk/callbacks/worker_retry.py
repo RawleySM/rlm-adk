@@ -20,6 +20,11 @@ from google.adk.tools.tool_context import ToolContext
 
 logger = logging.getLogger(__name__)
 
+# Canonical tool name for ADK's synthesized set_model_response tool.
+# Used as a guard so that retry/reflection logic only fires for structured
+# output validation, not for other tools like execute_code (REPLTool).
+_SET_MODEL_RESPONSE_TOOL_NAME = "set_model_response"
+
 
 class WorkerRetryPlugin(ReflectAndRetryToolPlugin):
     """Extends ReflectAndRetryToolPlugin for set_model_response validation.
@@ -78,36 +83,52 @@ def make_worker_tool_callbacks(
 
     async def after_tool_cb(
         tool: BaseTool,
-        tool_args: dict[str, Any],
+        args: dict[str, Any],
         tool_context: ToolContext,
-        result: Any,
+        tool_response: Any,
     ) -> Optional[dict[str, Any]]:
-        """After-tool callback: capture structured result, delegate to plugin."""
+        """After-tool callback: capture structured result, delegate to plugin.
+
+        Note: ADK calls this with ``args=`` and ``tool_response=`` kwargs
+        (see google.adk.flows.llm_flows.functions line 540-545).
+        The plugin's ``after_tool_callback`` expects ``tool_args=`` and
+        ``result=``, so we translate between the two conventions here.
+        """
         # On set_model_response success, store validated dict on the agent
-        if tool.name == "set_model_response" and isinstance(result, dict):
+        if tool.name == "set_model_response" and isinstance(tool_response, dict):
             agent = tool_context._invocation_context.agent
-            agent._structured_result = result  # type: ignore[attr-defined]
+            agent._structured_result = tool_response  # type: ignore[attr-defined]
             logger.debug(
                 "Captured structured result on %s: %s",
                 getattr(agent, "name", "?"),
-                list(result.keys()),
+                list(tool_response.keys()),
             )
 
         # Delegate to plugin for extract_error_from_result checks
         return await plugin.after_tool_callback(
-            tool=tool, tool_args=tool_args,
-            tool_context=tool_context, result=result,
+            tool=tool, tool_args=args,
+            tool_context=tool_context, result=tool_response,
         )
 
     async def on_tool_error_cb(
         tool: BaseTool,
-        tool_args: dict[str, Any],
+        args: dict[str, Any],
         tool_context: ToolContext,
         error: Exception,
     ) -> Optional[dict[str, Any]]:
-        """On-tool-error callback: delegate to plugin for retry/reflection."""
+        """On-tool-error callback: delegate to plugin for retry/reflection.
+
+        Only intercepts errors from set_model_response. Errors from other
+        tools (e.g. execute_code / REPLTool) return None so that they
+        propagate normally through ADK's error handling.
+
+        Note: ADK calls this with ``args=`` (see
+        google.adk.flows.llm_flows.functions line 443-447).
+        """
+        if tool.name != _SET_MODEL_RESPONSE_TOOL_NAME:
+            return None
         return await plugin.on_tool_error_callback(
-            tool=tool, tool_args=tool_args,
+            tool=tool, tool_args=args,
             tool_context=tool_context, error=error,
         )
 
