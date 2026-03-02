@@ -2,20 +2,12 @@
 
 before_model_callback: Merges the ADK-resolved dynamic instruction into
     system_instruction (from static_instruction).  Sets reasoning_call_start
-    timestamp and per-invocation token accounting.
-
-    Dual-mode behavior:
-    - Legacy mode (include_contents='none'): Injects message_history from
-      state into llm_request.contents.  The orchestrator writes
-      MESSAGE_HISTORY to state each iteration.
-    - Tool-calling mode (include_contents='default'): ADK manages contents
-      (tool call/response history) automatically.  The callback detects
-      this by checking whether the agent's tools list is non-empty and
-      leaves contents untouched.
+    timestamp and per-invocation token accounting.  ADK manages contents
+    (tool call/response history) via include_contents='default'.
 
 after_model_callback: Records per-invocation token accounting from
     usage_metadata.  The collapsed orchestrator reads the final answer
-    from the output_key ("reasoning_output") instead of state.
+    from the output_key ("reasoning_output").
 """
 
 import time
@@ -27,7 +19,6 @@ from google.genai import types
 
 from rlm_adk.state import (
     CONTEXT_WINDOW_SNAPSHOT,
-    MESSAGE_HISTORY,
     REASONING_CALL_START,
     REASONING_CONTENT_COUNT,
     REASONING_HISTORY_MSG_COUNT,
@@ -71,29 +62,10 @@ def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str:
     return dynamic_text.strip()
 
 
-def _is_tool_calling_mode(callback_context: CallbackContext) -> bool:
-    """Detect whether the reasoning agent is in tool-calling mode.
-
-    In tool-calling mode the agent has tools configured and ADK manages
-    conversation history via include_contents='default'.  The callback
-    should NOT overwrite llm_request.contents.
-
-    In legacy mode the agent has no tools, uses include_contents='none',
-    and the callback must inject message_history into contents.
-    """
-    try:
-        agent = callback_context._invocation_context.agent
-        tools = getattr(agent, "tools", None)
-        # Check that tools is an actual list (not a MagicMock) and non-empty
-        return isinstance(tools, list) and len(tools) > 0
-    except (AttributeError, TypeError):
-        return False
-
-
 def reasoning_before_model(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """Merge dynamic instruction into system_instruction, optionally inject contents.
+    """Merge dynamic instruction into system_instruction.
 
     ADK has already set:
       - system_instruction from static_instruction (the stable system prompt)
@@ -103,19 +75,13 @@ def reasoning_before_model(
       1. Preserves system_instruction from static_instruction
       2. Extracts the resolved dynamic instruction from contents
       3. Appends the dynamic metadata to system_instruction
-      4. In legacy mode: injects conversation messages from message_history
-         into contents (Phase 3 deprecation -- will be removed in Phase 4)
-      5. In tool-calling mode: leaves contents as ADK set them
-      6. Records per-invocation token accounting
+      4. Leaves contents as ADK manages them (include_contents='default')
+      5. Records per-invocation token accounting
     """
     callback_context.state[REASONING_CALL_START] = time.perf_counter()
 
-    tool_calling = _is_tool_calling_mode(callback_context)
-
     # --- Extract what ADK set ---
-    # static_instruction -> system_instruction (stable system prompt)
     static_si = _extract_system_instruction_text(llm_request)
-    # instruction template -> resolved and placed in contents as user content
     dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
 
     # --- Build system_instruction: static prompt + dynamic metadata ---
@@ -126,36 +92,8 @@ def reasoning_before_model(
         else:
             system_instruction_text = dynamic_instruction
 
-    # --- Build contents (legacy mode only) ---
-    # In legacy mode (no tools), the orchestrator writes MESSAGE_HISTORY
-    # to state each iteration.  This callback reads it and builds contents.
-    # In tool-calling mode, ADK manages contents -- leave them as-is.
-    message_history = callback_context.state.get(MESSAGE_HISTORY, [])
-
-    if not tool_calling:
-        contents = []
-        for msg in message_history:
-            role = msg.get("role", "user")
-            content_text = msg.get("content", "")
-
-            if role == "system":
-                # Legacy safety: if a system message is still present in
-                # message_history, append it to system_instruction.
-                if content_text:
-                    system_instruction_text += "\n\n" + content_text
-                continue
-
-            adk_role = "model" if role == "assistant" else "user"
-            contents.append(
-                types.Content(
-                    role=adk_role,
-                    parts=[types.Part.from_text(text=content_text)],
-                )
-            )
-        llm_request.contents = contents
-    else:
-        # Tool-calling mode: ADK manages contents, don't overwrite
-        contents = llm_request.contents or []
+    # ADK manages contents via include_contents='default'
+    contents = llm_request.contents or []
 
     if system_instruction_text:
         llm_request.config = llm_request.config or types.GenerateContentConfig()
@@ -170,18 +108,17 @@ def reasoning_before_model(
     )
     system_chars = len(system_instruction_text)
     content_count = len(contents)
-    history_msg_count = sum(1 for msg in message_history if msg.get("role") != "system") if not tool_calling else content_count
 
     callback_context.state[REASONING_PROMPT_CHARS] = total_prompt_chars
     callback_context.state[REASONING_SYSTEM_CHARS] = system_chars
     callback_context.state[REASONING_CONTENT_COUNT] = content_count
-    callback_context.state[REASONING_HISTORY_MSG_COUNT] = history_msg_count
+    callback_context.state[REASONING_HISTORY_MSG_COUNT] = content_count
     callback_context.state[CONTEXT_WINDOW_SNAPSHOT] = {
         "agent_type": "reasoning",
         "content_count": content_count,
         "prompt_chars": total_prompt_chars,
         "system_chars": system_chars,
-        "history_msg_count": history_msg_count,
+        "history_msg_count": content_count,
         "total_chars": total_prompt_chars + system_chars,
     }
 

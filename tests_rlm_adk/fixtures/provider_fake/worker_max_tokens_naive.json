@@ -1,0 +1,107 @@
+{
+  "scenario_id": "worker_max_tokens_naive",
+  "description": "FM-25 residual risk (RPN=75): Single worker dispatch where the worker response has finishReason=MAX_TOKENS with truncated partial text. REPL code does NOT check for truncation — it naively prints the result directly. This exercises FM-25's residual risk: truncated text is consumed as if it were a complete answer.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent emits execute_code with llm_query. Code does NOT check for truncation — just prints the result directly.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Provide a detailed market analysis\")\nprint(f\"Analysis: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 235
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker response with finishReason=MAX_TOKENS. Text is truncated mid-sentence. worker_after_model extracts partial text with error=False.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The market shows strong growth in Q1 with revenue increasing by 15% year-over-year. Key drivers include expanding digital advertising spend and"
+                }
+              ]
+            },
+            "finishReason": "MAX_TOKENS"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 25,
+          "candidatesTokenCount": 28,
+          "totalTokenCount": 53
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning sees the truncated text in tool result stdout and naively reports it as complete via FINAL.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The market analysis shows strong Q1 performance.\n\nFINAL(Naive truncated: revenue increasing by 15%)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 430
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Naive truncated: revenue increasing by 15%",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

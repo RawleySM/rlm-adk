@@ -40,10 +40,8 @@ from rlm_adk.state import (
     REQUEST_ID,
     WORKER_CONTENT_COUNT,
     WORKER_DISPATCH_COUNT,
-    WORKER_EVENTS_DRAINED,
     WORKER_INPUT_TOKENS,
     WORKER_PROMPT_CHARS,
-    WORKER_RESULTS_COMMITTED,
 )
 
 logger = logging.getLogger(__name__)
@@ -249,7 +247,6 @@ class DebugLoggingPlugin(BasePlugin):
 
             # Worker dispatch info
             dispatch_count = state.get(WORKER_DISPATCH_COUNT, 0)
-            results_committed = state.get(WORKER_RESULTS_COMMITTED, False)
 
             parts = [
                 f"[RLM] iter={iteration} response",
@@ -257,10 +254,7 @@ class DebugLoggingPlugin(BasePlugin):
                 f"tokens_in={tokens_in} tokens_out={tokens_out}",
             ]
             if dispatch_count > 0:
-                parts.append(
-                    f"workers_dispatched={dispatch_count} "
-                    f"results_committed={results_committed}"
-                )
+                parts.append(f"workers_dispatched={dispatch_count}")
             print(" ".join(parts), flush=True)
 
             if llm_response.error_code:
@@ -456,13 +450,11 @@ class DebugLoggingPlugin(BasePlugin):
             total_dispatches = state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
             if total_dispatches > 0:
                 latencies = state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
-                events_drained = state.get(WORKER_EVENTS_DRAINED, 0)
                 avg_latency = (
                     sum(latencies) / len(latencies) if latencies else 0
                 )
                 summary_parts.append(
                     f"worker_dispatches={total_dispatches} "
-                    f"events_drained={events_drained} "
                     f"avg_latency_ms={avg_latency:.1f}"
                 )
 

@@ -12,15 +12,21 @@ worker_on_model_error: ERROR ISOLATION - Handles LLM errors gracefully without
 """
 
 import asyncio
+import logging
+from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
+logger = logging.getLogger(__name__)
+
 
 def _classify_error(error: Exception) -> str:
     """Classify an exception into an error category for observability."""
+    import json as _json_mod
+
     code = getattr(error, "code", None)
     if isinstance(error, asyncio.TimeoutError):
         return "TIMEOUT"
@@ -34,6 +40,15 @@ def _classify_error(error: Exception) -> str:
         return "CLIENT"
     if isinstance(error, (ConnectionError, OSError)):
         return "NETWORK"
+    # Detect JSON parse / malformed response errors
+    if isinstance(error, (_json_mod.JSONDecodeError, ValueError)):
+        err_msg = str(error).lower()
+        if isinstance(error, _json_mod.JSONDecodeError) or "json" in err_msg:
+            return "PARSE_ERROR"
+    # Check error message for JSON-related patterns (e.g., wrapped exceptions)
+    err_str = str(error).lower()
+    if any(pat in err_str for pat in ("json", "malformed", "parse error", "decode")):
+        return "PARSE_ERROR"
     return "UNKNOWN"
 
 
@@ -42,48 +57,20 @@ def worker_before_model(
 ) -> LlmResponse | None:
     """Inject prompt from dispatch closure into LlmRequest.
 
-    The dispatch closure sets worker._pending_prompt before running the agent.
-    This callback reads it and sets it as the LlmRequest contents.
-
-    Stores _prompt_chars and _content_count on the agent object for
-    aggregation in the dispatch closure (no state writes for accounting).
+    The dispatch closure sets worker._pending_prompt (a string) before
+    running the agent.  This callback reads it and sets it as the
+    LlmRequest contents.
     """
     agent = callback_context._invocation_context.agent
     pending_prompt = getattr(agent, "_pending_prompt", None)
 
     if pending_prompt:
-        if isinstance(pending_prompt, str):
-            llm_request.contents = [
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=pending_prompt)],
-                )
-            ]
-        elif isinstance(pending_prompt, list):
-            # Message list format [{role: ..., content: ...}, ...]
-            contents = []
-            for msg in pending_prompt:
-                role = msg.get("role", "user")
-                adk_role = "model" if role == "assistant" else "user"
-                contents.append(
-                    types.Content(
-                        role=adk_role,
-                        parts=[types.Part.from_text(text=msg.get("content", ""))],
-                    )
-                )
-            llm_request.contents = contents
-
-    # --- Store prompt metrics on agent object for dispatch aggregation ---
-    total_prompt_chars = sum(
-        len(part.text or "")
-        for content in llm_request.contents
-        if content.parts
-        for part in content.parts
-    )
-    content_count = len(llm_request.contents)
-
-    agent._prompt_chars = total_prompt_chars  # type: ignore[attr-defined]
-    agent._content_count = content_count  # type: ignore[attr-defined]
+        llm_request.contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=pending_prompt)],
+            )
+        ]
 
     return None  # Proceed with model call
 
@@ -93,46 +80,79 @@ def worker_after_model(
 ) -> LlmResponse | None:
     """Extract response text, write to state output_key and agent object.
 
-    Writes result onto the agent object (_result, _result_ready, _result_usage)
+    Writes result onto the agent object (_result, _result_ready, _call_record)
     for the dispatch closure to read after ParallelAgent completes.
     Also writes to callback_context.state[output_key] for ADK persistence.
+
+    Wrapped in try/except so a callback failure does not crash the entire
+    K-worker batch via ParallelAgent (FM-20 blast radius fix).
     """
-    response_text = ""
-    if llm_response.content and llm_response.content.parts:
-        response_text = "".join(
-            part.text for part in llm_response.content.parts if part.text and not part.thought
+    agent = callback_context._invocation_context.agent
+    try:
+        response_text = ""
+        if llm_response.content and llm_response.content.parts:
+            response_text = "".join(
+                part.text for part in llm_response.content.parts if part.text and not part.thought
+            )
+
+        # Detect safety-filtered responses (BUG-B fix)
+        finish_reason = llm_response.finish_reason
+        is_safety_filtered = (
+            finish_reason is not None
+            and hasattr(finish_reason, "name")
+            and finish_reason.name == "SAFETY"
         )
 
-    agent = callback_context._invocation_context.agent
+        # Write result onto agent object for dispatch closure reads
+        agent._result = response_text  # type: ignore[attr-defined]
+        agent._result_ready = True  # type: ignore[attr-defined]
+        if is_safety_filtered:
+            agent._result_error = True  # type: ignore[attr-defined]
 
-    # Write result onto agent object for dispatch closure reads
-    agent._result = response_text  # type: ignore[attr-defined]
-    agent._result_ready = True  # type: ignore[attr-defined]
+        # Extract usage from response metadata
+        usage = llm_response.usage_metadata
+        input_tokens = 0
+        output_tokens = 0
+        if usage:
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
 
-    # Extract usage from response metadata onto agent object
-    usage = llm_response.usage_metadata
-    if usage:
-        input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-        agent._result_usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}  # type: ignore[attr-defined]
-    else:
-        agent._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
+        # Write call record onto agent object for dispatch closure to accumulate
+        record: dict[str, Any] = {
+            "prompt": getattr(agent, "_pending_prompt", None),
+            "response": response_text,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "model": getattr(llm_response, "model_version", None),
+            "finish_reason": finish_reason.name if finish_reason else None,
+            "error": is_safety_filtered,
+        }
+        if is_safety_filtered:
+            record["error_category"] = "SAFETY"
+        agent._call_record = record  # type: ignore[attr-defined]
 
-    # Write call record onto agent object for dispatch closure to accumulate
-    agent._call_record = {  # type: ignore[attr-defined]
-        "prompt": getattr(agent, "_pending_prompt", None),
-        "response": response_text,
-        "input_tokens": agent._result_usage["input_tokens"],  # type: ignore[attr-defined]
-        "output_tokens": agent._result_usage["output_tokens"],  # type: ignore[attr-defined]
-        "model": getattr(llm_response, "model_version", None),
-        "finish_reason": str(llm_response.finish_reason) if llm_response.finish_reason else None,
-        "error": False,
-    }
+        # Write to the worker's output_key in state (for ADK persistence)
+        output_key = getattr(agent, "output_key", None)
+        if output_key:
+            callback_context.state[output_key] = response_text
 
-    # Write to the worker's output_key in state (for ADK persistence)
-    output_key = getattr(agent, "output_key", None)
-    if output_key:
-        callback_context.state[output_key] = response_text
+    except Exception as exc:
+        # FM-20 fix: isolate callback failure so it doesn't crash siblings
+        logger.error("worker_after_model failed for %s: %s", agent.name, exc)
+        error_msg = f"[Worker {agent.name} callback error: {type(exc).__name__}: {exc}]"
+        agent._result = error_msg  # type: ignore[attr-defined]
+        agent._result_ready = True  # type: ignore[attr-defined]
+        agent._result_error = True  # type: ignore[attr-defined]
+        agent._call_record = {  # type: ignore[attr-defined]
+            "prompt": getattr(agent, "_pending_prompt", None),
+            "response": error_msg,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "model": None,
+            "finish_reason": None,
+            "error": True,
+            "error_category": "CALLBACK_ERROR",
+        }
 
     return None
 
@@ -154,7 +174,6 @@ def worker_on_model_error(
     agent._result = error_msg  # type: ignore[attr-defined]
     agent._result_ready = True  # type: ignore[attr-defined]
     agent._result_error = True  # type: ignore[attr-defined]
-    agent._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
 
     # Write error call record onto agent object for dispatch closure
     agent._call_record = {  # type: ignore[attr-defined]

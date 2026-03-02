@@ -16,7 +16,7 @@ via Services, and forwards processed events upstream.
 
 The ADK CLI (``adk run``, ``adk web``) discovers the module-level ``app``
 symbol and creates its own ``Runner`` internally.  Programmatic callers
-should use ``create_rlm_runner()`` which returns an ``InMemoryRunner``
+should use ``create_rlm_runner()`` which returns a ``Runner``
 with plugins, session service, and artifact service already wired.
 """
 
@@ -32,7 +32,7 @@ from google.adk.apps.app import App
 from google.adk.planners import BuiltInPlanner
 from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.artifacts import BaseArtifactService, FileArtifactService
-from google.adk.runners import InMemoryRunner, Runner
+from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
 from google.genai import types
 from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions
@@ -205,19 +205,15 @@ def create_reasoning_agent(
 
     gcc = _build_generate_content_config(retry_config)
 
-    # ADK manages tool call/response history via include_contents='default'.
-    # In the collapsed orchestrator, tools are always wired at runtime.
-    # In legacy mode (if someone creates without tools), the before_model
-    # callback will detect no tools and inject message_history.
-    content_mode = "default"
-
     return LlmAgent(
         name="reasoning_agent",
         model=model,
         description="Main reasoning agent for RLM iteration loop",
         instruction=dynamic_instruction,
         static_instruction=static_instruction,
-        include_contents=content_mode,
+        # ADK manages tool call/response history. Tools are wired at
+        # runtime by the orchestrator.
+        include_contents="default",
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
         output_key="reasoning_output",

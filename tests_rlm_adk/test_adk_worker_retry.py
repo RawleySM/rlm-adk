@@ -8,10 +8,14 @@ Covers:
 - Cycle 4: llm_query_async accepts output_schema
 - Cycle 5: Worker gets schema + tools + callbacks when output_schema provided
 - Cycle 6: Structured result extraction into LLMResult.parsed
+- Cycle 7: BUG-13 patch wrapper suppresses retry responses (FM-21)
+- Cycle 8: BUG-13 patch idempotency (FM-21)
+- FM-16 (Item 19): after_tool_cb delegation with empty value triggers retry
 """
 
 import asyncio
 import inspect
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -397,3 +401,240 @@ class TestStructuredResultExtraction:
 
         assert result.parsed is None
         assert str(result) == "plain text response"
+
+
+# ── Cycle 7: BUG-13 patch wrapper suppresses retry responses (FM-21) ────
+
+
+class TestPatchWrapperSuppressesRetryResponse:
+    """Directly test _retry_aware_get_structured_model_response wrapper."""
+
+    def test_suppress_retry_response_returns_none(self):
+        """When function_response contains REFLECT_AND_RETRY_RESPONSE_TYPE sentinel,
+        the patched wrapper should return None (suppressing premature termination)."""
+        from google.adk.events import Event
+        from google.adk.plugins.reflect_retry_tool_plugin import (
+            REFLECT_AND_RETRY_RESPONSE_TYPE,
+        )
+        from google.genai import types
+
+        from rlm_adk.callbacks.worker_retry import _bug13_stats
+
+        import google.adk.flows.llm_flows._output_schema_processor as _osp
+
+        # Verify the patch is installed
+        assert getattr(_osp.get_structured_model_response, "_rlm_patched", False), \
+            "BUG-13 patch not installed on get_structured_model_response"
+
+        # Build a mock function_response_event with the retry sentinel
+        retry_payload = {
+            "response_type": REFLECT_AND_RETRY_RESPONSE_TYPE,
+            "reflection_guidance": "Please fix the empty field",
+        }
+        event = Event(
+            invocation_id="test-inv",
+            author="worker",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="set_model_response",
+                            response=retry_payload,
+                        )
+                    )
+                ],
+            ),
+        )
+
+        # Record suppress_count before the call
+        before_count = _bug13_stats["suppress_count"]
+
+        result = _osp.get_structured_model_response(event)
+
+        # The wrapper should return None for retry responses
+        assert result is None, (
+            f"Expected None for retry sentinel, got {result!r}"
+        )
+
+        # Verify suppress_count was incremented
+        assert _bug13_stats["suppress_count"] == before_count + 1
+
+    def test_normal_response_passes_through(self):
+        """A normal set_model_response (no retry sentinel) should pass through unchanged."""
+        from google.adk.events import Event
+        from google.genai import types
+
+        import google.adk.flows.llm_flows._output_schema_processor as _osp
+
+        normal_payload = {"answer": "The result", "score": 0.95}
+        event = Event(
+            invocation_id="test-inv",
+            author="worker",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="set_model_response",
+                            response=normal_payload,
+                        )
+                    )
+                ],
+            ),
+        )
+
+        result = _osp.get_structured_model_response(event)
+
+        # Should return a JSON string (not None)
+        assert result is not None, "Normal response should not be suppressed"
+        parsed = json.loads(result)
+        assert parsed["answer"] == "The result"
+        assert parsed["score"] == 0.95
+
+    def test_non_set_model_response_returns_none(self):
+        """An event without set_model_response should return None."""
+        from google.adk.events import Event
+        from google.genai import types
+
+        import google.adk.flows.llm_flows._output_schema_processor as _osp
+
+        event = Event(
+            invocation_id="test-inv",
+            author="worker",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="execute_code",
+                            response={"output": "hello"},
+                        )
+                    )
+                ],
+            ),
+        )
+
+        result = _osp.get_structured_model_response(event)
+        assert result is None
+
+
+# ── Cycle 8: BUG-13 patch idempotency (FM-21) ───────────────────────────
+
+
+class TestPatchIdempotency:
+    """Calling _patch_output_schema_postprocessor() multiple times must install
+    the wrapper exactly once."""
+
+    def test_patch_idempotency(self):
+        """Second call to _patch_output_schema_postprocessor() is a no-op.
+
+        The wrapper checks for the _rlm_patched sentinel attribute and returns
+        early if already patched. Verify the function reference does not change.
+        """
+        from rlm_adk.callbacks.worker_retry import _patch_output_schema_postprocessor
+
+        import google.adk.flows.llm_flows._output_schema_processor as _osp
+
+        # The patch is already installed at module import time.
+        # Capture the current wrapper reference.
+        first_ref = _osp.get_structured_model_response
+        assert getattr(first_ref, "_rlm_patched", False), \
+            "Patch should already be installed"
+
+        # Call the patch function again
+        _patch_output_schema_postprocessor()
+
+        # The reference should be identical (no double-wrapping)
+        second_ref = _osp.get_structured_model_response
+        assert first_ref is second_ref, (
+            "Calling _patch_output_schema_postprocessor() twice should not "
+            "double-wrap the function. The _rlm_patched guard should prevent this."
+        )
+
+
+# ── FM-16 (Item 19): after_tool_cb empty value triggers retry ────────────
+
+
+class TestAfterToolCallbackEmptyValueRetry:
+    """FM-16: after_tool_cb -> plugin.after_tool_callback delegation with empty
+    value triggers extract_error_from_result and retry engagement."""
+
+    @pytest.mark.asyncio
+    async def test_empty_value_in_set_model_response_returns_retry_guidance(self):
+        """When set_model_response has an empty string value, after_tool_cb
+        should return a retry guidance dict (not None)."""
+        from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
+
+        after_cb, _ = make_worker_tool_callbacks(max_retries=2)
+        tool = MagicMock()
+        tool.name = "set_model_response"
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent._structured_result = None
+        tool_context = MagicMock()
+        tool_context._invocation_context.agent = agent
+        tool_context.invocation_id = "inv-test"
+
+        # Empty string value should trigger extract_error_from_result
+        tool_response = {"summary": "   "}
+        result = await after_cb(
+            tool, {"summary": "   "}, tool_context, tool_response,
+        )
+
+        # The plugin should detect the empty value and return retry guidance
+        assert result is not None, (
+            "Expected retry guidance dict for empty value, got None"
+        )
+        assert isinstance(result, dict)
+
+    @pytest.mark.asyncio
+    async def test_nonempty_value_does_not_trigger_retry(self):
+        """When set_model_response has valid values, after_tool_cb should
+        capture the result and return None (no retry)."""
+        from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
+
+        after_cb, _ = make_worker_tool_callbacks(max_retries=2)
+        tool = MagicMock()
+        tool.name = "set_model_response"
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent._structured_result = None
+        tool_context = MagicMock()
+        tool_context._invocation_context.agent = agent
+        tool_context.invocation_id = "inv-test"
+
+        tool_response = {"summary": "A valid summary of the analysis"}
+        result = await after_cb(
+            tool, {"summary": "A valid summary of the analysis"},
+            tool_context, tool_response,
+        )
+
+        # No retry needed - result should be None
+        assert result is None
+        # Structured result should be captured on agent
+        assert agent._structured_result == tool_response
+
+    @pytest.mark.asyncio
+    async def test_multiple_empty_fields_triggers_retry(self):
+        """Multiple empty fields should still trigger retry."""
+        from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
+
+        after_cb, _ = make_worker_tool_callbacks(max_retries=2)
+        tool = MagicMock()
+        tool.name = "set_model_response"
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent._structured_result = None
+        tool_context = MagicMock()
+        tool_context._invocation_context.agent = agent
+        tool_context.invocation_id = "inv-test"
+
+        tool_response = {"title": "", "body": ""}
+        result = await after_cb(
+            tool, {"title": "", "body": ""},
+            tool_context, tool_response,
+        )
+
+        assert result is not None
+        assert isinstance(result, dict)

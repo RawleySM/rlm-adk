@@ -1,0 +1,382 @@
+{
+  "team": "H",
+  "demo_file": "demo_fmea_team_h.md",
+  "reviews": [
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-16"],
+      "rpn": 50,
+      "pathway": "P6g",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations verified against actual source. worker_retry.py:46-66 (extract_error_from_result) is exact. worker_retry.py:91-118 (after_tool_cb) is exact. dispatch.py:363-370 (structured output wiring) is exact. dispatch.py:424-439 (result reading) is exact — the code snippet matches lines 424-439 of dispatch.py including the structured result extraction, json.dumps, fallback to worker._result, and LLMResult construction with parsed=structured. The one minor inaccuracy: demo cites 'on_tool_error_cb (lines 120-140)' but the actual function spans lines 120-142 (including the return statement at line 142). The code snippets themselves are faithful reproductions of the source.",
+        "analysis_accuracy": "The analysis of the retry exhaustion path is accurate and insightful. The demo correctly identifies that when retries exhaust: (1) _structured_result remains None because no successful set_model_response fired, (2) dispatch falls through to result_text = worker._result at line 430, (3) LLMResult is constructed with parsed=None and error=False. The identification that error=False is the core gap is correct — there is no signal to REPL code that structured validation was attempted and failed. The statement that make_worker_tool_callbacks(max_retries=2) creates a fresh plugin instance per worker is verified at line 89 (plugin = WorkerRetryPlugin(max_retries=max_retries)). The claim that ReflectAndRetryToolPlugin decrements the retry counter and returns reflection guidance is consistent with the parent class behavior tested in test_adk_worker_retry.py (TestMakeWorkerToolCallbacks.test_error_cb_returns_reflection_on_error).",
+        "testability_accuracy": "The demo correctly identifies that unit tests exist in test_adk_worker_retry.py covering individual retry mechanics (TestWorkerRetryPlugin: 3 tests, TestMakeWorkerToolCallbacks: 4 tests, TestStructuredResultExtraction: 2 tests) but no e2e fixture exercises the full exhaustion path. Verified: the existing fixtures structured_output_retry_empty.json and structured_output_retry_validation.json test single-retry recovery (partial FM-16 coverage per the FMEA catalog) but not the exhaustion scenario where all retries fail. The recommended test scenario (structured_output_retry_exhaustion.json) is sound and feasible with the existing provider-fake infrastructure. The fixture would need to script multiple set_model_response functionCalls with empty/invalid args to trigger the retry pipeline repeatedly.",
+        "gaps": [
+          "Demo correctly identifies no e2e fixture for retry exhaustion",
+          "Demo correctly identifies LLMResult(error=False, parsed=None) as the core gap",
+          "Demo correctly identifies no observability counter for structured output validation failures",
+          "Demo does not mention that the on_tool_error_cb at line 135 has a guard (tool.name != _SET_MODEL_RESPONSE_TOOL_NAME) that returns None for non-set_model_response tools, meaning errors from other tools during structured output dispatch would propagate unhandled. This is a secondary gap not covered.",
+          "Demo does not analyze what happens if the worker's text response after retry exhaustion is also empty — in that case worker._result could be an empty string, producing LLMResult('', error=False, parsed=None) which is maximally confusing to REPL code"
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No state key tracks structured output validation failures. OBS_WORKER_ERROR_COUNTS (state.py line 81) exists but is never populated by dispatch or the retry plugin. A new key like 'obs:structured_output_validation_failures' would be needed.",
+          "WORKER_DISPATCH_COUNT (state.py line 66) — would need to be asserted to confirm the dispatch counted the structured output worker correctly"
+        ],
+        "assertions_tested": [
+          "test_adk_worker_retry.py::TestWorkerRetryPlugin::test_extract_error_empty_response — tests that empty string triggers error return",
+          "test_adk_worker_retry.py::TestWorkerRetryPlugin::test_extract_error_valid_response_returns_none — tests that valid args pass through",
+          "test_adk_worker_retry.py::TestMakeWorkerToolCallbacks::test_after_cb_stores_structured_result — tests _structured_result capture on success",
+          "test_adk_worker_retry.py::TestMakeWorkerToolCallbacks::test_error_cb_returns_reflection_on_error — tests first retry returns guidance",
+          "test_adk_worker_retry.py::TestMakeWorkerToolCallbacks::test_error_cb_raises_after_max_retries — tests that max_retries=1 raises after 2 attempts",
+          "test_adk_worker_retry.py::TestStructuredResultExtraction::test_structured_result_populates_parsed — tests parsed field propagation",
+          "test_adk_worker_retry.py::TestStructuredResultExtraction::test_no_schema_result_has_no_parsed — tests parsed=None without schema"
+        ],
+        "assertions_missing": [
+          "No test for the full exhaustion path: retry 1 fails -> retry 2 fails -> worker completes with _structured_result=None -> dispatch produces LLMResult(error=False, parsed=None)",
+          "No test verifying that LLMResult.error is False when retries exhaust (the core gap the demo identifies)",
+          "No test verifying the _structured_result=None initialization at dispatch.py line 370",
+          "No test for what happens when extract_error_from_result returns an error dict but after_tool_cb at line 115 delegates to plugin.after_tool_callback — the actual retry flow through the parent ReflectAndRetryToolPlugin is only tested at the error_cb level, not through after_cb's delegation path",
+          "No test for the interaction between on_tool_error_cb raising after max_retries and the dispatch closure's except Exception handler at dispatch.py line 505"
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker_retry.py:46-66 (extract_error_from_result — empty value detection)",
+          "rlm_adk/callbacks/worker_retry.py:91-118 (after_tool_cb — structured result capture + plugin delegation)",
+          "rlm_adk/callbacks/worker_retry.py:120-142 (on_tool_error_cb — retry/reflection delegation with tool name guard)",
+          "rlm_adk/dispatch.py:363-370 (structured output wiring: output_schema, SetModelResponseTool, make_worker_tool_callbacks, _structured_result=None)",
+          "rlm_adk/dispatch.py:424-439 (result reading: structured check, json.dumps, fallback to _result, LLMResult with parsed=structured)",
+          "rlm_adk/dispatch.py:505-510 (except Exception handler — safety net for propagated errors)",
+          "rlm_adk/dispatch.py:518-525 (finally block: structured output cleanup — resets output_schema, tools, callbacks, _structured_result)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:424-439 with _structured_result=None after retry exhaustion — the code path where structured was requested but never succeeded, falling through to worker._result",
+          "worker_retry.py:120-142 on_tool_error_cb after max_retries exhaused, when the re-raised exception propagates to dispatch.py:505 except Exception handler",
+          "The interaction between BUG-13 patch (worker_retry.py:175-196) and retry exhaustion — when the postprocessor sees a ToolFailureResponse on the final retry attempt, does it correctly suppress and allow the worker loop to terminate naturally?",
+          "dispatch.py:431-438 LLMResult construction when both _structured_result is None and worker._result is the text of the last failed attempt (not the structured output)"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "LLMResult.error flag when _structured_result is None but output_schema was requested",
+          "source": "rlm_adk/dispatch.py:431-433",
+          "rationale": "The dispatch code at line 433 unconditionally sets error=False when the worker is not in _result_error state. There is no check for whether output_schema was requested and _structured_result is None. A test should assert this value to document the current behavior and motivate a fix."
+        },
+        {
+          "trace": "Worker _call_record.finish_reason after retry exhaustion",
+          "source": "rlm_adk/callbacks/worker.py:99",
+          "rationale": "After retries exhaust, the worker may produce a final text response (not via set_model_response). The worker_after_model callback records finish_reason from llm_response. Capturing this would reveal whether the model's final turn after exhaustion has a normal STOP finish or something else (e.g., MAX_TOKENS if the model tried to output structured JSON that exceeded limits)."
+        },
+        {
+          "trace": "ReflectAndRetryToolPlugin internal retry counter state after exhaustion",
+          "source": "rlm_adk/callbacks/worker_retry.py:89 (plugin = WorkerRetryPlugin(max_retries=max_retries))",
+          "rationale": "Each dispatch creates a fresh plugin per worker. After exhaustion, the plugin's internal counter should equal max_retries. Testing this would confirm the retry budget was actually consumed, not short-circuited."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "new_fixture",
+          "action": "Create structured_output_retry_exhaustion.json fixture exercising the full exhaustion path: reasoning emits execute_code with llm_query(..., output_schema=Schema), worker produces 3 sequential set_model_response calls with empty field values (initial + 2 retries), then worker falls through to text response. Assert LLMResult.parsed is None and document whether LLMResult.error is False (current behavior) or should be True (proposed fix)."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "In dispatch.py lines 424-439, add a check: if output_schema was requested but _structured_result is None, set error=True and error_category='SCHEMA_VALIDATION_EXHAUSTED' on the LLMResult. This signals to REPL code that structured output was attempted and failed, preventing silent TypeError when accessing .parsed['field']."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a unit test in test_adk_worker_retry.py that exercises the after_tool_cb -> plugin.after_tool_callback delegation path with an empty value, verifying that the plugin's extract_error_from_result is called and the retry mechanism engages. Current tests only test extract_error_from_result directly and error_cb directly, not the full after_cb -> plugin delegation chain."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Add an observability counter for structured output validation failures. Define OBS_STRUCTURED_OUTPUT_FAILURES in state.py and increment it in dispatch.py when _structured_result is None after a structured output dispatch. This enables monitoring of FM-16 in production."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "The demo cites on_tool_error_cb lines as 120-140 but the actual function spans 120-142. Update the demo to cite 120-142 for completeness."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-18"],
+      "rpn": 24,
+      "pathway": "P2b/P6d",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations verified against actual source. fixtures.py:152-169 (ScenarioRouter fault_type handling) is exact — lines 152-169 show the fault injection check, malformed_json branch returning sentinel -1 with _raw body, and the http_error branch returning status/body. server.py:108-115 (FakeGeminiServer malformed JSON response) is exact — lines 108-115 show the status_code == -1 check, raw text extraction, and web.Response construction with content_type='application/json' and status=200. worker.py:111-147 (worker_on_model_error) is exact. worker.py:22-37 (_classify_error) is exact. The code snippets are faithful reproductions.",
+        "analysis_accuracy": "The analysis is accurate and thorough. The demo correctly identifies: (1) The ScenarioRouter and FakeGeminiServer already support malformed_json fault_type but no fixture uses it — verified by examining all 29 fixture JSON files, none contain fault_type: malformed_json. (2) _classify_error has no explicit category for JSON parse errors — verified at worker.py lines 22-37, there is no JSONDecodeError or parse-error check, so it falls through to 'UNKNOWN'. (3) The SDK's HttpRetryOptions may or may not retry on parse errors (this is genuinely undocumented). (4) The sentinel status code -1 correctly signals the server to bypass JSON serialization. The analysis of the error propagation path (SDK parse failure -> exception -> worker_on_model_error -> LLMResult) is correct for the worker case.",
+        "testability_accuracy": "The demo correctly identifies this as provider-fake e2e testable with the existing infrastructure. The assessment that the SDK's behavior on malformed JSON at HTTP 200 needs empirical validation is accurate — we cannot know a priori whether the SDK raises ClientError, JSONDecodeError, or wraps the error differently. The recommended test scenarios (single malformed_json with SDK retry recovery, and exhaustion where both attempts get malformed JSON) are both feasible and well-structured. The demo correctly notes that no existing fixture exercises this path despite the infrastructure being ready.",
+        "gaps": [
+          "Demo correctly identifies no fixture uses fault_type: malformed_json",
+          "Demo correctly identifies _classify_error has no parse-error category",
+          "Demo correctly identifies SDK behavior on malformed JSON is undocumented",
+          "Demo does not mention the reasoning-level path: if the reasoning agent (not a worker) receives malformed JSON, the error path is different — it goes through the orchestrator's retry loop, not through worker_on_model_error. The demo briefly mentions this in the 'Risk' paragraph but does not analyze the reasoning-level error handling in detail.",
+          "Demo does not mention that HttpRetryOptions has an http_status_codes parameter (verified from the google-genai API reference: HttpRetryOptions has http_status_codes: list[int] | None) which may control whether parse errors (which arrive as HTTP 200) are retried. If HttpRetryOptions only retries based on HTTP status codes, a 200 with malformed JSON would NOT be retried by the SDK."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "OBS_WORKER_ERROR_COUNTS (state.py line 81) — should track 'UNKNOWN' (or a new 'PARSE_ERROR' category) for malformed JSON errors. Never written by production code.",
+          "OBS_WORKER_RATE_LIMIT_COUNT (state.py line 80) — not applicable to this FM but same pattern of defined-but-never-written",
+          "WORKER_DISPATCH_COUNT (state.py line 66) — should still be incremented even when the worker encounters a parse error"
+        ],
+        "assertions_tested": [],
+        "assertions_missing": [
+          "No test that malformed_json fault_type produces the expected SDK exception type",
+          "No test that worker_on_model_error correctly handles JSON parse errors (the error_category should be populated)",
+          "No test that the FakeGeminiServer correctly returns raw text with content_type=application/json and status=200 for malformed_json faults",
+          "No test validating whether HttpRetryOptions retries on HTTP 200 with parse error (SDK-level behavior)",
+          "No test for the reasoning-level malformed JSON path (non-worker)"
+        ],
+        "source_code_refs": [
+          "tests_rlm_adk/provider_fake/fixtures.py:152-169 (ScenarioRouter fault injection with malformed_json branch)",
+          "tests_rlm_adk/provider_fake/server.py:108-115 (FakeGeminiServer malformed JSON response handler)",
+          "rlm_adk/callbacks/worker.py:22-37 (_classify_error — no parse-error category)",
+          "rlm_adk/callbacks/worker.py:111-147 (worker_on_model_error — error isolation handler)",
+          "rlm_adk/dispatch.py:126-128 (HttpRetryOptions wiring: attempts=2, initial_delay=1.0, max_delay=30.0)"
+        ],
+        "untested_code_paths": [
+          "fixtures.py:157-159 — malformed_json fault branch is defined but never exercised by any fixture",
+          "server.py:108-115 — malformed JSON response handler is defined but never exercised",
+          "worker.py:37 — UNKNOWN fallback in _classify_error for non-categorized exceptions like JSONDecodeError",
+          "The SDK's internal parse error handling when receiving HTTP 200 with invalid JSON body — unknown whether HttpRetryOptions engages for this case"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "The actual exception type raised by google.genai SDK when parsing malformed JSON at HTTP 200",
+          "source": "SDK internal (not in rlm_adk source)",
+          "rationale": "The entire FM-18 mitigation chain depends on what exception the SDK raises. If it raises ClientError with a .code attribute, _classify_error can categorize it. If it raises json.JSONDecodeError (no .code), it falls to UNKNOWN. An empirical test with the FakeGeminiServer's malformed_json fault would resolve this ambiguity."
+        },
+        {
+          "trace": "HttpRetryOptions.http_status_codes default value",
+          "source": "google.genai.types.HttpRetryOptions (API reference)",
+          "rationale": "The http_status_codes parameter on HttpRetryOptions may control which HTTP status codes trigger retry. If the default only includes 5xx codes, then HTTP 200 with malformed JSON would NOT be retried at the SDK level, meaning the error would always propagate to worker_on_model_error on the first attempt. This is critical for understanding FM-18's actual severity."
+        },
+        {
+          "trace": "worker_on_model_error _call_record error_category for parse errors",
+          "source": "rlm_adk/callbacks/worker.py:138",
+          "rationale": "_classify_error(error) is called at line 138 to populate error_category in the _call_record. For a JSON parse error, this will be 'UNKNOWN'. Capturing this in a test would document the current behavior and motivate adding a 'PARSE_ERROR' or 'MALFORMED_JSON' category."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "new_fixture",
+          "action": "Create worker_malformed_json.json fixture using the existing malformed_json fault_type infrastructure. Inject fault at a worker call_index with body_raw: '{truncated'. Verify empirically whether the SDK retries (consuming a second call_index slot) or immediately propagates the error to worker_on_model_error. Assert LLMResult.error=True and capture the actual error_category."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Add a PARSE_ERROR or MALFORMED_JSON category to _classify_error in worker.py. Check for json.JSONDecodeError or inspect the error message string for JSON-related patterns. This would provide better observability for FM-18 instead of falling through to the catch-all UNKNOWN."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a unit test in test_adk_callbacks.py that directly calls worker_on_model_error with a json.JSONDecodeError exception and verifies the _call_record fields: error=True, error_category (currently 'UNKNOWN'), http_status (None for parse errors). This test documents the current handling without requiring the full provider-fake infrastructure."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add a unit test that verifies the FakeGeminiServer + ScenarioRouter malformed_json path works correctly: inject a malformed_json fault, make an HTTP request to the fake server, and verify the response is raw text with content_type=application/json and status=200. This validates the test infrastructure itself before building e2e fixtures on top of it."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-20"],
+      "rpn": 24,
+      "pathway": "P6e",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations verified against actual source. worker.py:63-108 (worker_after_model) is exact — the function spans from the def at line 63 to return None at line 108. The demo's cited line numbers for specific observations are all correct: line 78 (callback_context._invocation_context.agent), lines 81-82 (agent._result and agent._result_ready writes), lines 74-76 (generator expression for text extraction — actual physical lines are 74-76 including the closing parenthesis at line 76), and line 106 (callback_context.state[output_key] = response_text). dispatch.py:505-510 (except Exception handler) is exact. The code snippets are faithful reproductions of the actual source.",
+        "analysis_accuracy": "The analysis is accurate and identifies a genuine architectural gap. Key correct observations: (1) worker_after_model has zero try/except blocks — verified by reading lines 63-108, there is no exception handling. (2) ADK does not route callback exceptions through on_model_error_callback — this is correct per the ADK API reference which shows on_model_error_callback is of type OnModelErrorCallback and fires for model/API errors, not callback errors. (3) The dispatch except Exception at line 505 creates error results for ALL batch_prompts, discarding successful results from workers that completed before the exception — verified at lines 507-510 where the list comprehension iterates over batch_prompts, not just the failed worker. (4) The blast radius claim (one worker callback failure crashes entire ParallelAgent batch) is architecturally sound given that ParallelAgent uses asyncio internally. The demo correctly notes the private API access risk at line 78.",
+        "testability_accuracy": "The demo correctly identifies this as unit testable via monkeypatch but not directly testable via provider-fake fixtures (the fault is in callback code, not API responses). The recommended test approach (patch worker_after_model or inject a callback that raises, then verify dispatch behavior) is sound. The note about verifying the finally block still runs is important — dispatch.py:512-530 is the cleanup path that resets worker state and releases to pool.",
+        "gaps": [
+          "Demo correctly identifies zero try/except in worker_after_model (46 lines unguarded)",
+          "Demo correctly identifies ADK does not route callback errors through on_model_error_callback",
+          "Demo correctly identifies dispatch except Exception discards successful sibling results",
+          "Demo does not quantify the blast radius more precisely: in a K=1 dispatch (dispatch.py line 374-383), the exception would be caught by the same except Exception at line 505 but only one worker is affected. The batch blast radius is only relevant for K>1 dispatches through ParallelAgent.",
+          "Demo does not mention that worker_before_model (worker.py:40-60) has the same zero-try/except vulnerability — it also accesses callback_context._invocation_context.agent at line 49 and could raise AttributeError on ADK API change. This is a parallel gap to FM-20.",
+          "Demo's recommended architectural fix (wrap worker_after_model in try/except, set _result_error=True) is sound but does not address the lost-sibling-results problem — that requires changes to the dispatch closure's except handler to check which workers already have _result_ready=True before overwriting with error results"
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No observability counter for callback exceptions exists in state.py",
+          "WORKER_DISPATCH_COUNT — should still reflect the correct count even when a callback throws"
+        ],
+        "assertions_tested": [],
+        "assertions_missing": [
+          "No test verifies behavior when worker_after_model raises an exception",
+          "No test verifies that dispatch except Exception produces error results for all batch prompts when a callback throws",
+          "No test verifies that the finally block (dispatch.py:512-530) executes cleanup (parent_agent=None, pool release) even when a callback throws",
+          "No test verifies that successful workers' _result and _result_ready data survives a sibling callback failure",
+          "No test for the generator expression at lines 74-76 with an unexpected Part type lacking .text or .thought attributes"
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:63-108 (worker_after_model — zero exception handling)",
+          "rlm_adk/callbacks/worker.py:78 (private API access: callback_context._invocation_context.agent)",
+          "rlm_adk/callbacks/worker.py:81-82 (dynamic attribute writes on Pydantic model)",
+          "rlm_adk/callbacks/worker.py:74-76 (generator expression with .text and .thought access)",
+          "rlm_adk/callbacks/worker.py:106 (state write: callback_context.state[output_key])",
+          "rlm_adk/dispatch.py:505-510 (except Exception handler — batch-level error results)",
+          "rlm_adk/dispatch.py:512-530 (finally block — worker cleanup, parent_agent reset, pool release)",
+          "rlm_adk/dispatch.py:384-399 (ParallelAgent dispatch path where callback exception propagates)"
+        ],
+        "untested_code_paths": [
+          "worker.py:63-108 under any exception condition — the entire callback is untested for error resilience",
+          "dispatch.py:505-510 when triggered by a callback exception (as opposed to an acquire/setup exception)",
+          "dispatch.py:512-530 finally block when the except handler at 505 has already fired",
+          "The interaction between ParallelAgent's asyncio internals and a callback exception in one sub-agent — whether other sub-agents are cancelled, allowed to complete, or left in an inconsistent state"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "Workers with _result_ready=True before the callback exception",
+          "source": "rlm_adk/dispatch.py:401-423 (result reading loop, never reached due to exception)",
+          "rationale": "In a K>1 batch, if worker A completes successfully (setting _result_ready=True and _result on the agent object) before worker B's callback throws, worker A's results are physically present on the agent object but are never read because the exception at line 505 overwrites all results. A test should verify whether these results are recoverable by checking worker._result_ready before constructing error results."
+        },
+        {
+          "trace": "dispatch.py:512-530 finally block execution after callback exception",
+          "source": "rlm_adk/dispatch.py:512-530",
+          "rationale": "The finally block resets worker state (_pending_prompt, _result, _result_error, _call_record), structured output wiring, and parent_agent. If the callback exception corrupts the worker object's state (e.g., a partial write to _call_record), the finally block may itself raise during cleanup. Testing this confirms the cleanup path is robust."
+        },
+        {
+          "trace": "worker_before_model (worker.py:40-60) has the same zero-try/except vulnerability",
+          "source": "rlm_adk/callbacks/worker.py:40-60",
+          "rationale": "worker_before_model accesses callback_context._invocation_context.agent at line 49, the same private API that worker_after_model uses at line 78. If ADK changes this internal API, both callbacks fail. This parallel vulnerability should be addressed alongside FM-20."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Wrap worker_after_model body (lines 72-107) in a try/except Exception block. On exception, set agent._result_error=True, agent._result_ready=True, and agent._result to an error message. This localizes the failure to the specific worker instead of crashing the entire batch via ParallelAgent. Apply the same pattern to worker_before_model (lines 49-60)."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Modify the dispatch except Exception handler at dispatch.py lines 505-510 to check each worker's _result_ready before overwriting. Workers that completed successfully should have their results preserved; only workers without _result_ready=True should get error LLMResult objects. This preserves partial results from a batch where one callback failed."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a unit test that monkeypatches worker_after_model to raise AttributeError (simulating ADK API change), then dispatches a K=2 batch through the dispatch closure. Assert: (1) dispatch does not crash, (2) both results are LLMResult(error=True), (3) the finally block runs (workers released to pool, parent_agent reset). This validates the current behavior before applying fixes."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a unit test that constructs an LlmResponse with unexpected Part types (e.g., a Part with no .text attribute) and passes it to worker_after_model. Assert the current behavior (AttributeError) and then assert the fixed behavior (error result) after applying the try/except wrapper."
+        },
+        {
+          "priority": "low",
+          "type": "source_fix",
+          "action": "Add a logging counter or observability hook for callback exceptions. When the try/except wrapper in worker_after_model catches an exception, log it at ERROR level with the worker name, exception type, and exception message. This provides production visibility for FM-20 occurrences."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-21"],
+      "rpn": 18,
+      "pathway": "Module import",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations verified against actual source. worker_retry.py:17-27 (top-level imports) is exact — lines 17-27 show the imports from json, logging, typing, google.adk.plugins.reflect_retry_tool_plugin, google.adk.tools.base_tool, and google.adk.tools.tool_context. worker_retry.py:162-200 (_patch_output_schema_postprocessor function and its module-level call) is exact — line 162 is the def, line 167 is the private module import, line 170 is the idempotency guard, lines 175-196 are the wrapper function and attribute setting, and line 200 is the module-level call. dispatch.py:37 (from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks) is exact. The demo correctly identifies line 167 as the private module import and line 200 as the import-time execution point.",
+        "analysis_accuracy": "The analysis is accurate and comprehensive. Key correct observations: (1) The import at line 167 (import google.adk.flows.llm_flows._output_schema_processor as _osp) targets a private module (leading underscore). (2) The import-time call at line 200 means failure is immediate and non-deferrable. (3) The cascade path worker_retry.py -> dispatch.py -> orchestrator.py is correct (dispatch.py line 37 imports from worker_retry). (4) There is no try/except ImportError around the private module import — verified by reading lines 162-200, no exception handling exists. (5) The idempotency guard at line 170 (checking _rlm_patched) prevents double-patching but does not help with import failure. (6) The demo correctly notes the patch depends on two private ADK internals: the module path AND the get_structured_model_response function signature. The analysis of the current correct behavior (.venv installation) and forward-looking risk is well-balanced.",
+        "testability_accuracy": "The demo correctly identifies this as not testable via provider-fake and recommends unit tests with unittest.mock.patch.dict('sys.modules'). The recommended test scenarios are sound: (1) test_patch_graceful_on_missing_module using sys.modules patching, (2) test_patch_does_not_break_non_structured_dispatch verifying graceful degradation, (3) test_cascade_import_failure documenting the blast radius. The alternative architectural fix (wrapping the import in try/except ImportError with a warning log) is a well-reasoned degradation strategy.",
+        "gaps": [
+          "Demo correctly identifies no try/except ImportError around the private module import",
+          "Demo correctly identifies module-level execution means failure is immediate and total",
+          "Demo correctly identifies no unit test for import failure behavior",
+          "Demo correctly identifies the patch depends on two private ADK internals",
+          "Demo does not mention that the patch also depends on the REFLECT_AND_RETRY_RESPONSE_TYPE constant imported at line 22 from google.adk.plugins.reflect_retry_tool_plugin — if that import changes, the patch cannot detect retry guidance responses even if _output_schema_processor is still importable. This is a secondary import dependency.",
+          "Demo does not analyze what happens to in-flight structured output dispatches if the patch is not installed (graceful degradation path): without the patch, ADK's postprocessor would terminate workers prematurely on any set_model_response call that returns ToolFailureResponse, meaning structured output retry would be completely broken (not just degraded) — this makes the graceful degradation argument weaker than the demo suggests"
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [],
+        "assertions_tested": [],
+        "assertions_missing": [
+          "No test verifies behavior when google.adk.flows.llm_flows._output_schema_processor is absent (ImportError path)",
+          "No test verifies behavior when _osp.get_structured_model_response does not exist or has a different signature",
+          "No test verifies the cascade: worker_retry import failure -> dispatch import failure -> orchestrator import failure",
+          "No test verifies the _rlm_patched idempotency guard prevents double-patching",
+          "No test verifies the patch wrapper correctly detects REFLECT_AND_RETRY_RESPONSE_TYPE and returns None",
+          "No test verifies the patch wrapper correctly passes through non-retry responses unchanged"
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker_retry.py:162-200 (_patch_output_schema_postprocessor — entire function + module-level call)",
+          "rlm_adk/callbacks/worker_retry.py:167 (private module import: google.adk.flows.llm_flows._output_schema_processor)",
+          "rlm_adk/callbacks/worker_retry.py:170 (idempotency guard: _rlm_patched sentinel check)",
+          "rlm_adk/callbacks/worker_retry.py:175-196 (wrapper function: _retry_aware_get_structured_model_response)",
+          "rlm_adk/callbacks/worker_retry.py:200 (module-level call: _patch_output_schema_postprocessor())",
+          "rlm_adk/callbacks/worker_retry.py:21-24 (REFLECT_AND_RETRY_RESPONSE_TYPE import — secondary dependency)",
+          "rlm_adk/dispatch.py:37 (from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks — cascade point)"
+        ],
+        "untested_code_paths": [
+          "worker_retry.py:167 when the module does not exist — ImportError path (currently catastrophic)",
+          "worker_retry.py:170 idempotency guard — never tested because tests import the module once",
+          "worker_retry.py:175-196 wrapper function — the actual retry-aware logic that detects REFLECT_AND_RETRY_RESPONSE_TYPE and suppresses the postprocessor has no unit test",
+          "worker_retry.py:183 except (ValueError, TypeError) — the fallback path when _json.loads fails on the result string",
+          "The cascade path from worker_retry ImportError through dispatch.py:37 to orchestrator.py"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "ImportError exception message and traceback when the module is absent",
+          "source": "rlm_adk/callbacks/worker_retry.py:167",
+          "rationale": "Documenting the exact ImportError message in a test would help developers quickly identify the cause when upgrading ADK. The error message should clearly indicate that _output_schema_processor was expected but not found."
+        },
+        {
+          "trace": "The actual get_structured_model_response function signature on the current ADK version",
+          "source": "google.adk.flows.llm_flows._output_schema_processor.get_structured_model_response",
+          "rationale": "The patch wraps this function, assuming it takes a single argument (function_response_event) and returns str | None. If a future ADK version changes the signature (adds parameters, changes return type), the wrapper would fail at runtime rather than import time. A test that inspects the function's signature would provide an early warning."
+        },
+        {
+          "trace": "REFLECT_AND_RETRY_RESPONSE_TYPE constant value",
+          "source": "rlm_adk/callbacks/worker_retry.py:22 (imported from google.adk.plugins.reflect_retry_tool_plugin)",
+          "rationale": "The patch at line 187 compares parsed.get('response_type') against this constant. If ADK changes the constant's value, the patch would fail to detect retry responses and pass them through to the postprocessor, causing BUG-13 to resurface. A test that asserts the constant's value would detect this."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Wrap the import at worker_retry.py line 167 in try/except ImportError. On failure, log a warning ('BUG-13 patch skipped: _output_schema_processor not found in this ADK version') and return early from _patch_output_schema_postprocessor(). This converts a catastrophic failure (entire package unimportable) into a graceful degradation (structured output retry does not work but all other functionality is intact)."
+        },
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add test_patch_import_error in test_adk_worker_retry.py: use unittest.mock.patch.dict('sys.modules', {'google.adk.flows.llm_flows._output_schema_processor': None}) to simulate the module being absent. After applying the source fix, verify _patch_output_schema_postprocessor() logs a warning and returns without error. Before the fix, verify it raises ImportError (documenting current behavior)."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add test_patch_wrapper_suppresses_retry_response: directly test the _retry_aware_get_structured_model_response wrapper by constructing a mock function_response_event with a REFLECT_AND_RETRY_RESPONSE_TYPE payload and verifying the wrapper returns None. Also test with a normal response and verify it passes through unchanged. This covers worker_retry.py lines 175-196."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add test_patch_idempotency: call _patch_output_schema_postprocessor() twice and verify the wrapper is only installed once (the second call returns early due to the _rlm_patched sentinel at line 170). This covers an untested code path."
+        },
+        {
+          "priority": "low",
+          "type": "source_fix",
+          "action": "Add a version check or compatibility assertion at the top of _patch_output_schema_postprocessor that logs the ADK version being patched. This creates a paper trail for debugging when the patch breaks on a future ADK version. Example: logger.info('BUG-13 patch targeting ADK %s', google.adk.__version__)."
+        }
+      ]
+    }
+  ]
+}

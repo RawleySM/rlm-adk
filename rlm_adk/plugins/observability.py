@@ -24,21 +24,16 @@ from rlm_adk.state import (
     ITERATION_COUNT,
     OBS_ARTIFACT_BYTES_SAVED,
     OBS_ARTIFACT_SAVES,
-    OBS_ITERATION_TIMES,
     OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
-    REASONING_INPUT_TOKENS,
-    REASONING_OUTPUT_TOKENS,
     REASONING_PROMPT_CHARS,
     REASONING_SYSTEM_CHARS,
     REQUEST_ID,
     USER_LAST_SUCCESSFUL_CALL_ID,
-    WORKER_INPUT_TOKENS,
-    WORKER_OUTPUT_TOKENS,
     WORKER_PROMPT_CHARS,
     obs_model_usage_key,
 )
@@ -149,7 +144,8 @@ class ObservabilityPlugin(BasePlugin):
                 state[model_key] = model_usage
 
             # --- Record finish_reason ---
-            finish_reason = str(llm_response.finish_reason) if llm_response.finish_reason else None
+            # Use .name to get "SAFETY" not "FinishReason.SAFETY" (BUG-A fix)
+            finish_reason = llm_response.finish_reason.name if llm_response.finish_reason else None
             if finish_reason and finish_reason != "STOP":
                 key = f"obs:finish_{finish_reason.lower()}_count"
                 state[key] = state.get(key, 0) + 1
@@ -164,7 +160,7 @@ class ObservabilityPlugin(BasePlugin):
                 "call_number": state.get(OBS_TOTAL_CALLS, 0),
                 "input_tokens": input_tokens if usage else 0,
                 "output_tokens": output_tokens if usage else 0,
-                "finish_reason": finish_reason,
+                "finish_reason": finish_reason,  # now .name (BUG-A fix)
             }
 
             # Include agent-type-specific prompt characterization
@@ -212,17 +208,6 @@ class ObservabilityPlugin(BasePlugin):
             state[OBS_TOOL_INVOCATION_SUMMARY] = summary
         except Exception:
             pass
-        return None
-
-    async def after_tool_callback(
-        self,
-        *,
-        tool: BaseTool,
-        tool_args: dict[str, Any],
-        tool_context: ToolContext,
-        result: dict,
-    ) -> Optional[dict]:
-        """Record tool completion."""
         return None
 
     async def on_event_callback(

@@ -25,7 +25,6 @@ If no LM calls, code runs synchronously via regular exec().
 &quot;&quot;&quot;
 
 import ast
-from typing import Any
 
 
 def has_llm_calls(code: str) -&gt; bool:
@@ -241,25 +240,7 @@ def rewrite_for_async(code: str) -&gt; ast.Module:
     # Fix missing line numbers (required for compile())
     ast.fix_missing_locations(new_module)
 
-    return new_module
-
-
-def compile_repl_code(code: str) -&gt; tuple[Any, bool]:
-    &quot;&quot;&quot;Compile REPL code, handling both sync and async cases.
-
-    If the code contains llm_query/llm_query_batched calls, it is
-    AST-rewritten to an async function wrapper. Otherwise it is
-    compiled as regular synchronous code.
-
-    Returns:
-        (compiled_code, is_async): The compiled code object and whether
-        it needs async execution via _repl_exec().
-    &quot;&quot;&quot;
-    if has_llm_calls(code):
-        rewritten = rewrite_for_async(code)
-        return compile(rewritten, &quot;&lt;repl&gt;&quot;, &quot;exec&quot;), True
-    else:
-        return compile(code, &quot;&lt;repl&gt;&quot;, &quot;exec&quot;), False</content>
+    return new_module</content>
     
 
   </file>
@@ -279,8 +260,8 @@ Provides sandboxed Python code execution with:
 - Slots for async llm_query/llm_query_batched closures (injected by orchestrator)
 &quot;&quot;&quot;
 
+import concurrent.futures
 import contextvars
-import copy
 import io
 import os
 import shutil
@@ -452,16 +433,13 @@ class LocalREPL:
     injected by the orchestrator.
     &quot;&quot;&quot;
 
-    def __init__(
-        self,
-        depth: int = 1,
-        llm_query_fn: Callable | None = None,
-        llm_query_batched_fn: Callable | None = None,
-    ):
+    def __init__(self, depth: int = 1, sync_timeout: float | None = None):
         self.depth = depth
+        self.sync_timeout = sync_timeout if sync_timeout is not None else float(
+            os.environ.get(&quot;RLM_REPL_SYNC_TIMEOUT&quot;, &quot;30&quot;)
+        )
         self.temp_dir = tempfile.mkdtemp(prefix=f&quot;repl_adk_{uuid.uuid4()}_&quot;)
         self.original_cwd = os.getcwd()
-        self._history_count: int = 0
         self._pending_llm_calls: list[RLMChatCompletion] = []
         self._last_exec_error: str | None = None
 
@@ -475,12 +453,6 @@ class LocalREPL:
         # Register helper functions
         self.globals[&quot;FINAL_VAR&quot;] = self._final_var
         self.globals[&quot;SHOW_VARS&quot;] = self._show_vars
-
-        # Register LM query functions
-        if llm_query_fn:
-            self.globals[&quot;llm_query&quot;] = llm_query_fn
-        if llm_query_batched_fn:
-            self.globals[&quot;llm_query_batched&quot;] = llm_query_batched_fn
 
     def set_llm_query_fns(self, llm_query_fn: Callable, llm_query_batched_fn: Callable) -&gt; None:
         &quot;&quot;&quot;Set/update the sync LM query functions (called by orchestrator).&quot;&quot;&quot;
@@ -527,35 +499,6 @@ class LocalREPL:
             return &quot;No variables created yet. Use ```repl``` blocks to create variables.&quot;
         return f&quot;Available variables: {available}&quot;
 
-    def add_history(
-        self, message_history: list[dict[str, Any]], history_index: int | None = None
-    ) -&gt; int:
-        &quot;&quot;&quot;Store conversation history as a versioned variable.
-
-        Args:
-            message_history: The list of message dicts from a completion call
-            history_index: Optional explicit index. If None, auto-increments.
-
-        Returns:
-            The history index used.
-        &quot;&quot;&quot;
-        if history_index is None:
-            history_index = self._history_count
-
-        var_name = f&quot;history_{history_index}&quot;
-        self.locals[var_name] = copy.deepcopy(message_history)
-
-        # Alias history_0 as 'history' for convenience
-        if history_index == 0:
-            self.locals[&quot;history&quot;] = self.locals[var_name]
-
-        self._history_count = max(self._history_count, history_index + 1)
-        return history_index
-
-    def get_history_count(self) -&gt; int:
-        &quot;&quot;&quot;Return the number of conversation histories stored.&quot;&quot;&quot;
-        return self._history_count
-
     @contextmanager
     def _capture_output(self):
         &quot;&quot;&quot;Context manager to capture stdout/stderr.&quot;&quot;&quot;
@@ -577,15 +520,14 @@ class LocalREPL:
         finally:
             os.chdir(old_cwd)
 
-    def execute_code(self, code: str, trace: REPLTrace | None = None) -&gt; REPLResult:
-        &quot;&quot;&quot;Execute code synchronously in the sandboxed namespace.
+    def _execute_code_inner(
+        self, code: str, trace: REPLTrace | None = None,
+    ) -&gt; tuple[str, str, bool]:
+        &quot;&quot;&quot;Inner exec logic, runs under _EXEC_LOCK.
 
-        Uses _EXEC_LOCK to serialize access to process-global state
-        (os.chdir, sys.stdout/stderr) so that concurrent REPLs in
-        threads do not race.
+        Returns (stdout, stderr, success) where success=True means no exception.
+        Side-effects: updates self.locals on success, self._last_exec_error on failure.
         &quot;&quot;&quot;
-        start_time = time.perf_counter()
-        self._pending_llm_calls.clear()
         trace_level = int(os.environ.get(&quot;RLM_REPL_TRACE&quot;, &quot;0&quot;))
 
         with _EXEC_LOCK, self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
@@ -611,10 +553,44 @@ class LocalREPL:
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue()
                 self._last_exec_error = None
+                return stdout, stderr, True
             except Exception as e:
                 stdout = stdout_buf.getvalue()
                 stderr = stderr_buf.getvalue() + f&quot;\n{type(e).__name__}: {e}&quot;
                 self._last_exec_error = f&quot;{type(e).__name__}: {e}&quot;
+                return stdout, stderr, False
+
+    def execute_code(self, code: str, trace: REPLTrace | None = None) -&gt; REPLResult:
+        &quot;&quot;&quot;Execute code synchronously in the sandboxed namespace.
+
+        Uses _EXEC_LOCK to serialize access to process-global state
+        (os.chdir, sys.stdout/stderr) so that concurrent REPLs in
+        threads do not race.
+
+        Enforces self.sync_timeout seconds via ThreadPoolExecutor.
+        &quot;&quot;&quot;
+        start_time = time.perf_counter()
+        self._pending_llm_calls.clear()
+        timed_out = False
+
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(self._execute_code_inner, code, trace)
+        try:
+            stdout, stderr, _success = future.result(timeout=self.sync_timeout)
+        except concurrent.futures.TimeoutError:
+            timed_out = True
+            stdout = &quot;&quot;
+            stderr = (
+                f&quot;\nTimeoutError: Sync execution exceeded &quot;
+                f&quot;{self.sync_timeout}s timeout&quot;
+            )
+        finally:
+            # Shut down without waiting for the timed-out thread to finish,
+            # so it doesn't overwrite _last_exec_error.
+            pool.shutdown(wait=not timed_out, cancel_futures=True)
+
+        if timed_out:
+            self._last_exec_error = stderr.strip()
 
         return REPLResult(
             stdout=stdout,
@@ -625,10 +601,30 @@ class LocalREPL:
             trace=trace.to_dict() if trace else None,
         )
 
+    def _make_cwd_open(self):
+        &quot;&quot;&quot;Return an open() wrapper that resolves relative paths against self.temp_dir.
+
+        This avoids the need for os.chdir() which modifies process-global state
+        and is unsafe when multiple async REPL instances run concurrently.
+        &quot;&quot;&quot;
+        temp_dir = self.temp_dir
+        builtin_open = open
+
+        def _cwd_open(file, *args, **kwargs):
+            if isinstance(file, str) and not os.path.isabs(file):
+                file = os.path.join(temp_dir, file)
+            return builtin_open(file, *args, **kwargs)
+
+        return _cwd_open
+
     async def execute_code_async(
         self, code: str, repl_exec_fn: Any, trace: REPLTrace | None = None,
     ) -&gt; REPLResult:
         &quot;&quot;&quot;Execute AST-rewritten async code.
+
+        Does NOT call os.chdir() to avoid modifying process-global state.
+        Instead, injects a custom open() that resolves relative paths against
+        self.temp_dir, and sets _repl_cwd for code that needs the working dir.
 
         Args:
             code: The original code (before AST rewriting -- for reference/logging)
@@ -645,10 +641,13 @@ class LocalREPL:
         # installed at module load may have been displaced (e.g. by pytest
         # capture), so the ContextVar route alone is not reliable.
         old_stdout, old_stderr = sys.stdout, sys.stderr
-        old_cwd = os.getcwd()
+        # Inject cwd-aware open() and _repl_cwd into REPL namespace
+        # instead of calling os.chdir() (FM-27: avoid process-global state).
+        old_open = self.globals.get(&quot;__builtins__&quot;, {}).get(&quot;open&quot;)
+        self.globals.setdefault(&quot;__builtins__&quot;, {})[&quot;open&quot;] = self._make_cwd_open()
+        self.globals[&quot;_repl_cwd&quot;] = self.temp_dir
         try:
             sys.stdout, sys.stderr = stdout_buf, stderr_buf
-            os.chdir(self.temp_dir)
 
             if trace is not None:
                 # Inject trace into the globals the compiled function sees
@@ -681,9 +680,12 @@ class LocalREPL:
             sys.stdout, sys.stderr = old_stdout, old_stderr
             _capture_stdout.reset(tok_out)
             _capture_stderr.reset(tok_err)
-            os.chdir(old_cwd)
-            # Clean up trace from globals to avoid leaking between blocks
+            # Restore original open() builtin
+            if old_open is not None:
+                self.globals.setdefault(&quot;__builtins__&quot;, {})[&quot;open&quot;] = old_open
+            # Clean up trace and _repl_cwd from globals
             self.globals.pop(&quot;_rlm_trace&quot;, None)
+            self.globals.pop(&quot;_repl_cwd&quot;, None)
 
         return REPLResult(
             stdout=stdout,
@@ -930,8 +932,8 @@ except Exception:
 </repository_files>
 <statistics>
   <total_files>4</total_files>
-  <total_chars>29791</total_chars>
+  <total_chars>30522</total_chars>
   <total_tokens>0</total_tokens>
-  <generated_at>2026-02-28 07:04:51</generated_at>
+  <generated_at>2026-03-02 14:33:58</generated_at>
 </statistics>
 </repository>

@@ -87,3 +87,6 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests_rlm_adk"]
 asyncio_mode = "auto"
+markers = [
+    "provider_fake: e2e tests that run against provider-fake replay fixtures (no network)",
+]

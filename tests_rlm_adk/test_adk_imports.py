@@ -47,18 +47,13 @@ class TestSubpackageImports:
         assert APP_MAX_DEPTH == "app:max_depth"
 
     def test_import_parsing(self):
-        from rlm_adk.utils.parsing import find_code_blocks, find_final_answer
+        from rlm_adk.utils.parsing import find_final_answer
 
-        assert callable(find_code_blocks)
         assert callable(find_final_answer)
 
     def test_import_prompts(self):
-        from rlm_adk.utils.prompts import (
-            RLM_STATIC_INSTRUCTION,
-            build_user_prompt,
-        )
+        from rlm_adk.utils.prompts import RLM_STATIC_INSTRUCTION
 
-        assert callable(build_user_prompt)
         assert len(RLM_STATIC_INSTRUCTION) > 0
 
     def test_import_local_repl(self):

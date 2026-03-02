@@ -15,7 +15,6 @@ from rlm_adk.repl.ast_rewriter import (
     LlmCallRewriter,
     _contains_await,
     _promote_functions_to_async,
-    compile_repl_code,
     has_llm_calls,
     rewrite_for_async,
 )
@@ -50,6 +49,42 @@ class TestHasLlmCalls:
     def test_both_calls(self):
         code = "a = llm_query('x')\nb = llm_query_batched(['y'])"
         assert has_llm_calls(code)
+
+    # --- FM-06: Known limitation — alias detection ---
+
+    def test_has_llm_calls_misses_alias(self):
+        """FM-06: Aliased llm_query is NOT detected (known limitation).
+
+        When user code rebinds llm_query to a local name, the AST-based
+        detection only checks ast.Name.id membership and will miss the call.
+        This test documents the current behavior, not a desired outcome.
+        """
+        assert not has_llm_calls("my_fn = llm_query; my_fn('prompt')")
+
+    def test_has_llm_calls_misses_alias_batched(self):
+        """FM-06: Aliased llm_query_batched is NOT detected (known limitation)."""
+        assert not has_llm_calls("batch = llm_query_batched; batch(['a', 'b'])")
+
+    # --- FM-06: Known limitation — attribute-style detection ---
+
+    def test_has_llm_calls_misses_attribute(self):
+        """FM-06: Attribute-style call (module.llm_query) is NOT detected.
+
+        has_llm_calls only matches ast.Name nodes, not ast.Attribute.
+        So obj.llm_query('prompt') will bypass detection.  This documents
+        the scope limitation of the current AST walker.
+        """
+        assert not has_llm_calls("module.llm_query('prompt')")
+
+    # --- FM-07: List comprehension detection ---
+
+    def test_list_comprehension_detected(self):
+        """FM-07: llm_query inside a list comprehension IS detected.
+
+        ast.walk descends into ListComp nodes, so the call inside the
+        comprehension is found by the detection pass.
+        """
+        assert has_llm_calls("[llm_query(p) for p in prompts]")
 
 
 class TestLlmCallRewriter:
@@ -87,6 +122,18 @@ class TestLlmCallRewriter:
         assert src.count("await") == 2
         assert src.count("llm_query_async") == 2
 
+    # --- FM-06: Known limitation — rewriter misses aliases ---
+
+    def test_rewriter_misses_alias(self):
+        """FM-06: Aliased llm_query call is NOT rewritten to async (known limitation)."""
+        src = self._get_rewritten_source("q = llm_query; q('prompt')")
+        assert "q('prompt')" in src
+
+    def test_rewriter_misses_alias_batched(self):
+        """FM-06: Aliased llm_query_batched call is NOT rewritten (known limitation)."""
+        src = self._get_rewritten_source("batch = llm_query_batched; batch(['a'])")
+        assert "batch(['a'])" in src
+
 
 class TestRewriteForAsync:
     """Full rewrite pipeline: parse -> transform -> wrap in async def."""
@@ -114,18 +161,18 @@ class TestRewriteForAsync:
         with pytest.raises(SyntaxError):
             rewrite_for_async("def broken(")
 
+    # --- FM-07: List comprehension rewrite compiles ---
 
-class TestCompileReplCode:
-    """compile_repl_code dispatches between sync and async."""
+    def test_list_comprehension_rewrite_compiles(self):
+        """FM-07: [llm_query(p) for p in prompts] rewrites and compiles.
 
-    def test_sync_code_not_async(self):
-        code_obj, is_async = compile_repl_code("x = 1 + 2")
-        assert not is_async
-        assert code_obj is not None
-
-    def test_async_code_detected(self):
-        code_obj, is_async = compile_repl_code("r = llm_query('p')")
-        assert is_async
+        The rewriter transforms llm_query -> await llm_query_async inside
+        the list comprehension, producing [await llm_query_async(p) for p in prompts].
+        This is valid Python in an async function (PEP 530).
+        """
+        code = "results = [llm_query(p) for p in ['a', 'b', 'c']]"
+        module = rewrite_for_async(code)
+        code_obj = compile(module, "<repl>", "exec")
         assert code_obj is not None
 
 
@@ -171,6 +218,32 @@ class TestAsyncExecution:
         assert "result" in repl.locals
         assert repl.locals["result"] == "mocked response"
         repl.cleanup()
+
+    # --- FM-07: List comprehension executes sequentially ---
+
+    @pytest.mark.asyncio
+    async def test_list_comprehension_executes_sequentially(self):
+        """FM-07: [await llm_query_async(p) for p in ps] executes sequentially.
+
+        Async list comprehensions (PEP 530) evaluate each ``await`` in order,
+        not concurrently. This test documents that behavior by recording the
+        call order via a mock that appends to a shared list.
+        """
+        call_order: list[str] = []
+
+        async def mock_llm_query_async(prompt, **kwargs):
+            call_order.append(prompt)
+            return f"reply:{prompt}"
+
+        code = "results = [llm_query(p) for p in ['first', 'second', 'third']]"
+        module = rewrite_for_async(code)
+        ns: dict = {"llm_query_async": mock_llm_query_async}
+        exec(compile(module, "<repl>", "exec"), ns)
+        new_locals = await ns["_repl_exec"]()
+
+        assert len(call_order) == 3
+        assert call_order == ["first", "second", "third"]
+        assert new_locals["results"] == ["reply:first", "reply:second", "reply:third"]
 
 
 # ---------------------------------------------------------------------------

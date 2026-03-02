@@ -1,0 +1,280 @@
+{
+  "team": "A",
+  "demo_file": "demo_fmea_team_a.md",
+  "reviews": [
+    {
+      "fixture": "worker_429_mid_batch.json",
+      "failure_modes": ["FM-08"],
+      "rpn": 96,
+      "pathway": "P6d",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code in call_index=0 dispatches 3 prompts via llm_query_batched(prompts) and then defensively checks result.error and result.error_category on each element. This accurately exercises the partial-batch-failure pathway described in FM-08. The code uses the correct LLMResult API (.error, .error_category) to distinguish successes from failures, which is exactly what production REPL code should do.",
+        "response_mock_accuracy": "The mocked LLM responses are realistic. Worker A and C return short text answers ('Result A', 'Result C'), which is consistent with concise sub-LM workers responding to simple prompts. The final reasoning response (call_index=5) correctly synthesizes the mixed results into a FINAL() wrapper. One minor weakness: the reasoning response at call_index=0 is unusually defensive — a real model would more likely emit naive code (without error checking) on first attempt, which would better test the silent-error-consumption risk noted in the FMEA. However, for testing the error isolation machinery itself, defensive code is acceptable.",
+        "fault_injection_accuracy": "The fault injections are correctly configured: two HTTP 429 faults at call_index=2 and call_index=4 target the same worker (worker B). This correctly simulates the SDK's HttpRetryOptions(attempts=2) exhausting both attempts. The response body includes the standard Google API error format with code 429, message 'Resource has been exhausted', and status 'RESOURCE_EXHAUSTED'. The call_index spacing (2 and 4 with normal responses at 1 and 3) correctly models the interleaving of parallel worker responses with sequential fault retries.",
+        "gaps": [
+          "The fixture exercises the happy path of error-aware REPL code. The FMEA's residual risk ('REPL code that does not check result.error will silently consume the error string as a real answer') is NOT tested — there is no companion fixture with naive REPL code that fails to check .error and demonstrates the silent consumption failure.",
+          "The fixture uses HttpRetryOptions(attempts=2) semantics, but the fake server does not actually implement SDK-level retry logic. The ScenarioRouter simply serves fault responses at specific call_index slots. This means the test validates the application-level error handling (worker_on_model_error) but cannot validate that the SDK retry mechanism itself is correctly wired. If the SDK retry count were misconfigured (e.g., attempts=1 instead of 2), this fixture would still pass because the fake server does not simulate real HTTP retry behavior — it just serves responses sequentially by call index."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER state key, asserted to contain '2 succeeded' and '1 failed')",
+          "worker_dispatch_count (via WORKER_DISPATCH_COUNT state key, asserted >= 3)",
+          "iteration_count (implicit via contract runner check_expectations, expected total_iterations=1)",
+          "last_repl_result (implicit via contract runner — not directly asserted in targeted tests)"
+        ],
+        "state_keys_missing": [
+          "obs:worker_rate_limit_count — defined in state.py line 80 but NEVER WRITTEN by any production code. This key was designed to track rate-limit errors but dispatch.py does not populate it. The test cannot assert on it, but the demo should flag this as an observability gap.",
+          "obs:worker_error_counts — defined in state.py line 81 (dict[category, count]) but NEVER WRITTEN by any production code. Same gap as above.",
+          "obs:worker_dispatch_latency_ms — written by flush_fn (dispatch.py line 549) but not asserted. Would confirm dispatch timing was recorded for the batch.",
+          "obs:worker_total_dispatches — written by flush_fn (dispatch.py line 548) but not asserted. Should equal 3 (same as WORKER_DISPATCH_COUNT).",
+          "obs:worker_total_batch_dispatches — written by flush_fn (dispatch.py line 552) when K>1. Should equal 1 for this K=3 batch. Not asserted.",
+          "obs:total_calls — written by ObservabilityPlugin (observability.py line 115). Should count all model calls including faulted ones that reach the callback layer. Not asserted.",
+          "obs:total_input_tokens / obs:total_output_tokens — written by ObservabilityPlugin. Not asserted.",
+          "obs:per_iteration_token_breakdown — written by ObservabilityPlugin (observability.py line 184). Would show per-call token entries including worker calls. Not asserted.",
+          "worker_input_tokens / worker_output_tokens — written via flush_fn path or callback_context.state by worker_after_model. Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == 'Batch: 2 succeeded, 1 failed'",
+          "Contract: total_iterations == 1",
+          "Contract: total_model_calls == 6",
+          "test_partial_failure_reported_in_final_answer: '2 succeeded' in FINAL_ANSWER and '1 failed' in FINAL_ANSWER",
+          "test_worker_dispatch_count: WORKER_DISPATCH_COUNT >= 3",
+          "test_tool_result_has_llm_calls: at least one execute_code function_response has llm_calls_made=True"
+        ],
+        "assertions_missing": [
+          "No assertion that the failed worker's LLMResult.error_category == 'RATE_LIMIT'. This is the core classification tested by _classify_error (worker.py line 36) and is the defining characteristic of FM-08. The test only checks that the final answer string mentions failure, not that the error was correctly classified.",
+          "No assertion that the failed worker's LLMResult.http_status == 429. The dispatch closure reads this from _call_record (dispatch.py line 420) and propagates it into the LLMResult, but nothing validates it.",
+          "No assertion on the REPL stdout content. The REPL code prints 'Successes: 2, Errors: 1' and 'Result 0: Result A', 'Result 1: ERROR - RATE_LIMIT', 'Result 2: Result C'. Asserting on the tool_result stdout would confirm the REPL code actually executed the error-checking branch and printed the RATE_LIMIT classification.",
+          "No assertion that WORKER_DISPATCH_COUNT == 3 (exact). The test uses >= 3, which would pass even if dispatch overcounted to 4 or 5.",
+          "No assertion that the call_log in the ScenarioRouter (router.request_log) shows exactly 6 calls, confirming the fault injection slots were consumed correctly.",
+          "No assertion on event stream structure — e.g., that the function_response event for execute_code contains the correct stdout/stderr from the mixed-result REPL execution.",
+          "No negative assertion that stderr is empty (confirming the REPL code did not crash during mixed-result processing)."
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:22-37 (_classify_error — classifies 429 as RATE_LIMIT)",
+          "rlm_adk/callbacks/worker.py:111-147 (worker_on_model_error — sets _result_error, _result_ready, _call_record on agent)",
+          "rlm_adk/dispatch.py:353-372 (worker acquire + prompt injection loop)",
+          "rlm_adk/dispatch.py:384-399 (ParallelAgent dispatch with asyncio.wait_for timeout)",
+          "rlm_adk/dispatch.py:401-438 (result reading from worker objects — error vs success branching)",
+          "rlm_adk/dispatch.py:512-530 (finally block: worker cleanup + parent_agent=None + pool release)",
+          "rlm_adk/dispatch.py:538-557 (flush_fn — accumulator snapshot/reset)",
+          "rlm_adk/tools/repl_tool.py:107-127 (REPLTool.run_async — has_llm_calls detection + async execution)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:404-410 — the 'worker produced no result' (_result_ready=False) branch. This fixture ensures all 3 workers set _result_ready=True (either via worker_after_model or worker_on_model_error), so the NO_RESULT branch is never exercised.",
+          "dispatch.py:505-510 — the generic 'except Exception' error handler that wraps entire batch dispatch. Only fires if worker acquire or setup itself throws, not from worker HTTP errors.",
+          "dispatch.py:394-399 — the ParallelAgent timeout handler (asyncio.TimeoutError for batch dispatch). FM-08 tests HTTP errors, not dispatch timeouts.",
+          "worker.py:24-25 — asyncio.TimeoutError classification branch in _classify_error. Only RATE_LIMIT (code 429) is exercised.",
+          "worker.py:28-29 — AUTH classification (401/403) in _classify_error. Not exercised.",
+          "worker.py:30-31 — SERVER classification (>=500) in _classify_error. Not exercised by this fixture (would need FM-09 variant where retry is exhausted).",
+          "repl_tool.py:120-127 — the except (Exception, asyncio.CancelledError) handler in REPLTool.run_async. If the REPL code itself crashes (not a worker error), this fires. Not exercised here because the REPL code is defensive."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "LLMResult.error_category on each element of the batched results list",
+          "source": "rlm_adk/dispatch.py:416-423",
+          "rationale": "The dispatch closure reads error_category from _call_record and sets it on LLMResult. Capturing the actual error_category values ('RATE_LIMIT' for worker B, None for workers A and C) in a test assertion would directly validate the _classify_error -> _call_record -> LLMResult pipeline end-to-end."
+        },
+        {
+          "trace": "LLMResult.http_status on the failed worker",
+          "source": "rlm_adk/dispatch.py:420",
+          "rationale": "http_status=429 is carried from _call_record into LLMResult. Asserting this confirms the error's HTTP status code survived the entire callback -> dispatch -> LLMResult chain."
+        },
+        {
+          "trace": "obs:worker_rate_limit_count state key",
+          "source": "rlm_adk/state.py:80 (defined but never written)",
+          "rationale": "This state key exists for exactly this failure mode but is NEVER populated by dispatch.py or worker.py. This is a latent observability gap: the FMEA identifies rate-limit errors as RPN=96 but the system has no state-level counter for them. Adding a write to flush_fn would make this testable."
+        },
+        {
+          "trace": "obs:worker_error_counts state key (dict of category->count)",
+          "source": "rlm_adk/state.py:81 (defined but never written)",
+          "rationale": "Same gap as obs:worker_rate_limit_count. This dict-valued key could aggregate error counts by category across all worker dispatches in a session, enabling dashboard/alerting. Currently dead code."
+        },
+        {
+          "trace": "REPL stdout from execute_code function_response",
+          "source": "rlm_adk/tools/repl_tool.py:161",
+          "rationale": "The REPL code prints classification info ('Result 1: ERROR - RATE_LIMIT'). Asserting on the actual stdout string in the function_response would confirm the REPL code's error-checking logic ran correctly and that LLMResult.error_category was accessible from within the REPL namespace."
+        },
+        {
+          "trace": "obs:per_iteration_token_breakdown entries for worker calls",
+          "source": "rlm_adk/plugins/observability.py:157-184",
+          "rationale": "ObservabilityPlugin records per-call token breakdowns including agent_type. For the error worker, input_tokens and output_tokens should be 0 (set by worker_on_model_error at worker.py:133-134). This would confirm the error path writes correct zero-token accounting."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on tool_result stdout content for FM-08: extract the first execute_code function_response from events and assert 'RATE_LIMIT' appears in stdout. This validates the entire error classification pipeline from HTTP 429 -> _classify_error -> _call_record -> LLMResult.error_category -> REPL code print output."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Populate OBS_WORKER_RATE_LIMIT_COUNT and OBS_WORKER_ERROR_COUNTS in dispatch.py flush_fn. These state keys are defined in state.py (lines 79-81) but never written. The flush_fn closure should aggregate error categories from worker _call_records and write them as state deltas. Without this, the highest-RPN worker failure mode (FM-08, RPN=96) has no state-level observability counter."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create a companion fixture 'worker_429_mid_batch_naive.json' where the REPL code does NOT check result.error (e.g., just does 'answers = [str(r) for r in results]'). This exercises the FMEA's residual risk: 'REPL code that does not check result.error will silently consume the error string as a real answer'. The test should assert the error string appears in the final answer, demonstrating the silent consumption failure mode."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Change test_worker_dispatch_count assertion from >= 3 to == 3 (exact). The current >= 3 threshold is too loose: it would pass even if dispatch double-counted workers. The fixture dispatches exactly 3 workers, so the count should be exactly 3."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on obs:worker_total_batch_dispatches == 1 (from flush_fn). This confirms the K=3 batch was recorded as a single batch dispatch, validating the _acc_batch_dispatches accumulator in dispatch.py line 335."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertion that stderr is empty in the first tool_result. This negative assertion confirms the REPL code executed cleanly without Python exceptions during mixed-result processing, ruling out crashes in the error-checking logic."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Assert router.request_log length == 6 after the run completes. This validates that the ScenarioRouter consumed exactly the expected number of calls (including the 2 fault injection slots), confirming the fake server's call_index accounting is correct."
+        }
+      ]
+    },
+    {
+      "fixture": "worker_500_then_success.json",
+      "failure_modes": ["FM-09"],
+      "rpn": 60,
+      "pathway": "P6d",
+      "fidelity": {
+        "verdict": "partial",
+        "repl_code_accuracy": "The REPL code is minimal and correct: 'result = llm_query(\"What is the status?\")\\nprint(result)'. This exercises the single-worker dispatch path (K=1) which routes through llm_query_async -> llm_query_batched_async with a single prompt. The code does not check result.error, which is appropriate because the fixture's premise is that the SDK retry succeeds transparently — the REPL should never see an error.",
+        "response_mock_accuracy": "The mocked responses are realistic. The reasoning agent emits a simple llm_query call, the worker eventually returns 'Server recovered answer', and reasoning produces a FINAL() with that answer. The response token counts are plausible for simple exchanges.",
+        "fault_injection_accuracy": "The fault injection is STRUCTURALLY correct but SEMANTICALLY misleading about what is actually being tested. The fixture injects a 500 at call_index=1 and serves the success response at call_index=2. However, the FakeGeminiServer + ScenarioRouter do NOT implement SDK-level HTTP retry logic. The ScenarioRouter simply serves responses sequentially by call_index. When the SDK's HttpRetryOptions fires a retry, the SDK makes a NEW HTTP request to the fake server, which increments call_index and serves whatever is at that index. So the test DOES exercise the real SDK retry path (the google.genai client sees a 500, backs off, retries, gets 200), but only because the fixture's call_index numbering happens to align with what the SDK will do. If the SDK's retry behavior changed (e.g., different backoff timing causing request interleaving), the fixture could break. This is a fragile coupling between fixture design and SDK internal retry behavior.",
+        "gaps": [
+          "The fixture only tests the happy path of SDK retry (500 -> retry -> success). FM-09's description says 'if all fail, worker_on_model_error fires', but there is no companion fixture testing the exhausted-retry path where both SDK attempts return 500 and the error propagates to worker_on_model_error with error_category='SERVER'.",
+          "The fixture config sets 'max_retries': 0, which disables the ORCHESTRATOR-level retry loop (reasoning agent retries). This is correct for isolating the worker-level test, but the demo does not explain why max_retries=0 — a reader might wonder if this disables worker retries too (it does not; worker retries are controlled by HttpRetryOptions, not RLM_LLM_MAX_RETRIES).",
+          "The total_model_calls expectation is 4, which counts: (0) reasoning execute_code, (1) worker 500 fault, (2) worker retry success, (3) reasoning FINAL. But call_index=1 is a fault injection — the ScenarioRouter increments call_index for faults too, so the fake server sees 4 HTTP requests. However, the SDK's retry is transparent to ADK's callback layer — worker_before_model and worker_after_model only fire once (on the successful attempt). The test does not verify this distinction.",
+          "The fake server cannot validate that HttpRetryOptions is actually configured with attempts=2. If someone changed dispatch.py to use attempts=1, this test would fail (the SDK would not retry), but the failure message would be opaque — it would show 'fixture-exhausted' as the final answer rather than a clear 'SDK retry not configured' diagnostic."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER, asserted to contain 'Server recovered answer')",
+          "iteration_count (via ITERATION_COUNT, asserted == 1)"
+        ],
+        "state_keys_missing": [
+          "worker_dispatch_count — written by flush_fn (dispatch.py line 547). Should be 1 for a single worker dispatch. Not asserted. This would confirm the dispatch closure counted the successful (post-retry) dispatch.",
+          "obs:worker_total_dispatches — written by flush_fn (dispatch.py line 548). Should equal 1. Not asserted.",
+          "obs:worker_dispatch_latency_ms — written by flush_fn (dispatch.py line 549). Would include the retry delay time. Not asserted, but capturing it would show whether the SDK retry delay was actually observed.",
+          "obs:total_calls — written by ObservabilityPlugin. Should be 4 (2 reasoning + 1 worker success + 1 fault, but ObservabilityPlugin only sees calls that reach the callback layer — the fault at call_index=1 is handled at SDK HTTP level and never reaches after_model_callback). The actual obs:total_calls may be 3 (reasoning + worker_success + reasoning_final), not 4. This ambiguity is worth testing.",
+          "obs:per_iteration_token_breakdown — would show the worker call's token counts from the successful retry attempt. Not asserted.",
+          "last_repl_result — written by REPLTool (repl_tool.py line 146). Would confirm the REPL result summary was recorded. Not asserted.",
+          "obs:total_input_tokens / obs:total_output_tokens — would show aggregate token usage including the successful worker call. Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == 'Server recovered answer'",
+          "Contract: total_iterations == 1",
+          "Contract: total_model_calls == 4",
+          "test_recovery_transparent: 'Server recovered answer' in FINAL_ANSWER",
+          "test_recovery_transparent: 'error' not in final_answer (unless 'recovered' also present)",
+          "test_single_iteration: ITERATION_COUNT == 1"
+        ],
+        "assertions_missing": [
+          "No assertion on WORKER_DISPATCH_COUNT. For a fixture testing worker dispatch behavior, this is a notable omission.",
+          "No assertion that the execute_code function_response has llm_calls_made=True. The FM-08 tests include this (test_tool_result_has_llm_calls), but FM-09 does not, despite also dispatching a worker.",
+          "No assertion that the tool_result stdout contains 'Server recovered answer'. The REPL code does 'print(result)' — asserting on stdout would confirm the LLMResult string value propagated correctly through the dispatch -> REPL namespace -> print pipeline.",
+          "No assertion that the tool_result stderr is empty. This would confirm no Python exceptions occurred during the worker dispatch and result reading.",
+          "No assertion on obs:total_calls to clarify whether the faulted SDK attempt reaches the ObservabilityPlugin callback layer or not. This is an open question about the interaction between SDK retry and ADK callback invocation.",
+          "No negative assertion that result.error is False on the returned LLMResult. The fixture's premise is transparent recovery — the REPL should receive error=False. This is the defining property of FM-09 (SDK retry success) and should be explicitly tested.",
+          "No assertion distinguishing this from a no-fault scenario. Without verifying that 4 HTTP requests were made (including the 500), the test would also pass if the fault injection were removed entirely (3 calls, all successful). The router.request_log or router.call_index could be checked to confirm the fault was actually served."
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:122-130 (HttpRetryOptions wiring on worker LlmAgent)",
+          "rlm_adk/dispatch.py:374-383 (single-worker dispatch via asyncio.wait_for, no ParallelAgent)",
+          "rlm_adk/dispatch.py:401-438 (result reading from worker objects — success path for this fixture)",
+          "rlm_adk/callbacks/worker.py:63-108 (worker_after_model — extracts text, writes _result + _call_record)",
+          "rlm_adk/callbacks/worker.py:40-60 (worker_before_model — injects prompt from _pending_prompt)",
+          "rlm_adk/tools/repl_tool.py:108-117 (has_llm_calls detection + async execution path)"
+        ],
+        "untested_code_paths": [
+          "rlm_adk/callbacks/worker.py:111-147 (worker_on_model_error) — NOT exercised because the SDK retry succeeds. This is intentional for FM-09's 'transparent recovery' scenario, but means the SERVER error classification path is untested.",
+          "rlm_adk/dispatch.py:380-383 (single-worker timeout handler) — not exercised because the worker completes within the timeout.",
+          "rlm_adk/dispatch.py:404-410 (NO_RESULT branch for workers that never set _result_ready) — not exercised.",
+          "rlm_adk/dispatch.py:411-423 (_result_error=True branch) — not exercised because the worker succeeds on retry.",
+          "rlm_adk/callbacks/worker.py:22-37 (_classify_error) — not exercised at all because worker_on_model_error is never called."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "router.call_index after run completion",
+          "source": "tests_rlm_adk/provider_fake/fixtures.py:98 (_call_index)",
+          "rationale": "Asserting router.call_index == 4 after the run confirms the fake server received exactly 4 HTTP requests (including the faulted 500). This validates that the SDK actually fired a retry (consuming an extra call_index slot) rather than the fixture passing trivially with only 3 successful calls."
+        },
+        {
+          "trace": "worker_dispatch_count via WORKER_DISPATCH_COUNT state key",
+          "source": "rlm_adk/dispatch.py:333 (_acc_dispatch_count += k)",
+          "rationale": "Confirms the dispatch closure counted exactly 1 worker dispatch despite the SDK retry. The accumulator increments when workers are acquired (before dispatch), not when they succeed, so it should be 1 regardless of retry behavior."
+        },
+        {
+          "trace": "obs:worker_dispatch_latency_ms",
+          "source": "rlm_adk/dispatch.py:533-534",
+          "rationale": "The latency includes the SDK retry backoff delay. Capturing this would show whether the test's latency is consistent with a retry having occurred (should be > initial_delay of 1.0s, unless the fake server responds instantly to the retry). Since retry_delay=0.0 in config and the SDK's HttpRetryOptions initial_delay=1.0 controls worker retries independently, the observed latency could reveal whether SDK retry delay is actually applied in the test environment."
+        },
+        {
+          "trace": "tool_result stdout from execute_code function_response",
+          "source": "rlm_adk/tools/repl_tool.py:161",
+          "rationale": "The REPL code prints the result string. Asserting stdout == 'Server recovered answer\\n' confirms the LLMResult propagated through the REPL namespace correctly and that the str value (not error metadata) is what the REPL code sees."
+        },
+        {
+          "trace": "obs:total_calls from ObservabilityPlugin",
+          "source": "rlm_adk/plugins/observability.py:115",
+          "rationale": "Reveals whether the 500 fault attempt triggers after_model_callback (obs:total_calls = 4) or only the successful attempt does (obs:total_calls = 3). This clarifies the boundary between SDK-level retry and ADK callback invocation, which is important for understanding observability coverage of transient errors."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "new_fixture",
+          "action": "Create 'worker_500_retry_exhausted.json' where both SDK retry attempts return 500. This exercises the other half of FM-09: when SDK retry fails, worker_on_model_error fires with _classify_error returning 'SERVER' and LLMResult(error=True, error_category='SERVER', http_status=500). Without this fixture, the SERVER error classification path is completely untested."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_worker_dispatch_count asserting WORKER_DISPATCH_COUNT == 1. This is a basic dispatch accounting assertion that the FM-08 tests include but FM-09 tests omit, creating an inconsistency."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_fault_was_served assertion: access result.router.call_index (available via PluginContractResult.router) and assert it equals 4. This confirms the 500 fault was actually served and the SDK fired a retry, ruling out the test passing trivially without exercising the fault path."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add test_tool_result_has_llm_calls (matching FM-08's test). This confirms the execute_code function_response includes llm_calls_made=True, validating the has_llm_calls() AST detection and async rewrite pipeline for the single llm_query call."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on tool_result stdout containing 'Server recovered answer'. The REPL code does print(result), so stdout should contain the recovered answer text. This end-to-end assertion validates the LLMResult string value propagation through dispatch -> REPL namespace -> print -> tool_result."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add a comment in the fixture or test explaining why config.max_retries=0 is set. This controls the orchestrator-level retry loop (reasoning agent), NOT the worker-level SDK HttpRetryOptions. Without this clarification, reviewers may incorrectly assume worker retries are disabled."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Assert obs:total_calls to determine whether the faulted 500 attempt reaches ObservabilityPlugin's after_model_callback. This resolves an architectural ambiguity about SDK retry vs ADK callback invocation and documents the expected behavior for future reference."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add negative assertion that tool_result stderr is empty, confirming no Python exceptions during the transparent recovery dispatch."
+        }
+      ]
+    }
+  ]
+}

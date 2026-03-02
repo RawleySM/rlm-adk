@@ -1,0 +1,49 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_tracing_e2e_demo.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "FileArtifactService",
+    "InMemorySessionService",
+    "Runner"
+  ],
+  "call_sites": [
+    {
+      "symbol": "InMemorySessionService",
+      "instances": [
+        {
+          "name": "session_service",
+          "line": 89
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass InMemorySessionService()\n```\n---\nAn in-memory implementation of the session service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
+      }
+    },
+    {
+      "symbol": "FileArtifactService",
+      "instances": [
+        {
+          "name": "artifact_service",
+          "line": 90
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass FileArtifactService(root_dir: Path | str)\n```\n---\nInitializes the file-based artifact service.\n\nArgs:  \n&nbsp;&nbsp;root\\_dir: The directory that will contain artifact data."
+      }
+    },
+    {
+      "symbol": "Runner",
+      "instances": [
+        {
+          "name": "runner",
+          "line": 91
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass Runner(\n    *,\n    app: App | None = None,\n    app_name: str | None = None,\n    agent: BaseAgent | None = None,\n    plugins: List[BasePlugin] | None = None,\n    artifact_service: BaseArtifactService | None = None,\n    session_service: BaseSessionService,\n    memory_service: BaseMemoryService | None = None,\n    credential_service: Any | None = None,\n    plugin_close_timeout: float = 5,\n    auto_create_session: bool = False\n)\n```\n---\nInitializes the Runner.\n\nDevelopers should provide either an `app` instance or both `app_name` and\n`agent`. When `app` is provided, `app_name` can optionally override the\napp's name (useful for deployment scenarios like Agent Engine where the\nresource name differs from the app's identifier). However, `agent` should\nnot be provided when `app` is provided. Providing `app` is the recommended\nway to create a runner.\n\nArgs:  \n&nbsp;&nbsp;&nbsp;&nbsp;app: An optional `App` instance. If provided, `agent` should not be  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;specified. `app_name` can optionally override `app.name`.  \n&nbsp;&nbsp;&nbsp;&nbsp;app\\_name: The application name of the runner. Required if `app` is not  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;provided. If `app` is provided, this can optionally override `app.name`\n(e.g., for deployment scenarios where a resource name differs from the\napp identifier).  \n&nbsp;&nbsp;&nbsp;&nbsp;agent: The root agent to run. Required if `app` is not provided. Should  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;not be provided when `app` is provided.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugins: Deprecated. A list of plugins for the runner. Please use the  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`app` argument to provide plugins instead.  \n&nbsp;&nbsp;&nbsp;&nbsp;artifact\\_service: The artifact service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;session\\_service: The session service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;memory\\_service: The memory service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;credential\\_service: The credential service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugin\\_close\\_timeout: The timeout in seconds for plugin close methods.  \n&nbsp;&nbsp;&nbsp;&nbsp;auto\\_create\\_session: Whether to automatically create a session when  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;not found. Defaults to False. If False, a missing session raises\nValueError with a helpful message.\n\nRaises:  \n&nbsp;&nbsp;&nbsp;&nbsp;ValueError: If `app` is provided along with `agent` or `plugins`, or if  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`app` is not provided but either `app_name` or `agent` is missing."
+      }
+    }
+  ],
+  "type_annotations": []
+}

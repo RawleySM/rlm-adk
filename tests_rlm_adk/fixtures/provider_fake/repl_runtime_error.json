@@ -1,0 +1,113 @@
+{
+  "scenario_id": "repl_runtime_error",
+  "description": "FM-05 (RPN=24): Iteration 1 REPL code raises NameError (accesses undefined variable). Model sees the error in stderr. Iteration 2: model writes corrected code that defines the variable first and prints the result. Then model returns FINAL text.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Iteration 1: REPL code accesses undefined_variable — raises NameError. REPLTool returns stderr with the traceback.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = undefined_variable + \" world\""
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 180
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "Iteration 2: Model saw NameError in tool response stderr. Now defines the variable first, computes result, and prints it.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "undefined_variable = \"hello\"\nresult = undefined_variable + \" world\"\nprint(f\"Runtime fixed: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 250,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 290
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Final text response with FINAL() containing the corrected result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The code initially failed with a NameError because `undefined_variable` was not defined. I fixed it by defining the variable first.\n\nFINAL(Runtime fixed: hello world)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 380
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Runtime fixed: hello world",
+    "total_iterations": 2,
+    "total_model_calls": 3
+  }
+}

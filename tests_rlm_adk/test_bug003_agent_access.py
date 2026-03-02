@@ -61,21 +61,6 @@ class TestWorkerBeforeModelInvocationContext:
         assert request.contents[0].role == "user"
         assert request.contents[0].parts[0].text == "What is 2+2?"
 
-    def test_message_list_prompt_injected_via_invocation_context(self):
-        agent = MagicMock()
-        agent._pending_prompt = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"},
-        ]
-        ctx = _make_invocation_context_mock(agent)
-        request = LlmRequest(model="test", contents=[])
-
-        worker_before_model(ctx, request)
-
-        assert len(request.contents) == 2
-        assert request.contents[0].role == "user"
-        assert request.contents[1].role == "model"
-
     def test_no_pending_prompt_via_invocation_context(self):
         agent = MagicMock()
         agent._pending_prompt = None

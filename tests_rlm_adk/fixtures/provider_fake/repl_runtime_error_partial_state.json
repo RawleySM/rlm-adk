@@ -1,0 +1,113 @@
+{
+  "scenario_id": "repl_runtime_error_partial_state",
+  "description": "FM-05 variant (RPN=24): Multi-statement code where early statements (x = 10, y = 20) succeed before a NameError on `z = undefined_var`. Verifies that variables from BEFORE the error do NOT persist in self.locals (LocalREPL only updates locals on successful execution — the except block skips the locals update loop). Iteration 2: model defines the missing variable and completes successfully.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Iteration 1: Multi-statement code. x=10, y=20 succeed. z=undefined_var raises NameError. Because exec() raises before locals update loop, x and y should NOT persist.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "x = 10\ny = 20\nz = undefined_var + 30\nprint(f\"Result: {x + y + z}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 185
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "Iteration 2: Model saw NameError. Re-defines all variables including the missing one. Prints result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "x = 10\ny = 20\nundefined_var = 30\nz = undefined_var + 30\nprint(f\"Result: {x + y + z}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 45,
+          "totalTokenCount": 345
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Final text response with FINAL() containing the computed result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "After fixing the NameError, the computation completed: x=10, y=20, z=60, total=90.\n\nFINAL(Result: 90)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 430
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Result: 90",
+    "total_iterations": 2,
+    "total_model_calls": 3
+  }
+}

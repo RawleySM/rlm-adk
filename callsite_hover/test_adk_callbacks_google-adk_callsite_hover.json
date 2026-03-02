@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-acde7be1/tests_rlm_adk/test_adk_callbacks.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ac43f55a/.claude/worktrees/agent-af34eca8/tests_rlm_adk/test_adk_callbacks.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -12,15 +12,15 @@
       "instances": [
         {
           "name": null,
-          "line": 41
+          "line": 40
         },
         {
           "name": "response",
-          "line": 113
+          "line": 116
         },
         {
           "name": "response",
-          "line": 122
+          "line": 125
         }
       ],
       "hover": {
@@ -32,27 +32,27 @@
       "instances": [
         {
           "name": "request",
-          "line": 69
+          "line": 68
         },
         {
           "name": "request",
-          "line": 81
+          "line": 80
         },
         {
           "name": "request",
-          "line": 90
+          "line": 89
         },
         {
           "name": "request",
-          "line": 146
+          "line": 149
         },
         {
           "name": "request",
-          "line": 161
+          "line": 164
         },
         {
           "name": "request",
-          "line": 173
+          "line": 176
         }
       ],
       "hover": {

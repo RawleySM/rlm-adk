@@ -1,0 +1,142 @@
+{
+  "scenario_id": "max_iterations_exceeded",
+  "description": "FM-03 (RPN=30): Config sets max_iterations=2. Model calls execute_code 3 times. Calls 1 and 2 succeed (call_count <= max_calls). Call 3 hits the REPLTool limit (call_count=3 > max_calls=2) and gets the limit message in stderr. Model then produces FINAL text response.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 2,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "x = 10\nprint(f\"x = {x}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 225
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "y = x + 20\nprint(f\"y = {y}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 375
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(f\"result: {y}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 520
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I have reached the REPL call limit. Based on the computations so far, x=10 and y=30.\n\nFINAL(Completed with limit)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 600,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 630
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Completed with limit",
+    "total_iterations": 3,
+    "total_model_calls": 4
+  }
+}

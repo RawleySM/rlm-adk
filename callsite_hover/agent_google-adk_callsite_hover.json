@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-acde7be1/rlm_adk/agent.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/agent.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -9,7 +9,6 @@
     "BaseSessionService",
     "BuiltInPlanner",
     "FileArtifactService",
-    "InMemoryRunner",
     "LlmAgent",
     "Runner",
     "SqliteSessionService"
@@ -32,7 +31,7 @@
       "instances": [
         {
           "name": null,
-          "line": 213
+          "line": 208
         }
       ],
       "hover": {
@@ -44,7 +43,7 @@
       "instances": [
         {
           "name": null,
-          "line": 385
+          "line": 382
         }
       ],
       "hover": {
@@ -56,7 +55,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 485
+          "line": 482
         }
       ],
       "hover": {
@@ -80,7 +79,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 483
+          "line": 480
         }
       ],
       "hover": {
@@ -94,19 +93,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 278
+          "line": 275
         },
         {
           "context": "param:plugins",
-          "line": 338
+          "line": 335
         },
         {
           "context": "param:plugins",
-          "line": 401
+          "line": 398
         },
         {
           "context": "variable:plugins",
-          "line": 292
+          "line": 289
         }
       ],
       "hover": {
@@ -118,7 +117,7 @@
       "usages": [
         {
           "context": "param:artifact_service",
-          "line": 404
+          "line": 401
         }
       ],
       "hover": {
@@ -130,7 +129,7 @@
       "usages": [
         {
           "context": "param:session_service",
-          "line": 405
+          "line": 402
         }
       ],
       "hover": {

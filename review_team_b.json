@@ -1,0 +1,228 @@
+{
+  "team": "B",
+  "demo_file": "demo_fmea_team_b.md",
+  "reviews": [
+    {
+      "fixture": "all_workers_fail_batch.json",
+      "failure_modes": ["FM-19"],
+      "rpn": 60,
+      "pathway": "P6b",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code `results = llm_query_batched([\"Task A\", \"Task B\", \"Task C\"])` followed by `sum(1 for r in results if r.error)` correctly exercises the batch dispatch path (K=3) and uses the documented `LLMResult.error` attribute for detection. This matches the FMEA description: 'REPL code that does not check result.error will silently use error strings as real answers.'",
+        "response_mock_accuracy": "call_index=0 (reasoning emits execute_code) and call_index=7 (final reasoning FINAL text) are realistic. The gap between call_index 0 and 7 correctly leaves room for 6 faulted worker calls (indices 1-6). Worker responses are HTTP 500 with proper error body structure matching Gemini API error format.",
+        "fault_injection_accuracy": "6 fault injections at call_index 1-6 correctly model HttpRetryOptions(attempts=2) for 3 workers: each worker gets 2 attempts (initial + 1 SDK retry) = 6 total HTTP errors. Each fault returns status 500 with INTERNAL error status. This faithfully represents correlated server failures (e.g., Gemini outage).",
+        "gaps": [
+          "Fixture config sets max_retries=0 (line 9), which disables the orchestrator-level retry loop. This is correct for isolating worker-level failures, but the demo text does not mention this config choice or explain why it differs from the default (max_retries=3).",
+          "The fault injection messages include sequential numbering ('worker batch attempt 1' through 6) but the SDK retry layer does not guarantee sequential call_index ordering across parallel workers. In practice, 3 workers dispatch concurrently and the actual call_index interleaving depends on asyncio scheduling. The fixture's sequential model works only because the FakeGeminiServer uses a global call_index counter with a threading lock (fixtures.py:98-100), which serializes concurrent requests. This is a valid testing simplification but should be documented.",
+          "No assertion that the SDK actually attempted 2 calls per worker. The total_model_calls=8 check (1 reasoning + 6 faults + 1 final) validates call count indirectly, but does not confirm the retry topology (2 per worker vs 3+2+1 or any other distribution summing to 6)."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "FINAL_ANSWER (via test_all_failures_detected, asserts '3 workers failed')",
+          "ITERATION_COUNT (via contract test, asserts total_iterations=1)",
+          "LAST_REPL_RESULT (indirectly via plugin pipeline in _run_with_plugins, but not explicitly asserted)"
+        ],
+        "state_keys_missing": [
+          "WORKER_DISPATCH_COUNT — the dispatch closure increments _acc_dispatch_count by K=3 and flush_fn writes it to WORKER_DISPATCH_COUNT (dispatch.py:333,547). Not asserted in any TestAllWorkersFail test, even though TestWorker429MidBatch has test_worker_dispatch_count. This is a direct coverage gap.",
+          "OBS_WORKER_TOTAL_DISPATCHES — written by flush_fn (dispatch.py:548). Never asserted.",
+          "OBS_WORKER_DISPATCH_LATENCY_MS — written by flush_fn (dispatch.py:549). Never asserted.",
+          "OBS_WORKER_TOTAL_BATCH_DISPATCHES — written by flush_fn when K>1 (dispatch.py:551-552). K=3 qualifies but never asserted.",
+          "OBS_WORKER_ERROR_COUNTS — declared in state.py:81 but NEVER WRITTEN by any production code. This is a dead key that the FMEA implies should track per-category error counts. Neither the dispatch closure nor the observability plugin populates it.",
+          "OBS_TOTAL_CALLS — written by ObservabilityPlugin after_model_callback (observability.py:115). For FM-19 with 6 faulted worker calls that bypass after_model (they hit on_model_error instead), OBS_TOTAL_CALLS should be 2 (1 reasoning + 1 final reasoning). Not asserted.",
+          "OBS_PER_ITERATION_TOKEN_BREAKDOWN — written by ObservabilityPlugin (observability.py:182-184). Would reveal which calls had agent_type=reasoning vs worker. Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == 'All 3 workers failed', total_iterations == 1, total_model_calls == 8",
+          "test_all_failures_detected: '3 workers failed' in FINAL_ANSWER",
+          "test_repl_code_did_not_crash: first tool_result has non-empty stdout"
+        ],
+        "assertions_missing": [
+          "No assertion that LLMResult.error == True for each of the 3 results. The test only checks the REPL code's print output ('3 workers failed') which is an indirect proxy. A test that inspects the REPL namespace variable `results` or `failed` would be more direct.",
+          "No assertion on LLMResult.error_category == 'SERVER'. The _classify_error function (worker.py:31) returns 'SERVER' for code >= 500, but this is never verified in the test.",
+          "No assertion on stderr being empty. test_repl_code_did_not_crash checks stdout is non-empty but does not verify stderr is empty (i.e., no Python exceptions occurred during REPL execution).",
+          "No assertion on OBS_WORKER_TOTAL_BATCH_DISPATCHES. K=3 should produce 1 batch dispatch.",
+          "No assertion that tool_result has llm_calls_made=True. TestWorker429MidBatch has this test but TestAllWorkersFail does not.",
+          "No assertion on the call_log from the ScenarioRouter to verify that exactly 8 HTTP calls were made with the expected request patterns."
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:111-147 (worker_on_model_error — error isolation callback)",
+          "rlm_adk/callbacks/worker.py:22-37 (_classify_error — error categorization)",
+          "rlm_adk/dispatch.py:401-423 (error result reader — _result_error branch)",
+          "rlm_adk/dispatch.py:505-510 (catch-all Exception handler in dispatch)",
+          "rlm_adk/dispatch.py:331-335 (_acc_dispatch_count += k, _acc_batch_dispatches += 1)",
+          "rlm_adk/dispatch.py:538-557 (flush_fn — writes WORKER_DISPATCH_COUNT, OBS_WORKER_TOTAL_DISPATCHES, OBS_WORKER_DISPATCH_LATENCY_MS, OBS_WORKER_TOTAL_BATCH_DISPATCHES)",
+          "rlm_adk/tools/repl_tool.py:120-127 (exception handler — CancelledError path)",
+          "rlm_adk/tools/repl_tool.py:129-135 (flush_fn call site)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:404-410 — the _result_ready=False (NO_RESULT) branch. FM-19 exercises the _result_error=True branch, not the 'produced no result' branch. These are distinct failure modes.",
+          "dispatch.py:505-510 — the catch-all Exception handler in the dispatch try/except. FM-19 errors are caught by worker_on_model_error before reaching this handler.",
+          "repl_tool.py:120-127 — CancelledError path. If the REPL or dispatch is cancelled mid-execution, this handler fires. FM-19 does not exercise cancellation.",
+          "dispatch.py:380-383 — single-worker timeout path (K=1 TimeoutError handler). FM-19 uses K=3 so dispatches through ParallelAgent, not the single-worker path.",
+          "dispatch.py:394-399 — ParallelAgent timeout path. FM-19 workers fail via on_model_error (HTTP 500), not via asyncio.TimeoutError."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "OBS_WORKER_ERROR_COUNTS",
+          "source": "rlm_adk/state.py:81",
+          "rationale": "State key is declared but never written by any production code. Dispatch knows error_category (from _classify_error) but does not accumulate it into state. Adding accumulation in flush_fn would enable asserting per-category error counts (e.g., {'SERVER': 3} for FM-19)."
+        },
+        {
+          "trace": "OBS_PER_ITERATION_TOKEN_BREAKDOWN",
+          "source": "rlm_adk/plugins/observability.py:157-184",
+          "rationale": "The breakdown records each model call with agent_type and finish_reason. For FM-19, faulted worker calls hit on_model_error (not after_model), so they should NOT appear in the breakdown. Asserting that the breakdown contains exactly 2 entries (both reasoning) would verify that error calls are correctly excluded from token accounting."
+        },
+        {
+          "trace": "ScenarioRouter.request_log",
+          "source": "tests_rlm_adk/provider_fake/fixtures.py:118-119",
+          "rationale": "The router logs every HTTP request with call_index, model, contents_count, and preview. Inspecting this log would verify the exact sequence of 8 HTTP calls and confirm the 2-retry-per-worker topology."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_worker_dispatch_count to TestAllWorkersFail asserting WORKER_DISPATCH_COUNT == 3. This mirrors TestWorker429MidBatch.test_worker_dispatch_count and is the primary dispatch accounting key. Without it, a regression that breaks accumulator counting for error-only batches would go undetected."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_tool_result_has_llm_calls to TestAllWorkersFail asserting llm_calls_made=True in the function_response. This mirrors TestWorker429MidBatch.test_tool_result_has_llm_calls. Without it, the tool_result metadata for all-error batches is unverified."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion that first tool_result stderr is empty (or does not contain 'Error', 'Exception', 'Traceback'). test_repl_code_did_not_crash checks stdout is truthy but does not verify the absence of REPL-level exceptions."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Implement OBS_WORKER_ERROR_COUNTS accumulation in flush_fn (dispatch.py). The key is declared in state.py:81 as dict[category, count] but never populated. Add a local accumulator _acc_error_counts: dict[str, int] that is incremented when _result_error is True, keyed by error_category. Write it in flush_fn alongside the other keys."
+        },
+        {
+          "priority": "low",
+          "type": "fixture_fix",
+          "action": "Add a note field to the fixture JSON documenting the sequential call_index assumption for concurrent workers and the max_retries=0 config choice. This aids future maintainers in understanding why the fixture uses these non-default values."
+        }
+      ]
+    },
+    {
+      "fixture": "worker_empty_response.json",
+      "failure_modes": ["FM-25"],
+      "rpn": 75,
+      "pathway": "P6d",
+      "fidelity": {
+        "verdict": "partial",
+        "repl_code_accuracy": "The REPL code uses `str(r).strip()` to distinguish valid from empty results. This is the correct defensive pattern for FM-25 but it is the WEAKER detection mechanism. The FMEA specifically notes that LLMResult preserves finish_reason metadata ('finish_reason=SAFETY'), and the demo text at line 312 acknowledges 'A more robust pattern would check result.finish_reason for SAFETY'. The fixture REPL code demonstrates the weaker of two detection strategies.",
+        "response_mock_accuracy": "Worker 1 returns 'Analysis: positive trend' with finishReason=STOP (normal). Worker 2 returns '' (empty string) with finishReason=SAFETY. This correctly models the Gemini API safety filter behavior where content is suppressed but the HTTP response is 200 OK. The empty string with SAFETY finishReason is the realistic API shape.",
+        "fault_injection_accuracy": "No fault injections, which is correct for FM-25. The failure mode is NOT an HTTP error -- it is a 200 OK response with suppressed content. The empty response flows through worker_after_model (success path at worker.py:63-108), not worker_on_model_error. This is the key distinction from FM-19.",
+        "gaps": [
+          "The REPL code does not exercise LLMResult.finish_reason checking. The FMEA identifies detection difficulty D=5 as the primary risk for FM-25 (it masquerades as success), yet the fixture only demonstrates the str().strip() pattern, not the finish_reason inspection pattern. A second fixture or additional REPL code checking `result.finish_reason == 'SAFETY'` would validate the metadata propagation path end-to-end.",
+          "There is significant overlap with worker_safety_finish.json (same FM-25, same finishReason=SAFETY, same empty response, same detection-by-content pattern). worker_empty_response.json uses K=2 batched dispatch; worker_safety_finish.json uses K=1 single dispatch. The demo does not acknowledge or explain the relationship between these two fixtures.",
+          "The fixture does not test the MAX_TOKENS finish reason variant. FM-25 covers BOTH SAFETY and MAX_TOKENS, but only SAFETY is exercised. MAX_TOKENS produces truncated (non-empty but incomplete) text, which is a different detection challenge -- str().strip() would return True for truncated text, making it invisible to the demonstrated detection pattern.",
+          "Worker 2's usageMetadata has candidatesTokenCount=0, which is consistent with SAFETY filter suppression. However, real SAFETY responses sometimes have candidatesTokenCount > 0 when partial content was generated before the filter triggered. The fixture only models the complete-suppression case."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "FINAL_ANSWER (via test_empty_detection_in_final_answer, asserts '1 valid' and '1 empty')",
+          "ITERATION_COUNT (via test_single_iteration_suffices, asserts == 1)"
+        ],
+        "state_keys_missing": [
+          "WORKER_DISPATCH_COUNT — flush_fn writes _acc_dispatch_count=2 for K=2 batch. Not asserted.",
+          "OBS_FINISH_SAFETY_COUNT — the ObservabilityPlugin after_model_callback (observability.py:147-150) increments obs:finish_safety_count when finish_reason != 'STOP'. For worker 2 with finishReason=SAFETY, this should be incremented to 1. This is the FMEA's specifically called-out residual risk (FMEA line 366: 'OBS_FINISH_SAFETY_COUNT never incremented in tests'). Critical gap.",
+          "OBS_TOTAL_CALLS — should be 4 (1 reasoning + 2 workers + 1 final reasoning). Not asserted.",
+          "OBS_PER_ITERATION_TOKEN_BREAKDOWN — would show worker call with finish_reason=SAFETY in breakdown. Not asserted.",
+          "LAST_REPL_RESULT — REPLTool writes has_errors, has_output, total_llm_calls. For FM-25, has_errors should be False (no REPL exceptions), has_output True, total_llm_calls=2. Not asserted.",
+          "OBS_WORKER_DISPATCH_LATENCY_MS — dispatch timing. Not asserted.",
+          "OBS_WORKER_TOTAL_BATCH_DISPATCHES — should be 1 for K=2 batch. Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == '2 results: 1 valid, 1 empty', total_iterations == 1, total_model_calls == 4",
+          "test_empty_detection_in_final_answer: '1 valid' in FINAL_ANSWER and '1 empty' in FINAL_ANSWER",
+          "test_single_iteration_suffices: ITERATION_COUNT == 1"
+        ],
+        "assertions_missing": [
+          "No assertion on OBS_FINISH_SAFETY_COUNT. This is the single most important missing assertion for FM-25. The ObservabilityPlugin tracks this counter (observability.py:147-150), and the FMEA explicitly flags it as untested (FMEA FM-24 residual risk: 'OBS_FINISH_SAFETY_COUNT never incremented in tests'). This test should verify OBS_FINISH_SAFETY_COUNT >= 1.",
+          "No assertion on LLMResult.finish_reason propagation. The dispatch result reader (dispatch.py:434) passes finish_reason from call_record into LLMResult. No test verifies that the REPL code can inspect result.finish_reason to detect SAFETY.",
+          "No assertion on LLMResult.error == False for the empty response. The key characteristic of FM-25 is that error=False despite empty content. The test verifies detection by content check but never asserts error=False to confirm the success-path routing.",
+          "No assertion on the tool_result function_response. test_repl_code_did_not_crash (only in TestAllWorkersFail) checks stdout. TestWorkerEmptyResponse has no equivalent — it relies entirely on FINAL_ANSWER content matching.",
+          "No assertion on WORKER_DISPATCH_COUNT == 2.",
+          "No assertion distinguishing worker_empty_response from worker_safety_finish. Both exercise FM-25 with SAFETY finish, but the batched variant should validate that the mixed-result array (1 valid + 1 empty) is correctly assembled, not just that FINAL_ANSWER is correct."
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:63-108 (worker_after_model — success path, extracts response_text='')",
+          "rlm_adk/callbacks/worker.py:72-76 (text extraction: part.text join, empty when safety-filtered)",
+          "rlm_adk/callbacks/worker.py:93-101 (_call_record with finish_reason from llm_response.finish_reason)",
+          "rlm_adk/dispatch.py:424-439 (success result reader — _result_error=False branch, passes finish_reason to LLMResult)",
+          "rlm_adk/plugins/observability.py:147-150 (finish_reason tracking: obs:finish_{reason}_count)",
+          "rlm_adk/types.py:50-79 (LLMResult class — finish_reason attribute at line 68)",
+          "rlm_adk/tools/repl_tool.py:129-135 (flush_fn call — writes WORKER_DISPATCH_COUNT)"
+        ],
+        "untested_code_paths": [
+          "observability.py:147-150 — OBS_FINISH_SAFETY_COUNT increment. The ObservabilityPlugin fires after_model_callback for ALL agents (it's a global plugin). For worker 2 with finishReason=SAFETY, it should increment obs:finish_safety_count. No test verifies this.",
+          "dispatch.py:434 — finish_reason propagation into LLMResult. The record.get('finish_reason') value from worker_after_model's _call_record is passed to LLMResult constructor. The REPL code never inspects it, and no test asserts on it.",
+          "worker.py:98-99 — finish_reason extraction in _call_record. str(llm_response.finish_reason) converts FinishReason enum to string. For SAFETY, this should produce 'FinishReason.SAFETY' or 'SAFETY' depending on the enum's __str__. The exact string format is untested.",
+          "The MAX_TOKENS variant of FM-25. A worker truncated by token limit returns non-empty text with finishReason=MAX_TOKENS. The REPL code's str(r).strip() check would NOT detect this — it would treat truncated text as valid. This entire branch is untested."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "OBS_FINISH_SAFETY_COUNT",
+          "source": "rlm_adk/plugins/observability.py:147-150",
+          "rationale": "The FMEA explicitly flags this as untested (FM-24 residual risk). The ObservabilityPlugin after_model_callback increments obs:finish_{reason}_count for non-STOP finish reasons. Asserting OBS_FINISH_SAFETY_COUNT >= 1 would close the FMEA's identified residual risk and verify the end-to-end observability pipeline for safety-filtered responses."
+        },
+        {
+          "trace": "LLMResult.finish_reason",
+          "source": "rlm_adk/dispatch.py:434",
+          "rationale": "The finish_reason is propagated from worker_after_model._call_record through dispatch into LLMResult. Inspecting the REPL variable `results[1].finish_reason` (e.g., via variables dict in the function_response) would verify end-to-end metadata propagation."
+        },
+        {
+          "trace": "OBS_PER_ITERATION_TOKEN_BREAKDOWN",
+          "source": "rlm_adk/plugins/observability.py:157-184",
+          "rationale": "The breakdown entry at index corresponding to worker 2 should have finish_reason='SAFETY' and output_tokens=0. This would verify that the ObservabilityPlugin correctly records the safety-filtered call's metadata."
+        },
+        {
+          "trace": "LAST_REPL_RESULT.total_llm_calls",
+          "source": "rlm_adk/tools/repl_tool.py:142",
+          "rationale": "REPLTool writes total_llm_calls from flush_fn's WORKER_DISPATCH_COUNT. For K=2 batch, this should be 2. Asserting it validates the dispatch accumulator pipeline end-to-end."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_safety_finish_reason_tracked to TestWorkerEmptyResponse asserting OBS_FINISH_SAFETY_COUNT >= 1 in final_state. This directly closes the FMEA's identified residual risk for FM-24/FM-25 ('OBS_FINISH_SAFETY_COUNT never incremented in tests'). Import OBS_FINISH_SAFETY_COUNT from rlm_adk.state."
+        },
+        {
+          "priority": "high",
+          "type": "new_fixture",
+          "action": "Create worker_max_tokens_truncated.json targeting the MAX_TOKENS variant of FM-25. A worker returns truncated non-empty text (e.g., 'Analysis: the market is showing signs of—') with finishReason=MAX_TOKENS. REPL code that uses str(r).strip() will NOT detect this truncation. The fixture should demonstrate finish_reason checking as the correct detection pattern: `if result.finish_reason and 'MAX_TOKENS' in result.finish_reason`."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_worker_dispatch_count to TestWorkerEmptyResponse asserting WORKER_DISPATCH_COUNT == 2. This is a basic dispatch accounting assertion missing from the test class."
+        },
+        {
+          "priority": "medium",
+          "type": "fixture_fix",
+          "action": "Add a second REPL code variant to worker_empty_response.json (or create a parallel fixture) that checks `result.finish_reason` instead of or in addition to `str(r).strip()`. This demonstrates the robust detection pattern highlighted in the FMEA and the demo's own analysis ('A more robust pattern would check result.finish_reason for SAFETY')."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion that tool_result function_response has llm_calls_made=True. This is present in TestWorker429MidBatch and TestStructuredOutputBatchedK3 but missing from TestWorkerEmptyResponse."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add test verifying the exact string format of LLMResult.finish_reason by inspecting the function_response variables dict for `results` entries. This would catch regressions in finish_reason propagation through the worker_after_model -> dispatch -> LLMResult chain."
+        }
+      ]
+    }
+  ]
+}

@@ -6,12 +6,21 @@ Covers:
 - FR-004 REPL Code Block Parsing (via find_code_blocks)
 - FR-003 Final Answer Extraction Semantics
 - NF-003 REPL Runtime Failures
+- FM-22 Circular Reference in Variable Snapshots
+- FM-27 CWD Race Between Concurrent REPLs
 """
 
+import asyncio
+import json
 import os
+import threading
+import time
 
-from rlm_adk.repl.local_repl import LocalREPL
-from rlm_adk.utils.parsing import find_code_blocks, find_final_answer
+import pytest
+
+from rlm_adk.repl.local_repl import LocalREPL, _EXEC_LOCK
+from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
+from rlm_adk.utils.parsing import find_final_answer
 
 # ── FR-005 REPL Execution Core Behavior ──────────────────────────────────
 
@@ -140,43 +149,6 @@ class TestREPLHelpers:
         assert "_private" not in result.stdout
 
 
-# ── FR-004 REPL Code Block Parsing ──────────────────────────────────────
-
-
-class TestFindCodeBlocks:
-    """FR-004: Only fenced blocks tagged 'repl' shall be extracted."""
-
-    def test_single_block(self):
-        text = "Here is code:\n```repl\nprint('hi')\n```\nDone."
-        blocks = find_code_blocks(text)
-        assert len(blocks) == 1
-        assert blocks[0] == "print('hi')"
-
-    def test_multiple_blocks_preserve_order(self):
-        text = "```repl\nx = 1\n```\nSome text\n```repl\ny = 2\n```"
-        blocks = find_code_blocks(text)
-        assert len(blocks) == 2
-        assert blocks[0] == "x = 1"
-        assert blocks[1] == "y = 2"
-
-    def test_non_repl_fences_ignored(self):
-        text = "```python\nx = 1\n```\n```repl\ny = 2\n```\n```javascript\nvar z = 3;\n```"
-        blocks = find_code_blocks(text)
-        assert len(blocks) == 1
-        assert blocks[0] == "y = 2"
-
-    def test_no_blocks_returns_empty(self):
-        text = "No code blocks here."
-        blocks = find_code_blocks(text)
-        assert blocks == []
-
-    def test_multiline_block(self):
-        text = "```repl\nfor i in range(3):\n    print(i)\n```"
-        blocks = find_code_blocks(text)
-        assert len(blocks) == 1
-        assert "for i in range(3):" in blocks[0]
-
-
 # ── FR-003 Final Answer Extraction ──────────────────────────────────────
 
 
@@ -285,23 +257,26 @@ class TestFinalVarSkipOnCodeError:
     """BUG-008: FINAL_VAR should not resolve when code blocks errored."""
 
     def test_code_error_plus_final_var_should_not_produce_answer(self):
-        """Simulates the orchestrator check: code errors -> skip FINAL_VAR."""
-        from rlm_adk.types import CodeBlock, REPLResult
+        """Simulates checking code errors before resolving FINAL_VAR."""
+        from dataclasses import dataclass
+        from rlm_adk.types import REPLResult
 
-        # Simulate a code block that errored
+        @dataclass
+        class _CodeBlock:
+            code: str
+            result: REPLResult
+
         error_result = REPLResult(
             stdout="",
             stderr="\nTypeError: unsupported operand type(s) for +=: 'float' and 'str'",
             locals={},
         )
-        code_blocks = [CodeBlock(code="total += row", result=error_result)]
+        code_blocks = [_CodeBlock(code="total += row", result=error_result)]
 
-        # This is the same check the orchestrator now uses
         any_code_error = any(cb.result.stderr for cb in code_blocks)
         assert any_code_error is True
 
-        # When there are code errors, orchestrator sets final_answer = None
-        # instead of calling find_final_answer
+        # When there are code errors, skip FINAL_VAR resolution
         if any_code_error and code_blocks:
             final_answer = None
         else:
@@ -313,17 +288,166 @@ class TestFinalVarSkipOnCodeError:
 
     def test_no_code_error_allows_final_var_resolution(self):
         """When code succeeds, FINAL_VAR should resolve normally."""
-        from rlm_adk.types import CodeBlock, REPLResult
-
         repl = LocalREPL()
         repl.execute_code("total = 42")
-
-        ok_result = REPLResult(stdout="42", stderr="", locals={"total": 42})
-        code_blocks = [CodeBlock(code="total = 42", result=ok_result)]
-
-        any_code_error = any(cb.result.stderr for cb in code_blocks)
-        assert any_code_error is False
 
         final_answer = find_final_answer("FINAL_VAR(total)", environment=repl)
         assert final_answer == "42"
         repl.cleanup()
+
+
+# -- FM-22: Circular Reference in Variable Snapshots -----------------------
+
+
+class TestCircularReferenceSnapshots:
+    """FM-22: Self-referential structures must not crash variable snapshots.
+
+    REPLTool.run_async serializes REPL locals via json.dumps (repl_tool.py
+    lines 191-198). Circular references trigger RecursionError in json.dumps.
+    The except clause must catch RecursionError so circular structures are
+    silently skipped rather than crashing the tool.
+    """
+
+    def test_self_referential_dict_skipped(self, repl):
+        """Circular dict (d['self'] = d) must not crash json.dumps snapshot."""
+        repl.execute_code("d = {}; d['self'] = d")
+        assert "d" in repl.locals
+        # Simulate the REPLTool variable snapshot logic (repl_tool.py:191-198)
+        variables: dict = {}
+        for k, v in repl.locals.items():
+            if isinstance(v, (int, float, str, bool, list, dict)):
+                try:
+                    json.dumps(v)
+                    variables[k] = v
+                except (TypeError, ValueError, OverflowError, RecursionError):
+                    pass
+        # Circular dict must be excluded, not raise
+        assert "d" not in variables
+
+    def test_self_referential_list_skipped(self, repl):
+        """Circular list (L.append(L)) must not crash json.dumps snapshot."""
+        repl.execute_code("L = []; L.append(L)")
+        assert "L" in repl.locals
+        variables: dict = {}
+        for k, v in repl.locals.items():
+            if isinstance(v, (int, float, str, bool, list, dict)):
+                try:
+                    json.dumps(v)
+                    variables[k] = v
+                except (TypeError, ValueError, OverflowError, RecursionError):
+                    pass
+        assert "L" not in variables
+
+    def test_non_circular_structures_preserved(self, repl):
+        """Normal dicts/lists must pass through the snapshot filter."""
+        repl.execute_code("x = {'a': [1, 2, 3]}")
+        repl.execute_code("y = [1, 'two', 3.0]")
+        variables: dict = {}
+        for k, v in repl.locals.items():
+            if isinstance(v, (int, float, str, bool, list, dict)):
+                try:
+                    json.dumps(v)
+                    variables[k] = v
+                except (TypeError, ValueError, OverflowError, RecursionError):
+                    pass
+        assert "x" in variables
+        assert "y" in variables
+        assert variables["x"] == {"a": [1, 2, 3]}
+
+
+# -- FM-27: CWD Race Between Concurrent REPLs (Documentation Test) ---------
+
+
+class TestCwdRaceBetweenRepls:
+    """FM-27: Two concurrent async REPL instances can race on os.chdir.
+
+    execute_code_async (local_repl.py:315-382) does:
+        old_cwd = os.getcwd()        # line 335
+        os.chdir(self.temp_dir)       # line 338  -- unprotected
+        await repl_exec_fn()          # line 347  -- yield point
+        ...
+        os.chdir(old_cwd)             # line 371  -- unprotected restore
+
+    If two async REPLs run concurrently on the same event loop, the second
+    can os.chdir between the first's chdir and its restore, corrupting the
+    CWD for both.
+
+    The sync path (execute_code) is protected by _EXEC_LOCK, but the async
+    path has no equivalent lock.
+
+    Architectural mitigation: each RLMOrchestratorAgent creates exactly one
+    LocalREPL, so concurrent async execute_code_async calls on the same
+    event loop don't occur in practice. This test documents the latent
+    vulnerability should that invariant break.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cwd_race_between_two_repls(self):
+        """Document that two concurrent async REPLs can interleave os.chdir.
+
+        We create two LocalREPL instances with different temp_dirs, then run
+        them concurrently via asyncio.gather. Each records os.getcwd() after
+        the yield point. If the race triggers, at least one will see the
+        other's temp_dir instead of its own.
+
+        NOTE: This race is non-deterministic. On most runs both REPLs will
+        see their own temp_dir because the event loop may not interleave at
+        the exact right point. The test documents the vulnerability window
+        regardless of whether it triggers in a given run.
+        """
+        repl_a = LocalREPL()
+        repl_b = LocalREPL()
+
+        # Both have distinct temp directories
+        assert repl_a.temp_dir != repl_b.temp_dir
+
+        async def mock_query_async(prompt, **kw):
+            # Yield to the event loop -- this is where interleaving happens
+            await asyncio.sleep(0)
+            return "ok"
+
+        repl_a.set_async_llm_query_fns(mock_query_async, mock_query_async)
+        repl_b.set_async_llm_query_fns(mock_query_async, mock_query_async)
+
+        # Code that captures CWD after an await (the yield point)
+        code = "import os; cwd_after_await = os.getcwd()"
+        module = rewrite_for_async(code)
+        compiled = compile(module, "<repl>", "exec")
+
+        async def run_repl(repl_inst: LocalREPL):
+            ns = {**repl_inst.globals, **repl_inst.locals}
+            exec(compiled, ns)
+            fn = ns["_repl_exec"]
+            return await repl_inst.execute_code_async(code, fn)
+
+        original_cwd = os.getcwd()
+        result_a, result_b = await asyncio.gather(
+            run_repl(repl_a), run_repl(repl_b)
+        )
+
+        # Verify the REPL didn't corrupt the test process CWD
+        assert os.getcwd() == original_cwd
+
+        # Document: both results should have no errors
+        assert result_a.stderr == ""
+        assert result_b.stderr == ""
+
+        # Both REPLs should ideally see their own temp_dir, but due to the
+        # race window, one might see the other's. We document both outcomes:
+        cwd_a = repl_a.locals.get("cwd_after_await", "")
+        cwd_b = repl_b.locals.get("cwd_after_await", "")
+
+        # At minimum, both should have captured *some* path
+        assert cwd_a, "REPL A should have captured a CWD"
+        assert cwd_b, "REPL B should have captured a CWD"
+
+        # Document whether the race triggered (informational, not a failure)
+        race_triggered = (
+            cwd_a != repl_a.temp_dir or cwd_b != repl_b.temp_dir
+        )
+        if race_triggered:
+            # This is the documented vulnerability -- not a test failure
+            pass
+
+        repl_a.cleanup()
+        repl_b.cleanup()

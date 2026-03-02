@@ -1,0 +1,168 @@
+{
+  "scenario_id": "repl_exception_then_retry",
+  "description": "FM-14 (RPN=96): Iteration 1: reasoning emits execute_code that calls llm_query, worker returns text, but REPL code then raises RuntimeError. Iteration 2: reasoning emits corrected execute_code that re-calls llm_query and succeeds. Tests that flush_fn is called on both iterations (no accumulator drift) and that the RuntimeError appears in tool stderr for model self-correction.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Iter 1: REPL code calls llm_query then raises RuntimeError on the result",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"analyze the data\")\nvalue = str(result)\nif len(value) > 0:\n    raise RuntimeError(\"Unexpected format in worker response\")\nprint(f\"Got: {value}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker returns text for iter1 llm_query",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Analysis complete: recovered-42 with confidence 0.95"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 20,
+          "candidatesTokenCount": 12,
+          "totalTokenCount": 32
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Iter 2: reasoning sees RuntimeError in tool result stderr, emits corrected code",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"analyze the data\")\nvalue = str(result)\nprint(f\"Recovered: {value}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 440
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Worker returns same text for iter2 llm_query (re-dispatch)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Analysis complete: recovered-42 with confidence 0.95"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 20,
+          "candidatesTokenCount": 12,
+          "totalTokenCount": 32
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "note": "Reasoning sees successful tool result, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The analysis succeeded after correcting the error handling.\n\nFINAL(Recovered: recovered-42 with confidence 0.95)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 525
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Recovered: recovered-42 with confidence 0.95",
+    "total_iterations": 2,
+    "total_model_calls": 5
+  }
+}

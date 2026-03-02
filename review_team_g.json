@@ -1,0 +1,365 @@
+{
+  "team": "G",
+  "demo_file": "demo_fmea_team_g.md",
+  "reviews": [
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-13"],
+      "rpn": 56,
+      "pathway": "P2d",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "The code snippet cited as repl_tool.py lines 107-127 is accurate. The actual except clause is at line 120 (`except (Exception, asyncio.CancelledError) as exc:`), and the return dict is at lines 121-127. The demo says 'lines 120-127' for the exception handler, which is correct. The try block does start at line 107. The demo's inline code block matches the actual source verbatim. One minor discrepancy: the demo header says 'lines 120-127' for the exception handler but the code block is labeled 'lines 107-127' covering the full try/except -- this is not an error, just dual references to the same code. The demo correctly notes that in Python 3.9+, CancelledError is a subclass of BaseException, not Exception, so the explicit listing is intentional.",
+        "analysis_accuracy": "The analysis of how CancelledError is swallowed is correct. Points 1-4 accurately describe the control flow: the try block wraps both sync and async paths, the except clause catches CancelledError alongside Exception, the handler formats it as a dict with stderr, and ADK sees it as a normal tool result. Point 5 about flush_fn and LAST_REPL_RESULT being skipped is accurate -- the flush_fn call is at lines 130-135 and the LAST_REPL_RESULT write at lines 138-146, both after the except block's return statement and thus unreachable on exception. The reference to FM-14 compounding is appropriate.",
+        "testability_accuracy": "The demo claims the test is at test_repl_tool.py lines 142-154, class TestREPLToolExceptionSafety, method test_cancelled_error_returns_stderr. Verified: the class is at line 142, the method at line 144, and the test body runs through line 154. The line range is accurate. The demo correctly states this test only validates the current swallowing behavior (asserting 'CancelledError' in stderr) and does not test whether propagation would be correct. The demo correctly notes no e2e fixture exists because provider-fake cannot inject task cancellation.",
+        "gaps": [
+          "The demo does not mention that the except handler also catches BaseException subclasses like KeyboardInterrupt if they happen to be wrapped -- though this is a minor edge case since KeyboardInterrupt would not normally occur in this context.",
+          "The demo does not discuss whether the flush_fn skip on CancelledError could cause accumulator drift across multiple iterations (the accumulators are closure-local and persist until flushed, so a cancelled iteration's dispatch counts would carry into the next successful flush). This is only mentioned briefly as 'compounds with FM-14' without explaining the accumulator drift mechanism.",
+          "The demo does not note that the test patches repl.execute_code (sync path) but CancelledError is more likely to occur in the async path (execute_code_async) during actual task cancellation. A more realistic test would patch execute_code_async."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "ITERATION_COUNT -- written at line 83 before the try block, so it IS incremented even on CancelledError. No test verifies this.",
+          "LAST_REPL_RESULT -- skipped on CancelledError (unreachable after return). No test verifies it is NOT written.",
+          "WORKER_DISPATCH_COUNT -- flush_fn is skipped, so accumulated dispatch counts from the cancelled iteration persist in the closure. No test verifies this accumulator drift."
+        ],
+        "assertions_tested": [
+          "test_cancelled_error_returns_stderr: 'CancelledError' in result['stderr'] (validates swallowing behavior)"
+        ],
+        "assertions_missing": [
+          "No assertion that CancelledError propagates (if the design decision were changed to re-raise).",
+          "No assertion that flush_fn is NOT called on CancelledError (verifying the FM-14 compounding).",
+          "No assertion that LAST_REPL_RESULT is NOT written on CancelledError.",
+          "No assertion on the result dict's other fields (stdout should be empty, variables should be empty, llm_calls_made should be False for sync path).",
+          "No test exercising CancelledError in the async path (execute_code_async), which is the more realistic cancellation scenario."
+        ],
+        "source_code_refs": [
+          "rlm_adk/tools/repl_tool.py:107-127 (try/except block catching CancelledError -- verified accurate)",
+          "rlm_adk/tools/repl_tool.py:120 (except (Exception, asyncio.CancelledError) as exc -- verified accurate)",
+          "rlm_adk/tools/repl_tool.py:130-135 (flush_fn call -- unreachable on exception -- verified accurate)",
+          "rlm_adk/tools/repl_tool.py:138-146 (LAST_REPL_RESULT write -- unreachable on exception -- verified accurate)",
+          "tests_rlm_adk/test_repl_tool.py:142-154 (TestREPLToolExceptionSafety.test_cancelled_error_returns_stderr -- verified accurate)"
+        ],
+        "untested_code_paths": [
+          "repl_tool.py:120-127 with CancelledError from async path (execute_code_async) -- only sync path is tested.",
+          "repl_tool.py:108-109 (has_llm_calls returns True, llm_calls_made set to True) combined with CancelledError from rewrite_for_async or compile -- not tested.",
+          "The interaction between CancelledError and trace_holder (lines 98-105) -- if trace was created but CancelledError fires, the trace is abandoned without cleanup."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "flush_fn accumulator state after CancelledError",
+          "source": "rlm_adk/tools/repl_tool.py:130-135 and rlm_adk/dispatch.py:538-557",
+          "rationale": "Since flush_fn is skipped on CancelledError, any dispatch counts accumulated during the cancelled iteration persist in the closure's _acc_dispatch_count and _acc_latencies. The next successful flush would include these stale counts, causing double-counting. A test should verify whether accumulated state drifts after a CancelledError."
+        },
+        {
+          "trace": "ITERATION_COUNT after CancelledError",
+          "source": "rlm_adk/tools/repl_tool.py:81-83",
+          "rationale": "ITERATION_COUNT is written at line 83 before the try block, so it IS incremented even when CancelledError fires. This means the iteration counter advances but no LAST_REPL_RESULT or flush_fn side effects occur. A test should verify the counter increments but state remains otherwise unchanged."
+        },
+        {
+          "trace": "trace_holder state after CancelledError",
+          "source": "rlm_adk/tools/repl_tool.py:97-105",
+          "rationale": "If trace_holder is provided, a REPLTrace is created and set into trace_holder[0] before the try block. On CancelledError, this trace object is abandoned -- it was never finalized with summary data. Subsequent code that reads trace_holder[0] would see an incomplete trace."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Separate CancelledError from the generic Exception handler. Either (a) re-raise CancelledError to honor asyncio's cancellation contract, or (b) catch it separately and set SHOULD_STOP=True in tool_context.state so the orchestrator knows the task was cancelled rather than merely failed. The current behavior violates Python's asyncio cancellation semantics."
+        },
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add a test that patches repl.execute_code_async (not just execute_code) to raise asyncio.CancelledError, verifying the async path handles cancellation. The current test only exercises the sync path, but CancelledError from external task.cancel() or asyncio.wait_for timeout will always enter through the async path."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a test that verifies flush_fn is NOT called when CancelledError fires. Create a REPLTool with a mock flush_fn, trigger CancelledError, and assert the mock was not called. This validates the FM-14 compounding behavior documented in the demo."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Move the flush_fn call into a finally block (or at minimum call it on the CancelledError path) to prevent accumulator drift. Currently, dispatch counts from a cancelled iteration carry into the next flush, causing double-counting."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add assertion that ITERATION_COUNT is incremented even on CancelledError (verifying line 83 executes before the try block). Also assert LAST_REPL_RESULT is NOT present in tool_context.state after CancelledError."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-11"],
+      "rpn": 54,
+      "pathway": "P6a",
+      "fidelity": {
+        "verdict": "partial",
+        "source_code_accuracy": "The demo cites dispatch.py lines 146-171 for acquire(). Actual source: acquire() starts at line 146 and ends at line 171 -- accurate. The demo cites _create_worker() at lines 97-144. Actual source: _create_worker starts at line 97 and ends at line 144 -- accurate. The demo cites release() at lines 173-192. Actual source: release() starts at line 173. However, the method body ends at line 192 -- accurate. The inline code snippets match the actual source verbatim. All line references verified correct.",
+        "analysis_accuracy": "The analysis of the pool exhaustion mechanism is correct: get_nowait() at line 165, QueueEmpty at line 166, _create_worker() at line 171. The analysis of release() checking qsize() < pool_size at line 186 is correct. The design rationale (on-demand creation prevents deadlock when batch size > pool_size) is accurate. However, there are inaccuracies in the secondary line references: the demo says 'line 164 first attempts get_nowait()' -- the actual get_nowait() is at line 165. The demo says 'QueueEmpty exception is caught at line 166' -- correct. The demo says '_create_worker() is called synchronously at line 171' -- correct. The demo says 'release() at line 186 checks qsize()' -- correct.",
+        "testability_accuracy": "The demo claims test_bug006_pool_growth.py has '3 tests' -- verified: it has exactly 3 tests (test_pool_does_not_grow_beyond_pool_size, test_on_demand_workers_are_discarded, test_repeated_bursts_do_not_accumulate). The demo claims test_adk_dispatch_worker_pool.py has '12 tests' -- INCORRECT: it has 16 test methods across 4 classes (TestWorkerIsolation: 5, TestWorkerPoolRouting: 6, TestWorkerPoolRegistration: 4, TestDispatchClosures: 1). The demo correctly notes no test measures event loop stall duration and no e2e fixture exercises batch size > pool_size.",
+        "gaps": [
+          "The demo claims 12 tests in test_adk_dispatch_worker_pool.py but there are actually 16 -- minor factual error in test count.",
+          "The demo references 'the finally block at lines 512-530' for worker cleanup, but this is the dispatch finally block, not part of the pool exhaustion mechanism directly. The connection between pool exhaustion and post-dispatch cleanup could be made more explicit.",
+          "The demo mentions 'max_concurrent chunking at line 314' and says the env var is 'RLM_MAX_CONCURRENT_WORKERS, default 4'. Verified: line 314 reads max_concurrent = int(os.getenv('RLM_MAX_CONCURRENT_WORKERS', '4')) -- accurate. However, the demo does not note that max_concurrent limits per-batch chunk size, so pool exhaustion from a single llm_query_batched call requires prompts.length > pool_size AND max_concurrent > pool_size (or concurrent dispatches). This interaction is mentioned only in the Gaps section but not in the main analysis.",
+          "The demo does not mention that _create_worker sets type: ignore[attr-defined] comments on the dynamic attributes (_pending_prompt, _result, etc.), which suggests the synchronous construction also includes attribute assignments that Pydantic's model_post_init may interact with."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No observability state key is written on pool exhaustion. The logger.info at line 168 is the only signal. The demo correctly identifies this gap."
+        ],
+        "assertions_tested": [
+          "test_pool_does_not_grow_beyond_pool_size: qsize() == pool_size after releasing 6 workers (3 original + 3 on-demand)",
+          "test_on_demand_workers_are_discarded: qsize() <= pool_size after releasing on-demand first, then == pool_size after all released",
+          "test_repeated_bursts_do_not_accumulate: qsize() == pool_size after 5 burst cycles of 7 workers each"
+        ],
+        "assertions_missing": [
+          "No assertion on _worker_counter to verify on-demand workers were actually created (as opposed to the pool being misconfigured with extra workers).",
+          "No assertion on event loop stall duration during _create_worker().",
+          "No test exercising pool exhaustion through the full dispatch pipeline (llm_query_batched_async with K > pool_size).",
+          "No test verifying the interaction between max_concurrent chunking and pool_size (e.g., max_concurrent=6 with pool_size=5)."
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:146-171 (WorkerPool.acquire -- verified accurate)",
+          "rlm_adk/dispatch.py:97-144 (_create_worker -- verified accurate)",
+          "rlm_adk/dispatch.py:173-192 (WorkerPool.release -- verified accurate)",
+          "rlm_adk/dispatch.py:314 (max_concurrent = int(os.getenv('RLM_MAX_CONCURRENT_WORKERS', '4')) -- verified accurate)",
+          "tests_rlm_adk/test_bug006_pool_growth.py (3 tests -- verified accurate)",
+          "tests_rlm_adk/test_adk_dispatch_worker_pool.py (demo claims 12 tests -- ACTUAL: 16 tests)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:160-162 (auto-register on first use for dynamically-specified models during acquire) -- exercised by test_auto_register_on_acquire but not in a pool-exhaustion context.",
+          "dispatch.py:168-170 (logger.info on pool exhaustion) -- executed in pool tests but the log message is not asserted.",
+          "dispatch.py:188-192 (logger.debug on discarding on-demand worker) -- never explicitly asserted; only indirectly validated via qsize checks."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "WorkerPool._worker_counter after pool exhaustion and release",
+          "source": "rlm_adk/dispatch.py:107",
+          "rationale": "The _worker_counter is incremented each time _create_worker is called (line 107). Asserting on _worker_counter == pool_size + N_on_demand after a burst would confirm on-demand workers were actually created, not just that the queue size is correct."
+        },
+        {
+          "trace": "Event loop stall duration during _create_worker",
+          "source": "rlm_adk/dispatch.py:110-131",
+          "rationale": "The LlmAgent Pydantic constructor at lines 110-131 runs synchronously. Measuring asyncio.get_event_loop().time() before and after acquire() in a pool-exhausted scenario would quantify the event loop stall. This is the core performance concern of FM-11."
+        },
+        {
+          "trace": "Pool exhaustion log message",
+          "source": "rlm_adk/dispatch.py:168-170",
+          "rationale": "The logger.info call is the only observable signal. A test could use caplog to assert the message 'Pool ... exhausted, creating worker on demand' appears, providing a more targeted validation than just checking qsize."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a test that asserts _worker_counter increases when pool is exhausted. After acquiring pool_size + N workers, verify pool._worker_counter == pool_size + N (initial pool creation) + N (on-demand). This is a more direct validation of on-demand creation than qsize alone."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a test using caplog to assert the pool exhaustion log message appears when acquiring beyond pool_size. This tests the observability signal rather than just the queue state."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create an e2e fixture that dispatches a batch of K > pool_size prompts (e.g., K=6, pool_size=5) through llm_query_batched. Verify all 6 results are returned and pool size remains at 5 after dispatch. This exercises the full dispatch pipeline under pool exhaustion."
+        },
+        {
+          "priority": "low",
+          "type": "source_fix",
+          "action": "Consider writing an observability state key (e.g., OBS_WORKER_POOL_EXHAUSTION_COUNT) in the acquire() method when on-demand creation occurs. Currently the only signal is a log message, which is not captured in session state for dashboard or alerting use."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Fix the demo's claim of '12 tests' in test_adk_dispatch_worker_pool.py to the actual count of 16 tests."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-10"],
+      "rpn": 50,
+      "pathway": "P6b",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "The timeout constant at line 205 is verified: `_WORKER_DISPATCH_TIMEOUT = float(os.getenv('RLM_WORKER_TIMEOUT', '180'))` -- accurate. The single-worker timeout path cited as lines 374-383 is verified: line 374 is `if len(workers) == 1:`, line 375-378 is the try/await/wait_for block, line 380-383 is the except TimeoutError handler -- accurate. The multi-worker path cited as lines 384-399 is verified: line 384 `else:`, lines 385-388 ParallelAgent construction, lines 389-393 try/wait_for, lines 394-399 except TimeoutError -- accurate. The finally block cited as lines 512-530 is verified accurate. All inline code snippets match the actual source.",
+        "analysis_accuracy": "The analysis is thorough and accurate. The demo correctly identifies: (1) both single and multi-worker paths use asyncio.wait_for, (2) the timeout handler sets _result_error=True on incomplete workers only (checking _result_ready), (3) timed-out workers get error_category='UNKNOWN' because _call_record is never written by callbacks for timed-out workers, (4) the finally block always executes ensuring cleanup. The claim about _WORKER_DISPATCH_TIMEOUT being read at module load time (line 205, os.getenv) is correct -- it cannot be changed at runtime. The analysis of result reading at lines 401-439 is accurate: record.get('error_category', 'UNKNOWN') at line 419 produces 'UNKNOWN' for timed-out workers since their _call_record is None (the `or {}` at line 403 converts it to an empty dict).",
+        "testability_accuracy": "The demo correctly states there is no unit test for the timeout path. The claim that provider-fake cannot inject delays is accurate -- the FakeGeminiServer responds immediately. The recommended test scenario (short timeout + patched sleep) is reasonable. The demo correctly identifies the distinction between dispatch-level timeouts (FM-10) and callback-level timeouts (handled by _classify_error in worker_on_model_error).",
+        "gaps": [
+          "The demo states 'OBS_WORKER_TIMEOUT_COUNT state key is defined but never written to' and cites 'state.py line 79'. Verified: OBS_WORKER_TIMEOUT_COUNT is at line 79 of state.py and is indeed never written by any production code (only imported in test_tracing_e2e_demo.py for read assertions). This is accurately identified.",
+          "The demo does not mention the generic except Exception handler at dispatch.py lines 505-510, which would catch any unexpected exception during dispatch (including potential issues from asyncio.wait_for cancellation leaving ADK state inconsistent). This handler appends LLMResult(error=True, error_category='UNKNOWN') for all prompts in the batch -- a different behavior from the per-worker timeout handling.",
+          "The demo references 'the result reading at lines 401-439 (already shown in FM-08 demo_fmea_team_a.md)' but this is a cross-reference to another team's demo. The line range is accurate but the cross-reference is not independently verifiable within Team G's demo alone.",
+          "The demo does not discuss what happens when asyncio.wait_for cancels the inner coroutine mid-flight in the multi-worker case -- specifically, whether ParallelAgent's cancellation semantics properly cancel all sub-agent coroutines or if some may continue running in the background."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "OBS_WORKER_TIMEOUT_COUNT (state.py line 79) -- defined but never written by production code. Demo correctly identifies this.",
+          "WORKER_DISPATCH_COUNT -- would be written by flush_fn after timeout, but only if the dispatch completes (the flush happens outside the try/except/finally at lines 532-534, after the for loop). On timeout, accumulator drift may occur.",
+          "OBS_WORKER_DISPATCH_LATENCY_MS -- would capture the timeout duration. Not tested."
+        ],
+        "assertions_tested": [],
+        "assertions_missing": [
+          "No test that single-worker timeout produces _result_error=True and _result containing timeout message.",
+          "No test that multi-worker timeout correctly identifies which workers completed vs timed out (via _result_ready check).",
+          "No test that timed-out workers get error_category='UNKNOWN' (not 'TIMEOUT').",
+          "No test that the finally block executes and workers are released after timeout.",
+          "No test that the latency accumulator (_acc_latencies) captures the timeout duration."
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:205 (_WORKER_DISPATCH_TIMEOUT = float(os.getenv('RLM_WORKER_TIMEOUT', '180')) -- verified accurate)",
+          "rlm_adk/dispatch.py:374-383 (single-worker timeout path -- verified accurate)",
+          "rlm_adk/dispatch.py:384-399 (multi-worker ParallelAgent timeout path -- verified accurate)",
+          "rlm_adk/dispatch.py:401-439 (result reading loop -- verified accurate)",
+          "rlm_adk/dispatch.py:512-530 (finally cleanup block -- verified accurate)",
+          "rlm_adk/dispatch.py:532-534 (latency accumulator write after dispatch loop -- verified accurate)",
+          "rlm_adk/state.py:79 (OBS_WORKER_TIMEOUT_COUNT defined but never written -- verified accurate)",
+          "rlm_adk/callbacks/worker.py:22-37 (_classify_error with TIMEOUT category -- verified accurate, but only invoked for on_model_error callbacks, not dispatch-level timeouts)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:380-383 (single-worker TimeoutError handler) -- completely untested.",
+          "dispatch.py:394-399 (multi-worker TimeoutError handler with per-worker _result_ready check) -- completely untested.",
+          "dispatch.py:411-423 (_result_error=True branch in result reading) for timeout-originating errors -- untested for the timeout case specifically.",
+          "dispatch.py:505-510 (generic except Exception handler wrapping entire batch) -- untested in timeout context.",
+          "The interaction between asyncio.wait_for cancellation and _consume_events (line 208-211) -- cancellation may leave the async generator in an incomplete state."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "error_category on timed-out workers",
+          "source": "rlm_adk/dispatch.py:419",
+          "rationale": "Timed-out workers have _call_record=None (never written by callbacks), so record.get('error_category', 'UNKNOWN') returns 'UNKNOWN'. This is a semantic gap: the timeout is known to be a timeout (it's caught as asyncio.TimeoutError), but the error category does not reflect this. Setting _call_record with error_category='TIMEOUT' in the timeout handler (lines 380-383 and 394-399) would fix this."
+        },
+        {
+          "trace": "OBS_WORKER_TIMEOUT_COUNT state key write",
+          "source": "rlm_adk/state.py:79",
+          "rationale": "The key is defined but never written. Adding a write in the TimeoutError handler or in flush_fn (checking _result_error on workers) would enable dashboard tracking of timeout frequency."
+        },
+        {
+          "trace": "Mixed results in multi-worker timeout (completed + timed-out)",
+          "source": "rlm_adk/dispatch.py:394-399",
+          "rationale": "The multi-worker handler checks _result_ready per worker. Workers that completed before timeout have _result_ready=True (set by worker_after_model or worker_on_model_error). Only incomplete workers get the timeout error. A test with 3 workers where 2 complete fast and 1 sleeps would validate this mixed-result path."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Create unit tests for both single-worker and multi-worker timeout paths. For single-worker: set _WORKER_DISPATCH_TIMEOUT to 0.001, patch worker.run_async to await asyncio.sleep(10), verify _result_error=True and _result contains 'timed out'. For multi-worker: set up 3 workers where one sleeps forever, verify 2 succeed and 1 has timeout error."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Set _call_record with error_category='TIMEOUT' in the TimeoutError handlers at lines 380-383 and 394-399. Currently timed-out workers have _call_record=None, causing error_category='UNKNOWN' in the result reading loop. Adding `w._call_record = {'error_category': 'TIMEOUT', 'error': True, ...}` would produce correct classification."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Write OBS_WORKER_TIMEOUT_COUNT in the TimeoutError handlers. The state key is defined at state.py line 79 but never written. Incrementing it in flush_fn or directly in the timeout handler (via a closure accumulator) would close the observability gap."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a test verifying the finally block executes after timeout: all workers are released to the pool and parent_agent is cleared. This validates that FM-10 (timeout) does not compound with FM-12 (parent_agent not cleared)."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add a test verifying that _WORKER_DISPATCH_TIMEOUT is read from the RLM_WORKER_TIMEOUT environment variable at module load time. Use monkeypatch to set the env var before import and verify the constant value. This confirms the module-load-time behavior noted in the demo."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-12"],
+      "rpn": 16,
+      "pathway": "P6h",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "The finally block cited as lines 512-530 is verified accurate. The parent_agent=None assignment is at line 529 -- accurate. The worker_pool.release call is at line 530 -- accurate. The ParallelAgent construction at lines 385-388 is verified accurate. The demo's inline code snippets match the actual source verbatim. The demo references 'lines 526-528' for the Bug-7 fix comment -- verified: the comment at lines 526-528 reads 'Detach from ParallelAgent parent so the worker can be re-used in a future batch (ADK sets parent_agent in model_post_init and raises if already set).' -- accurate.",
+        "analysis_accuracy": "The analysis of FM-12 is thorough and correct. The demo accurately describes: (1) ADK's ParallelAgent.model_post_init sets parent_agent on sub-agents, (2) if parent_agent is already non-None, ADK raises ValueError, (3) the finally block at line 529 clears parent_agent=None, (4) the finally block iterates over ALL workers including timed-out or errored ones, (5) residual risk exists if the finally block itself raises before reaching line 529. The Bug-7 fix documentation is accurate.",
+        "testability_accuracy": "The demo correctly identifies that multi-worker e2e fixtures (structured_output_batched_k3.json, worker_429_mid_batch.json) exercise the finally block indirectly but no test explicitly asserts parent_agent is None after dispatch. The demo correctly notes test_bug006_pool_growth.py tests pool size capping but does not touch parent_agent. The claim about fixtures being 'single-batch' is partially correct -- most fixtures do single batches, but the structured_output_batched_k3.json fixture uses K=3 which goes through ParallelAgent.",
+        "gaps": [
+          "The demo does not mention that the _result_ready attribute is not reset in the finally block. Line 515 resets _result_error=False and line 514 resets _pending_prompt=None, but _result_ready is NOT reset (it was already reset at lines 360 in the acquire loop before dispatch). This is correct behavior but worth noting for completeness.",
+          "The demo mentions 'line 514 (worker._pending_prompt = None)' could raise if the worker object is corrupted. In practice, this is a simple attribute assignment via Pydantic's __setattr__ on a dynamic attribute. The more realistic failure scenario would be if the worker list itself is corrupted (e.g., a non-LlmAgent object), which the demo does not consider.",
+          "The demo does not discuss the interaction with structured output cleanup (lines 519-525) which also runs in the finally block before parent_agent=None. If output_schema cleanup fails (e.g., Pydantic validation error when setting worker.output_schema=None), subsequent workers' parent_agent would not be cleared."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No state keys are directly relevant to FM-12 (parent_agent is an ADK internal attribute, not a session state key)."
+        ],
+        "assertions_tested": [
+          "Implicit: multi-worker e2e fixtures (worker_429_mid_batch.json, structured_output_batched_k3.json) exercise the finally block without crashing, implying parent_agent cleanup succeeded."
+        ],
+        "assertions_missing": [
+          "No explicit assertion that worker.parent_agent is None after dispatch completes.",
+          "No test verifying a worker can be acquired, dispatched in a ParallelAgent, released, then acquired and dispatched again in a second ParallelAgent without ValueError.",
+          "No test injecting a failure before line 529 in the finally block to verify the ValueError consequence.",
+          "No assertion on the structured output cleanup path (lines 519-525) succeeding before parent_agent=None."
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:512-530 (finally block with parent_agent=None at line 529 -- verified accurate)",
+          "rlm_adk/dispatch.py:385-388 (ParallelAgent construction -- verified accurate)",
+          "rlm_adk/dispatch.py:526-528 (Bug-7 fix comment -- verified accurate)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:529 (worker.parent_agent = None) -- executed but never explicitly asserted.",
+          "The multi-batch re-pooling path: worker acquired, dispatched in batch 1, released, acquired again, dispatched in batch 2. No test exercises this complete lifecycle.",
+          "dispatch.py:519-525 (structured output cleanup in finally) before parent_agent=None -- if this section raises, parent_agent is not cleared for remaining workers in the loop."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "worker.parent_agent value after dispatch finally block",
+          "source": "rlm_adk/dispatch.py:529",
+          "rationale": "Directly asserting worker.parent_agent is None after dispatch completes would provide explicit validation of the Bug-7 fix rather than relying on the absence of ValueError as indirect evidence."
+        },
+        {
+          "trace": "Multi-batch worker reuse lifecycle",
+          "source": "rlm_adk/dispatch.py:352-530",
+          "rationale": "A test that runs two sequential batches through the same WorkerPool and verifies no ValueError on the second batch would exercise the complete acquire-dispatch-release-acquire-dispatch cycle. This is the primary use case the Bug-7 fix protects."
+        },
+        {
+          "trace": "Finally block exception propagation to remaining workers",
+          "source": "rlm_adk/dispatch.py:512-530",
+          "rationale": "If an exception occurs at line 520 (worker.output_schema = None) for worker[0], the for loop terminates and workers[1..N] never have parent_agent cleared. A test injecting a failure in the cleanup path would reveal whether this residual risk is real."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Create a test that dispatches two sequential batches through the same WorkerPool with pool_size=2 and K=2. After the first batch, verify workers are in the pool. Dispatch the second batch and verify it succeeds without ValueError. This is the fundamental test for the Bug-7 fix."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add an explicit assertion that worker.parent_agent is None after a ParallelAgent dispatch completes. Access the workers from the pool after release and check the attribute directly."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Wrap each worker's cleanup in the finally block with an inner try/except to prevent one worker's cleanup failure from skipping subsequent workers. Currently, if line 520 (worker.output_schema = None) raises for worker[0], workers[1..N] are not cleaned up. A per-worker try/except with logging would isolate cleanup failures."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add a test that injects a failure in the finally block's structured output cleanup (e.g., setting output_schema to a non-None value that causes an error on None assignment) and verifies that subsequent workers in the batch still have parent_agent cleared. This tests the residual risk identified in the demo."
+        }
+      ]
+    }
+  ]
+}

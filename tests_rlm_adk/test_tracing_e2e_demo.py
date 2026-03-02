@@ -34,8 +34,6 @@ from rlm_adk.state import (
     LAST_REPL_RESULT,
     OBS_FINISH_SAFETY_COUNT,
     OBS_WORKER_TIMEOUT_COUNT,
-    OBS_ZERO_PROGRESS_ITERATIONS,
-    OBS_CONSECUTIVE_ZERO_PROGRESS,
 )
 from tests_rlm_adk.provider_fake.fixtures import ScenarioRouter
 from tests_rlm_adk.provider_fake.server import FakeGeminiServer
@@ -157,16 +155,29 @@ async def run_demo():
                   f"has_trace_summary={has_trace}")
             if has_trace:
                 ts = snap["trace_summary"]
-                print(f"    trace_summary: wall_time_ms={ts.get('total_wall_time_ms', '?'):.1f} "
-                      f"llm_calls_traced={ts.get('total_llm_calls_traced', '?')} "
+                print(f"    trace_summary: wall_time_ms={ts.get('wall_time_ms', '?'):.1f} "
+                      f"llm_call_count={ts.get('llm_call_count', '?')} "
                       f"failed={ts.get('failed_llm_calls', '?')} "
                       f"data_flow_edges={ts.get('data_flow_edges', '?')}")
+
+        # --- Hard assertions: trace_summary must be present and valid ---
+        assert len(repl_snapshots) >= 1, "Expected at least one REPL snapshot"
+        for i, snap in enumerate(repl_snapshots):
+            assert isinstance(snap, dict), f"snapshot[{i}] is not a dict"
+            assert "trace_summary" in snap, (
+                f"snapshot[{i}] missing trace_summary — keys: {list(snap.keys())}"
+            )
+            ts = snap["trace_summary"]
+            assert ts["wall_time_ms"] >= 0, (
+                f"snapshot[{i}] wall_time_ms should be >= 0, got {ts['wall_time_ms']}"
+            )
+            assert ts["llm_call_count"] >= 0, (
+                f"snapshot[{i}] llm_call_count should be >= 0, got {ts['llm_call_count']}"
+            )
 
         # 6. Observability state keys
         print(f"\nOBS_FINISH_SAFETY_COUNT={state.get(OBS_FINISH_SAFETY_COUNT, 0)}")
         print(f"OBS_WORKER_TIMEOUT_COUNT={state.get(OBS_WORKER_TIMEOUT_COUNT, 0)}")
-        print(f"OBS_ZERO_PROGRESS_ITERATIONS={state.get(OBS_ZERO_PROGRESS_ITERATIONS, 0)}")
-        print(f"OBS_CONSECUTIVE_ZERO_PROGRESS={state.get(OBS_CONSECUTIVE_ZERO_PROGRESS, 0)}")
 
         # 7. Check for finish_reason in obs breakdown
         obs_keys = [k for k in state if k.startswith("obs:")]
@@ -197,6 +208,16 @@ async def run_demo():
                                           f"finish_reason={call.get('finish_reason', '?')}")
                     except Exception:
                         pass
+
+        # --- Hard assertion: repl_traces.json artifact must exist ---
+        trace_files = [
+            f for f in artifact_root.rglob("*")
+            if f.is_file() and f.name == "repl_traces.json"
+        ]
+        assert len(trace_files) >= 1, (
+            f"Expected repl_traces.json artifact in {artifact_dir}, "
+            f"found files: {[str(f.relative_to(artifact_root)) for f in artifact_root.rglob('*') if f.is_file()]}"
+        )
 
         # 9. LLMResult in worker events
         print(f"\nWORKER_EVENTS:")

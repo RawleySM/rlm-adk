@@ -1,0 +1,86 @@
+{
+  "scenario_id": "worker_malformed_json",
+  "description": "FM-18 (RPN=24): Single worker dispatch where the worker API response is malformed JSON. fault_type malformed_json returns raw unparseable text as application/json, causing SDK parse failure. on_model_error_callback fires, dispatch closure creates LLMResult(error=True). REPL code detects result.error and reports the parse failure. Then reasoning returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning emits execute_code with llm_query; REPL code checks result.error",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Analyze data\")\nif result.error:\n    print(f\"Worker failed: {result}\")\nelse:\n    print(f\"Got: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result reporting worker parse error, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The worker query failed due to a malformed JSON response from the API. The error was caught and reported.\n\nFINAL(Worker failed: malformed API response)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 380
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 1,
+      "fault_type": "malformed_json",
+      "body_raw": "{\"candidates\": [{\"content\": {\"parts\": [{\"text\": malformed"
+    }
+  ],
+  "expected": {
+    "final_answer": "Worker failed: malformed API response",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

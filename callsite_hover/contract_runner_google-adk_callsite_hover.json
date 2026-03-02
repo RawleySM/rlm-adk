@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-acde7be1/tests_rlm_adk/provider_fake/contract_runner.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/provider_fake/contract_runner.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [

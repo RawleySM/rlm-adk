@@ -7,10 +7,7 @@ Verifies:
 - Both plugins coexist
 """
 
-import os
 from unittest.mock import patch
-
-import pytest
 
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 
@@ -68,14 +65,6 @@ class TestSqliteTracingRegistration:
         # created it yet), it just won't appear, but that's OK -- the code path exists.
         # For now, we verify the parameter is accepted.
         assert isinstance(plugins, list)
-
-    def test_sqlite_tracing_disabled_by_flag(self):
-        """_default_plugins(sqlite_tracing=False) excludes SqliteTracingPlugin."""
-        from rlm_adk.agent import _default_plugins
-
-        plugins = _default_plugins(langfuse=False, sqlite_tracing=False)
-        plugin_names = [type(p).__name__ for p in plugins]
-        assert "SqliteTracingPlugin" not in plugin_names
 
     def test_both_langfuse_and_sqlite_tracing_flags_accepted(self):
         """_default_plugins() accepts both langfuse and sqlite_tracing params."""

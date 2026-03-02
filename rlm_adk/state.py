@@ -18,14 +18,8 @@ POLICY_VIOLATION = "policy_violation"
 
 # REPL Execution Keys
 MESSAGE_HISTORY = "message_history"
-CURRENT_CODE_BLOCKS = "current_code_blocks"
 LAST_REPL_RESULT = "last_repl_result"
 FINAL_ANSWER = "final_answer"
-LAST_REASONING_RESPONSE = "last_reasoning_response"
-
-# Persistence Keys
-HISTORY_COUNT = "history_count"
-# message_history_{N} are dynamic
 
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
@@ -47,7 +41,6 @@ CACHE_LAST_HIT_KEY = "cache:last_hit_key"
 OBS_TOTAL_INPUT_TOKENS = "obs:total_input_tokens"
 OBS_TOTAL_OUTPUT_TOKENS = "obs:total_output_tokens"
 OBS_TOTAL_CALLS = "obs:total_calls"
-OBS_ITERATION_TIMES = "obs:iteration_times"
 OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
 OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
 OBS_PER_ITERATION_TOKEN_BREAKDOWN = "obs:per_iteration_token_breakdown"
@@ -69,22 +62,13 @@ WORKER_INPUT_TOKENS = "worker_input_tokens"
 WORKER_OUTPUT_TOKENS = "worker_output_tokens"
 CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
 
-# Type Validation Keys
-VALIDATION_PASS = "validation_pass"
-VALIDATION_ERRORS = "validation_errors"
-OBS_VALIDATION_FAIL_COUNT = "obs:validation_fail_count"
-
 # Worker Dispatch Lifecycle Keys (session-scoped, cumulative)
 WORKER_DISPATCH_COUNT = "worker_dispatch_count"
-WORKER_RESULTS_COMMITTED = "worker_results_committed"
-WORKER_DIRTY_READ_COUNT = "worker_dirty_read_count"
-WORKER_EVENTS_DRAINED = "worker_events_drained"
 
 # Worker Dispatch Timing Keys (session-scoped, cumulative)
 OBS_WORKER_DISPATCH_LATENCY_MS = "obs:worker_dispatch_latency_ms"
 OBS_WORKER_TOTAL_DISPATCHES = "obs:worker_total_dispatches"
 OBS_WORKER_TOTAL_BATCH_DISPATCHES = "obs:worker_total_batch_dispatches"
-OBS_WORKER_DIRTY_READ_MISMATCHES = "obs:worker_dirty_read_mismatches"
 
 # Finish Reason Tracking (written by ObservabilityPlugin)
 OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
@@ -96,9 +80,11 @@ OBS_WORKER_TIMEOUT_COUNT = "obs:worker_timeout_count"
 OBS_WORKER_RATE_LIMIT_COUNT = "obs:worker_rate_limit_count"
 OBS_WORKER_ERROR_COUNTS = "obs:worker_error_counts"  # dict[category, count]
 
-# Zero-Progress Tracking (written by orchestrator)
-OBS_ZERO_PROGRESS_ITERATIONS = "obs:zero_progress_iterations"
-OBS_CONSECUTIVE_ZERO_PROGRESS = "obs:consecutive_zero_progress"
+# Worker Pool Observability (written by WorkerPool.acquire)
+OBS_WORKER_POOL_EXHAUSTION_COUNT = "obs:worker_pool_exhaustion_count"
+
+# Structured Output Observability (written by dispatch closures)
+OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 
 # API/Messaging Keys
 REQUEST_ID = "request_id"
@@ -122,11 +108,6 @@ OBS_ARTIFACT_SAVE_LATENCY_MS = "obs:artifact_save_latency_ms"
 # Artifact Configuration Keys (app-scoped)
 APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"
 
-# Migration Tracking Keys (app-scoped)
-MIGRATION_LAST_MIGRATED_SESSION = "app:migration_last_migrated_session"
-MIGRATION_LAST_MIGRATED_TIME = "app:migration_last_migrated_time"
-MIGRATION_TOTAL_MIGRATED = "app:migration_total_migrated"
-
 # Migration Status Keys (session-scoped, naming convention only)
 MIGRATION_STATUS = "migration:status"
 MIGRATION_TIMESTAMP = "migration:timestamp"
@@ -137,8 +118,8 @@ DEPTH_SCOPED_KEYS: set[str] = {
     MESSAGE_HISTORY, ITERATION_COUNT,
     FINAL_ANSWER, LAST_REPL_RESULT, SHOULD_STOP,
 }
-# NOTE: LAST_REASONING_RESPONSE and CURRENT_CODE_BLOCKS excluded —
-# Phase 3 removes them from the write path entirely.
+# NOTE: Only iteration-local keys that need independent state per depth
+# level are included. Global observability keys are excluded.
 
 
 def depth_key(key: str, depth: int = 0) -> str:
@@ -153,16 +134,6 @@ def depth_key(key: str, depth: int = 0) -> str:
     return f"{key}@d{depth}"
 
 
-def obs_worker_dispatch_key(worker_name: str) -> str:
-    """Generate the observability key for a specific worker's dispatch timing."""
-    return f"obs:worker_dispatch:{worker_name}"
-
-
 def obs_model_usage_key(model_name: str) -> str:
     """Generate the observability key for a specific model's usage stats."""
     return f"obs:model_usage:{model_name}"
-
-
-def message_history_key(index: int) -> str:
-    """Generate the session state key for a message history."""
-    return f"message_history_{index}"

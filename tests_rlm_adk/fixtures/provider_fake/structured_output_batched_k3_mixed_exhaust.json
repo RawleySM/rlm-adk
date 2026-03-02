@@ -1,0 +1,248 @@
+{
+  "scenario_id": "structured_output_batched_k3_mixed_exhaust",
+  "description": "FM-16+FM-17 (RPN=50/90): K=3 structured output batch where Workers 1 and 3 succeed immediately but Worker 2 exhausts all retries (max_retries=2). Worker 2 attempt 1: missing 'confidence'. Worker 2 attempt 2: empty 'sentiment'. Worker 2 attempt 3: missing 'confidence' again. After exhaustion, dispatch FM-16 fix detects output_schema!=None and structured==None, returns LLMResult(error=True, error_category='SCHEMA_VALIDATION_EXHAUSTED'). Exercises combined FM-16 (retry exhaustion) + FM-17 (K>1 batch) path.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 2
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning emits execute_code with K=3 structured batch using output_schema=SentimentResult",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass SentimentResult(BaseModel):\n    sentiment: str\n    confidence: float\n\nprompts = [\"Review: Great product!\", \"Review: Terrible quality\", \"Review: Love it!\"]\nresults = llm_query_batched(prompts, output_schema=SentimentResult)\nsucceeded = sum(1 for r in results if not r.error)\nfailed = sum(1 for r in results if r.error)\nprint(f\"Results: {succeeded} succeeded, {failed} failed\")\nfor i, r in enumerate(results):\n    if r.error:\n        print(f\"  Review {i+1}: FAILED ({r.error_category})\")\n    else:\n        print(f\"  Review {i+1}: {r.parsed}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 300
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker 1: valid set_model_response with positive sentiment (succeeds immediately)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "positive",
+                      "confidence": 0.95
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Worker 2 attempt 1: set_model_response MISSING 'confidence' field triggers ValidationError",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "negative"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Worker 3: valid set_model_response with positive sentiment (succeeds immediately)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "positive",
+                      "confidence": 0.88
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Worker 2 attempt 2 (retry): set_model_response with empty 'sentiment' triggers WorkerRetryPlugin",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "",
+                      "confidence": 0.7
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 80,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 95
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "worker",
+      "note": "Worker 2 attempt 3 (final retry): set_model_response STILL missing 'confidence', max_retries=2 exhausted",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "Revised negative analysis"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 110,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 125
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 6,
+      "caller": "reasoning",
+      "note": "Reasoning sees 2 successes and 1 exhausted failure, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Batch analysis completed with mixed results: 2 workers succeeded, 1 exhausted all retries.\n\nFINAL(3 workers: 2 succeeded, 1 exhausted retries)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 450,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 480
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "3 workers: 2 succeeded, 1 exhausted retries",
+    "total_iterations": 1,
+    "total_model_calls": 7
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "prompt": "You are an expert Software Architect and Planning Agent specializing in Python, the Google Agent Development Kit (ADK), and Test-Driven Development (TDD).
+
+Your objective is to design a comprehensive, step-by-step TDD implementation plan for an architectural refactor in the `rlm-adk` codebase. We are moving from a 'flat' sub-agent dispatch model to a true recursive model by implementing the **'Orchestrator-as-Worker'** approach.
+
+### The Objective
+Currently, the system uses a central `RLMOrchestratorAgent` that can run a REPL (`execute_code` tool). This orchestrator delegates sub-tasks to a `WorkerPool`, which currently creates bare `LlmAgent` instances. These worker agents lack REPL capabilities.
+
+We need to refactor the system so that `WorkerPool` creates and dispatches `RLMOrchestratorAgent` instances instead. This will allow every level of sub-call to possess its own REPL and perform independent, iterative reasoning.
+
+### Pertinent Files and Components
+1. **`rlm_adk/orchestrator.py`** (`RLMOrchestratorAgent`):
+   - Needs to become dynamically 'depth-aware'. Currently, it hardcodes `depth=1`. It must read `CURRENT_DEPTH` from the ADK `InvocationContext.session.state`, increment it, and apply `depth_key(key, current_depth)` for all loop-scoped state keys (e.g., `MESSAGE_HISTORY`, `ITERATION_COUNT`, `FINAL_ANSWER`).
+   - Needs a recursion guard (e.g., checking against `APP_MAX_DEPTH`).
+
+2. **`rlm_adk/dispatch.py`** (`WorkerPool`, `create_dispatch_closures`, `llm_query_batched_async`):
+   - `WorkerPool._create_worker` must be updated to instantiate and return an `RLMOrchestratorAgent` (via `create_rlm_orchestrator` factory).
+   - In `llm_query_batched_async`, the dispatch logic must inject the query into the orchestrator-worker (likely via `worker.root_prompt = prompt`).
+   - The event consumption loop (`_consume_events`) needs to be modified to capture the yielded `FINAL_ANSWER` from the sub-orchestrator's event stream or depth-scoped state, mapping it to the `LLMResult` returned to the parent.
+
+3. **`rlm_adk/agent.py`** (`create_rlm_orchestrator`):
+   - Factory function may need minor adjustments to properly instantiate orchestrator-workers, ensuring they share the same underlying `WorkerPool` for deeper recursion but receive fresh `LocalREPL` instances.
+
+4. **`rlm_adk/state.py`** (`depth_key`, `DEPTH_SCOPED_KEYS`, `CURRENT_DEPTH`):
+   - Contains the utilities required for isolating state at different recursion levels.
+
+5. **`rlm_adk/repl/local_repl.py`** (`LocalREPL`):
+   - Ensure the depth parameter correctly isolates temporary directories and execution state to prevent cross-talk between nested REPLs.
+
+### Your Output Requirements
+Provide a strictly formatted implementation plan following the Red/Green/Refactor TDD methodology. 
+
+Your plan MUST include:
+1. **Phase 1: RED (Failing Tests)**
+   - Define the exact test cases (e.g., in `tests_rlm_adk/test_recursive_orchestration.py`) to verify that a worker agent can successfully call `execute_code` and return a REPL-derived `FINAL_VAR`. Detail the expected assertions.
+2. **Phase 2: GREEN (Implementation Steps)**
+   - Provide explicit, line-by-line instructions and code snippets for modifying the classes and functions listed above. 
+   - Detail exactly how `RLMOrchestratorAgent` state scoping and `WorkerPool` dispatch will be handled.
+3. **Phase 3: REFACTOR (Cleanup & Hardening)**
+   - Address ADK event propagation, telemetry aggregation (how nested token counts roll up), and resource cleanup (ensuring `LocalREPL` temp dirs are reliably deleted after sub-agent execution).
+   - Address any concurrency or process-lock (`_EXEC_LOCK`) concerns with nested REPLs.
+
+Ensure your instructions are precise, actionable, and ready to be executed by an implementation agent. Please format the output as a clean Markdown document.",
+  "model": "gemini-3.1-pro-preview",
+  "subagent_type": "planning",
+  "name": "orchestrator-as-worker-planner"
+}

@@ -1,0 +1,201 @@
+{
+  "team": "D",
+  "demo_file": "demo_fmea_team_d.md",
+  "reviews": [
+    {
+      "fixture": "structured_output_batched_k3.json",
+      "failure_modes": ["FM-17"],
+      "rpn": 90,
+      "pathway": "P6g",
+      "fidelity": {
+        "verdict": "partial",
+        "repl_code_accuracy": "Faithful. The REPL code defines a Pydantic SentimentResult schema, calls llm_query_batched(prompts, output_schema=SentimentResult) with K=3, and aggregates results via r.parsed. This accurately exercises dispatch.py lines 364-370 (per-worker SetModelResponseTool wiring) and lines 385-388 (ParallelAgent creation for K>1). The use of r.parsed matches the LLMResult.parsed attribute populated by the dispatch closure at line 438.",
+        "response_mock_accuracy": "Accurate for happy-path. All 3 worker responses are set_model_response functionCalls with valid {sentiment, confidence} args matching the SentimentResult schema. The call_index ordering (0=reasoning, 1-3=workers, 4=reasoning) correctly represents the interleaved reasoning/worker conversation flow. However, SetModelResponseTool validates these args against the Pydantic model — the fixture relies on ADK accepting the functionCall args as valid tool input, which is realistic.",
+        "fault_injection_accuracy": "None attempted. fault_injections is an empty array. This is the critical gap: FM-17 is about the BUG-13 process-global patch under concurrent K>1, but no worker in the fixture actually triggers a retry. All 3 workers succeed on their first set_model_response call, so the REFLECT_AND_RETRY_RESPONSE_TYPE sentinel is never generated, and the _retry_aware_get_structured_model_response patch (worker_retry.py:175-193) never executes its suppression branch (the 'return None' at line 192).",
+        "gaps": [
+          "CRITICAL: No worker retry in the K=3 batch. The BUG-13 patch (worker_retry.py:162-200) is the core risk cited in FM-17, but the fixture only exercises the happy path where every set_model_response succeeds on the first attempt. The patch's suppression logic (detecting REFLECT_AND_RETRY_RESPONSE_TYPE and returning None) is never invoked under K>1 concurrency.",
+          "No fixture for K>1 where one worker retries while others succeed simultaneously. This is the specific scenario the FMEA calls out: 'no fixture for K>1 structured output where one worker RETRIES.' The existing K=1 retry fixtures (structured_output_retry_empty.json, structured_output_retry_validation.json) exercise the patch in isolation, but never under concurrent ParallelAgent dispatch.",
+          "No negative test: what happens if the BUG-13 patch is absent? Without a test that verifies patch invocation (e.g., asserting on _rlm_patched or counting debug log messages), there is no regression safety net for ADK upgrades that change _output_schema_processor.",
+          "No verification of _structured_result on individual worker agents. The test asserts on aggregated FINAL_ANSWER and WORKER_DISPATCH_COUNT but never inspects whether each worker's _structured_result attribute was correctly populated by after_tool_cb (worker_retry.py:106-107)."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "WORKER_DISPATCH_COUNT",
+          "FINAL_ANSWER",
+          "LAST_REPL_RESULT",
+          "ITERATION_COUNT (implicitly via contract)"
+        ],
+        "state_keys_missing": [
+          "OBS_WORKER_TOTAL_DISPATCHES — should equal 3 for K=3 batch",
+          "OBS_WORKER_TOTAL_BATCH_DISPATCHES — should equal 1 (one batch of 3)",
+          "OBS_WORKER_DISPATCH_LATENCY_MS — should have exactly 1 entry (one batch)",
+          "worker_N_output (per-worker output_key) — not checked for correct structured JSON"
+        ],
+        "assertions_tested": [
+          "test_contract: final_answer matches, total_iterations==1, total_model_calls==5",
+          "test_all_workers_produced_results: WORKER_DISPATCH_COUNT==3, '2 positive' in FINAL_ANSWER, '1 negative' in FINAL_ANSWER",
+          "test_with_plugins_no_crash: events non-empty, REPL snapshots contain trace_summary",
+          "test_tool_result_marks_llm_calls: at least one function_response has llm_calls_made=True"
+        ],
+        "assertions_missing": [
+          "No assertion that the BUG-13 patch was invoked (e.g., _rlm_patched flag on _osp.get_structured_model_response, or logger.debug output containing 'BUG-13 patch: suppressing')",
+          "No assertion on LLMResult.parsed being non-None for each of the 3 results — only the aggregated FINAL_ANSWER is checked",
+          "No assertion that _structured_result was written on each worker agent object by after_tool_cb",
+          "No assertion on individual worker output_key state values containing valid JSON matching SentimentResult schema",
+          "No assertion on OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1 (confirms ParallelAgent path was used, not K single-dispatches)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:364-370 (per-worker structured output wiring)",
+          "rlm_adk/dispatch.py:385-400 (ParallelAgent creation and dispatch for K>1)",
+          "rlm_adk/dispatch.py:426-439 (_structured_result extraction and LLMResult.parsed population)",
+          "rlm_adk/callbacks/worker_retry.py:91-118 (after_tool_cb capturing _structured_result)",
+          "rlm_adk/callbacks/worker_retry.py:162-200 (BUG-13 monkey-patch)",
+          "rlm_adk/tools/repl_tool.py:108-117 (has_llm_calls branch routing to async path)"
+        ],
+        "untested_code_paths": [
+          "worker_retry.py:185-192 — REFLECT_AND_RETRY_RESPONSE_TYPE suppression branch under K>1 concurrency (never triggered because no worker retries)",
+          "dispatch.py:404-410 — worker._result_ready==False (NO_RESULT) path under structured output",
+          "dispatch.py:411-423 — worker._result_error==True path under structured output with K>1",
+          "dispatch.py:519-525 — structured output cleanup in finally block (exercised but not asserted)"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "BUG-13 patch invocation count",
+          "source": "rlm_adk/callbacks/worker_retry.py:189",
+          "rationale": "The logger.debug('BUG-13 patch: suppressing...') message is the only observable trace that the suppression branch was exercised. Capturing this log message (e.g., via caplog or a mock) would prove the patch was actually needed and invoked during the K>1 run."
+        },
+        {
+          "trace": "Per-worker _structured_result values",
+          "source": "rlm_adk/callbacks/worker_retry.py:107",
+          "rationale": "after_tool_cb writes _structured_result on the agent. Inspecting this attribute after dispatch (before the finally block clears it at dispatch.py:524-525) would confirm that each worker's structured output was captured independently, not cross-contaminated between concurrent workers."
+        },
+        {
+          "trace": "OBS_WORKER_TOTAL_BATCH_DISPATCHES",
+          "source": "rlm_adk/dispatch.py:335,551-552",
+          "rationale": "This accumulator is incremented only when K>1, confirming the ParallelAgent path was used. A value of 1 proves the 3 workers ran as a single parallel batch, not as 3 sequential single-dispatches."
+        },
+        {
+          "trace": "get_structured_model_response call count",
+          "source": "rlm_adk/callbacks/worker_retry.py:176 (_original call)",
+          "rationale": "Counting how many times the patched function is called (and how many times it returns None vs. a result string) would reveal whether the postprocessor was invoked for all 3 workers and whether any suppression occurred."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "new_fixture",
+          "action": "Create structured_output_batched_k3_with_retry.json: K=3 batch where worker 2 has an empty field on first set_model_response (triggering WorkerRetryPlugin), then retries successfully, while workers 1 and 3 succeed on their first attempt. This exercises the BUG-13 suppression branch under concurrent ParallelAgent dispatch — the core risk in FM-17."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add an assertion in TestStructuredOutputBatchedK3 that verifies the BUG-13 patch is installed: import google.adk.flows.llm_flows._output_schema_processor as _osp; assert getattr(_osp.get_structured_model_response, '_rlm_patched', False). This is a minimal regression guard against ADK upgrades that replace the module."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1 in test_all_workers_produced_results to confirm the ParallelAgent path was used (not K sequential single-dispatches)."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on individual LLMResult.parsed values by inspecting the REPL stdout (which prints each review's parsed dict). Assert 'positive' appears twice and 'negative' appears once in the tool_response stdout, not just in FINAL_ANSWER."
+        },
+        {
+          "priority": "low",
+          "type": "fixture_fix",
+          "action": "Consider adding a 7th response (total_model_calls=7) variant where one worker also fails with a ValidationError (missing field) to exercise the on_tool_error_cb path under K>1 concurrency. This would cover dispatch.py:411-423 (error path with structured output)."
+        }
+      ]
+    },
+    {
+      "fixture": "max_iterations_exceeded.json",
+      "failure_modes": ["FM-03"],
+      "rpn": 30,
+      "pathway": "P2d",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "Accurate. Three execute_code calls with simple arithmetic (x=10, y=x+20, print(y)) correctly exercise the REPLTool._call_count progression: calls 1 and 2 are within the limit (max_calls=2), call 3 exceeds the limit. The code is appropriately simple — the focus is on the call limit mechanism, not REPL code complexity.",
+        "response_mock_accuracy": "Accurate. The config sets max_iterations=2 which maps to REPLTool(max_calls=2) via create_rlm_app's config wiring. call_index=2 (the 3rd execute_code) correctly triggers the limit check at repl_tool.py:84 (_call_count=3 > _max_calls=2). call_index=3 is a text response with FINAL(...) — the model correctly responds to the limit message by wrapping up.",
+        "fault_injection_accuracy": "N/A — no fault injection needed. The failure mode is a design-level advisory limit, not an error injection scenario. The fixture correctly tests the normal-operation path where the model exceeds the limit.",
+        "gaps": [
+          "No test of the scenario where the model IGNORES the limit message and makes a 4th execute_code call. This is the residual risk identified in FM-03: 'Infinite loop if model ignores the message.' A fixture showing the model calling execute_code a 4th time (receiving the same limit message again) would demonstrate the advisory-only nature and quantify the risk.",
+          "The fixture uses max_retries=0 in config but the test does not verify this is wired correctly. The max_retries config is for the orchestrator retry loop, not the call limit, but including it may confuse readers."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "ITERATION_COUNT (asserted == 3 in test_limit_enforced)",
+          "FINAL_ANSWER (asserted contains 'Completed with limit' in test_final_answer_acknowledges_limit)"
+        ],
+        "state_keys_missing": [
+          "LAST_REPL_RESULT — should verify the 3rd call's last_repl_result has has_errors==True (since stderr is non-empty with the limit message)",
+          "OBS_TOTAL_CALLS — not checked but would confirm total reasoning API calls == 4"
+        ],
+        "assertions_tested": [
+          "test_contract: final_answer=='Completed with limit', total_iterations==3, total_model_calls==4",
+          "test_limit_enforced: ITERATION_COUNT==3 (blocked call still increments counter)",
+          "test_limit_message_in_stderr: 3rd function_response stderr contains 'REPL call limit reached'",
+          "test_final_answer_acknowledges_limit: FINAL_ANSWER contains 'Completed with limit'"
+        ],
+        "assertions_missing": [
+          "No assertion that the 3rd call returned empty stdout (code was NOT executed). The test checks stderr but not that stdout=='' on the blocked call.",
+          "No assertion that the 3rd call returned llm_calls_made==False (no LLM dispatch occurred on the blocked call).",
+          "No assertion that call_number==3 in the 3rd function_response dict (confirming the counter value).",
+          "No assertion that the 1st and 2nd calls had empty stderr (confirming they executed successfully before the limit).",
+          "No assertion on variables=={} in the 3rd function_response (blocked call should return no variables)."
+        ],
+        "source_code_refs": [
+          "rlm_adk/tools/repl_tool.py:27 (_CALL_LIMIT_MSG constant)",
+          "rlm_adk/tools/repl_tool.py:81-91 (call limit check in run_async)",
+          "rlm_adk/tools/repl_tool.py:83 (ITERATION_COUNT state write)"
+        ],
+        "untested_code_paths": [
+          "repl_tool.py:84-91 return dict fields beyond stderr — stdout, variables, llm_calls_made, call_number are all returned but only stderr is asserted",
+          "The scenario where _call_count exceeds _max_calls by >1 (model keeps calling after limit) — no fixture tests repeated limit-exceeded calls"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "call_number field in blocked function_response",
+          "source": "rlm_adk/tools/repl_tool.py:90",
+          "rationale": "Asserting call_number==3 on the blocked response confirms the counter progressed correctly and matches ITERATION_COUNT==3 in state. This ties the function_response payload to the state key, providing end-to-end verification of the accounting."
+        },
+        {
+          "trace": "stdout emptiness on blocked call",
+          "source": "rlm_adk/tools/repl_tool.py:86",
+          "rationale": "Asserting stdout=='' on the 3rd tool result confirms the code was NOT executed. Without this, a bug that executes the code AND returns the limit message would pass the test."
+        },
+        {
+          "trace": "LAST_REPL_RESULT.has_errors for blocked call",
+          "source": "rlm_adk/tools/repl_tool.py:140-141",
+          "rationale": "The blocked call returns stderr with the limit message, so LAST_REPL_RESULT should have has_errors==True. This confirms observability plugins see the limit as an error condition."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertions on the 3rd tool_result's stdout=='' and llm_calls_made==False to confirm code was not executed on the blocked call. Currently only stderr is checked, so a bug that executes code AND returns the limit message would pass."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create max_iterations_exceeded_persistent.json: max_calls=2, model makes 4 execute_code calls (ignoring the limit message twice), then returns FINAL. This tests the residual risk that the model ignores the advisory limit and demonstrates the lack of a hard stop mechanism."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertions on 1st and 2nd tool results having empty stderr to confirm successful execution before the limit was hit. This establishes the baseline: calls within the limit execute normally."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Remove max_retries=0 from fixture config or add a comment explaining it is for the orchestrator retry loop (not the call limit), to avoid reader confusion."
+        }
+      ]
+    }
+  ]
+}

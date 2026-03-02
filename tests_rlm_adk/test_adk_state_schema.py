@@ -19,17 +19,13 @@ from rlm_adk.state import (
     CACHE_LAST_HIT_KEY,
     CACHE_MISS_COUNT,
     CACHE_STORE,
-    CURRENT_CODE_BLOCKS,
     CURRENT_DEPTH,
     FINAL_ANSWER,
-    HISTORY_COUNT,
     IDEMPOTENCY_KEY,
     INVOCATION_START_TIME,
     ITERATION_COUNT,
-    LAST_REASONING_RESPONSE,
     LAST_REPL_RESULT,
     MESSAGE_HISTORY,
-    OBS_ITERATION_TIMES,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_EXECUTION_TIME,
@@ -40,9 +36,6 @@ from rlm_adk.state import (
     REQUEST_ID,
     SHOULD_STOP,
     USER_LAST_SUCCESSFUL_CALL_ID,
-    VALIDATION_ERRORS,
-    VALIDATION_PASS,
-    message_history_key,
     obs_model_usage_key,
 )
 
@@ -62,17 +55,12 @@ class TestStateScopeConventions:
             SHOULD_STOP,
             POLICY_VIOLATION,
             MESSAGE_HISTORY,
-            CURRENT_CODE_BLOCKS,
             LAST_REPL_RESULT,
             FINAL_ANSWER,
-            LAST_REASONING_RESPONSE,
             INVOCATION_START_TIME,
             REASONING_CALL_START,
-            VALIDATION_PASS,
-            VALIDATION_ERRORS,
             REQUEST_ID,
             IDEMPOTENCY_KEY,
-            HISTORY_COUNT,
         ]
         for key in session_keys:
             assert ":" not in key, f"{key} should not contain ':' (session-scoped)"
@@ -85,7 +73,6 @@ class TestStateScopeConventions:
             OBS_TOTAL_INPUT_TOKENS,
             OBS_TOTAL_OUTPUT_TOKENS,
             OBS_TOTAL_CALLS,
-            OBS_ITERATION_TIMES,
             OBS_TOOL_INVOCATION_SUMMARY,
             OBS_TOTAL_EXECUTION_TIME,
         ]
@@ -105,10 +92,6 @@ class TestDynamicKeyGenerators:
         key = obs_model_usage_key("gemini-2.5-flash")
         assert key == "obs:model_usage:gemini-2.5-flash"
         assert key.startswith("obs:")
-
-    def test_message_history_key(self):
-        assert message_history_key(0) == "message_history_0"
-        assert message_history_key(3) == "message_history_3"
 
 
 class TestStateValueSerializability:

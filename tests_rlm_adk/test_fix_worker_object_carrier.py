@@ -1,11 +1,10 @@
 """Tests for worker-object result carrier pattern (Fixes 1+2+6).
 
 After worker_after_model runs, results must be written directly onto the
-worker agent object (_result, _result_ready, _result_usage) rather than
+worker agent object (_result, _result_ready, _call_record) rather than
 relying on state dirty-reads.
 
 Also tests:
-- worker_before_model stores _prompt_chars and _content_count on agent
 - worker_on_model_error callback produces graceful error result
 - The list-append token accounting code is REMOVED from callbacks
 """
@@ -92,12 +91,15 @@ class TestWorkerAfterModelSetsAgentAttributes:
         worker_after_model(ctx, response)
         assert agent._result_ready is True
 
-    def test_sets_result_usage_on_agent(self):
+    def test_sets_call_record_on_agent(self):
         agent = _make_agent(name="worker_1")
         ctx = _make_callback_context(state={}, agent=agent)
         response = _make_llm_response_with_usage("hello", 100, 50)
         worker_after_model(ctx, response)
-        assert agent._result_usage == {"input_tokens": 100, "output_tokens": 50}
+        assert agent._call_record["input_tokens"] == 100
+        assert agent._call_record["output_tokens"] == 50
+        assert agent._call_record["response"] == "hello"
+        assert agent._call_record["error"] is False
 
     def test_still_writes_to_output_key_in_state(self):
         """The callback_context.state[output_key] write must be preserved for ADK persistence."""
@@ -107,24 +109,6 @@ class TestWorkerAfterModelSetsAgentAttributes:
         response = _make_llm_response_with_usage("result text", 100, 50)
         worker_after_model(ctx, response)
         assert state["worker_1_output"] == "result text"
-
-
-class TestWorkerBeforeModelSetsAgentAttributes:
-    """worker_before_model must store _prompt_chars and _content_count on agent object."""
-
-    def test_sets_prompt_chars_on_agent(self):
-        agent = _make_agent(name="worker_1", prompt="test prompt")
-        ctx = _make_callback_context(state={}, agent=agent)
-        request = _make_llm_request_with_content("test prompt")
-        worker_before_model(ctx, request)
-        assert agent._prompt_chars == len("test prompt")
-
-    def test_sets_content_count_on_agent(self):
-        agent = _make_agent(name="worker_1", prompt="test prompt")
-        ctx = _make_callback_context(state={}, agent=agent)
-        request = _make_llm_request_with_content("test prompt")
-        worker_before_model(ctx, request)
-        assert agent._content_count == 1
 
 
 class TestWorkerCallbacksNoListAppendAccounting:
@@ -184,7 +168,9 @@ class TestWorkerOnModelErrorCallback:
         assert agent._result_error is True
         assert "RuntimeError" in agent._result
         assert "LLM service unavailable" in agent._result
-        assert agent._result_usage == {"input_tokens": 0, "output_tokens": 0}
+        assert agent._call_record["input_tokens"] == 0
+        assert agent._call_record["output_tokens"] == 0
+        assert agent._call_record["error"] is True
 
     def test_returns_llm_response_with_error_text(self):
         agent = _make_agent(name="worker_1")

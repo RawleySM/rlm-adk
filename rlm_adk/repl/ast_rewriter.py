@@ -10,7 +10,6 @@ If no LM calls, code runs synchronously via regular exec().
 """
 
 import ast
-from typing import Any
 
 
 def has_llm_calls(code: str) -> bool:
@@ -229,19 +228,3 @@ def rewrite_for_async(code: str) -> ast.Module:
     return new_module
 
 
-def compile_repl_code(code: str) -> tuple[Any, bool]:
-    """Compile REPL code, handling both sync and async cases.
-
-    If the code contains llm_query/llm_query_batched calls, it is
-    AST-rewritten to an async function wrapper. Otherwise it is
-    compiled as regular synchronous code.
-
-    Returns:
-        (compiled_code, is_async): The compiled code object and whether
-        it needs async execution via _repl_exec().
-    """
-    if has_llm_calls(code):
-        rewritten = rewrite_for_async(code)
-        return compile(rewritten, "<repl>", "exec"), True
-    else:
-        return compile(code, "<repl>", "exec"), False

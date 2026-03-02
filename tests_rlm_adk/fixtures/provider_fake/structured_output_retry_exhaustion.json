@@ -1,0 +1,180 @@
+{
+  "scenario_id": "structured_output_retry_exhaustion",
+  "description": "FM-16 (RPN=50): Single worker dispatch with output_schema where ALL retry attempts fail validation. Worker attempt 1: set_model_response missing required 'confidence' field triggers ValidationError. Worker attempt 2 (retry): set_model_response with empty summary triggers WorkerRetryPlugin. Worker attempt 3 (final retry): set_model_response still missing 'confidence' exhausts max_retries=2. After exhaustion _structured_result stays None; dispatch FM-16 fix detects output_schema!=None and structured==None, returns LLMResult(error=True, error_category='SCHEMA_VALIDATION_EXHAUSTED'). REPL code checks result.error and reports the exhaustion. Then reasoning returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 2
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning emits execute_code with llm_query using output_schema=AnalysisResult",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass AnalysisResult(BaseModel):\n    summary: str\n    confidence: float\n\nresult = llm_query(\"Analyze the market trends\", output_schema=AnalysisResult)\nif result.error:\n    print(f\"Schema validation exhausted: {result}\")\nelse:\n    print(f\"Summary: {result.parsed['summary']}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker attempt 1: set_model_response MISSING 'confidence' field triggers ValidationError, ADK sends reflection guidance",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Market trends show growth"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Worker attempt 2 (retry): set_model_response with empty summary triggers WorkerRetryPlugin empty-value detection",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "",
+                      "confidence": 0.75
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 80,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 95
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Worker attempt 3 (final retry): set_model_response STILL missing 'confidence', max_retries=2 exhausted, worker loop ends with _structured_result=None",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Revised analysis indicates growth"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 110,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 125
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result reporting schema validation exhaustion, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The structured output request failed after exhausting all retry attempts. The worker could not produce a valid AnalysisResult schema.\n\nFINAL(Schema validation exhausted: worker failed to produce valid output)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 450,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 485
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Schema validation exhausted: worker failed to produce valid output",
+    "total_iterations": 1,
+    "total_model_calls": 5
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "scenario_id": "reasoning_safety_finish",
+  "description": "FM-24 (RPN=48): Reasoning agent's FIRST response has finishReason=SAFETY with empty text. The safety filter blocks the reasoning model on its very first turn, before any REPL execution. The orchestrator detects the empty final_answer and yields an [RLM ERROR] event. Tests the FM-24 pathway at reasoning level (not worker level).",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent's first response is safety-blocked. finishReason=SAFETY, empty text. No REPL execution occurs. ADK stores '' in output_key 'reasoning_output'. Orchestrator detects empty final_answer and yields error.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": ""
+                }
+              ]
+            },
+            "finishReason": "SAFETY"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 0,
+          "totalTokenCount": 150
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "[RLM ERROR] Reasoning agent completed without producing a structured final answer. Check output_schema wiring.",
+    "total_iterations": 0,
+    "total_model_calls": 1
+  }
+}

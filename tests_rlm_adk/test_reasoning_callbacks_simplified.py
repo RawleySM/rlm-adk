@@ -95,24 +95,6 @@ class TestSimplifiedBeforeModel:
             if c.parts
         )
 
-    def test_does_inject_contents_in_legacy_mode(self):
-        """In legacy mode (no tools), callback injects message_history into contents."""
-        state = {
-            MESSAGE_HISTORY: [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi"},
-            ],
-        }
-        ctx = _make_callback_context(state, tool_calling=False)
-        request = LlmRequest(model="test", contents=[])
-
-        reasoning_before_model(ctx, request)
-
-        # Legacy mode: contents injected from message_history
-        assert len(request.contents) == 2
-        assert request.contents[0].role == "user"
-        assert request.contents[1].role == "model"
-
     def test_still_writes_system_instruction(self):
         """System instruction merge (static + dynamic) should still happen."""
         state = {MESSAGE_HISTORY: []}

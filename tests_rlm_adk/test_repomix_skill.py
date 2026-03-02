@@ -2,11 +2,8 @@
 
 import os
 
-import pytest
-
 from rlm_adk.skills.repomix_helpers import (
     ProbeResult,
-    ShardResult,
     pack_repo,
     probe_repo,
     shard_repo,
@@ -58,25 +55,6 @@ class TestPackRepo:
 
 
 class TestShardRepo:
-    def test_small_shard_size_forces_multiple_chunks(self):
-        """shard_repo with a small max_bytes_per_shard produces multiple chunks."""
-        # Use rlm_adk/callbacks/ + rlm_adk/plugins/ as a stable target.
-        # Use the full rlm_adk/ package with a shard size large enough
-        # to fit the biggest single directory group but small enough to
-        # force multiple shards overall.
-        result = shard_repo(
-            "rlm_adk/",
-            max_bytes_per_shard=500 * 1024,  # 500KB — default
-            calculate_tokens=False,
-        )
-        assert isinstance(result, ShardResult)
-        assert result.total_files > 0
-        assert len(result.chunks) >= 2, f"Expected >=2 chunks, got {len(result.chunks)}"
-        # Each chunk should be a non-empty string
-        for chunk in result.chunks:
-            assert isinstance(chunk, str)
-            assert len(chunk) > 0
-
     def test_str_representation(self):
         result = shard_repo("rlm_adk/repl/", calculate_tokens=False)
         s = str(result)

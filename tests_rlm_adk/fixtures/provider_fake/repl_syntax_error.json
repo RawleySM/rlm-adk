@@ -1,0 +1,110 @@
+{
+  "scenario_id": "repl_syntax_error",
+  "description": "FM-04 (RPN=10, critical gap): Iteration 1: model generates syntactically invalid Python (missing closing paren). REPL returns SyntaxError in stderr. Iteration 2: model corrects the code and prints result. Iteration 3: reasoning returns FINAL with corrected answer.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "x = int(\"42\""
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 220
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "x = int(\"42\")\nprint(f\"Syntax fixed: {x}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 380
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The syntax error has been corrected and the code executed successfully.\n\nFINAL(Syntax fixed: 42)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 450,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 475
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Syntax fixed: 42",
+    "total_iterations": 2,
+    "total_model_calls": 3
+  }
+}

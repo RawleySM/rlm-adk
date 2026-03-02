@@ -1,0 +1,249 @@
+{
+  "team": "C",
+  "demo_file": "demo_fmea_team_c.md",
+  "reviews": [
+    {
+      "fixture": "repl_error_then_retry.json",
+      "failure_modes": ["FM-05", "FM-14", "FM-23"],
+      "rpn": 96,
+      "pathway": "P4b/P7",
+      "fidelity": {
+        "verdict": "partial",
+        "repl_code_accuracy": "The REPL code correctly raises a KeyError at line 5 (data[\"nonexistent_key\"]) after a successful llm_query dispatch at line 2. The iteration 2 code correctly re-dispatches llm_query and uses the correct key. This accurately exercises FM-05 (RuntimeError in async path).",
+        "response_mock_accuracy": "Worker responses are realistic: valid JSON strings with plausible structure. The reasoning model responses correctly show function_call -> error observation -> corrected function_call -> FINAL flow. Model call count (5) is correct: 2 reasoning + 2 worker + 1 final reasoning.",
+        "fault_injection_accuracy": "CRITICAL FIDELITY ERROR for FM-14: The demo claims flush_fn is skipped because the except block at repl_tool.py:120-127 returns early. This is INCORRECT for this fixture. The KeyError occurs inside _repl_exec(), which is caught by execute_code_async's own except handler at local_repl.py:361. execute_code_async returns a normal REPLResult (with error in stderr). Back in repl_tool.py, the result assignment at line 117 succeeds normally, and flush_fn() at lines 131-135 IS reached. The repl_tool.py except block (line 120) is only triggered by exceptions that escape execute_code_async entirely (e.g., asyncio.CancelledError, or errors in compile/exec/rewrite_for_async before execute_code_async is called). The fixture does NOT exercise FM-14.",
+        "gaps": [
+          "FM-14 is NOT triggered by this fixture. The KeyError is caught inside local_repl.py:execute_code_async, not in repl_tool.py:run_async. flush_fn IS called for iteration 1, so there is no accumulator carry-over or double-counting.",
+          "To actually trigger FM-14, the fixture would need an exception that propagates out of execute_code_async -- such as asyncio.CancelledError (which bypasses except Exception), or an error in compile()/exec() of the AST-rewritten code before execute_code_async is invoked.",
+          "The demo's entire 'Key Observation: FM-14 flush_fn Skip' section (lines 144-153) is based on a misunderstanding of the two-layer exception handling: local_repl.py catches user-code exceptions, repl_tool.py catches infrastructure exceptions.",
+          "FM-23 (variable persistence) IS correctly exercised: the async path's except handler at local_repl.py:361 skips the self.locals update (lines 353-356 are unreachable), so variables from iteration 1 are lost. However, no test asserts on this -- the model simply re-dispatches llm_query in iteration 2, which is the correct behavioral outcome but does not verify the mechanism."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "iteration_count",
+          "final_answer"
+        ],
+        "state_keys_missing": [
+          "worker_dispatch_count (no assertion on dispatch accounting for error+retry iterations)",
+          "obs:worker_dispatch_latency_ms (no assertion on per-iteration latency list length)",
+          "obs:worker_total_dispatches (no assertion on total dispatch count)",
+          "last_repl_result (no assertion on has_errors=True for iteration 1's REPL snapshot)"
+        ],
+        "assertions_tested": [
+          "ITERATION_COUNT == 2",
+          "KeyError appears in first tool_response stderr",
+          "alpha-42 appears in FINAL_ANSWER",
+          "Contract: final_answer, total_iterations, total_model_calls"
+        ],
+        "assertions_missing": [
+          "WORKER_DISPATCH_COUNT == 2 (one dispatch per iteration, both flushed correctly since FM-14 is not actually triggered)",
+          "OBS_WORKER_DISPATCH_LATENCY_MS list length == 2 (one latency entry per iteration)",
+          "First tool_response variables == {} (FM-23: no variables returned on error)",
+          "Second tool_response variables contains 'data' and 'value' keys (proving re-execution succeeded)",
+          "First tool_response llm_calls_made == True (confirms async path was taken)",
+          "LAST_REPL_RESULT.has_errors == True for iteration 1 (observability plugin would see this)",
+          "No assertion that iteration 1's flush_fn DID execute (which would disprove FM-14 for this fixture)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/tools/repl_tool.py:107-135 (try/except/flush_fn flow)",
+          "rlm_adk/repl/local_repl.py:346-382 (execute_code_async with internal exception handling)",
+          "rlm_adk/dispatch.py:538-557 (flush_fn accumulator reset)"
+        ],
+        "untested_code_paths": [
+          "repl_tool.py:120-127 (the outer except block that would actually skip flush_fn -- NOT triggered by this fixture)",
+          "The actual FM-14 path requires an exception escaping execute_code_async, which this fixture does not produce",
+          "Variable serialization at repl_tool.py:152-159 on error iteration (result.locals should be empty or stale)"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "WORKER_DISPATCH_COUNT per iteration",
+          "source": "rlm_adk/dispatch.py:546-548",
+          "rationale": "Asserting WORKER_DISPATCH_COUNT == 2 would prove that flush_fn executed for BOTH iterations (disproving FM-14 for this fixture). If FM-14 were real, the count would be 0 after iteration 1 (unflushed) and 2 after iteration 2 (double-flushed)."
+        },
+        {
+          "trace": "OBS_WORKER_DISPATCH_LATENCY_MS list",
+          "source": "rlm_adk/dispatch.py:549",
+          "rationale": "The latency list length reveals how many flush_fn calls occurred. Length 2 = both iterations flushed (FM-14 not triggered). Length 1 = only iteration 2 flushed (FM-14 triggered). This is the most direct observable for FM-14."
+        },
+        {
+          "trace": "tool_response.variables for iteration 1",
+          "source": "rlm_adk/tools/repl_tool.py:152-159",
+          "rationale": "On the error path, execute_code_async returns result.locals which is self.locals.copy() -- but self.locals was NOT updated (FM-23). Asserting variables == {} for iteration 1 directly proves FM-23."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "fixture_fix",
+          "action": "The demo incorrectly claims FM-14 is exercised. The fixture needs to be split: (1) keep the current fixture for FM-05/FM-23 only, and (2) create a NEW fixture that actually triggers FM-14. To trigger FM-14, the REPL code must cause an exception that escapes execute_code_async -- for example, inject asyncio.CancelledError via a custom async function, or cause compile() to fail on the AST-rewritten code (not on the original, since has_llm_calls must succeed)."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on WORKER_DISPATCH_COUNT == 2 to TestReplErrorThenRetry. This proves flush_fn ran for both iterations and disproves FM-14 for this fixture. Also add assertion on len(OBS_WORKER_DISPATCH_LATENCY_MS) == 2."
+        },
+        {
+          "priority": "high",
+          "type": "new_fixture",
+          "action": "Create repl_cancelled_during_async.json that triggers asyncio.CancelledError during execute_code_async to actually exercise FM-14. This requires the fake server to support delay injection (noted as a gap in FM-10 FMEA entry) or a different injection mechanism."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on first tool_response variables == {} to verify FM-23 (variable persistence loss). Currently the test only checks that the model retried and succeeded, not that variables were actually lost."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on first tool_response llm_calls_made == True to confirm the async path (P4b) was taken, not the sync path."
+        },
+        {
+          "priority": "low",
+          "type": "fixture_fix",
+          "action": "Update the demo markdown to correct the FM-14 analysis. The 'Key Observation: FM-14 flush_fn Skip' section is factually wrong for this fixture and should explain the two-layer exception handling architecture instead."
+        }
+      ]
+    },
+    {
+      "fixture": "repl_syntax_error.json",
+      "failure_modes": ["FM-04"],
+      "rpn": 10,
+      "pathway": "P4a",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The code 'x = int(\"42\"' is a valid SyntaxError trigger (missing closing parenthesis). has_llm_calls() will call ast.parse() which raises SyntaxError, returning False. The code is correctly routed to the sync execute_code() path (P4a). The corrected iteration 2 code 'x = int(\"42\")\\nprint(f\"Syntax fixed: {x}\")' is syntactically valid and produces the expected output.",
+        "response_mock_accuracy": "Realistic 3-call sequence: (1) reasoning emits broken code, (2) reasoning sees SyntaxError in stderr and emits corrected code, (3) reasoning returns FINAL. Token counts are plausible. No worker calls needed (correct, since there are no llm_query calls).",
+        "fault_injection_accuracy": "N/A -- no fault injection needed. The SyntaxError is inherent in the REPL code itself.",
+        "gaps": [
+          "Minor: The fixture does not test the case where has_llm_calls() receives syntactically invalid code that ALSO contains 'llm_query' as a string token. In that case, has_llm_calls returns False (due to ast.parse failure), the code goes to sync path, and the sync exec() raises SyntaxError. This edge case is covered by the same mechanism but not explicitly demonstrated."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "iteration_count",
+          "final_answer"
+        ],
+        "state_keys_missing": [
+          "last_repl_result (no assertion on has_errors=True for iteration 1)",
+          "worker_dispatch_count (should be 0 or absent -- confirming no worker involvement)"
+        ],
+        "assertions_tested": [
+          "ITERATION_COUNT == 2",
+          "SyntaxError appears in first tool_response stderr",
+          "Second tool_response stderr is empty (no errors on corrected code)",
+          "Contract: final_answer, total_iterations, total_model_calls"
+        ],
+        "assertions_missing": [
+          "First tool_response llm_calls_made == False (confirms sync path was taken, not async)",
+          "First tool_response variables == {} (no variables created because exec() failed before any assignment)",
+          "Second tool_response variables contains 'x' with value 42 (proves variable persistence works on success after error)",
+          "WORKER_DISPATCH_COUNT == 0 or absent (no workers dispatched in this scenario)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/repl/ast_rewriter.py:15-36 (has_llm_calls returns False on SyntaxError)",
+          "rlm_adk/repl/local_repl.py:278-304 (sync execute_code except handler)",
+          "rlm_adk/tools/repl_tool.py:118-119 (sync branch in run_async)"
+        ],
+        "untested_code_paths": [
+          "The case where SyntaxError code also contains llm_query string -- routed to sync path because ast.parse fails",
+          "Variable state after SyntaxError: self.locals should be unchanged (no partial updates)"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "tool_response.llm_calls_made",
+          "source": "rlm_adk/tools/repl_tool.py:165",
+          "rationale": "Asserting llm_calls_made == False on both iterations confirms that SyntaxError code correctly falls through to the sync path and never triggers the AST rewriter."
+        },
+        {
+          "trace": "tool_response.variables after error vs after success",
+          "source": "rlm_adk/tools/repl_tool.py:152-159",
+          "rationale": "Comparing variables={} on error iteration vs variables={'x': 42} on success iteration demonstrates that SyntaxError causes zero state damage (no partial exec)."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertion on first tool_response llm_calls_made == False and variables == {} to explicitly verify the sync-path routing and zero-state-damage property of SyntaxError."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertion on second tool_response variables containing 'x' to verify that successful execution after SyntaxError properly populates the REPL namespace."
+        }
+      ]
+    },
+    {
+      "fixture": "repl_runtime_error.json",
+      "failure_modes": ["FM-05"],
+      "rpn": 24,
+      "pathway": "P4a",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The code 'result = undefined_variable + \" world\"' correctly raises NameError (a RuntimeError subclass scenario). has_llm_calls() returns False (no llm_query calls), so code is routed to sync execute_code() (P4a). The corrected iteration 2 code defines the variable first and produces the expected output. This is a clean FM-05 exercise without compounding FM-14/FM-23 factors.",
+        "response_mock_accuracy": "Realistic 3-call sequence matching the sync-path error recovery pattern. No worker calls (correct). Token counts are plausible and increasing (reflecting growing conversation history).",
+        "fault_injection_accuracy": "N/A -- no fault injection needed. The NameError is inherent in the REPL code.",
+        "gaps": [
+          "The fixture uses a single-statement NameError where exec() fails on the FIRST statement, so no partial state exists. A more revealing FM-05 test would use multi-statement code where earlier statements succeed before the error (e.g., 'x = 42\\nresult = undefined_variable + \" world\"'). In the sync path, the combined dict would contain x=42 but the except handler skips self.locals update, so x would NOT persist. This partial-state behavior is the more interesting FM-05 variant but is not exercised.",
+          "The demo correctly notes this distinction ('the sync path is slightly safer for simple errors like NameError') but the fixture does not demonstrate the partial-state variant."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "iteration_count",
+          "final_answer"
+        ],
+        "state_keys_missing": [
+          "last_repl_result (no assertion on has_errors=True for iteration 1)",
+          "worker_dispatch_count (should be 0 or absent)"
+        ],
+        "assertions_tested": [
+          "ITERATION_COUNT == 2",
+          "NameError appears in first tool_response stderr",
+          "hello world appears in FINAL_ANSWER",
+          "Contract: final_answer, total_iterations, total_model_calls"
+        ],
+        "assertions_missing": [
+          "First tool_response llm_calls_made == False (confirms sync path taken)",
+          "First tool_response variables == {} (no variables because exec() fails on first statement)",
+          "Second tool_response variables contains 'undefined_variable' and 'result' (proves variables persist after successful execution)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/repl/local_repl.py:278-304 (sync execute_code except handler)",
+          "rlm_adk/repl/local_repl.py:293-296 (self.locals update -- skipped on exception)"
+        ],
+        "untested_code_paths": [
+          "Sync path partial-state scenario: multi-statement code where early statements succeed but later ones fail. The combined dict would contain partial results but self.locals is not updated.",
+          "The sync except handler behavior is identical to the async path for this single-statement case, so the sync-vs-async distinction is not visible in test output."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "tool_response.variables for multi-statement partial failure",
+          "source": "rlm_adk/repl/local_repl.py:293-296",
+          "rationale": "A multi-statement fixture (e.g., 'x = 42\\ny = undefined') would show that x is in the combined dict but NOT in self.locals after the error. This would differentiate sync-path FM-05 from the trivial single-statement case."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create repl_runtime_error_partial_state.json with multi-statement code where early statements succeed before the NameError. Assert that variables from before the error do NOT persist (self.locals not updated). This exercises the more interesting partial-state variant of FM-05 in the sync path."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertion on first tool_response llm_calls_made == False and variables == {} to explicitly verify sync-path routing."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertion on second tool_response variables containing the expected keys to verify successful state population after error recovery."
+        }
+      ]
+    }
+  ]
+}

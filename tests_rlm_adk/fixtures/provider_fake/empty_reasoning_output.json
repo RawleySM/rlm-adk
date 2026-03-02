@@ -1,0 +1,79 @@
+{
+  "scenario_id": "empty_reasoning_output",
+  "description": "FM-15 (RPN=16): Reasoning agent emits one execute_code call (x = 42), then returns empty text on its final response. The orchestrator detects the missing final answer and yields an [RLM ERROR] event.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "reasoning agent calls execute_code to compute x = 42",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "x = 42\nprint(f\"x = {x}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 175
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "reasoning agent returns EMPTY text — model stopped without FINAL(). ADK stores '' in output_key 'reasoning_output'. Orchestrator detects empty final_answer and yields error.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": ""
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 0,
+          "totalTokenCount": 50
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "[RLM ERROR] Reasoning agent completed without producing a structured final answer. Check output_schema wiring.",
+    "total_iterations": 1,
+    "total_model_calls": 2
+  }
+}

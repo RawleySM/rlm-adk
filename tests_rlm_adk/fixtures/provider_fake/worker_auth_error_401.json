@@ -1,0 +1,93 @@
+{
+  "scenario_id": "worker_auth_error_401",
+  "description": "FM-28 (RPN=6): Single worker dispatch where the worker HTTP response is 401 Unauthorized. Unlike 5xx errors, 4xx ClientErrors are NOT retried by the SDK — the error propagates directly to on_model_error_callback which sets _result_error=True. REPL code checks result.error and result.error_category. The _classify_error function in worker.py maps status code 401 to 'AUTH' category, but the fake provider's ClientError may not expose .code as an integer attribute, so actual classification may be 'UNKNOWN'.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent emits execute_code with llm_query. Code checks result.error and result.error_category to detect auth failure.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Summarize the data\")\nif result.error:\n    print(f\"Worker auth error: {result} (category={result.error_category})\")\nelse:\n    print(f\"Got: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result with auth error output, returns FINAL reporting the authentication failure.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Worker encountered authentication error (401 Unauthorized).\n\nFINAL(Worker auth error: 401 unauthorized)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 375
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 1,
+      "fault_type": "http_error",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": 401,
+          "message": "Request had invalid authentication credentials.",
+          "status": "UNAUTHENTICATED"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "final_answer": "Worker auth error: 401 unauthorized",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

@@ -20,11 +20,11 @@
       "usages": [
         {
           "context": "base:ObservabilityPlugin",
-          "line": 49
+          "line": 44
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) BasePlugin\n```\n---\nBase class for creating plugins.\n\nPlugins provide a structured way to intercept and modify agent, tool, and\nLLM behaviors at critical execution points in a callback manner. While agent\ncallbacks apply to a particular agent, plugins applies globally to all\nagents added in the runner. Plugins are best used for adding custom behaviors\nlike logging, monitoring, caching, or modifying requests and responses at key\nstages.\n\nA plugin can implement one or more methods of callbacks, but should not\nimplement the same method of callback for multiple times.\n\nRelation with [Agent callbacks](https://google.github.io/adk-docs/callbacks/):\n\n\\*\\*Execution Order\\*\\*\nSimilar to Agent callbacks, Plugins are executed in the order they are\nregistered. However, Plugin and Agent Callbacks are executed sequentially,\nwith Plugins takes precedence over agent callbacks. When the callback in a\nplugin returns a value, it will short circuit all remaining plugins and\nagent callbacks, causing all remaining plugins and agent callbacks\nto be skipped.\n\n\\*\\*Change Propagation\\*\\*\nPlugins and agent callbacks can both modify the value of the input parameters,\nincluding agent input, tool input, and LLM request/response, etc. They work in\nthe exactly same way. The modifications will be visible and passed to the next\ncallback in the chain. For example, if a plugin modifies the tool input with\nbefore\\_tool\\_callback, the modified tool input will be passed to the\nbefore\\_tool\\_callback of the next plugin, and further passed to the agent\ncallbacks if not short-circuited.\n\nTo use a plugin, implement the desired callback methods and pass an instance\nof your custom plugin class to the ADK Runner.\n\nExamples:  \n&nbsp;&nbsp;&nbsp;&nbsp;A simple plugin that logs every tool call.\n\n```\n>>> class ToolLoggerPlugin(BasePlugin):\n..   def __init__(self):\n..     super().__init__(name=\"tool_logger\")\n..\n..   async def before_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict[str, Any],\ntool_context:\nToolContext\n..   ):\n..     print(f\"[{self.name}] Calling tool '{tool.name}' with args:\n{tool_args}\")\n..\n..   async def after_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict, tool_context:\nToolContext, result: dict\n..   ):\n..     print(f\"[{self.name}] Tool '{tool.name}' finished with result:\n{result}\")\n..\n>>> # Add the plugin to ADK Runner\n>>> # runner = Runner(\n>>> #     ...\n>>> #     plugins=[ToolLoggerPlugin(), AgentPolicyPlugin()],\n>>> # )\n```"
+        "markdown": "```python\n(import) BasePlugin: Unknown\n```"
       }
     },
     {
@@ -32,15 +32,15 @@
       "usages": [
         {
           "context": "param:agent",
-          "line": 62
+          "line": 57
         },
         {
           "context": "param:agent",
-          "line": 81
+          "line": 76
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) BaseAgent\n```\n---\nBase class for all agents in Agent Development Kit."
+        "markdown": "```python\n(import) BaseAgent: Unknown\n```"
       }
     },
     {
@@ -48,23 +48,23 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 63
+          "line": 58
         },
         {
           "context": "param:callback_context",
-          "line": 82
+          "line": 77
         },
         {
           "context": "param:callback_context",
-          "line": 96
+          "line": 91
         },
         {
           "context": "param:callback_context",
-          "line": 112
+          "line": 107
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) CallbackContext\n```\n---\nThe context of various callbacks within an agent run."
+        "markdown": "```python\n(import) CallbackContext: Unknown\n```"
       }
     },
     {
@@ -72,11 +72,11 @@
       "usages": [
         {
           "context": "param:llm_request",
-          "line": 97
+          "line": 92
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) LlmRequest\n```\n---\nLLM request class that allows passing in tools, output schema and system\n\ninstructions to the model.\n\nAttributes:  \n&nbsp;&nbsp;model: The model name.  \n&nbsp;&nbsp;contents: The contents to send to the model.  \n&nbsp;&nbsp;config: Additional config for the generate content request.  \n&nbsp;&nbsp;tools\\_dict: The tools dictionary.  \n&nbsp;&nbsp;cache\\_config: Context cache configuration for this request.  \n&nbsp;&nbsp;cache\\_metadata: Cache metadata from previous requests, used for cache management."
+        "markdown": "```python\n(import) LlmRequest: Unknown\n```"
       }
     },
     {
@@ -84,19 +84,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 98
+          "line": 93
         },
         {
           "context": "param:llm_response",
-          "line": 113
+          "line": 108
         },
         {
           "context": "return",
-          "line": 114
+          "line": 109
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) LlmResponse\n```\n---\nLLM response class that provides the first candidate response from the\n\nmodel if available. Otherwise, returns error code and message.\n\nAttributes:  \n&nbsp;&nbsp;content: The content of the response.  \n&nbsp;&nbsp;grounding\\_metadata: The grounding metadata of the response.  \n&nbsp;&nbsp;partial: Indicates whether the text content is part of an unfinished text  \n&nbsp;&nbsp;&nbsp;&nbsp;stream. Only used for streaming mode and when the content is plain text.  \n&nbsp;&nbsp;turn\\_complete: Indicates whether the response from the model is complete.  \n&nbsp;&nbsp;&nbsp;&nbsp;Only used for streaming mode.  \n&nbsp;&nbsp;error\\_code: Error code if the response is an error. Code varies by model.  \n&nbsp;&nbsp;error\\_message: Error message if the response is an error.  \n&nbsp;&nbsp;interrupted: Flag indicating that LLM was interrupted when generating the  \n&nbsp;&nbsp;&nbsp;&nbsp;content. Usually it's due to user interruption during a bidi streaming.  \n&nbsp;&nbsp;custom\\_metadata: The custom metadata of the LlmResponse.  \n&nbsp;&nbsp;input\\_transcription: Audio transcription of user input.  \n&nbsp;&nbsp;output\\_transcription: Audio transcription of model output.  \n&nbsp;&nbsp;avg\\_logprobs: Average log probability of the generated tokens.  \n&nbsp;&nbsp;logprobs\\_result: Detailed log probabilities for chosen and top candidate tokens."
+        "markdown": "```python\n(import) LlmResponse: Unknown\n```"
       }
     },
     {
@@ -104,15 +104,11 @@
       "usages": [
         {
           "context": "param:tool",
-          "line": 202
-        },
-        {
-          "context": "param:tool",
-          "line": 220
+          "line": 198
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) BaseTool\n```\n---\nThe base class for all tools."
+        "markdown": "```python\n(import) BaseTool: Unknown\n```"
       }
     },
     {
@@ -120,15 +116,11 @@
       "usages": [
         {
           "context": "param:tool_context",
-          "line": 204
-        },
-        {
-          "context": "param:tool_context",
-          "line": 222
+          "line": 200
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) ToolContext\n```\n---\nThe context of the tool.\n\nThis class provides the context for a tool invocation, including access to\nthe invocation context, function call ID, event actions, and authentication\nresponse. It also provides methods for requesting credentials, retrieving\nauthentication responses, listing artifacts, and searching memory.\n\nAttributes:  \n&nbsp;&nbsp;invocation\\_context: The invocation context of the tool.  \n&nbsp;&nbsp;function\\_call\\_id: The function call id of the current tool call. This id was  \n&nbsp;&nbsp;&nbsp;&nbsp;returned in the function call event from LLM to identify a function call.\nIf LLM didn't return this id, ADK will assign one to it. This id is used\nto map function call response to the original function call.  \n&nbsp;&nbsp;event\\_actions: The event actions of the current tool call.  \n&nbsp;&nbsp;tool\\_confirmation: The tool confirmation of the current tool call."
+        "markdown": "```python\n(import) ToolContext: Unknown\n```"
       }
     },
     {
@@ -136,15 +128,15 @@
       "usages": [
         {
           "context": "param:invocation_context",
-          "line": 231
+          "line": 216
         },
         {
           "context": "param:invocation_context",
-          "line": 264
+          "line": 249
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) InvocationContext\n```\n---\nAn invocation context represents the data of a single invocation of an agent.\n\nAn invocation:\n  1. Starts with a user message and ends with a final response.\n  2. Can contain one or multiple agent calls.\n  3. Is handled by runner.run\\_async().\n\nAn invocation runs an agent until it does not request to transfer to another\nagent.\n\nAn agent call:\n  1. Is handled by agent.run().\n  2. Ends when agent.run() ends.\n\nAn LLM agent call is an agent with a BaseLLMFlow.\nAn LLM agent call can contain one or multiple steps.\n\nAn LLM agent runs steps in a loop until:\n  1. A final response is generated.\n  2. The agent transfers to another agent.\n  3. The end\\_invocation is set to true by any callbacks or tools.\n\nA step:\n  1. Calls the LLM only once and yields its response.\n  2. Calls the tools and yields their responses if requested.\n\nThe summarization of the function response is considered another step, since\nit is another llm call.\nA step ends when it's done calling llm and tools, or if the end\\_invocation\nis set to true at any time.\n\n```\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 invocation \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 llm_agent_call_1 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510 \u250c\u2500 agent_call_2 \u2500\u2510\n   \u250c\u2500\u2500\u2500\u2500 step_1 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510 \u250c\u2500\u2500\u2500\u2500\u2500 step_2 \u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   [call_llm] [call_tool] [call_llm] [transfer]\n```"
+        "markdown": "```python\n(import) InvocationContext: Unknown\n```"
       }
     },
     {
@@ -152,15 +144,15 @@
       "usages": [
         {
           "context": "param:event",
-          "line": 232
+          "line": 217
         },
         {
           "context": "return",
-          "line": 233
+          "line": 218
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) Event\n```\n---\nRepresents an event in a conversation between agents and users.\n\nIt is used to store the content of the conversation, as well as the actions\ntaken by the agents like function calls, etc."
+        "markdown": "```python\n(import) Event: Unknown\n```"
       }
     }
   ]

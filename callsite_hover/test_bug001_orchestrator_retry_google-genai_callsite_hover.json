@@ -1,0 +1,41 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ac43f55a/.claude/worktrees/agent-af34eca8/tests_rlm_adk/test_bug001_orchestrator_retry.py",
+  "library": "google-genai",
+  "import_prefix": "google.genai",
+  "imported_classes": [
+    "ClientError",
+    "GenerateContentConfig",
+    "ServerError"
+  ],
+  "call_sites": [
+    {
+      "symbol": "ServerError",
+      "instances": [
+        {
+          "name": null,
+          "line": 29
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) ServerError: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "ClientError",
+      "instances": [
+        {
+          "name": null,
+          "line": 34
+        },
+        {
+          "name": "exc",
+          "line": 80
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) ClientError: Unknown\n```"
+      }
+    }
+  ],
+  "type_annotations": []
+}

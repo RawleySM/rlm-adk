@@ -9,9 +9,9 @@ Architecture:
 - llm_query_batched_async: Acquire K workers, dispatch via ParallelAgent, return K strings
 - Model routing: model=None uses depth-based default; model="X" uses specific pool
 
-State mutation discipline:
-- All state writes go through Event objects via event_queue (AR-CRIT-001).
+State mutation discipline (AR-CRIT-001):
 - Local accumulators in the closure replace ctx.session.state reads.
+- flush_fn() snapshots accumulators into tool_context.state via REPLTool.
 - Worker results are read from agent objects (_result, _result_ready) not state.
 """
 
@@ -24,7 +24,6 @@ from typing import Any
 
 from google.adk.agents import LlmAgent, ParallelAgent
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event, EventActions
 from google.adk.tools.set_model_response_tool import SetModelResponseTool
 from google.genai import types
 from google.genai.types import HttpOptions, HttpRetryOptions
@@ -36,16 +35,17 @@ from rlm_adk.callbacks.worker import (
     worker_on_model_error,
 )
 from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
-from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.trace import DataFlowTracker
-from rlm_adk.tools.repl_tool import REPLTool
 from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 from rlm_adk.state import (
-    OBS_WORKER_DIRTY_READ_MISMATCHES,
+    OBS_STRUCTURED_OUTPUT_FAILURES,
     OBS_WORKER_DISPATCH_LATENCY_MS,
+    OBS_WORKER_ERROR_COUNTS,
+    OBS_WORKER_POOL_EXHAUSTION_COUNT,
+    OBS_WORKER_RATE_LIMIT_COUNT,
+    OBS_WORKER_TIMEOUT_COUNT,
     OBS_WORKER_TOTAL_BATCH_DISPATCHES,
     OBS_WORKER_TOTAL_DISPATCHES,
-    WORKER_DIRTY_READ_COUNT,
     WORKER_DISPATCH_COUNT,
 )
 
@@ -80,6 +80,7 @@ class WorkerPool:
         self.pool_size = pool_size
         self._pools: dict[str, asyncio.Queue[LlmAgent]] = {}
         self._worker_counter = 0
+        self._pool_exhaustion_count = 0
 
     def register_model(self, model_name: str, pool_size: int | None = None):
         """Register a model and create its worker pool.
@@ -141,12 +142,7 @@ class WorkerPool:
         # Result carrier attributes (written by after_model / on_model_error callbacks)
         worker._result = None  # type: ignore[attr-defined]
         worker._result_ready = False  # type: ignore[attr-defined]
-        worker._result_usage = {"input_tokens": 0, "output_tokens": 0}  # type: ignore[attr-defined]
         worker._result_error = False  # type: ignore[attr-defined]
-
-        # Prompt metrics (written by before_model callback)
-        worker._prompt_chars = 0  # type: ignore[attr-defined]
-        worker._content_count = 0  # type: ignore[attr-defined]
 
         # Call record (written by after_model / on_model_error callbacks)
         worker._call_record = None  # type: ignore[attr-defined]
@@ -175,8 +171,10 @@ class WorkerPool:
             return self._pools[target_model].get_nowait()
         except asyncio.QueueEmpty:
             # Pool exhausted — create a worker on demand to avoid deadlock
+            self._pool_exhaustion_count += 1
             logger.info(
-                "Pool '%s' exhausted, creating worker on demand", target_model
+                "Pool '%s' exhausted, creating worker on demand (exhaustion_count=%d)",
+                target_model, self._pool_exhaustion_count,
             )
             return self._create_worker(target_model)
 
@@ -215,15 +213,6 @@ class WorkerPool:
 _WORKER_DISPATCH_TIMEOUT = float(os.getenv("RLM_WORKER_TIMEOUT", "180"))
 
 
-async def _drain_events(
-    run_iter: Any,
-    event_queue: asyncio.Queue[Event],
-) -> None:
-    """Drain events from an agent's run_async iterator into the event queue."""
-    async for event in run_iter:
-        event_queue.put_nowait(event)
-
-
 async def _consume_events(run_iter: Any) -> None:
     """Consume events from an agent's run_async iterator, discarding them."""
     async for _ in run_iter:
@@ -233,10 +222,8 @@ async def _consume_events(run_iter: Any) -> None:
 def create_dispatch_closures(
     worker_pool: WorkerPool,
     ctx: InvocationContext,
-    event_queue: asyncio.Queue[Event] | None = None,
     call_log_sink: list | None = None,
     trace_sink: list | None = None,
-    worker_repl: LocalREPL | None = None,
 ) -> tuple[Any, Any, Any]:
     """Create llm_query_async, llm_query_batched_async, and flush_fn closures.
 
@@ -251,18 +238,9 @@ def create_dispatch_closures(
     Args:
         worker_pool: The pre-allocated worker pool
         ctx: Current invocation context
-        event_queue: Optional queue for collecting events from worker dispatch.
-            When provided, the orchestrator's _run_async_impl drain loop yields
-            these to the Runner. When None, events are consumed and discarded
-            (results come from carrier attributes, telemetry from local
-            accumulators accessed via flush_fn).
         call_log_sink: Optional list to accumulate RLMChatCompletion records.
         trace_sink: Optional mutable list[REPLTrace | None] holder.
             trace_sink[0] is the current REPLTrace for per-call recording.
-        worker_repl: Optional LocalREPL for bifurcated wiring. When provided,
-            workers with output_schema get a REPLTool instead of
-            SetModelResponseTool (the processor injects SetModelResponseTool
-            at runtime).
 
     Returns:
         (llm_query_async, llm_query_batched_async, flush_fn) 3-tuple.
@@ -271,9 +249,10 @@ def create_dispatch_closures(
 
     # Local accumulators — replaces ctx.session.state reads (AR-CRIT-001)
     _acc_dispatch_count = 0
-    _acc_total_dispatches = 0
     _acc_batch_dispatches = 0
     _acc_latencies: list[float] = []
+    _acc_error_counts: dict[str, int] = {}  # category -> count
+    _acc_structured_output_failures = 0
 
     async def llm_query_async(
         prompt: str,
@@ -328,7 +307,7 @@ def create_dispatch_closures(
         When K > max_concurrent, prompts are split into sequential batches
         of at most max_concurrent, each batch dispatched in parallel.
 
-        All state mutations are emitted as Event objects via event_queue
+        State is tracked via local accumulators and flushed by flush_fn()
         (AR-CRIT-001: no direct ctx.session.state writes).
 
         Args:
@@ -360,26 +339,10 @@ def create_dispatch_closures(
             batch_start_index = 0
 
         # Update local accumulators (no ctx.session.state reads)
-        nonlocal _acc_dispatch_count, _acc_total_dispatches, _acc_batch_dispatches
+        nonlocal _acc_dispatch_count, _acc_batch_dispatches
         _acc_dispatch_count += k
-        _acc_total_dispatches += k
         if k > 1:
             _acc_batch_dispatches += 1
-
-        # Emit absolute values via EventActions.state_delta
-        dispatch_delta: dict[str, Any] = {
-            WORKER_DISPATCH_COUNT: _acc_dispatch_count,
-            OBS_WORKER_TOTAL_DISPATCHES: _acc_total_dispatches,
-        }
-        if k > 1:
-            dispatch_delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = _acc_batch_dispatches
-
-        if event_queue is not None:
-            event_queue.put_nowait(Event(
-                invocation_id=ctx.invocation_id,
-                author="dispatch",
-                actions=EventActions(state_delta=dispatch_delta),
-            ))
 
         all_results: list[LLMResult] = []
 
@@ -408,15 +371,9 @@ def create_dispatch_closures(
                     worker._result_error = False  # type: ignore[attr-defined]
 
                     # Wire structured output when output_schema provided.
-                    # Bifurcated wiring (C3): when worker_repl is available,
-                    # use REPLTool (processor injects SetModelResponseTool at
-                    # runtime); otherwise use explicit SetModelResponseTool.
                     if output_schema is not None:
                         worker.output_schema = output_schema
-                        if worker_repl is not None:
-                            worker.tools = [REPLTool(worker_repl)]  # type: ignore[list-item]
-                        else:
-                            worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
+                        worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
                         after_cb, error_cb = make_worker_tool_callbacks(max_retries=2)
                         worker.after_tool_callback = after_cb  # type: ignore[assignment]
                         worker.on_tool_error_callback = error_cb  # type: ignore[assignment]
@@ -426,71 +383,79 @@ def create_dispatch_closures(
 
                 if len(workers) == 1:
                     try:
-                        if event_queue is not None:
-                            await asyncio.wait_for(
-                                _drain_events(workers[0].run_async(ctx), event_queue),
-                                timeout=_WORKER_DISPATCH_TIMEOUT,
-                            )
-                        else:
-                            await asyncio.wait_for(
-                                _consume_events(workers[0].run_async(ctx)),
-                                timeout=_WORKER_DISPATCH_TIMEOUT,
-                            )
+                        await asyncio.wait_for(
+                            _consume_events(workers[0].run_async(ctx)),
+                            timeout=_WORKER_DISPATCH_TIMEOUT,
+                        )
                     except asyncio.TimeoutError:
                         workers[0]._result = f"[Worker {workers[0].name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
                         workers[0]._result_ready = True  # type: ignore[attr-defined]
                         workers[0]._result_error = True  # type: ignore[attr-defined]
+                        # BUG-D fix: write _call_record so error_category='TIMEOUT' propagates
+                        workers[0]._call_record = {  # type: ignore[attr-defined]
+                            "prompt": getattr(workers[0], "_pending_prompt", None),
+                            "response": workers[0]._result,  # type: ignore[attr-defined]
+                            "input_tokens": 0,
+                            "output_tokens": 0,
+                            "model": None,
+                            "finish_reason": None,
+                            "error": True,
+                            "error_category": "TIMEOUT",
+                        }
                 else:
                     parallel = ParallelAgent(
                         name=f"batch_{batch_num}_{len(workers)}",
                         sub_agents=list(workers),  # type: ignore[arg-type]
                     )
                     try:
-                        if event_queue is not None:
-                            await asyncio.wait_for(
-                                _drain_events(parallel.run_async(ctx), event_queue),
-                                timeout=_WORKER_DISPATCH_TIMEOUT,
-                            )
-                        else:
-                            await asyncio.wait_for(
-                                _consume_events(parallel.run_async(ctx)),
-                                timeout=_WORKER_DISPATCH_TIMEOUT,
-                            )
+                        await asyncio.wait_for(
+                            _consume_events(parallel.run_async(ctx)),
+                            timeout=_WORKER_DISPATCH_TIMEOUT,
+                        )
                     except asyncio.TimeoutError:
                         for w in workers:
                             if not getattr(w, '_result_ready', False):
                                 w._result = f"[Worker {w.name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
                                 w._result_ready = True  # type: ignore[attr-defined]
                                 w._result_error = True  # type: ignore[attr-defined]
+                                # BUG-D fix: write _call_record so error_category='TIMEOUT' propagates
+                                w._call_record = {  # type: ignore[attr-defined]
+                                    "prompt": getattr(w, "_pending_prompt", None),
+                                    "response": w._result,  # type: ignore[attr-defined]
+                                    "input_tokens": 0,
+                                    "output_tokens": 0,
+                                    "model": None,
+                                    "finish_reason": None,
+                                    "error": True,
+                                    "error_category": "TIMEOUT",
+                                }
 
-                # Read results from worker objects (no dirty state reads)
-                dirty_read_count = 0
-                mismatches = 0
+                # Read results from worker objects
                 for worker in workers:
-                    dirty_read_count += 1
                     record = getattr(worker, "_call_record", {}) or {}
                     if not worker._result_ready:  # type: ignore[attr-defined]
                         logger.error(
-                            "Worker %s produced no result. Events pending: %d",
-                            worker.name, event_queue.qsize(),
+                            "Worker %s produced no result", worker.name,
                         )
                         all_results.append(LLMResult(
                             "", error=True, error_category="NO_RESULT",
                         ))
-                        mismatches += 1
+                        _acc_error_counts["NO_RESULT"] = _acc_error_counts.get("NO_RESULT", 0) + 1
                     elif getattr(worker, '_result_error', False):
                         logger.warning(
                             "Worker %s returned error result: %s",
                             worker.name, worker._result,  # type: ignore[attr-defined]
                         )
+                        cat = record.get("error_category", "UNKNOWN")
                         all_results.append(LLMResult(
                             worker._result,  # type: ignore[attr-defined]
                             error=True,
-                            error_category=record.get("error_category", "UNKNOWN"),
+                            error_category=cat,
                             http_status=record.get("http_status"),
                             finish_reason=record.get("finish_reason"),
                             model=record.get("model"),
                         ))
+                        _acc_error_counts[cat] = _acc_error_counts.get(cat, 0) + 1
                     else:
                         # Extract structured result if available
                         structured = getattr(worker, "_structured_result", None)
@@ -498,15 +463,38 @@ def create_dispatch_closures(
                             result_text = json.dumps(structured)
                         else:
                             result_text = worker._result  # type: ignore[attr-defined]
-                        all_results.append(LLMResult(
-                            result_text,
-                            error=False,
-                            finish_reason=record.get("finish_reason"),
-                            input_tokens=record.get("input_tokens", 0),
-                            output_tokens=record.get("output_tokens", 0),
-                            model=record.get("model"),
-                            parsed=structured,
-                        ))
+                        # FM-16 fix: detect retry exhaustion for structured output
+                        if output_schema is not None and structured is None:
+                            logger.warning(
+                                "Worker %s: structured output retry exhausted "
+                                "(schema=%s, result is plain text)",
+                                worker.name, output_schema.__name__,
+                            )
+                            all_results.append(LLMResult(
+                                result_text,
+                                error=True,
+                                error_category="SCHEMA_VALIDATION_EXHAUSTED",
+                                finish_reason=record.get("finish_reason"),
+                                input_tokens=record.get("input_tokens", 0),
+                                output_tokens=record.get("output_tokens", 0),
+                                model=record.get("model"),
+                                parsed=None,
+                            ))
+                            _acc_error_counts["SCHEMA_VALIDATION_EXHAUSTED"] = (
+                                _acc_error_counts.get("SCHEMA_VALIDATION_EXHAUSTED", 0) + 1
+                            )
+                            nonlocal _acc_structured_output_failures
+                            _acc_structured_output_failures += 1
+                        else:
+                            all_results.append(LLMResult(
+                                result_text,
+                                error=False,
+                                finish_reason=record.get("finish_reason"),
+                                input_tokens=record.get("input_tokens", 0),
+                                output_tokens=record.get("output_tokens", 0),
+                                model=record.get("model"),
+                                parsed=structured,
+                            ))
 
                 # Accumulate call records into sink for REPLResult.llm_calls
                 if call_log_sink is not None:
@@ -539,17 +527,6 @@ def create_dispatch_closures(
                                 ),
                                 execution_time=0.0,
                             ))
-
-                # Emit post-dispatch accounting via event_queue
-                if event_queue is not None:
-                    event_queue.put_nowait(Event(
-                        invocation_id=ctx.invocation_id,
-                        author="dispatch",
-                        actions=EventActions(state_delta={
-                            WORKER_DIRTY_READ_COUNT: dirty_read_count,
-                            OBS_WORKER_DIRTY_READ_MISMATCHES: mismatches,
-                        }),
-                    ))
 
                 # Record batch-level trace entries and data flow edges
                 if current_trace is not None:
@@ -585,43 +562,63 @@ def create_dispatch_closures(
 
             except Exception as e:
                 logger.error(f"Worker dispatch error in batch {batch_num}: {e}")
-                all_results.extend([
-                    LLMResult(f"Error: {e}", error=True, error_category="UNKNOWN")
-                    for _ in batch_prompts
-                ])
+                # FM-20 fix: preserve results from workers that already completed
+                existing = {i for i, w in enumerate(workers) if getattr(w, '_result_ready', False)}
+                for idx, _ in enumerate(batch_prompts):
+                    if idx not in existing:
+                        all_results.append(
+                            LLMResult(f"Error: {e}", error=True, error_category="UNKNOWN")
+                        )
+                    elif idx < len(workers):
+                        w = workers[idx]
+                        record = getattr(w, "_call_record", {}) or {}
+                        if getattr(w, '_result_error', False):
+                            all_results.append(LLMResult(
+                                w._result, error=True,  # type: ignore[attr-defined]
+                                error_category=record.get("error_category", "UNKNOWN"),
+                            ))
+                        else:
+                            all_results.append(LLMResult(
+                                w._result, error=False,  # type: ignore[attr-defined]
+                                finish_reason=record.get("finish_reason"),
+                                input_tokens=record.get("input_tokens", 0),
+                                output_tokens=record.get("output_tokens", 0),
+                            ))
+                    else:
+                        all_results.append(
+                            LLMResult(f"Error: {e}", error=True, error_category="UNKNOWN")
+                        )
 
             finally:
                 for worker in workers:
-                    worker._pending_prompt = None  # type: ignore[attr-defined]
-                    worker._result = None  # type: ignore[attr-defined]
-                    worker._result_error = False  # type: ignore[attr-defined]
-                    worker._call_record = None  # type: ignore[attr-defined]
-                    # Reset structured output wiring
-                    if output_schema is not None:
-                        worker.output_schema = None
-                        worker.tools = []
-                        worker.after_tool_callback = None
-                        worker.on_tool_error_callback = None
-                        if hasattr(worker, "_structured_result"):
-                            worker._structured_result = None  # type: ignore[attr-defined]
-                    # Detach from ParallelAgent parent so the worker can be
-                    # re-used in a future batch (ADK sets parent_agent in
-                    # model_post_init and raises if already set).
-                    worker.parent_agent = None
-                    await worker_pool.release(worker, model)
+                    try:
+                        worker._pending_prompt = None  # type: ignore[attr-defined]
+                        worker._result = None  # type: ignore[attr-defined]
+                        worker._result_error = False  # type: ignore[attr-defined]
+                        worker._call_record = None  # type: ignore[attr-defined]
+                        # Reset structured output wiring
+                        if output_schema is not None:
+                            worker.output_schema = None
+                            worker.tools = []
+                            worker.after_tool_callback = None
+                            worker.on_tool_error_callback = None
+                            if hasattr(worker, "_structured_result"):
+                                worker._structured_result = None  # type: ignore[attr-defined]
+                        # Detach from ParallelAgent parent so the worker can be
+                        # re-used in a future batch (ADK sets parent_agent in
+                        # model_post_init and raises if already set).
+                        worker.parent_agent = None
+                        await worker_pool.release(worker, model)
+                    except Exception:
+                        logger.warning(
+                            "Cleanup failed for worker %s, continuing with remaining workers",
+                            getattr(worker, "name", "<unknown>"),
+                            exc_info=True,
+                        )
 
         # Aggregate latency via local accumulator (no ctx.session.state reads)
         dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
         _acc_latencies.append(round(dispatch_elapsed_ms, 2))
-
-        if event_queue is not None:
-            event_queue.put_nowait(Event(
-                invocation_id=ctx.invocation_id,
-                author="dispatch",
-                actions=EventActions(state_delta={
-                    OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies),
-                }),
-            ))
 
         return all_results
 
@@ -632,19 +629,33 @@ def create_dispatch_closures(
         passing to tool_context.state.  After the call, all accumulators
         are reset to zero so the next flush returns only new deltas.
         """
-        nonlocal _acc_dispatch_count, _acc_total_dispatches, _acc_batch_dispatches
+        nonlocal _acc_dispatch_count, _acc_batch_dispatches, _acc_structured_output_failures
         delta: dict[str, Any] = {
             WORKER_DISPATCH_COUNT: _acc_dispatch_count,
-            OBS_WORKER_TOTAL_DISPATCHES: _acc_total_dispatches,
+            OBS_WORKER_TOTAL_DISPATCHES: _acc_dispatch_count,
             OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies),
         }
         if _acc_batch_dispatches > 0:
             delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = _acc_batch_dispatches
+        # Populate per-category error counts (previously dead state keys)
+        if _acc_error_counts:
+            delta[OBS_WORKER_ERROR_COUNTS] = dict(_acc_error_counts)
+            if "RATE_LIMIT" in _acc_error_counts:
+                delta[OBS_WORKER_RATE_LIMIT_COUNT] = _acc_error_counts["RATE_LIMIT"]
+            if "TIMEOUT" in _acc_error_counts:
+                delta[OBS_WORKER_TIMEOUT_COUNT] = _acc_error_counts["TIMEOUT"]
+        # Pool exhaustion counter (read from pool object, not local accumulator)
+        if worker_pool._pool_exhaustion_count > 0:
+            delta[OBS_WORKER_POOL_EXHAUSTION_COUNT] = worker_pool._pool_exhaustion_count
+        # Structured output failure counter
+        if _acc_structured_output_failures > 0:
+            delta[OBS_STRUCTURED_OUTPUT_FAILURES] = _acc_structured_output_failures
         # Reset accumulators
         _acc_dispatch_count = 0
-        _acc_total_dispatches = 0
         _acc_batch_dispatches = 0
         _acc_latencies.clear()
+        _acc_error_counts.clear()
+        _acc_structured_output_failures = 0
         return delta
 
     return llm_query_async, llm_query_batched_async, flush_fn

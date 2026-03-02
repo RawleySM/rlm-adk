@@ -2,8 +2,14 @@
 
 Reasoning and worker agents shall each have defined
 before/after callback behavior for prompt injection and output extraction.
+
+Also covers FMEA items:
+- FM-18 (item 7): _classify_error with json.JSONDecodeError returns 'PARSE_ERROR'
+- FM-18 (item 20): worker_on_model_error with JSONDecodeError sets correct _call_record
+- FM-20 (item 22): worker_after_model with unexpected Part types (no .text attr)
 """
 
+import json
 from unittest.mock import MagicMock
 
 from google.adk.models.llm_request import LlmRequest
@@ -14,7 +20,12 @@ from rlm_adk.callbacks.reasoning import (
     reasoning_after_model,
     reasoning_before_model,
 )
-from rlm_adk.callbacks.worker import worker_after_model, worker_before_model
+from rlm_adk.callbacks.worker import (
+    _classify_error,
+    worker_after_model,
+    worker_before_model,
+    worker_on_model_error,
+)
 from rlm_adk.state import (
     MESSAGE_HISTORY,
     REASONING_CALL_START,
@@ -49,30 +60,11 @@ def _make_llm_response(text: str) -> LlmResponse:
 
 
 class TestReasoningBeforeModel:
-    """Reasoning before_model_callback injects message_history in legacy mode.
+    """Reasoning before_model_callback merges dynamic instruction into system_instruction.
 
-    Phase 3: Dual-mode behavior.  In legacy mode (no tools on agent),
-    the callback still injects message_history.  In tool-calling mode,
-    ADK manages contents via include_contents='default'.
+    ADK manages contents via include_contents='default'. The callback
+    only sets system_instruction and records token accounting.
     """
-
-    def test_injects_user_messages_in_legacy_mode(self):
-        """Legacy mode (no tools): callback injects message_history into contents."""
-        state = {
-            MESSAGE_HISTORY: [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi"},
-            ],
-        }
-        ctx = _make_callback_context(state)
-        request = LlmRequest(model="test", contents=[])
-
-        result = reasoning_before_model(ctx, request)
-
-        assert result is None  # amend pattern: returns None to proceed
-        assert len(request.contents) == 2
-        assert request.contents[0].role == "user"
-        assert request.contents[1].role == "model"  # assistant -> model
 
     def test_sets_reasoning_call_start(self):
         state = {MESSAGE_HISTORY: []}
@@ -154,21 +146,6 @@ class TestWorkerBeforeModel:
         assert len(request.contents) == 1
         assert request.contents[0].role == "user"
 
-    def test_injects_message_list_prompt(self):
-        agent = MagicMock()
-        agent._pending_prompt = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"},
-        ]
-        ctx = _make_callback_context(agent=agent)
-        request = LlmRequest(model="test", contents=[])
-
-        worker_before_model(ctx, request)
-
-        assert len(request.contents) == 2
-        assert request.contents[0].role == "user"
-        assert request.contents[1].role == "model"
-
     def test_no_pending_prompt(self):
         agent = MagicMock()
         agent._pending_prompt = None
@@ -204,3 +181,178 @@ class TestWorkerAfterModel:
         worker_after_model(ctx, response)
         # Should not crash, state unchanged
         assert len(state) == 0
+
+
+# ── FM-18 (Item 7): _classify_error with json.JSONDecodeError ──────────
+
+
+class TestClassifyErrorJsonDecode:
+    """FM-18: _classify_error must return 'PARSE_ERROR' for json.JSONDecodeError."""
+
+    def test_json_decode_error_returns_parse_error(self):
+        err = json.JSONDecodeError("Expecting value", "doc", 0)
+        assert _classify_error(err) == "PARSE_ERROR"
+
+    def test_json_decode_error_with_complex_message(self):
+        err = json.JSONDecodeError("Unterminated string starting at", '{"key": "val', 8)
+        assert _classify_error(err) == "PARSE_ERROR"
+
+    def test_value_error_with_json_in_message(self):
+        err = ValueError("Invalid JSON response from server")
+        assert _classify_error(err) == "PARSE_ERROR"
+
+    def test_value_error_without_json_not_parse_error(self):
+        err = ValueError("some other problem")
+        result = _classify_error(err)
+        assert result != "PARSE_ERROR"
+
+    def test_runtime_error_returns_unknown(self):
+        err = RuntimeError("unexpected failure")
+        assert _classify_error(err) == "UNKNOWN"
+
+    def test_timeout_error_returns_timeout(self):
+        import asyncio
+        err = asyncio.TimeoutError()
+        assert _classify_error(err) == "TIMEOUT"
+
+
+# ── FM-18 (Item 20): worker_on_model_error with JSONDecodeError ────────
+
+
+class TestWorkerOnModelErrorJsonDecode:
+    """FM-18: worker_on_model_error with JSONDecodeError sets _call_record fields."""
+
+    def test_json_decode_error_call_record(self):
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent._pending_prompt = "parse this json"
+        ctx = _make_callback_context(state={}, agent=agent)
+        error = json.JSONDecodeError("Expecting value", "doc", 0)
+        request = LlmRequest(model="test", contents=[])
+
+        result = worker_on_model_error(ctx, request, error)
+
+        # Verify _call_record fields
+        assert agent._call_record["error"] is True
+        assert agent._call_record["error_category"] == "PARSE_ERROR"
+        assert agent._call_record["http_status"] is None
+        assert agent._call_record["input_tokens"] == 0
+        assert agent._call_record["output_tokens"] == 0
+
+        # Verify agent result carrier
+        assert agent._result_ready is True
+        assert agent._result_error is True
+        assert "JSONDecodeError" in agent._result
+
+        # Verify returns valid LlmResponse
+        assert isinstance(result, LlmResponse)
+
+    def test_json_decode_error_http_status_is_none(self):
+        """json.JSONDecodeError has no .code attribute, so http_status must be None."""
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent._pending_prompt = "test"
+        ctx = _make_callback_context(state={}, agent=agent)
+        error = json.JSONDecodeError("msg", "doc", 0)
+        request = LlmRequest(model="test", contents=[])
+
+        worker_on_model_error(ctx, request, error)
+        assert agent._call_record["http_status"] is None
+
+
+# ── FM-20 (Item 22): worker_after_model with unexpected Part types ─────
+
+
+class TestWorkerAfterModelUnexpectedParts:
+    """FM-20: worker_after_model handles unexpected Part types (no .text attr)."""
+
+    def test_response_with_no_text_parts(self):
+        """Parts that have no .text attr should not crash worker_after_model.
+
+        The callback filters `part.text for part in parts if part.text`,
+        so parts without .text are simply skipped.
+        """
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent.output_key = "worker_test_output"
+        agent._pending_prompt = "test"
+        state = {}
+        ctx = _make_callback_context(state=state, agent=agent)
+
+        # Create response with a Part that has text=None
+        response = LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text=None)],
+            ),
+        )
+
+        result = worker_after_model(ctx, response)
+        assert result is None
+        assert agent._result == ""
+        assert agent._result_ready is True
+
+    def test_response_with_mixed_parts_text_and_none(self):
+        """Mix of text and non-text parts: only text parts contribute to result."""
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent.output_key = "worker_test_output"
+        agent._pending_prompt = "test"
+        state = {}
+        ctx = _make_callback_context(state=state, agent=agent)
+
+        response = LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(text=None),
+                    types.Part.from_text(text="valid text"),
+                    types.Part(text=None),
+                ],
+            ),
+        )
+
+        worker_after_model(ctx, response)
+        assert agent._result == "valid text"
+        assert agent._result_ready is True
+        assert agent._call_record["error"] is False
+
+    def test_response_with_empty_parts_list(self):
+        """Empty parts list should produce empty string result."""
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent.output_key = "worker_test_output"
+        agent._pending_prompt = "test"
+        state = {}
+        ctx = _make_callback_context(state=state, agent=agent)
+
+        response = LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[],
+            ),
+        )
+
+        worker_after_model(ctx, response)
+        assert agent._result == ""
+        assert agent._result_ready is True
+
+    def test_response_with_thought_only_parts(self):
+        """Thought-only parts are excluded from result text."""
+        agent = MagicMock()
+        agent.name = "worker_test"
+        agent.output_key = "worker_test_output"
+        agent._pending_prompt = "test"
+        state = {}
+        ctx = _make_callback_context(state=state, agent=agent)
+
+        response = LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="thinking step", thought=True)],
+            ),
+        )
+
+        worker_after_model(ctx, response)
+        assert agent._result == ""
+        assert agent._result_ready is True

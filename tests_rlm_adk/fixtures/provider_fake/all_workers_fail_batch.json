@@ -1,0 +1,152 @@
+{
+  "scenario_id": "all_workers_fail_batch",
+  "description": "FM-19 (RPN=60): K=3 batch dispatch where ALL workers get 500 errors. With HttpRetryOptions(attempts=2) each worker makes 2 HTTP attempts (initial + 1 retry), totalling 6 faulted server hits. After all SDK retries exhausted, on_model_error_callback fires for each worker producing LLMResult(error=True). REPL code detects all failures and reports via FINAL.",
+  "note": "call_index values 1-6 are sequential for the concurrent K=3 batch because the FakeGeminiServer assigns call_index based on request arrival order. In production, workers dispatch concurrently via ParallelAgent so arrival order is non-deterministic. max_retries=0 in config disables application-level retries (the SDK HttpRetryOptions(attempts=2) still fires, producing the 6 faulted hits).",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "results = llm_query_batched([\"Task A\", \"Task B\", \"Task C\"])\nfailed = sum(1 for r in results if r.error)\nprint(f\"All {failed} workers failed\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 60,
+          "totalTokenCount": 260
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "All three workers failed with server errors.\n\nFINAL(All 3 workers failed)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 425
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 1,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker batch attempt 1)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 2,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker batch attempt 2)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 3,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker batch attempt 3)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 4,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker batch attempt 4)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 5,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker batch attempt 5)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 6,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker batch attempt 6)",
+          "status": "INTERNAL"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "final_answer": "All 3 workers failed",
+    "total_iterations": 1,
+    "total_model_calls": 8
+  }
+}

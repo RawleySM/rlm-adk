@@ -1,0 +1,386 @@
+{
+  "team": "I",
+  "demo_file": "demo_fmea_team_i.md",
+  "reviews": [
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-06"],
+      "rpn": 18,
+      "pathway": "P3/P5",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. has_llm_calls() is at ast_rewriter.py lines 15-36 (verified: line 15 = def has_llm_calls, line 36 = return False). The isinstance(func, ast.Name) check is at line 31 (verified). LlmCallRewriter.visit_Call() is at lines 55-67 (verified: line 55 = def visit_Call, line 67 = return node). The routing decision in REPLTool.run_async() is at lines 107-119 (verified: line 107 = try, line 108 = if has_llm_calls(code), line 118 = else, line 119 = result = self.repl.execute_code). The code snippets quoted in the demo exactly match the source files character-for-character.",
+        "analysis_accuracy": "The analysis of the alias blindness failure mode is correct and thorough. The explanation that q = llm_query; q('prompt') produces ast.Name(id='q') which does not match the detection check is accurate. The 4-step walkthrough (detection miss -> sync routing -> sync stub failure -> error recovery) is logically sound and matches the actual code flow. The observation that LlmCallRewriter shares the same isinstance(func, ast.Name) limitation as has_llm_calls is an important architectural insight.",
+        "testability_accuracy": "The assessment that this is testable via unit test is correct. The recommended test scenarios (test_has_llm_calls_misses_alias, test_has_llm_calls_direct_call) are well-designed and would directly validate the gap. The demo correctly notes that no existing unit test documents this limitation.",
+        "gaps": [
+          "The demo cites 'line 301 of local_repl.py' for the except Exception handler that catches the RuntimeError. The actual except Exception is at line 301 (verified). This is accurate.",
+          "The demo does not mention that the existing test suite (test_adk_ast_rewriter.py) has extensive tests for has_llm_calls (8 tests) and LlmCallRewriter (5 tests) but none exercise the alias pattern. This is a missed opportunity to contextualize the gap relative to existing coverage.",
+          "The demo does not consider ast.Attribute patterns (e.g., module.llm_query('prompt')) which would also bypass detection. This is a related failure mode not covered.",
+          "The demo does not mention that a partial fix could use a simpler heuristic: string-searching for 'llm_query' as a substring before falling back to AST analysis, which would catch aliased references at the cost of false positives."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No state keys are relevant -- FM-06 is a detection/routing issue, not a state management issue"
+        ],
+        "assertions_tested": [
+          "test_has_llm_calls_misses_alias (proposed): has_llm_calls returns False for aliased calls",
+          "test_has_llm_calls_direct_call (proposed): has_llm_calls returns True for direct calls"
+        ],
+        "assertions_missing": [
+          "No assertion that LlmCallRewriter.visit_Call also fails to transform aliased calls (the demo mentions this symmetry but the recommended tests only cover has_llm_calls, not LlmCallRewriter)",
+          "No assertion on what error message the model would receive when the sync stub raises RuntimeError for the aliased call -- this would test the error recovery path quality",
+          "No end-to-end test that demonstrates the full alias -> sync routing -> RuntimeError -> stderr propagation chain"
+        ],
+        "source_code_refs": [
+          "rlm_adk/repl/ast_rewriter.py:15-36 (has_llm_calls -- detection gate with ast.Name check at line 31)",
+          "rlm_adk/repl/ast_rewriter.py:55-67 (LlmCallRewriter.visit_Call -- same ast.Name limitation at line 61)",
+          "rlm_adk/tools/repl_tool.py:107-119 (REPLTool.run_async routing decision at lines 108 and 118-119)",
+          "rlm_adk/repl/local_repl.py:267-313 (execute_code sync path with except Exception at line 301)"
+        ],
+        "untested_code_paths": [
+          "The sync stub RuntimeError path when an aliased llm_query is invoked without an event loop -- no test exercises this specific error propagation",
+          "ast.Attribute node patterns (obj.llm_query) -- neither has_llm_calls nor LlmCallRewriter handle these"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "LlmCallRewriter alias handling test",
+          "source": "rlm_adk/repl/ast_rewriter.py:55-67",
+          "rationale": "The demo correctly identifies the symmetry between has_llm_calls and LlmCallRewriter but the recommended tests only cover has_llm_calls. A companion test should verify that rewrite_for_async('q = llm_query; q(\"prompt\")') does NOT transform the q() call, confirming the rewriter also misses aliases."
+        },
+        {
+          "trace": "Existing test coverage context",
+          "source": "tests_rlm_adk/test_adk_ast_rewriter.py:24-51 (TestHasLlmCalls class)",
+          "rationale": "The existing test suite has 8 tests for has_llm_calls covering direct calls, batched calls, no-calls, string literals, comments, syntax errors, nested calls, and both-calls patterns. None test alias patterns. The demo should reference this existing coverage to contextualize the gap."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add test_has_llm_calls_misses_alias and test_rewriter_misses_alias to TestHasLlmCalls and TestLlmCallRewriter classes in test_adk_ast_rewriter.py. Both tests should document the known limitation. The rewriter test should verify that rewrite_for_async on alias code does NOT produce an await for the aliased call."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add test_has_llm_calls_misses_attribute to test ast.Attribute patterns (e.g., module.llm_query('prompt')), which is a related detection gap not covered by the demo."
+        },
+        {
+          "priority": "low",
+          "type": "source_fix",
+          "action": "Consider adding a fallback heuristic in REPLTool.run_async: if has_llm_calls returns False but 'llm_query' appears as a substring in the code, log a warning. This would not fix the routing but would improve Detection (D) from 3 to 2, reducing RPN."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-07"],
+      "rpn": 16,
+      "pathway": "P5",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. rewrite_for_async() is at ast_rewriter.py lines 161-228 (verified: line 161 = def rewrite_for_async, line 228 = return new_module). The quoted code at 'lines 178-228' matches lines 178-228 exactly. The LlmCallRewriter.visit_Call() citation at 'lines 55-67' is accurate (verified). The AsyncFunctionDef wrapping at lines 204-220 is correct. The demo accurately states that the function starts at line 161 and the function body spans to line 228.",
+        "analysis_accuracy": "The 5-step analysis is accurate and well-reasoned. (1) has_llm_calls correctly detects llm_query inside list comprehensions via ast.walk -- verified by checking that ast.walk descends into ListComp nodes. (2) LlmCallRewriter.visit_Call transforms uniformly regardless of syntactic context -- verified. (3) The async def _repl_exec wrapping is correctly described. (4) The Python 3.11+ validity claim is correct -- PEP 530 (async comprehensions) was enhanced in 3.11. (5) The sequential execution observation is accurate and important -- [await f() for x in xs] is sequential, not parallel.",
+        "testability_accuracy": "The assessment that this is testable via unit test is correct. The recommended test scenarios are appropriate: test_list_comprehension_rewrite_produces_valid_ast verifies compilation, and test_list_comprehension_detected_by_has_llm_calls verifies detection. Both are straightforward to implement.",
+        "gaps": [
+          "The demo does not mention that dict comprehensions ({k: llm_query(k) for k in keys}) and set comprehensions ({llm_query(k) for k in keys}) would have the same behavior and are equally untested.",
+          "The demo does not mention generator expressions (llm_query(p) for p in prompts) which have different semantics (lazy evaluation) and might interact differently with the async wrapper.",
+          "The performance difference (sequential vs parallel) is noted but the demo does not quantify it or suggest a mitigation (e.g., a lint/warning when list comprehension + llm_query is detected, suggesting llm_query_batched instead).",
+          "The existing test_adk_ast_rewriter.py already tests compilation of rewritten code (test_compilable, test_async_exec_preserves_locals) but none exercise comprehension patterns. This context is missing from the demo."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No state keys are relevant -- FM-07 is an AST rewriting correctness issue"
+        ],
+        "assertions_tested": [
+          "test_list_comprehension_rewrite_produces_valid_ast (proposed): compile does not raise SyntaxError",
+          "test_list_comprehension_detected_by_has_llm_calls (proposed): has_llm_calls returns True"
+        ],
+        "assertions_missing": [
+          "No assertion that the rewritten comprehension actually EXECUTES correctly in an async context (compile success != execution success)",
+          "No assertion that the comprehension produces sequential (not parallel) execution -- e.g., verifying call order via a mock that records invocation timestamps",
+          "No assertion on dict/set comprehension variants",
+          "No assertion on generator expression variants (which might fail differently due to lazy evaluation)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/repl/ast_rewriter.py:15-36 (has_llm_calls -- ast.walk descends into comprehension nodes)",
+          "rlm_adk/repl/ast_rewriter.py:55-67 (LlmCallRewriter.visit_Call -- uniform transformation regardless of context)",
+          "rlm_adk/repl/ast_rewriter.py:161-228 (rewrite_for_async -- wraps in async def _repl_exec)",
+          "rlm_adk/repl/ast_rewriter.py:204-220 (AsyncFunctionDef creation)"
+        ],
+        "untested_code_paths": [
+          "List comprehension with llm_query -- no existing test in test_adk_ast_rewriter.py exercises this pattern",
+          "Dict/set comprehension with llm_query -- same gap",
+          "Generator expression with llm_query -- untested and potentially different behavior due to lazy evaluation",
+          "Nested comprehension (e.g., [[llm_query(x) for x in row] for row in matrix]) -- untested"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "Async comprehension execution test",
+          "source": "rlm_adk/repl/ast_rewriter.py:55-67 + 161-228",
+          "rationale": "A test that not only compiles but also executes [await llm_query_async(p) for p in prompts] inside an async def _repl_exec() would provide stronger validation than just compilation. The existing test_async_exec_preserves_locals pattern (test_adk_ast_rewriter.py line 121) shows how to do this with a mock."
+        },
+        {
+          "trace": "Sequential execution verification",
+          "source": "rlm_adk/repl/ast_rewriter.py:55-67",
+          "rationale": "Verifying that [await f(p) for p in prompts] executes sequentially (not concurrently) would document the performance characteristic. A mock that appends to a list with timestamps would show sequential ordering."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add test_list_comprehension_detected and test_list_comprehension_rewrite_compiles to the existing TestHasLlmCalls and TestRewriteForAsync classes in test_adk_ast_rewriter.py."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add test_list_comprehension_executes_sequentially that uses a mock llm_query_async to verify that [await llm_query_async(p) for p in [1,2,3]] calls the mock 3 times in order. This documents the sequential behavior as a known characteristic."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add tests for dict comprehension, set comprehension, and generator expression variants with llm_query to document the full scope of comprehension-related behavior."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-22"],
+      "rpn": 25,
+      "pathway": "P8",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. The variable serialization code is at repl_tool.py lines 148-159 (verified: line 148 = comment, line 152 = variables dict init, line 153 = for loop, line 154 = isinstance check, line 155 = try, line 156 = json.dumps, line 157 = assignment, line 158 = except tuple, line 159 = pass). The except clause at line 158 is exactly 'except (TypeError, ValueError, OverflowError)' as stated. The outer except at line 120 is 'except (Exception, asyncio.CancelledError) as exc' as stated. All code snippets match the source exactly.",
+        "analysis_accuracy": "The analysis is accurate and includes an important CORRECTION to the FMEA catalog. The FMEA states 'propagates to ADK' but the demo correctly identifies that the outer except (Exception, asyncio.CancelledError) at line 120 catches RecursionError (since RecursionError -> RuntimeError -> Exception). The real impact -- that stdout and variables from a successful execution are discarded because serialization failed -- is correctly identified and is a more nuanced understanding than the FMEA's simpler claim. The exception hierarchy analysis (RecursionError is a RuntimeError subclass, which is an Exception subclass) is correct for Python 3.x.",
+        "testability_accuracy": "The assessment that this is testable via unit test is correct. The recommended test scenarios are appropriate: test_recursion_error_from_circular_dict demonstrates the raw json.dumps behavior, and test_variable_serialization_should_skip_circular documents the gap in the except clause.",
+        "gaps": [
+          "The demo correctly identifies the fix (adding RecursionError to the except tuple) but does not note that this is a one-line source fix that could be implemented immediately. The recommendation section should prioritize the source fix over the test.",
+          "The demo does not mention that deeply nested (non-circular) structures could also trigger RecursionError. For example, a dict nested 1000+ levels deep would also trigger this. The circular reference is the most common case but not the only one.",
+          "The demo does not mention that the isinstance check at line 154 allows 'list' through, and a self-referential list (L = []; L.append(L)) would trigger the same issue.",
+          "The demo states 'line 158' for the except clause, but the actual except is at line 158 and the pass is at line 159 -- this is a minor nit that is actually correct in the demo."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "last_repl_result -- written at repl_tool.py line 146; would be affected if the RecursionError propagates past the serialization loop",
+          "No state keys are directly tested by the proposed unit tests (they test raw json.dumps behavior)"
+        ],
+        "assertions_tested": [
+          "test_recursion_error_from_circular_dict (proposed): json.dumps raises RecursionError on circular dict",
+          "test_variable_serialization_should_skip_circular (proposed): documents that the current except clause misses RecursionError"
+        ],
+        "assertions_missing": [
+          "No REPLTool-level integration test that creates a circular dict in REPL code and verifies the tool response behavior (does it return error or partial results?)",
+          "No assertion on self-referential list (L = []; L.append(L)) which also passes the isinstance check",
+          "No assertion that after the source fix, the circular variable is skipped but other variables in the same execution are preserved"
+        ],
+        "source_code_refs": [
+          "rlm_adk/tools/repl_tool.py:148-159 (variable serialization loop with incomplete except clause)",
+          "rlm_adk/tools/repl_tool.py:120-127 (outer except that catches RecursionError as Exception subclass)",
+          "rlm_adk/tools/repl_tool.py:154 (isinstance check allows dict and list through to json.dumps)"
+        ],
+        "untested_code_paths": [
+          "RecursionError from json.dumps on circular dict/list in REPL locals -- no existing test exercises this",
+          "The interaction between the per-variable except at line 158 and the outer except at line 120 when RecursionError propagates",
+          "Deeply nested (non-circular) structures that exceed Python's default recursion limit"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "REPLTool-level integration test for circular reference",
+          "source": "rlm_adk/tools/repl_tool.py:148-159",
+          "rationale": "A test that uses a real REPLTool instance, executes code that creates d = {}; d['self'] = d, and then inspects the returned dict would show whether the outer except at line 120 catches the error and returns a pure error response (current behavior) vs the serialization loop skipping the problematic variable (desired behavior after fix)."
+        },
+        {
+          "trace": "Self-referential list variant",
+          "source": "rlm_adk/tools/repl_tool.py:154",
+          "rationale": "The isinstance check allows list through. L = []; L.append(L) would trigger the same RecursionError path. A companion test for the list variant would confirm both container types are affected."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Add RecursionError to the except tuple at repl_tool.py line 158: change 'except (TypeError, ValueError, OverflowError)' to 'except (TypeError, ValueError, OverflowError, RecursionError)'. This is a one-line fix that prevents the entire tool response from being discarded when a single variable has circular references."
+        },
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add a unit test that creates a REPLTool, executes code creating both a circular dict and a normal variable, and verifies: (1) before fix: RecursionError propagates to outer except, both variables lost; (2) after fix: circular variable skipped, normal variable preserved in the response."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add test for self-referential list (L = []; L.append(L)) to confirm both dict and list circular references are handled by the fix."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add test for deeply nested non-circular structure (e.g., 1500-level nested dict) to verify RecursionError is also caught for non-circular deep nesting."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-26"],
+      "rpn": 24,
+      "pathway": "P4a",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. _EXEC_LOCK definition at local_repl.py lines 76-79 (verified: line 76-78 = comment, line 79 = _EXEC_LOCK = threading.Lock()). execute_code() at lines 267-313 (verified: line 267 = def execute_code, line 313 = final line of return). The 'with _EXEC_LOCK' at line 278 (verified). The exec() call -- the demo states 'line 291' and says 'exec(instrumented, combined, combined)', which matches the actual line 291: 'exec(instrumented, combined, combined)'. The except Exception at line 301 is verified. The execute_code_async lines 315-382 claim is verified (line 315 = async def execute_code_async, line 382 = last line of return). Minor note: the demo cites the async range as '315-382' which is correct.",
+        "analysis_accuracy": "The 6-point analysis is thorough and accurate. (1) Lock acquisition via 'with _EXEC_LOCK' at line 278 is correct. (2) exec() at line 291 runs with no timeout -- verified, there is no signal.alarm or timeout wrapper. (3) Lock held indefinitely -- correct, the 'with' block __exit__ is never called. (4) Cascading deadlock -- correct, threading.Lock is non-reentrant and all LocalREPL instances share the module-level lock. (5) No external interruption -- correct, threading.Lock.acquire cannot be interrupted. (6) Async path immunity -- correct, execute_code_async at lines 315-382 does not acquire _EXEC_LOCK.",
+        "testability_accuracy": "The assessment that this is 'not testable via provider-fake' is correct. The recommended test scenario (test_exec_lock_held_during_long_execution) is well-designed: it uses a bounded sleep(1) to keep the test finite while demonstrating lock contention via a probe thread. This is a pragmatic approach that avoids actually hanging the test runner.",
+        "gaps": [
+          "The demo states the RPN is 24 (S=8, O=1, D=3), matching the FMEA catalog. However, the summary table at the bottom says 'exec() at local_repl.py:291' which is correct.",
+          "The demo does not mention that KeyboardInterrupt (a BaseException, not Exception) could theoretically break out of an infinite loop in some situations (e.g., if the code includes a try/except but not for BaseException). However, the 'with _EXEC_LOCK' context manager would still release the lock on KeyboardInterrupt since it propagates through the 'with' block's __exit__. This nuance is missed.",
+          "The demo correctly notes the async path is immune but does not mention that the async path could still block the event loop with a CPU-bound infinite loop (not just I/O) because Python's asyncio runs on a single thread. An infinite loop in async code that never yields (while True: pass) would block the entire event loop without holding _EXEC_LOCK.",
+          "The demo mentions signal.alarm (Unix) as a potential fix but does not mention that this only works in the main thread, which limits its applicability in ADK's async context where REPL execution might be offloaded to a thread pool."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No state keys are relevant -- FM-26 is about process-level deadlock, not ADK state"
+        ],
+        "assertions_tested": [
+          "test_exec_lock_held_during_long_execution (proposed): lock is held during exec() and cannot be acquired by probe thread"
+        ],
+        "assertions_missing": [
+          "No assertion that the lock is released AFTER execute_code returns -- a complementary test showing lock availability post-execution would confirm the 'with' context manager works correctly in the normal case",
+          "No assertion about the deadlock scenario itself (for obvious test-safety reasons)",
+          "No assertion on whether KeyboardInterrupt can break the infinite loop and release the lock"
+        ],
+        "source_code_refs": [
+          "rlm_adk/repl/local_repl.py:76-79 (_EXEC_LOCK = threading.Lock() definition)",
+          "rlm_adk/repl/local_repl.py:267-313 (execute_code method)",
+          "rlm_adk/repl/local_repl.py:278 (with _EXEC_LOCK acquisition)",
+          "rlm_adk/repl/local_repl.py:291 (exec() call that blocks under lock)",
+          "rlm_adk/repl/local_repl.py:301 (except Exception handler)",
+          "rlm_adk/repl/local_repl.py:315-382 (execute_code_async -- does NOT acquire _EXEC_LOCK)"
+        ],
+        "untested_code_paths": [
+          "Infinite loop under _EXEC_LOCK -- not testable without hanging the test runner",
+          "Lock contention from concurrent LocalREPL instances -- no existing test exercises concurrent sync REPL calls",
+          "signal.alarm-based timeout for sync exec (not implemented, theoretical mitigation)"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "Lock release verification after normal execution",
+          "source": "rlm_adk/repl/local_repl.py:278",
+          "rationale": "A complementary test that verifies _EXEC_LOCK is NOT held after execute_code returns normally would confirm the baseline behavior. This serves as a control for the lock-held-during-exec test."
+        },
+        {
+          "trace": "Async path infinite loop behavior",
+          "source": "rlm_adk/repl/local_repl.py:347",
+          "rationale": "While the async path does not hold _EXEC_LOCK, a CPU-bound infinite loop at the await repl_exec_fn() line would block the entire event loop since Python asyncio is single-threaded. This is a related failure mode (FM-13 adjacent) that the demo mentions but could develop further."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add the proposed test_exec_lock_held_during_long_execution to test_adk_repl_local.py. Use time.sleep(1) as a bounded stand-in for an infinite loop. Verify via probe thread that _EXEC_LOCK cannot be acquired during execution."
+        },
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add test_exec_lock_released_after_normal_execution as a control test: run execute_code with simple code, then verify _EXEC_LOCK.acquire(timeout=0) succeeds immediately, confirming the lock was released."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Consider implementing an execution timeout for the sync path. Options: (1) concurrent.futures.ThreadPoolExecutor with timeout (cleanest but adds thread overhead), (2) signal.alarm on Unix (main-thread only limitation), (3) a watchdog thread that forcibly interrupts via ctypes.pythonapi.PyThreadState_SetAsyncExc (fragile but effective). Any approach should release _EXEC_LOCK on timeout."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add test_exec_lock_released_on_exception: run execute_code with code that raises an exception, then verify _EXEC_LOCK is released. This confirms the 'with' context manager releases the lock even on exception."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-27"],
+      "rpn": 32,
+      "pathway": "P4b",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. _temp_cwd at local_repl.py lines 257-265 (verified: line 257 = @contextmanager, line 258 = def _temp_cwd, line 265 = os.chdir(old_cwd)). The sync execute_code 'with _EXEC_LOCK' at line 278 (verified). The async path at lines 315-382 (verified). Specific async line references: line 335 = old_cwd = os.getcwd() (verified), line 337 = sys.stdout, sys.stderr = stdout_buf, stderr_buf (the demo says 'line 338: unprotected chdir' -- verified: line 338 = os.chdir(self.temp_dir)). Line 347 = new_locals = await repl_exec_fn() (verified). Line 371 = os.chdir(old_cwd) (verified). The ContextVar references at lines 329-330 (verified: tok_out = _capture_stdout.set(stdout_buf) at 329, tok_err = _capture_stderr.set(stderr_buf) at 330). All code snippets exactly match the source.",
+        "analysis_accuracy": "The 5-point analysis is accurate. (1) Sync path protection via _EXEC_LOCK at line 278 -- correct. (2) Async path has no lock -- correct, there is no asyncio.Lock or any other synchronization. (3) The await at line 347 is correctly identified as a yield point where event loop scheduling could interleave. (4) The architectural mitigation (one REPL per orchestrator) is correctly identified as making this latent rather than active. (5) The ContextVar observation is correct and important -- stdout/stderr use task-local ContextVars (lines 329-330), but os.chdir is process-global with no equivalent protection.",
+        "testability_accuracy": "The assessment that this is 'architectural analysis' and difficult to test is fair. The recommended test scenario using asyncio.gather is well-designed but the demo correctly notes it 'may or may not trigger depending on event loop scheduling'. This is an honest assessment of race condition testability.",
+        "gaps": [
+          "The demo's line number mapping in the quoted code block for the async path (lines 335-371) says 'line 338: unprotected chdir' and 'line 347: yields to event loop' and 'line 371: unprotected restore'. All three are verified correct.",
+          "The demo does not mention that the sys.stdout/stderr assignment at line 337 is ALSO process-global and unprotected in the async path. While ContextVars (lines 329-330) provide task-local capture, the direct sys.stdout assignment at line 337 is another race target. However, the demo's analysis in point 5 partially addresses this by noting ContextVar is used for stdout/stderr.",
+          "The demo suggests an asyncio.Lock as a potential fix but does not consider that asyncio.Lock would serialize all async REPL executions, potentially hurting performance. An alternative approach using subprocess with cwd parameter would avoid os.chdir entirely.",
+          "The demo does not mention that the _TaskLocalStream proxy (installed at module load, lines 73-74) already mitigates the stdout/stderr race for most cases. The sys.stdout assignment at line 337 is a belt-and-suspenders approach for when the proxy is displaced by pytest capture."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [],
+        "state_keys_missing": [
+          "No state keys are relevant -- FM-27 is about process-global os.chdir race, not ADK state"
+        ],
+        "assertions_tested": [
+          "test_cwd_race_between_two_repls (proposed): demonstrates CWD interleaving possibility via asyncio.gather"
+        ],
+        "assertions_missing": [
+          "No deterministic assertion -- the proposed test acknowledges it may not trigger the race depending on scheduling",
+          "No assertion on the sys.stdout/stderr race (separate from the CWD race but present in the same code path)",
+          "No assertion on the architectural mitigation (one REPL per orchestrator) -- could assert via inspection that RLMOrchestratorAgent creates exactly one LocalREPL"
+        ],
+        "source_code_refs": [
+          "rlm_adk/repl/local_repl.py:257-265 (_temp_cwd context manager)",
+          "rlm_adk/repl/local_repl.py:278 (sync path: with _EXEC_LOCK protects os.chdir)",
+          "rlm_adk/repl/local_repl.py:315-382 (execute_code_async -- no lock)",
+          "rlm_adk/repl/local_repl.py:335 (old_cwd = os.getcwd())",
+          "rlm_adk/repl/local_repl.py:338 (os.chdir(self.temp_dir) -- unprotected)",
+          "rlm_adk/repl/local_repl.py:347 (await repl_exec_fn() -- yield point)",
+          "rlm_adk/repl/local_repl.py:371 (os.chdir(old_cwd) -- unprotected restore)",
+          "rlm_adk/repl/local_repl.py:329-330 (ContextVar tokens for stdout/stderr -- task-local, no race)"
+        ],
+        "untested_code_paths": [
+          "Concurrent execute_code_async calls on the same event loop -- no existing test",
+          "os.chdir interleaving between two LocalREPL instances -- race condition window at lines 338-371",
+          "sys.stdout/stderr direct assignment race at line 337 in the async path"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "Architectural mitigation verification",
+          "source": "rlm_adk/orchestrator.py (RLMOrchestratorAgent creates one LocalREPL)",
+          "rationale": "While the race is latent, documenting the architectural mitigation (one REPL per orchestrator) in a test would prevent future regressions. A test that instantiates an orchestrator and verifies it creates exactly one LocalREPL would serve as a guard."
+        },
+        {
+          "trace": "sys.stdout/stderr race in async path",
+          "source": "rlm_adk/repl/local_repl.py:337",
+          "rationale": "The demo focuses on os.chdir but the direct sys.stdout/stderr assignment at line 337 has the same race condition pattern. However, the _TaskLocalStream proxy at lines 73-74 mitigates this for most cases. The interaction between the proxy and the direct assignment is worth documenting in a test."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add the proposed test_cwd_race_between_two_repls as a documentation test in test_adk_repl_local.py. Even if the race does not trigger deterministically, the test documents the vulnerability and the yield point at line 347."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Replace os.chdir() in execute_code_async with an approach that does not modify process-global state. Options: (1) Pass cwd to subprocess if file operations are moved to subprocess, (2) Use os.open() with O_DIRECTORY and os.fchdir() for thread-safe directory changes, (3) Add an asyncio.Lock to serialize the chdir-exec-restore window."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add a test that verifies the architectural mitigation: instantiate an RLMOrchestratorAgent and assert it creates exactly one LocalREPL, confirming the one-REPL-per-orchestrator invariant that prevents this race in practice."
+        }
+      ]
+    }
+  ]
+}

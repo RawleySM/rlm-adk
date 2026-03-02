@@ -1,13 +1,10 @@
 """Tests for dispatch.py fixes:
-- Worker-object initialization (_result, _result_ready, _result_usage, etc.)
-- Event-based state mutation (no direct ctx.session.state writes)
-- Worker-object result reads instead of dirty state reads
+- Worker-object initialization (_result, _result_ready, _result_error)
+- No direct ctx.session.state writes in dispatch
 - on_model_error_callback registration on workers
-- Token accounting aggregation from worker objects
 """
 
 import ast
-import asyncio
 import inspect
 import textwrap
 from unittest.mock import MagicMock
@@ -33,27 +30,6 @@ class TestWorkerObjectInitialization:
         worker = pool._pools["model-a"].get_nowait()
         assert hasattr(worker, "_result_ready")
         assert worker._result_ready is False
-
-    def test_worker_has_result_usage_attr(self):
-        pool = WorkerPool(default_model="model-a", pool_size=1)
-        pool.register_model("model-a")
-        worker = pool._pools["model-a"].get_nowait()
-        assert hasattr(worker, "_result_usage")
-        assert worker._result_usage == {"input_tokens": 0, "output_tokens": 0}
-
-    def test_worker_has_prompt_chars_attr(self):
-        pool = WorkerPool(default_model="model-a", pool_size=1)
-        pool.register_model("model-a")
-        worker = pool._pools["model-a"].get_nowait()
-        assert hasattr(worker, "_prompt_chars")
-        assert worker._prompt_chars == 0
-
-    def test_worker_has_content_count_attr(self):
-        pool = WorkerPool(default_model="model-a", pool_size=1)
-        pool.register_model("model-a")
-        worker = pool._pools["model-a"].get_nowait()
-        assert hasattr(worker, "_content_count")
-        assert worker._content_count == 0
 
     def test_worker_has_result_error_attr(self):
         pool = WorkerPool(default_model="model-a", pool_size=1)
@@ -119,9 +95,8 @@ class TestDispatchEmitsEventsForAccounting:
         ctx = MagicMock()
         ctx.session.state = {}
         ctx.invocation_id = "test-inv"
-        event_queue = asyncio.Queue()
 
-        _, batched_fn, _ = create_dispatch_closures(pool, ctx, event_queue)
+        _, batched_fn, _ = create_dispatch_closures(pool, ctx)
         results = await batched_fn([])
         assert results == []
 

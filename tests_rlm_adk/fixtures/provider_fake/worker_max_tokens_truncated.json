@@ -1,0 +1,107 @@
+{
+  "scenario_id": "worker_max_tokens_truncated",
+  "description": "FM-25 (RPN=75): Single worker dispatch where the worker response has finishReason=MAX_TOKENS with truncated partial text. The worker_after_model callback extracts the truncated text and sets _result_ready=True. With BUG-B fix, MAX_TOKENS does NOT set _result_error (only SAFETY does). REPL code receives the truncated text and detects it ends mid-sentence. Reasoning returns FINAL reporting the truncation.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent emits execute_code with llm_query. Code checks whether the result appears truncated (ends mid-sentence).",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Provide a detailed market analysis\")\ntext = str(result)\nif not text.rstrip().endswith(('.', '!', '?')):\n    print(f\"Truncated response detected: {text}\")\nelse:\n    print(f\"Got: {text}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 55,
+          "totalTokenCount": 255
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker response with finishReason=MAX_TOKENS. Text is truncated mid-sentence due to token limit. worker_after_model extracts partial text, sets _result_ready=True with error=False.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The analysis shows that the market is trending upward with several key indicators suggest"
+                }
+              ]
+            },
+            "finishReason": "MAX_TOKENS"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 25,
+          "candidatesTokenCount": 16,
+          "totalTokenCount": 41
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning sees the truncated text in tool result stdout and reports it via FINAL.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The worker response was truncated due to max token limits. The partial result ends mid-sentence.\n\nFINAL(Truncated: The analysis shows that the market is trending upward with several key indicators suggest)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 440
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Truncated: The analysis shows that the market is trending upward with several key indicators suggest",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

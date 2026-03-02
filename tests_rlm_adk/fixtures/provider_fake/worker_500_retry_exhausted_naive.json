@@ -1,0 +1,105 @@
+{
+  "scenario_id": "worker_500_retry_exhausted_naive",
+  "description": "FM-09 residual risk (RPN=60): Single worker dispatch where ALL SDK HTTP retry attempts get 500. REPL code does NOT check result.error — it naively does 'answer = str(result)' and prints it. This exercises the residual risk of silent error consumption: the error message becomes the 'answer' without any error-checking guard. Reasoning returns FINAL with the error string as if it were a real answer.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent emits execute_code with llm_query. Code DOES NOT check result.error — naively converts to string and prints.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Summarize the data\")\nanswer = str(result)\nprint(f\"Answer: {answer}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 235
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result with the error string printed as the 'answer'. Returns FINAL with the error string, unaware it is an error.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The worker returned the following summary of the data.\n\nFINAL(Naive error consumed)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 375
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 1,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker HTTP attempt 1)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 2,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker HTTP attempt 2 - retry exhausted)",
+          "status": "INTERNAL"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "final_answer": "Naive error consumed",
+    "total_iterations": 1,
+    "total_model_calls": 4
+  }
+}

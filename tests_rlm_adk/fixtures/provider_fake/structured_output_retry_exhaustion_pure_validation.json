@@ -1,0 +1,179 @@
+{
+  "scenario_id": "structured_output_retry_exhaustion_pure_validation",
+  "description": "FM-16 (RPN=50): Variant of structured_output_retry_exhaustion where ALL 3 attempts fail with missing required fields only (no empty-value variant). Isolates ADK's ValidationError retry path from WorkerRetryPlugin's empty-value detection. Worker attempt 1: missing 'confidence'. Worker attempt 2 (retry): missing 'summary'. Worker attempt 3 (final retry): missing both 'summary' and 'confidence'. All failures are pure Pydantic ValidationError, never WorkerRetryPlugin.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 2
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning emits execute_code with llm_query using output_schema=AnalysisResult",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass AnalysisResult(BaseModel):\n    summary: str\n    confidence: float\n\nresult = llm_query(\"Analyze the market trends\", output_schema=AnalysisResult)\nif result.error:\n    print(f\"Pure validation exhausted: {result.error_category}\")\nelse:\n    print(f\"Summary: {result.parsed['summary']}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker attempt 1: set_model_response MISSING 'confidence' field triggers ValidationError (pure ADK path)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "summary": "Market trends show growth"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Worker attempt 2 (retry): set_model_response MISSING 'summary' field triggers ValidationError (pure ADK path)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "confidence": 0.85
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 80,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 95
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Worker attempt 3 (final retry): set_model_response MISSING both required fields, max_retries=2 exhausted",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "notes": "Incomplete analysis data"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 110,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 125
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result reporting pure validation exhaustion, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "All retry attempts failed with missing required fields (pure ValidationError path).\n\nFINAL(Pure validation exhausted after 3 attempts)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 450,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 485
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Pure validation exhausted after 3 attempts",
+    "total_iterations": 1,
+    "total_model_calls": 5
+  }
+}

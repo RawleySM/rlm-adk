@@ -1,0 +1,107 @@
+{
+  "scenario_id": "worker_safety_finish",
+  "description": "FM-25 (RPN=75): Single worker dispatch where the worker response has finishReason SAFETY with empty content (safety filter block). REPL code detects the empty result from llm_query and reports it via FINAL. Note: This is a worker-level SAFETY response (FM-25), not a reasoning-level SAFETY (FM-24). FM-24 would require the reasoning agent's own model call to return finishReason=SAFETY.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 3
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent calls execute_code with llm_query. Code checks for empty result and branches to appropriate FINAL.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Generate content\")\nif not str(result).strip():\n    print(\"Worker returned empty (safety filtered)\")\nelse:\n    print(f\"Got: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker response with finishReason=SAFETY and empty text — safety filter blocked the content. worker_after_model extracts '' as response_text. Dispatch closure creates LLMResult('') with error=False.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": ""
+                }
+              ]
+            },
+            "finishReason": "SAFETY"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 20,
+          "candidatesTokenCount": 0,
+          "totalTokenCount": 20
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning agent sees stdout 'Worker returned empty (safety filtered)' from the tool result and produces FINAL.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The worker query was blocked by the safety filter and returned empty content.\n\nFINAL(Worker returned empty (safety filtered))"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 425
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Worker returned empty (safety filtered)",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

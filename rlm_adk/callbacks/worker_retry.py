@@ -27,6 +27,11 @@ from google.adk.tools.tool_context import ToolContext
 
 logger = logging.getLogger(__name__)
 
+# Observability counter for BUG-13 patch invocations (process-global).
+# Tests can read this to verify the patch was actually invoked at runtime,
+# not just installed. Reset between test runs if needed.
+_bug13_stats: dict[str, int] = {"suppress_count": 0}
+
 # Canonical tool name for ADK's synthesized set_model_response tool.
 # Used as a guard so that retry/reflection logic only fires for structured
 # output validation, not for other tools like execute_code (REPLTool).
@@ -162,9 +167,19 @@ def make_worker_tool_callbacks(
 def _patch_output_schema_postprocessor() -> None:
     """Install a retry-aware wrapper around get_structured_model_response.
 
-    Idempotent — safe to call multiple times.
+    Idempotent — safe to call multiple times. Guarded with try/except
+    ImportError so that a private ADK module restructure degrades gracefully
+    (FM-21 fix: structured output retry disabled, all other functionality intact).
     """
-    import google.adk.flows.llm_flows._output_schema_processor as _osp
+    try:
+        import google.adk.flows.llm_flows._output_schema_processor as _osp
+    except ImportError:
+        logger.warning(
+            "BUG-13 patch: cannot import _output_schema_processor — "
+            "structured output retry suppression disabled. "
+            "ADK may have restructured private modules."
+        )
+        return
 
     # Guard against double-patching
     if getattr(_osp.get_structured_model_response, "_rlm_patched", False):
@@ -186,8 +201,10 @@ def _patch_output_schema_postprocessor() -> None:
             isinstance(parsed, dict)
             and parsed.get("response_type") == REFLECT_AND_RETRY_RESPONSE_TYPE
         ):
+            _bug13_stats["suppress_count"] += 1
             logger.debug(
-                "BUG-13 patch: suppressing postprocessor for ToolFailureResponse"
+                "BUG-13 patch: suppressing postprocessor for ToolFailureResponse "
+                "(suppress_count=%d)", _bug13_stats["suppress_count"],
             )
             return None
         return result

@@ -1,0 +1,105 @@
+{
+  "scenario_id": "worker_500_retry_exhausted",
+  "description": "FM-09 (RPN=60): Single worker dispatch where ALL SDK HTTP retry attempts get 500. With HttpRetryOptions(attempts=2), the worker makes 2 HTTP attempts (initial + 1 retry), both faulted. After SDK retries exhaust, on_model_error_callback fires producing LLMResult(error=True, error_category='SERVER'). REPL code checks result.error and reports the failure. Reasoning returns FINAL acknowledging the error.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent emits execute_code with llm_query. Code checks result.error to detect server failure.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Summarize the data\")\nif result.error:\n    print(f\"Worker error: {result}\")\nelse:\n    print(f\"Got: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 45,
+          "totalTokenCount": 245
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result with error output from REPL, returns FINAL reporting the server error.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Worker encountered server error after retry exhaustion.\n\nFINAL(Worker error: server retry exhausted)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 375
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 1,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker HTTP attempt 1)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 2,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker HTTP attempt 2 - retry exhausted)",
+          "status": "INTERNAL"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "final_answer": "Worker error: server retry exhausted",
+    "total_iterations": 1,
+    "total_model_calls": 4
+  }
+}

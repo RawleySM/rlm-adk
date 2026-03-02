@@ -1,0 +1,266 @@
+{
+  "team": "L",
+  "demo_file": "demo_fmea_team_l.md",
+  "reviews": [
+    {
+      "fixture": "repl_cancelled_during_async.json",
+      "failure_modes": ["FM-14"],
+      "rpn": 96,
+      "pathway": "P7",
+      "fidelity": {
+        "verdict": "partial",
+        "repl_code_accuracy": "The fixture REPL code at call_index=0 dispatches a single llm_query('Summarize the key findings') and prints the result. This correctly enters the async path (has_llm_calls=True) which is the code path where CancelledError can be raised. However, the fixture is purely a happy-path base — no fault injection is present. The code itself is trivially correct and does not exercise any CancelledError handling.",
+        "response_mock_accuracy": "The three responses (reasoning execute_code, worker text, reasoning FINAL) are realistic and well-structured. Token counts are plausible. The worker response text ('15% improvement in efficiency') is simple but appropriate for a base fixture. The fixture config has thinking_budget=0 and max_iterations=5, which is consistent with other FMEA fixtures.",
+        "fault_injection_accuracy": "There are NO fault injections in this fixture (fault_injections: []). The demo correctly states 'The actual CancelledError is injected by test code patching asyncio, not by the fixture.' However, NO TEST ACTUALLY INJECTS CancelledError. All three tests (test_contract, test_happy_path_final_answer, test_single_iteration) run the non-cancelled happy path only. The fixture design is sound (separating fixture stability from fault injection), but the corresponding fault-injection test was never implemented.",
+        "gaps": [
+          "CRITICAL: No test injects CancelledError. The demo acknowledges this in the 'Remaining Gaps' section but underplays the severity. FM-14 (RPN=96) is the second-highest-RPN failure mode, and the entire point of this fixture is to serve as a base for CancelledError injection tests — but those tests do not exist. The happy-path tests do not exercise any of the CancelledError handling code at repl_tool.py:120-143.",
+          "The demo discusses the CancelledError except block (repl_tool.py:120-143) as the FM-14 code path, but FM-14 in the FMEA catalog describes 'flush_fn Skipped on REPL Exception' — this applies to the GENERIC except Exception handler at repl_tool.py:144-151, which does NOT call flush_fn and does NOT write LAST_REPL_RESULT. The CancelledError handler at line 120 already HAS the flush_fn fix (lines 124-128). The actual FM-14 vulnerability is in the generic Exception handler, not the CancelledError handler. The demo conflates these two code paths.",
+          "The demo's grep output at line 10 shows the module docstring mentioning flush_fn but does not show that the except Exception handler (line 144-151) is MISSING flush_fn. A reader would assume FM-14 is fully resolved based on the CancelledError handler having flush_fn, when in fact the generic exception handler still has the accumulator drift bug.",
+          "The demo does not mention that the except Exception handler at line 144 also does not write LAST_REPL_RESULT to tool_context.state. The CancelledError handler writes it (lines 130-136), but the generic Exception handler returns early without any state writes. This is an observability gap beyond just flush_fn.",
+          "The fixture description references 'repl_tool.py:120-143' as the target code for CancelledError injection, which is accurate for the CancelledError handler. But the FMEA's FM-14 title is 'flush_fn Skipped on REPL Exception' — the general case, not specifically CancelledError."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER, asserted to contain '15%' in test_happy_path_final_answer)",
+          "iteration_count (via ITERATION_COUNT, asserted == 1 in test_single_iteration)"
+        ],
+        "state_keys_missing": [
+          "last_repl_result — written by REPLTool (repl_tool.py:162-170) on normal path. Not asserted. For a fixture testing the happy-path base, asserting has_errors=False and has_output=True would confirm normal REPL execution before testing the fault path.",
+          "worker_dispatch_count — written by flush_fn (dispatch.py:619). Should be 1 for a single llm_query. Not asserted. This is the key accumulator that FM-14 says could drift on exception — asserting it on the happy path establishes the baseline.",
+          "obs:worker_total_dispatches — written by flush_fn (dispatch.py:620). Should be 1. Not asserted.",
+          "obs:worker_dispatch_latency_ms — written by flush_fn (dispatch.py:621). Would show dispatch timing. Not asserted.",
+          "obs:worker_error_counts — would be empty dict or absent for happy path. Not asserted to confirm no errors.",
+          "obs:worker_rate_limit_count — should not be present on happy path. Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer matches fixture expected.final_answer",
+          "Contract: total_iterations == 1",
+          "Contract: total_model_calls == 3",
+          "test_happy_path_final_answer: '15%' in FINAL_ANSWER",
+          "test_single_iteration: ITERATION_COUNT == 1"
+        ],
+        "assertions_missing": [
+          "No CancelledError injection test. This is the entire purpose of the fixture and FM-14. A test should patch the REPL's execute_code_async to raise asyncio.CancelledError, then assert: (1) flush_fn was called (accumulators drained), (2) LAST_REPL_RESULT has cancelled=True, (3) the tool result has stderr='CancelledError: ...' and llm_calls_made=True.",
+          "No assertion on LAST_REPL_RESULT for the happy path. Asserting has_errors=False, has_output=True, total_llm_calls=1 would establish baseline behavior before fault injection.",
+          "No assertion on WORKER_DISPATCH_COUNT. For FM-14 (accumulator drift), this is the key state key — verifying it equals 1 on the happy path would make the drift detectable if a CancelledError injection test were added.",
+          "No assertion on tool_result content (stdout/stderr). The REPL code prints 'Summary: {result}' — asserting stdout contains 'Summary:' would confirm the REPL code executed the print path.",
+          "No test for the generic except Exception handler (repl_tool.py:144-151) which is the ACTUAL unpatched FM-14 vulnerability. A test should inject a RuntimeError during REPL execution and verify that flush_fn is NOT called (confirming the bug) or IS called (confirming a fix).",
+          "No negative assertion that stderr is empty on the happy path."
+        ],
+        "source_code_refs": [
+          "rlm_adk/tools/repl_tool.py:107-117 (has_llm_calls detection, async rewrite, execute_code_async)",
+          "rlm_adk/tools/repl_tool.py:120-143 (CancelledError handler — has flush_fn fix)",
+          "rlm_adk/tools/repl_tool.py:144-151 (generic Exception handler — MISSING flush_fn, the actual FM-14 bug)",
+          "rlm_adk/tools/repl_tool.py:153-159 (normal path flush_fn call)",
+          "rlm_adk/tools/repl_tool.py:161-170 (LAST_REPL_RESULT write — only on normal path and CancelledError path, NOT generic Exception path)",
+          "rlm_adk/dispatch.py:610-637 (flush_fn closure — the function that must be called to drain accumulators)",
+          "rlm_adk/dispatch.py:246-248 (_acc_dispatch_count, _acc_batch_dispatches, _acc_latencies — the accumulators that drift on skipped flush)"
+        ],
+        "untested_code_paths": [
+          "repl_tool.py:120-143 — CancelledError handler. The fixture's entire purpose is to support testing this path, but no test exercises it. The handler calls flush_fn (lines 124-128) and writes LAST_REPL_RESULT with cancelled=True (lines 130-136). Completely untested.",
+          "repl_tool.py:144-151 — generic Exception handler. This is the actual FM-14 vulnerability: flush_fn is NOT called, LAST_REPL_RESULT is NOT written. No test exercises this path either. This handler returns early without any state mutation, causing accumulator drift.",
+          "dispatch.py:632-636 — flush_fn accumulator reset. When flush_fn is skipped, accumulators retain values from the failed iteration. The next successful flush will include stale counts. No test verifies this drift behavior.",
+          "repl_tool.py:130-136 — LAST_REPL_RESULT with cancelled=True. Only reachable via CancelledError path. Never tested."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "flush_fn call count during CancelledError",
+          "source": "rlm_adk/tools/repl_tool.py:124-128",
+          "rationale": "A CancelledError injection test should verify flush_fn was actually called by checking that WORKER_DISPATCH_COUNT appears in tool_context.state after the CancelledError. This confirms the accumulator drain happened despite the cancellation."
+        },
+        {
+          "trace": "LAST_REPL_RESULT.cancelled flag",
+          "source": "rlm_adk/tools/repl_tool.py:130-136",
+          "rationale": "The CancelledError handler writes LAST_REPL_RESULT with cancelled=True. A test should assert this flag exists and is True, confirming the cancellation is observable via state."
+        },
+        {
+          "trace": "flush_fn NOT called in generic Exception handler",
+          "source": "rlm_adk/tools/repl_tool.py:144-151",
+          "rationale": "The actual FM-14 bug: the except Exception handler returns early without calling flush_fn. A test injecting RuntimeError should verify that WORKER_DISPATCH_COUNT is NOT written to tool_context.state (confirming the bug) or IS written (after a fix). This is the defining trace for FM-14."
+        },
+        {
+          "trace": "Accumulator drift across iterations",
+          "source": "rlm_adk/dispatch.py:246-248 (accumulators), dispatch.py:632-636 (reset)",
+          "rationale": "If flush_fn is skipped on iteration N (due to generic Exception), the accumulators retain stale values. On iteration N+1, flush_fn returns the sum of N and N+1 values. A multi-iteration test with a fault on iteration 1 and success on iteration 2 should detect the double-counting by asserting WORKER_DISPATCH_COUNT reflects only iteration 2's dispatch, not the leaked iteration 1 count."
+        },
+        {
+          "trace": "LAST_REPL_RESULT missing on generic Exception path",
+          "source": "rlm_adk/tools/repl_tool.py:144-151 (no LAST_REPL_RESULT write)",
+          "rationale": "Unlike the CancelledError handler (which writes LAST_REPL_RESULT with cancelled=True) and the normal path (which writes a full summary), the generic Exception handler writes nothing to LAST_REPL_RESULT. Observability plugins that depend on this key will see stale data from a previous iteration."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Implement the CancelledError injection test. Patch LocalREPL.execute_code_async to raise asyncio.CancelledError. Assert: (1) tool result has stderr containing 'CancelledError', (2) WORKER_DISPATCH_COUNT is present in state (proving flush_fn was called), (3) LAST_REPL_RESULT has cancelled=True. This exercises the code at repl_tool.py:120-143 and validates FM-14's CancelledError fix."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Add flush_fn call and LAST_REPL_RESULT write to the generic except Exception handler (repl_tool.py:144-151). Currently this handler returns early without any state mutation, causing accumulator drift. The fix should mirror the CancelledError handler's pattern: call flush_fn, write LAST_REPL_RESULT with has_errors=True. This is the actual FM-14 vulnerability — the CancelledError handler was patched but the generic handler was not."
+        },
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add a test for the generic Exception handler (repl_tool.py:144-151). Inject a RuntimeError during REPL execution (not CancelledError). Before the source fix, assert flush_fn is NOT called (documenting the bug). After the source fix, assert flush_fn IS called and WORKER_DISPATCH_COUNT is present. This covers the actual FM-14 failure mode described in the FMEA."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on WORKER_DISPATCH_COUNT == 1 in the happy-path tests. This establishes the baseline accumulator value before fault injection tests are added. For FM-14 (accumulator drift), verifying the dispatch count on the normal path is essential to detecting drift on the fault path."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on LAST_REPL_RESULT in happy-path tests. Assert has_errors=False, has_output=True, total_llm_calls=1. This confirms the observability summary is written correctly on the normal path, providing the baseline for comparison with CancelledError and Exception paths."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create a multi-iteration fixture 'repl_exception_then_retry.json' where iteration 1 has REPL code that raises RuntimeError after an llm_query, and iteration 2 retries successfully. This exercises the accumulator drift scenario: if flush_fn was skipped in iteration 1, iteration 2's flush will include stale counts from iteration 1. Asserting WORKER_DISPATCH_COUNT == 1 (not 2) after iteration 2 would detect the drift."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add assertion on tool_result stdout content for the happy path. The REPL code prints 'Summary: {result}' — asserting stdout contains 'Summary:' confirms the print executed and the llm_query result propagated through the REPL namespace."
+        }
+      ]
+    },
+    {
+      "fixture": "worker_max_tokens_truncated.json",
+      "failure_modes": ["FM-25"],
+      "rpn": 75,
+      "pathway": "P6d",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code at call_index=0 dispatches a single llm_query('Provide a detailed market analysis') and then checks whether the result ends with sentence-ending punctuation ('.', '!', '?'). If not, it prints 'Truncated response detected: {text}'. This accurately demonstrates the FMEA's residual risk: REPL code must explicitly detect truncation because MAX_TOKENS is not flagged as an error. The truncation detection logic (checking for trailing punctuation) is a realistic heuristic that production code might use.",
+        "response_mock_accuracy": "The worker response at call_index=1 has finishReason=MAX_TOKENS with text ending mid-word ('...indicators suggest' — no trailing period). This accurately simulates token-limit truncation. The text is realistic for a market analysis response. The reasoning response at call_index=2 correctly reports the truncation in its FINAL() wrapper. Token counts are plausible. Missing usageMetadata.index field on the MAX_TOKENS response (index is normally present) — minor realism gap but does not affect test behavior.",
+        "fault_injection_accuracy": "There are no fault_injections (fault_injections: []). The truncation is expressed via the response body's finishReason=MAX_TOKENS, which is the correct mechanism — MAX_TOKENS is a normal API response condition, not an HTTP error. The ScenarioRouter serves this as a normal 200 response with the MAX_TOKENS finish reason, which is how the real Gemini API behaves. This is structurally and semantically correct.",
+        "gaps": [
+          "The FMEA catalog title is 'Worker SAFETY / MAX_TOKENS Finish Reason' — it covers BOTH SAFETY and MAX_TOKENS. The fixture only tests MAX_TOKENS. SAFETY is tested by the existing worker_safety_finish.json fixture (separate), but the demo does not mention this or cross-reference it. A reader might think SAFETY is untested.",
+          "The demo's assertion that 'MAX_TOKENS is NOT treated as error (unlike SAFETY)' is correct for the current code, but the FMEA's residual risk says 'REPL code may not distinguish empty success from error'. The fixture's REPL code IS defensive (checks for truncation). There is no companion fixture with naive REPL code that does NOT check for truncation, which would demonstrate the residual risk path.",
+          "The fixture does not include the 'index' field in the MAX_TOKENS candidate's usageMetadata, which is present in real Gemini responses. This is a minor realism gap."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER, asserted to contain 'runcated' or 'suggest' in test_truncated_result_detected)",
+          "iteration_count (via ITERATION_COUNT, asserted == 1 in test_single_iteration)"
+        ],
+        "state_keys_missing": [
+          "last_repl_result — written by REPLTool (repl_tool.py:162-170). Not asserted. Would confirm has_output=True (the REPL printed the truncation message) and total_llm_calls=1.",
+          "worker_dispatch_count — written by flush_fn (dispatch.py:619). Should be 1. Not asserted.",
+          "obs:worker_total_dispatches — written by flush_fn (dispatch.py:620). Should be 1. Not asserted.",
+          "obs:worker_error_counts — should be empty or absent since MAX_TOKENS is not treated as error. Not asserted. Confirming this is absent would validate the non-error semantics.",
+          "obs:finish_max_tokens_count — defined in state.py:76 (OBS_FINISH_MAX_TOKENS_COUNT). Written by ObservabilityPlugin when it detects MAX_TOKENS. Not asserted. This is the dedicated observability counter for this exact failure mode."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer matches fixture expected.final_answer ('Truncated: The analysis shows...')",
+          "Contract: total_iterations == 1",
+          "Contract: total_model_calls == 3",
+          "test_truncated_result_detected: 'runcated' in FINAL_ANSWER or 'suggest' in FINAL_ANSWER",
+          "test_single_iteration: ITERATION_COUNT == 1"
+        ],
+        "assertions_missing": [
+          "No assertion that _result_error is False for the MAX_TOKENS worker. The demo correctly identifies this as a gap in the 'Remaining Gaps' section. This is the defining property of FM-25: MAX_TOKENS sets _result_ready=True but NOT _result_error=True. The test should extract the worker's LLMResult from tool_result or events and assert result.error == False.",
+          "No assertion on tool_result stdout content. The REPL code prints 'Truncated response detected: {text}' — asserting this appears in stdout would confirm the truncation detection logic executed correctly.",
+          "No assertion on the worker's finish_reason propagation. The LLMResult should have finish_reason='MAX_TOKENS' (set by dispatch.py:484 from record.get('finish_reason')). This confirms the finish_reason survives the worker_after_model -> _call_record -> LLMResult pipeline.",
+          "No assertion on obs:finish_max_tokens_count. This state key (state.py:76) is designed to track MAX_TOKENS occurrences. If ObservabilityPlugin is wired in the test pipeline, it should increment this counter.",
+          "No assertion on obs:worker_error_counts being absent or empty. Since MAX_TOKENS is not an error, the error counts accumulator should not contain any entries. This negative assertion would confirm the non-error classification.",
+          "No assertion on LAST_REPL_RESULT. Asserting has_errors=False and has_output=True would confirm the REPL executed successfully despite receiving truncated text.",
+          "No assertion that stderr is empty — confirming no Python exceptions during truncation detection.",
+          "The test_truncated_result_detected assertion uses 'runcated' (missing initial 'T') which is fragile — it matches 'Truncated' and 'truncated' but would also match any word containing 'runcated'. A more precise assertion would check for 'Truncated' case-insensitively."
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:67-146 (worker_after_model — extracts text, checks finish_reason, sets _result/_result_ready/_result_error)",
+          "rlm_adk/callbacks/worker.py:88-93 (finish_reason extraction and SAFETY check — MAX_TOKENS does not match this condition)",
+          "rlm_adk/callbacks/worker.py:96-99 (_result = response_text, _result_ready = True, _result_error only if SAFETY)",
+          "rlm_adk/callbacks/worker.py:110-121 (_call_record construction — finish_reason.name written to record, error=is_safety_filtered)",
+          "rlm_adk/dispatch.py:453-489 (result reading — success branch for non-error worker, constructs LLMResult with finish_reason from record)",
+          "rlm_adk/dispatch.py:480-489 (LLMResult construction for success case — error=False, finish_reason from record)",
+          "rlm_adk/tools/repl_tool.py:107-117 (has_llm_calls + async execution path)",
+          "rlm_adk/state.py:76 (OBS_FINISH_MAX_TOKENS_COUNT — dedicated counter for this failure mode)"
+        ],
+        "untested_code_paths": [
+          "worker.py:88-93 — the finish_reason SAFETY check. For MAX_TOKENS, is_safety_filtered is False, so the code at line 98-99 (setting _result_error=True) is NOT entered. This non-entry is the key semantic being tested, but no assertion confirms _result_error stays False.",
+          "worker.py:116 — finish_reason.name written to _call_record. For MAX_TOKENS, record['finish_reason'] should be 'MAX_TOKENS'. No test asserts this value propagates through to LLMResult.finish_reason.",
+          "worker.py:117 — record['error'] = is_safety_filtered. For MAX_TOKENS, this should be False. No test asserts the call record's error field.",
+          "dispatch.py:484 — LLMResult.finish_reason set from record.get('finish_reason'). No test asserts the finish_reason on the returned LLMResult.",
+          "ObservabilityPlugin MAX_TOKENS counter — if wired, should increment OBS_FINISH_MAX_TOKENS_COUNT. Not verified."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "worker._result_error after MAX_TOKENS response",
+          "source": "rlm_adk/callbacks/worker.py:96-99",
+          "rationale": "The defining property of FM-25 is that MAX_TOKENS sets _result_ready=True but NOT _result_error=True. Asserting _result_error is False (or equivalently, LLMResult.error is False) would directly validate the non-error classification. The demo identifies this as a gap."
+        },
+        {
+          "trace": "LLMResult.finish_reason propagation",
+          "source": "rlm_adk/dispatch.py:484, rlm_adk/callbacks/worker.py:116",
+          "rationale": "The finish_reason travels: LlmResponse.finish_reason -> worker_after_model record['finish_reason'] -> dispatch LLMResult(finish_reason=record.get('finish_reason')). Asserting LLMResult.finish_reason == 'MAX_TOKENS' validates this pipeline end-to-end."
+        },
+        {
+          "trace": "tool_result stdout from truncation detection",
+          "source": "rlm_adk/tools/repl_tool.py:185-191",
+          "rationale": "The REPL code prints 'Truncated response detected: {text}'. Asserting this appears in the tool_result stdout confirms: (1) the llm_query result reached the REPL namespace, (2) the truncation heuristic fired, (3) the print output was captured by REPLTool."
+        },
+        {
+          "trace": "obs:finish_max_tokens_count state key",
+          "source": "rlm_adk/state.py:76 (OBS_FINISH_MAX_TOKENS_COUNT)",
+          "rationale": "This state key is specifically designed for FM-25 tracking. If ObservabilityPlugin is active in the test pipeline and counts MAX_TOKENS finish reasons from worker responses, this key should be incremented. Asserting it provides observability-layer validation."
+        },
+        {
+          "trace": "worker _call_record error and error_category fields",
+          "source": "rlm_adk/callbacks/worker.py:117-120",
+          "rationale": "For MAX_TOKENS: record['error'] should be False and record should NOT have 'error_category'. For SAFETY: record['error'] is True and record['error_category'] is 'SAFETY'. Asserting the absence of error_category for MAX_TOKENS confirms the classification boundary."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion that LLMResult.error == False for the MAX_TOKENS worker result. Extract from tool_result events or by intercepting the dispatch closure's return value. This is the core semantic of FM-25: MAX_TOKENS is NOT an error. The demo identifies this gap but no test addresses it."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on tool_result stdout containing 'Truncated response detected'. This validates the entire pipeline: worker MAX_TOKENS -> worker_after_model (_result_ready=True, _result_error=False) -> dispatch LLMResult(error=False, text='...suggest') -> REPL truncation heuristic -> print output."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on LLMResult.finish_reason == 'MAX_TOKENS'. This confirms the finish_reason propagates through the worker_after_model -> _call_record -> dispatch -> LLMResult pipeline. Without this, a regression that drops finish_reason would go undetected."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create companion fixture 'worker_max_tokens_naive.json' where the REPL code does NOT check for truncation (just prints the result directly). This exercises FM-25's residual risk: REPL code that does not distinguish empty/truncated success from a complete response. The test should show that the truncated text flows silently through as a normal result."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Assert obs:worker_error_counts is absent or empty in final state. Since MAX_TOKENS is not classified as an error by worker_after_model, the error counts accumulator (dispatch.py:249) should not contain any entries. This negative assertion confirms the non-error classification at the dispatch level."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Assert LAST_REPL_RESULT has has_errors=False and has_output=True. This confirms the REPL treated the execution as successful (no stderr) despite the truncated worker response, which is the expected behavior for MAX_TOKENS."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Tighten the test_truncated_result_detected assertion. Replace 'runcated' in fa with a case-insensitive check for 'truncated' or check for 'indicators suggest' (the actual truncated text ending). The current 'runcated' substring match is fragile and could match unintended strings."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Assert WORKER_DISPATCH_COUNT == 1 in final state. This confirms the single llm_query dispatch was counted correctly and provides the baseline for cross-fixture comparison with error scenarios."
+        }
+      ]
+    }
+  ]
+}

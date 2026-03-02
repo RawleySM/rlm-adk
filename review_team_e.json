@@ -1,0 +1,244 @@
+{
+  "team": "E",
+  "demo_file": "demo_fmea_team_e.md",
+  "reviews": [
+    {
+      "fixture": "empty_reasoning_output.json",
+      "failure_modes": ["FM-15"],
+      "rpn": 16,
+      "pathway": "P9",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "Correct. call_index=0 emits a valid execute_code functionCall with trivial code (x = 42). This exercises a normal REPL iteration before the empty output, establishing ITERATION_COUNT=1. The code is syntactically valid and will execute without error.",
+        "response_mock_accuracy": "Correct. call_index=1 returns text='' with finishReason=STOP. This accurately models a Gemini response that contains no useful content -- the model simply stopped without producing a FINAL() marker or any text. The finishReason=STOP (rather than SAFETY or MAX_TOKENS) is a deliberate choice: the fixture targets FM-15 (generic empty output) rather than FM-24 (SAFETY-specific empty output). This is appropriate since FM-15's trigger is 'reasoning agent returns empty text' regardless of the finish reason.",
+        "fault_injection_accuracy": "Not applicable. No fault_injections array entries. The failure is injected via the response mock itself (empty text), not via HTTP-level faults. This is the correct approach since FM-15 is about the content of the response, not a transport error.",
+        "gaps": [
+          "The fixture does not test finishReason=SAFETY at the reasoning level (that would be FM-24, RPN=48). Adding a variant with finishReason=SAFETY on call_index=1 would cover the intersection of FM-15 and FM-24.",
+          "The fixture does not test finishReason=MAX_TOKENS with empty text, which is another trigger for FM-15 per the FMEA description.",
+          "The expected error message is hardcoded as an exact string match. If the orchestrator's error message changes (e.g., to include the finishReason), the fixture's expected.final_answer and the test's assertion will break."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "FINAL_ANSWER",
+          "ITERATION_COUNT",
+          "LAST_REPL_RESULT"
+        ],
+        "state_keys_missing": [
+          "SHOULD_STOP -- the orchestrator sets SHOULD_STOP=True in the error event (orchestrator.py:295), but no test asserts that SHOULD_STOP is True in final state. This is a critical signal that the session should terminate.",
+          "OBS_TOTAL_CALLS -- the ObservabilityPlugin should count 2 model calls, verifying that both calls were observed before the error path.",
+          "OBS_FINISH_SAFETY_COUNT -- while not directly applicable to FM-15 (finishReason=STOP), asserting it is 0 would document the negative case and catch regressions."
+        ],
+        "assertions_tested": [
+          "test_contract: final_answer exact match, total_iterations=1, total_model_calls=2",
+          "test_error_message_format: FINAL_ANSWER starts with '[RLM ERROR]' and contains 'output_schema'",
+          "test_single_repl_iteration: ITERATION_COUNT == 1"
+        ],
+        "assertions_missing": [
+          "SHOULD_STOP == True in final state (verifies the session termination signal)",
+          "The error event is present in the event stream with the correct state_delta (FINAL_ANSWER + SHOULD_STOP)",
+          "A content event with role='model' and the error text is yielded (orchestrator.py:298-305)",
+          "No exception was raised (the test implicitly verifies this, but an explicit assertion would document the graceful-degradation intent)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/orchestrator.py:232-305 (final answer extraction and error handling)",
+          "rlm_adk/orchestrator.py:280-305 (else branch: empty final_answer error event)",
+          "rlm_adk/utils/parsing.py:find_final_answer (returns None for empty string)"
+        ],
+        "untested_code_paths": [
+          "orchestrator.py:234 isinstance(raw, dict) branch -- not reachable with this fixture since raw is a string",
+          "orchestrator.py:240-244 json.loads path -- exercised (raises JSONDecodeError on empty string) but the JSONDecodeError handling is not explicitly asserted",
+          "orchestrator.py:247-249 find_final_answer branch -- exercised (returns None) but not explicitly asserted"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "SHOULD_STOP state delta in error event",
+          "source": "rlm_adk/orchestrator.py:293-296",
+          "rationale": "The SHOULD_STOP=True flag is the mechanism that terminates the session. Without asserting it, a regression that removes SHOULD_STOP from the error event would go undetected, potentially leaving the session in a non-terminated state."
+        },
+        {
+          "trace": "Content event with error text",
+          "source": "rlm_adk/orchestrator.py:298-305",
+          "rationale": "The content event is what the user actually sees. The state_delta event is for internal bookkeeping. Testing both ensures the user-facing error is correctly generated."
+        },
+        {
+          "trace": "OBS_PER_ITERATION_TOKEN_BREAKDOWN",
+          "source": "rlm_adk/plugins/observability.py:152-184",
+          "rationale": "The observability plugin records per-call breakdowns including finish_reason. For this fixture, the breakdown for call_index=1 should show finish_reason=STOP with 0 output tokens, providing diagnostic evidence that the model stopped without producing content."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion for SHOULD_STOP == True in final state. This is the session termination signal and is critical for correctness: `assert result.final_state.get('should_stop') is True`"
+        },
+        {
+          "priority": "low",
+          "type": "new_fixture",
+          "action": "Create empty_reasoning_output_safety.json variant where call_index=1 has finishReason=SAFETY instead of STOP. This would cover the FM-15/FM-24 intersection and verify that the orchestrator handles SAFETY-filtered reasoning responses the same way as generic empty responses."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Consider testing the error message via substring match rather than startswith + contains. The current approach (startswith '[RLM ERROR]' and contains 'output_schema') is reasonably robust, but if the message format changes, both assertions break. A single contains-based check on a stable substring would be more resilient."
+        }
+      ]
+    },
+    {
+      "fixture": "worker_safety_finish.json",
+      "failure_modes": ["FM-24", "FM-25"],
+      "rpn": 75,
+      "pathway": "P6d",
+      "fidelity": {
+        "verdict": "partial",
+        "repl_code_accuracy": "Correct but compensating. The REPL code at call_index=0 includes `if not str(result).strip()` to detect the empty safety-filtered result. This is realistic defensive REPL code, BUT it masks the core FM-25 vulnerability: without this check, the empty string would silently pass as a valid result. The fixture proves the defense works when present, but does not prove the system is safe when the defense is absent.",
+        "response_mock_accuracy": "Accurate. call_index=1 returns text='' with finishReason=SAFETY. This precisely models Gemini's behavior when a safety filter blocks content: the response is HTTP 200 with empty text and a SAFETY finish reason. The usageMetadata shows candidatesTokenCount=0, which is realistic for a fully blocked response.",
+        "fault_injection_accuracy": "Not applicable. The failure is injected via the response mock (SAFETY finishReason), not via HTTP faults. This is correct: safety filtering is an application-level concern within a successful HTTP response.",
+        "gaps": [
+          "CRITICAL: The fixture claims to target FM-24 (reasoning-level SAFETY, RPN=48) AND FM-25 (worker-level SAFETY, RPN=75), but the SAFETY response is on call_index=1 which is a WORKER call. FM-24 is about the reasoning agent receiving a SAFETY-filtered response, which would be a SAFETY finishReason on a reasoning-level call (caller='reasoning'). This fixture only targets FM-25.",
+          "The demo correctly identifies this in its text ('the SAFETY filter hits the worker, not the reasoning agent itself') but the fixture's scenario_id description says 'FM-24/25'. The fixture should be reclassified as FM-25-only.",
+          "No test asserts that LLMResult.error == False for the safety-filtered response. This is the documented residual risk in FM-25 (RPN=75): the empty result passes as success. A test should explicitly verify `error=False` to document this as known behavior.",
+          "No test checks OBS_FINISH_SAFETY_COUNT. The FMEA explicitly notes this is 'never incremented in tests'. Furthermore, investigation reveals a SOURCE BUG: ObservabilityPlugin line 149 generates the key via `f'obs:finish_{str(finish_reason).lower()}_count'`, but `str(FinishReason.SAFETY)` returns 'FinishReason.SAFETY', producing key 'obs:finish_finishreason.safety_count' instead of the expected 'obs:finish_safety_count'. OBS_FINISH_SAFETY_COUNT is never actually incremented -- not just untested, but broken at the source level.",
+          "The fixture's REPL code uses K=1 dispatch (single llm_query). The separate worker_empty_response.json fixture covers K=2 batch dispatch with one SAFETY response. However, the worker_safety_finish fixture does not test the K>1 case for FM-25.",
+          "LLMResult.finish_reason is set to 'FinishReason.SAFETY' (not 'SAFETY') because worker_after_model uses str(llm_response.finish_reason). This means REPL code checking `result.finish_reason == 'SAFETY'` would fail. No test verifies the actual finish_reason value on the LLMResult."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "FINAL_ANSWER",
+          "ITERATION_COUNT",
+          "WORKER_DISPATCH_COUNT"
+        ],
+        "state_keys_missing": [
+          "SHOULD_STOP -- same as FM-15: the orchestrator sets SHOULD_STOP=True but no test asserts it",
+          "OBS_FINISH_SAFETY_COUNT -- the FMEA explicitly calls out that this is 'never incremented in tests'. Worse: the observability plugin has a bug where str(FinishReason.SAFETY) = 'FinishReason.SAFETY', generating key 'obs:finish_finishreason.safety_count' instead of 'obs:finish_safety_count'. A test asserting OBS_FINISH_SAFETY_COUNT >= 1 would both document the expected behavior AND catch this source bug.",
+          "OBS_WORKER_TOTAL_DISPATCHES -- should be 1 for this fixture, verifying dispatch accounting is correct even for safety-filtered workers",
+          "OBS_PER_ITERATION_TOKEN_BREAKDOWN -- should contain an entry with finish_reason including 'SAFETY' for the worker call"
+        ],
+        "assertions_tested": [
+          "test_contract: final_answer='Worker returned empty (safety filtered)', total_iterations=1, total_model_calls=3",
+          "test_safety_detected_in_final_answer: FINAL_ANSWER contains 'safety filtered'",
+          "test_single_iteration: ITERATION_COUNT == 1",
+          "test_worker_dispatch_counted: WORKER_DISPATCH_COUNT >= 1"
+        ],
+        "assertions_missing": [
+          "CRITICAL: No assertion that the LLMResult from the safety-filtered worker has error=False. This is the core FM-25 residual risk (RPN=75). A test should explicitly verify that the dispatch closure produces LLMResult('', error=False) for a SAFETY-filtered response, documenting this as known (and potentially dangerous) behavior.",
+          "No assertion on LLMResult.finish_reason value. The call_record stores 'FinishReason.SAFETY' (not 'SAFETY') because of the str() conversion. If REPL code tries to check finish_reason == 'SAFETY', it would fail silently.",
+          "OBS_FINISH_SAFETY_COUNT >= 1 -- would catch the observability plugin bug described above",
+          "The call_record for the worker should have error=False and finish_reason containing 'SAFETY' -- no test inspects call records",
+          "No negative assertion: the test does not verify that stderr is empty (i.e., the REPL code did not crash when handling the empty result)"
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:63-108 (worker_after_model: extracts empty text, sets error=False)",
+          "rlm_adk/callbacks/worker.py:99 (finish_reason stored as str(llm_response.finish_reason) -- produces 'FinishReason.SAFETY')",
+          "rlm_adk/callbacks/worker.py:100 (error: False -- the core FM-25 residual risk)",
+          "rlm_adk/dispatch.py:424-439 (non-error branch: LLMResult created with error=False, finish_reason from record)",
+          "rlm_adk/plugins/observability.py:146-150 (finish_reason tracking with str() bug)",
+          "rlm_adk/types.py:50-79 (LLMResult class: finish_reason attribute accessible but never tested)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:411 _result_error branch -- NOT exercised because SAFETY responses do not set _result_error=True. This is the core of FM-25: the error path is skipped for safety-filtered responses.",
+          "worker.py:111-147 worker_on_model_error -- NOT exercised because safety filtering is an HTTP 200 response, not an error. The error callback only fires for HTTP-level failures.",
+          "The LLMResult.finish_reason attribute is populated but never read by any test or production code path. REPL code could theoretically check it, but no test verifies that the value is usable."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "LLMResult.error and LLMResult.finish_reason for safety-filtered worker",
+          "source": "rlm_adk/dispatch.py:431-439",
+          "rationale": "The dispatch closure creates LLMResult('', error=False, finish_reason='FinishReason.SAFETY'). No test verifies these attributes. This is the single most important trace for FM-25: it proves that safety-filtered responses are indistinguishable from success at the LLMResult level (error=False), and that finish_reason uses the wrong string format ('FinishReason.SAFETY' instead of 'SAFETY')."
+        },
+        {
+          "trace": "OBS_FINISH_SAFETY_COUNT via ObservabilityPlugin",
+          "source": "rlm_adk/plugins/observability.py:147-150",
+          "rationale": "SOURCE BUG DISCOVERED: str(FinishReason.SAFETY) returns 'FinishReason.SAFETY', so the generated key is 'obs:finish_finishreason.safety_count' instead of the expected 'obs:finish_safety_count'. The OBS_FINISH_SAFETY_COUNT constant in state.py is NEVER matched. A test asserting OBS_FINISH_SAFETY_COUNT >= 1 would fail and expose this bug."
+        },
+        {
+          "trace": "worker_after_model call_record finish_reason",
+          "source": "rlm_adk/callbacks/worker.py:99",
+          "rationale": "The call_record stores finish_reason as str(llm_response.finish_reason) which produces 'FinishReason.SAFETY'. This propagates to LLMResult.finish_reason in the dispatch closure. Any REPL code or observability logic that compares finish_reason against 'SAFETY' (the raw enum value name) will fail. Should use finish_reason.name or finish_reason.value instead of str(finish_reason)."
+        },
+        {
+          "trace": "REPL trace llm_calls entry for safety-filtered worker",
+          "source": "rlm_adk/dispatch.py:480-493",
+          "rationale": "The trace entry includes finish_reason and error fields. For a safety-filtered worker, this should show finish_reason='FinishReason.SAFETY' and error=False. Testing this trace entry would provide deep observability into the safety filtering behavior and document the finish_reason string format issue."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Fix ObservabilityPlugin finish_reason key generation (observability.py:149). Change `str(llm_response.finish_reason)` to `llm_response.finish_reason.name` (or `.value`). Currently str(FinishReason.SAFETY) returns 'FinishReason.SAFETY', generating key 'obs:finish_finishreason.safety_count' instead of 'obs:finish_safety_count'. Same fix needed in worker.py:99 for call_record finish_reason."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion that OBS_FINISH_SAFETY_COUNT >= 1 after running worker_safety_finish fixture. This test WILL FAIL with current code, exposing the observability bug. This is exactly the kind of test the FMEA recommended."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add explicit assertion that the LLMResult from the safety-filtered worker has error=False. This documents the FM-25 residual risk (RPN=75) as a known, tested behavior rather than an untested assumption. The test should include a comment explaining that this is the documented residual risk and linking to FM-25."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "In worker_after_model (worker.py:93-101), detect finishReason=SAFETY and set _result_error=True with error_category='SAFETY'. This would make LLMResult.error=True for safety-filtered responses, giving REPL code a reliable signal. Currently the defense relies entirely on REPL code checking for empty strings, which is fragile and not enforced by the framework."
+        },
+        {
+          "priority": "medium",
+          "type": "fixture_fix",
+          "action": "Reclassify the fixture from FM-24/25 to FM-25-only. The SAFETY response is on a worker call, not a reasoning call. FM-24 requires a separate fixture where the reasoning agent's response (caller='reasoning') has finishReason=SAFETY."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create reasoning_safety_finish.json for FM-24 specifically. call_index=0 should be reasoning caller with finishReason=SAFETY and empty text. The expected behavior should be the same as FM-15 (orchestrator yields [RLM ERROR] event), but OBS_FINISH_SAFETY_COUNT should be >= 1 (once the observability bug is fixed)."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add a test that inspects the LLMResult.finish_reason string value for the safety-filtered worker. Currently it would be 'FinishReason.SAFETY', which is the str() of the enum. If REPL code is expected to check finish_reason, the value should be normalized to 'SAFETY' (the enum name/value). This test would document the current behavior and catch any normalization fix."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add negative assertion: stderr is empty for the REPL execution (the REPL code handled the empty result without crashing). This verifies graceful handling at the REPL level."
+        }
+      ]
+    }
+  ],
+  "cross_fixture_findings": [
+    {
+      "finding": "ObservabilityPlugin finish_reason key generation bug",
+      "severity": "high",
+      "detail": "str(FinishReason.SAFETY) returns 'FinishReason.SAFETY', not 'SAFETY'. The ObservabilityPlugin (observability.py:149) generates dynamic keys like 'obs:finish_finishreason.safety_count' instead of 'obs:finish_safety_count'. This affects ALL finish_reason tracking, not just SAFETY: MAX_TOKENS, RECITATION, etc. are all broken. The constants in state.py (OBS_FINISH_SAFETY_COUNT, OBS_FINISH_RECITATION_COUNT, OBS_FINISH_MAX_TOKENS_COUNT) are dead code -- they define keys that are never written to.",
+      "affected_fms": ["FM-24", "FM-25"],
+      "fix": "Change str(finish_reason) to finish_reason.name or finish_reason.value in observability.py:147 and worker.py:99"
+    },
+    {
+      "finding": "Neither fixture tests OBS_FINISH_SAFETY_COUNT",
+      "severity": "medium",
+      "detail": "The FMEA explicitly notes 'OBS_FINISH_SAFETY_COUNT never incremented in tests' as a residual risk for FM-24. Neither fixture tests this key. The worker_safety_finish fixture is the ideal place to assert OBS_FINISH_SAFETY_COUNT >= 1, which would immediately expose the observability bug.",
+      "affected_fms": ["FM-24", "FM-25"],
+      "fix": "Add OBS_FINISH_SAFETY_COUNT assertion to TestWorkerSafetyFinish"
+    },
+    {
+      "finding": "FM-24 is not actually covered by any fixture",
+      "severity": "medium",
+      "detail": "worker_safety_finish.json targets FM-25 (worker SAFETY). FM-24 (reasoning SAFETY) requires a reasoning-level response with finishReason=SAFETY, which no fixture provides. The demo claims FM-24/25 coverage but only FM-25 is exercised. empty_reasoning_output.json is close but uses finishReason=STOP, not SAFETY.",
+      "affected_fms": ["FM-24"],
+      "fix": "Create a dedicated reasoning_safety_finish.json fixture"
+    },
+    {
+      "finding": "SHOULD_STOP never asserted in either test class",
+      "severity": "low",
+      "detail": "Both FM-15 and FM-25 result in SHOULD_STOP=True being set (directly for FM-15, indirectly for FM-25 via FINAL()). Neither TestEmptyReasoningOutput nor TestWorkerSafetyFinish asserts that SHOULD_STOP is True in final state.",
+      "affected_fms": ["FM-15", "FM-25"],
+      "fix": "Add SHOULD_STOP assertions to both test classes"
+    }
+  ],
+  "reviewer_notes": "The demo is well-written and provides clear traceability from FMEA failure modes to fixture design to test assertions. The analysis of worker_after_model's error=False behavior for SAFETY responses is particularly insightful and correctly identifies the core FM-25 residual risk. However, the demo falls short of its potential by not (a) asserting the residual risk programmatically, (b) testing the observability counters, or (c) correctly delineating FM-24 vs FM-25 coverage. The discovery of the ObservabilityPlugin finish_reason key generation bug (str(FinishReason.SAFETY) = 'FinishReason.SAFETY') is the most actionable finding from this review and affects all finish_reason tracking across the system."
+}

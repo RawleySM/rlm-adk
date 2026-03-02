@@ -1,0 +1,267 @@
+{
+  "team": "K",
+  "demo_file": "demo_fmea_team_k.md",
+  "reviews": [
+    {
+      "fixture": "worker_500_retry_exhausted.json",
+      "failure_modes": ["FM-09"],
+      "rpn": 60,
+      "pathway": "P6d",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code in call_index=0 dispatches a single llm_query('Summarize the data') and defensively checks result.error, printing 'Worker error: {result}' on failure. This correctly exercises the error-detection path that REPL code must follow for FM-09. The code uses the LLMResult.error API which is the production-intended interface for error detection.",
+        "response_mock_accuracy": "The mocked responses are realistic and well-structured. call_index=0 emits a functionCall for execute_code with defensive REPL code. call_index=3 (the final reasoning response) correctly synthesizes the error into a FINAL() wrapper with 'Worker error: server retry exhausted'. Token counts are plausible. The gap between call_index 0 and 3 correctly accounts for the two fault injections at indices 1 and 2.",
+        "fault_injection_accuracy": "The fault injections are correctly configured: two HTTP 500 faults at call_index=1 and call_index=2 with standard Google API error format (code 500, status 'INTERNAL'). This correctly models HttpRetryOptions(attempts=2) exhausting both attempts (initial + 1 retry). The call_index spacing is correct: 0=reasoning, 1=worker initial, 2=worker retry, 3=reasoning FINAL. The fixture total_model_calls=4 matches this exactly. The fault messages distinguish 'attempt 1' vs 'attempt 2 - retry exhausted' for diagnostic clarity.",
+        "gaps": [
+          "The fixture exercises the happy path of error-aware REPL code (checks result.error). The FMEA's residual risk ('REPL code that does not check result.error will silently consume the error string') is NOT tested — there is no companion fixture with naive REPL code demonstrating silent error consumption.",
+          "The demo claims (line 119) 'SDK HttpRetryOptions(attempts=2) exhausts retries' but does not note the subtle distinction: the ScenarioRouter serves responses sequentially by call_index, NOT via actual SDK retry mechanics. The SDK's internal retry fires a new HTTP request which increments call_index, and the fixture just happens to have faults at those indices. If SDK retry semantics changed (e.g., retry count, backoff timing), the fixture alignment could break silently.",
+          "The demo correctly describes the _classify_error -> 'SERVER' mapping but does not mention that the error_category is also written to _acc_error_counts in dispatch.py (line 452) and flushed via flush_fn to OBS_WORKER_ERROR_COUNTS. This observability path is untested.",
+          "The demo does not discuss what happens if the REPL code does NOT check result.error — the LLMResult str value would be something like '[Worker worker_1 error: ClientError: 500]', which would be silently consumed as a string answer. This is the core residual risk from the FMEA.",
+          "The early bash exec blocks (demo lines 22-36, 68-69) reference shell scripts that don't exist (_sb_fixture_summary.sh, _sb_fault_injections.sh, _sb_grep_worker.sh, _sb_run_tests.sh). While their output is useful documentation, these scripts are not reproducible by a reviewer."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER, asserted to contain 'error' or 'exhausted' keywords)",
+          "iteration_count (via ITERATION_COUNT, asserted == 1)",
+          "last_repl_result (implicit via contract runner pipeline — not directly asserted)"
+        ],
+        "state_keys_missing": [
+          "worker_dispatch_count — written by flush_fn (dispatch.py line 619). Should be 1 for a single worker dispatch. Not asserted. The FM-08 tests include test_worker_dispatch_count but FM-09 does not, creating an inconsistency.",
+          "obs:worker_error_counts — written by flush_fn (dispatch.py line 627) when _acc_error_counts is non-empty. Should contain {'SERVER': 1}. Not asserted. This is the primary observability key for this failure mode.",
+          "obs:worker_total_dispatches — written by flush_fn (dispatch.py line 620). Should equal 1. Not asserted.",
+          "obs:worker_dispatch_latency_ms — written by flush_fn (dispatch.py line 621). Not asserted.",
+          "obs:total_calls — written by ObservabilityPlugin. Not asserted. The expected value is ambiguous: the SDK retry at HTTP level may or may not reach the ADK callback layer.",
+          "obs:per_iteration_token_breakdown — written by ObservabilityPlugin. For the error worker, input_tokens and output_tokens should be 0 (set by worker_on_model_error at worker.py lines 171-172). Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == 'Worker error: server retry exhausted' (test_fmea_e2e.py:618-619)",
+          "Contract: total_iterations == 1 (test_fmea_e2e.py:618-619)",
+          "Contract: total_model_calls == 4 (test_fmea_e2e.py:618-619)",
+          "test_error_in_final_answer: 'error' in fa.lower() or 'exhausted' in fa.lower() (test_fmea_e2e.py:626)",
+          "test_single_iteration: ITERATION_COUNT == 1 (test_fmea_e2e.py:634-635)",
+          "test_tool_result_shows_error: 'error' in first_stdout.lower() or 'Worker' in first_stdout (test_fmea_e2e.py:644)"
+        ],
+        "assertions_missing": [
+          "No assertion that the LLMResult.error_category == 'SERVER'. This is the defining classification for FM-09 and the core output of _classify_error (worker.py line 36). The test only checks that the final answer string mentions 'error', not that the error was correctly classified as SERVER.",
+          "No assertion that the LLMResult.http_status == 500. The dispatch closure reads this from _call_record (dispatch.py line 448) and propagates it into the LLMResult, but nothing validates it.",
+          "No assertion on WORKER_DISPATCH_COUNT. For a fixture testing worker dispatch error handling, this is a notable omission compared to FM-08's tests.",
+          "No assertion on OBS_WORKER_ERROR_COUNTS containing {'SERVER': 1}. This is the observability state key specifically designed for tracking worker error categories and is populated by flush_fn (dispatch.py lines 626-631).",
+          "No assertion on the REPL stdout content containing the specific error category string. The REPL code prints the LLMResult directly, but the error message format from worker_on_model_error (worker.py line 161) is '[Worker worker_N error: ...]' — asserting on this exact format would validate the full error propagation chain.",
+          "No assertion that router.call_index == 4 after the run, confirming all fault injection slots were consumed. Without this, the test could pass trivially if fault injection was somehow bypassed.",
+          "No assertion that tool_result stderr is empty, confirming the REPL code executed cleanly without Python exceptions."
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:26-41 (_classify_error — maps code >= 500 to 'SERVER')",
+          "rlm_adk/callbacks/worker.py:149-185 (worker_on_model_error — sets _result, _result_ready, _result_error, _call_record with error_category and http_status)",
+          "rlm_adk/dispatch.py:129-131 (HttpRetryOptions(attempts=2, initial_delay=1.0, max_delay=30.0) wiring on worker LlmAgent)",
+          "rlm_adk/dispatch.py:378-383 (single-worker dispatch via asyncio.wait_for)",
+          "rlm_adk/dispatch.py:428-452 (result reading from worker objects — _result_error=True branch creates LLMResult with error_category and http_status)",
+          "rlm_adk/dispatch.py:610-637 (flush_fn — snapshots _acc_error_counts into OBS_WORKER_ERROR_COUNTS)",
+          "tests_rlm_adk/provider_fake/fixtures.py:79-201 (ScenarioRouter — sequential routing with fault injection overlay)",
+          "tests_rlm_adk/provider_fake/server.py:108-117 (FakeGeminiServer — handles fault responses including malformed_json)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:430-437 — the 'worker produced no result' (_result_ready=False) branch. This fixture ensures the worker sets _result_ready=True via worker_on_model_error, so the NO_RESULT branch is never exercised.",
+          "dispatch.py:555-582 — the generic 'except Exception' error handler for batch dispatch setup failures. Only fires if worker acquire or setup itself throws.",
+          "dispatch.py:384-398 — the single-worker timeout handler (asyncio.TimeoutError). FM-09 tests HTTP errors, not dispatch timeouts.",
+          "worker.py:29-30 — asyncio.TimeoutError classification branch in _classify_error. Only SERVER (code >= 500) is exercised.",
+          "worker.py:31-32 — RATE_LIMIT classification (429) in _classify_error. Not exercised by this fixture.",
+          "worker.py:33-34 — AUTH classification (401/403) in _classify_error. Not exercised.",
+          "worker.py:39-40 — NETWORK classification (ConnectionError/OSError) in _classify_error. Not exercised.",
+          "worker.py:128-144 — worker_after_model except block (FM-20 callback error isolation). Not exercised because worker_after_model is not called (the error fires worker_on_model_error instead)."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "LLMResult.error_category on the returned result",
+          "source": "rlm_adk/dispatch.py:443-448",
+          "rationale": "The dispatch closure reads error_category from _call_record and sets it on LLMResult. Asserting error_category == 'SERVER' would directly validate the _classify_error -> _call_record -> LLMResult pipeline end-to-end. This is the defining property of FM-09."
+        },
+        {
+          "trace": "LLMResult.http_status on the returned result",
+          "source": "rlm_adk/dispatch.py:448",
+          "rationale": "http_status=500 is carried from _call_record (written at worker.py line 177) into LLMResult. Asserting this confirms the HTTP status code survived the entire callback -> dispatch -> LLMResult chain."
+        },
+        {
+          "trace": "OBS_WORKER_ERROR_COUNTS state key",
+          "source": "rlm_adk/dispatch.py:626-627",
+          "rationale": "flush_fn writes _acc_error_counts into this state key when non-empty. For FM-09 it should contain {'SERVER': 1}. This validates that the observability pipeline correctly aggregates error categories from the dispatch closure's local accumulators."
+        },
+        {
+          "trace": "REPL stdout from execute_code function_response",
+          "source": "rlm_adk/tools/repl_tool.py (execute_code response)",
+          "rationale": "The REPL code prints 'Worker error: {result}' which should contain the error message from worker_on_model_error (worker.py line 161). Asserting on the stdout string would confirm the error message format propagated correctly through the dispatch -> REPL namespace -> print -> tool_result pipeline."
+        },
+        {
+          "trace": "router.call_index after run completion",
+          "source": "tests_rlm_adk/provider_fake/fixtures.py:114 (_call_index property)",
+          "rationale": "Asserting router.call_index == 4 confirms the fake server received exactly 4 HTTP requests (reasoning + 2 faults + reasoning FINAL), validating that the SDK retry mechanism actually fired and consumed the fault injection slots."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on LLMResult.error_category == 'SERVER' for FM-09. This requires exposing the LLMResult from the REPL execution (or asserting on REPL stdout containing the _classify_error output). Currently the test only checks keywords in FINAL_ANSWER, missing the core classification that distinguishes FM-09 from other worker errors."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on OBS_WORKER_ERROR_COUNTS state key containing {'SERVER': 1}. This validates the flush_fn -> state key observability pipeline (dispatch.py lines 626-627) and confirms the error category aggregation works end-to-end."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_worker_dispatch_count asserting WORKER_DISPATCH_COUNT == 1. The FM-08 tests include this assertion but FM-09 omits it, creating an inconsistency across the FMEA test suite."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create a companion fixture 'worker_500_retry_exhausted_naive.json' where the REPL code does NOT check result.error (e.g., just does 'answer = str(result)' and prints it). This exercises the FMEA's residual risk: unaware code silently consuming the error string '[Worker worker_N error: ...]' as a real answer."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion that router.call_index == 4 after the run. This confirms the fault injection slots were consumed and the SDK retry actually fired, ruling out the test passing trivially without exercising the fault path."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add negative assertion that tool_result stderr is empty, confirming no Python exceptions occurred during the worker error handling in the REPL."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Assert on the specific error message format in tool_result stdout: it should contain '[Worker worker_' which is the prefix from worker_on_model_error (worker.py line 161). This validates the error message propagation chain more precisely than the current loose keyword match."
+        }
+      ]
+    },
+    {
+      "fixture": "worker_malformed_json.json",
+      "failure_modes": ["FM-18"],
+      "rpn": 24,
+      "pathway": "P2b/P6d",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code in call_index=0 dispatches a single llm_query('Analyze data') and defensively checks result.error, printing 'Worker failed: {result}' on failure. This correctly exercises the error-detection path. The code pattern matches the FM-09 fixture, which is appropriate since both failure modes produce LLMResult(error=True) via worker_on_model_error.",
+        "response_mock_accuracy": "The mocked responses are realistic. call_index=0 emits execute_code with defensive REPL code. call_index=2 (reasoning FINAL) correctly wraps the error acknowledgment in FINAL(). Token counts are plausible. The call_index gap (0 -> 2) correctly accounts for the single fault injection at index 1. total_model_calls=3 is correct: reasoning + malformed_fault + reasoning_FINAL.",
+        "fault_injection_accuracy": "The fault injection is correctly configured: one malformed_json fault at call_index=1 with body_raw containing truncated JSON ('{\"candidates\": [{\"content\": {\"parts\": [{\"text\": malformed'). The ScenarioRouter (fixtures.py line 157-159) returns status -1 with the raw body, and FakeGeminiServer (server.py line 108-115) returns HTTP 200 with Content-Type application/json but unparseable text. This correctly simulates a Gemini API returning a valid HTTP response with corrupted body, which triggers SDK JSON parse failure and ultimately worker_on_model_error.",
+        "gaps": [
+          "The demo does not clarify what specific exception type the SDK raises when it encounters malformed JSON. This matters for _classify_error (worker.py line 26-41): a JSON parse error likely has no .code attribute, so _classify_error would fall through to check isinstance(error, (ConnectionError, OSError)) (False), and finally return 'UNKNOWN'. The demo claims worker_on_model_error catches it but does not specify the resulting error_category.",
+          "The demo does not discuss whether malformed JSON triggers SDK-level retry (HttpRetryOptions). In practice, HTTP 200 with bad body would NOT trigger HTTP retry (retries are for 4xx/5xx status codes), so the SDK parse failure goes directly to on_model_error_callback without retry. The fixture correctly models this (only 1 fault injection, not 2), but the demo does not explain this distinction from FM-09.",
+          "The demo's FM-18 section (line 175) says 'SDK JSON parse failure -> worker_on_model_error -> LLMResult(error=True) -> REPL detects result.error' but omits the error_category. Since the SDK parse exception likely has no .code attribute, _classify_error would return 'UNKNOWN', not a specific category. This should be documented.",
+          "The early bash exec blocks (demo lines 22-36, 68-69, 123-124, 138-139) reference non-existent shell scripts. While the captured output is informative, these are not reproducible.",
+          "FM-18 has only 3 tests (contract, error_in_final_answer, single_iteration) vs FM-09's 4 tests. FM-18 is missing a test_tool_result_shows_error equivalent, which would verify the execute_code function_response contains the malformed error indication."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER, asserted to contain 'failed' or 'malformed' keywords)",
+          "iteration_count (via ITERATION_COUNT, asserted == 1)"
+        ],
+        "state_keys_missing": [
+          "worker_dispatch_count — written by flush_fn (dispatch.py line 619). Should be 1 for a single worker dispatch. Not asserted.",
+          "obs:worker_error_counts — written by flush_fn (dispatch.py line 627). Should contain {'UNKNOWN': 1} since malformed JSON parse errors likely have no HTTP status code. Not asserted.",
+          "obs:worker_total_dispatches — written by flush_fn (dispatch.py line 620). Should equal 1. Not asserted.",
+          "obs:worker_dispatch_latency_ms — written by flush_fn (dispatch.py line 621). Not asserted.",
+          "last_repl_result — written by REPLTool. Not directly asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == 'Worker failed: malformed API response' (test_fmea_e2e.py:693-694)",
+          "Contract: total_iterations == 1 (test_fmea_e2e.py:693-694)",
+          "Contract: total_model_calls == 3 (test_fmea_e2e.py:693-694)",
+          "test_error_in_final_answer: 'failed' in fa.lower() or 'malformed' in fa.lower() (test_fmea_e2e.py:701)",
+          "test_single_iteration: ITERATION_COUNT == 1 (test_fmea_e2e.py:709-710)"
+        ],
+        "assertions_missing": [
+          "No test_tool_result_shows_error for FM-18. The FM-09 tests include this (test_fmea_e2e.py:637-646) but FM-18 does not. This is a gap: the REPL code prints 'Worker failed: {result}' and the tool_result stdout should contain the error message, but this is never verified.",
+          "No assertion on LLMResult.error_category. For malformed JSON, _classify_error should return 'UNKNOWN' (no .code attribute on parse exceptions). This is the distinguishing property of FM-18 vs FM-09 (which returns 'SERVER').",
+          "No assertion that the malformed JSON fault was actually served. Without checking router.call_index == 3, the test could pass if the fault injection was somehow bypassed and the fixture fell through to a normal response.",
+          "No assertion on WORKER_DISPATCH_COUNT == 1. Consistent omission with FM-09.",
+          "No assertion on OBS_WORKER_ERROR_COUNTS state key. Should contain the error category from the malformed parse failure.",
+          "No assertion that tool_result stderr is empty, confirming no Python exceptions during REPL execution.",
+          "No assertion distinguishing malformed JSON from other error types. The keyword assertions ('failed' or 'malformed') are loose enough to pass for any generic failure, not specifically a parse error."
+        ],
+        "source_code_refs": [
+          "rlm_adk/callbacks/worker.py:26-41 (_classify_error — malformed JSON parse exception likely returns 'UNKNOWN')",
+          "rlm_adk/callbacks/worker.py:149-185 (worker_on_model_error — writes error result to agent object)",
+          "rlm_adk/dispatch.py:129-131 (HttpRetryOptions — HTTP 200 with bad body does NOT trigger retry)",
+          "rlm_adk/dispatch.py:438-452 (_result_error=True branch creates LLMResult with error_category from _call_record)",
+          "tests_rlm_adk/provider_fake/fixtures.py:153-159 (ScenarioRouter malformed_json handling — returns status -1 with raw body)",
+          "tests_rlm_adk/provider_fake/server.py:108-115 (FakeGeminiServer returns HTTP 200 with Content-Type application/json but unparseable text)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:430-437 — NO_RESULT branch (_result_ready=False). The error callback sets _result_ready=True, so this is not exercised.",
+          "dispatch.py:555-582 — generic except Exception handler for batch setup failures.",
+          "worker.py:29-30 — TIMEOUT classification in _classify_error. Not exercised.",
+          "worker.py:31-32 — RATE_LIMIT classification. Not exercised.",
+          "worker.py:33-34 — AUTH classification. Not exercised.",
+          "worker.py:35-36 — SERVER classification (code >= 500). Not exercised for FM-18 because the malformed JSON triggers a parse exception, not an HTTP error.",
+          "worker.py:37-38 — CLIENT classification (code >= 400). Not exercised.",
+          "worker.py:39-40 — NETWORK classification (ConnectionError/OSError). Not exercised.",
+          "The SDK's internal JSON parsing and exception raising path — the fake server simulates the effect but the actual SDK code path from HTTP 200 + bad body to exception is not directly observable."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "LLMResult.error_category for malformed JSON parse failure",
+          "source": "rlm_adk/dispatch.py:443",
+          "rationale": "The error_category for a malformed JSON parse exception is determined by _classify_error (worker.py line 26-41). Since the SDK parse exception likely has no .code attribute and is not a ConnectionError/OSError, it should be 'UNKNOWN'. Asserting this confirms the classification pipeline handles parse failures correctly."
+        },
+        {
+          "trace": "The specific exception type raised by the SDK for malformed JSON",
+          "source": "rlm_adk/callbacks/worker.py:152 (error parameter)",
+          "rationale": "Capturing type(error).__name__ in a test assertion would document what exception the google.genai SDK raises for malformed JSON responses. This is currently undocumented and affects _classify_error's output."
+        },
+        {
+          "trace": "REPL stdout from execute_code function_response",
+          "source": "rlm_adk/tools/repl_tool.py (execute_code response)",
+          "rationale": "The REPL code prints 'Worker failed: {result}'. Asserting stdout contains the error message from worker_on_model_error would confirm the full error propagation chain for parse failures."
+        },
+        {
+          "trace": "router.call_index after run completion",
+          "source": "tests_rlm_adk/provider_fake/fixtures.py:114",
+          "rationale": "Asserting router.call_index == 3 confirms the malformed JSON fault was served at call_index=1, and the fixture consumed exactly 3 slots (reasoning + malformed_fault + reasoning_FINAL)."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add test_tool_result_shows_error for FM-18, matching FM-09's test (test_fmea_e2e.py:637-646). The REPL code prints the error result but this output is never verified. This is the only FM in Team K's demo that lacks a tool_result assertion."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on LLMResult.error_category for malformed JSON. This distinguishes FM-18 from FM-09: malformed JSON should produce 'UNKNOWN' (no HTTP status code) while FM-09 produces 'SERVER' (code=500). Without this assertion, the tests cannot confirm the classification pipeline handles parse failures distinctly from HTTP errors."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion that router.call_index == 3 after the run. This confirms the malformed JSON fault at call_index=1 was actually served, and the test did not pass trivially."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add test_worker_dispatch_count asserting WORKER_DISPATCH_COUNT == 1. Consistent with the recommendation for FM-09 and matching FM-08's test pattern."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a unit test that directly calls _classify_error with a JSON parse exception (e.g., json.JSONDecodeError) and asserts the return value is 'UNKNOWN'. This documents the expected classification for FM-18 without requiring the full e2e pipeline."
+        },
+        {
+          "priority": "low",
+          "type": "source_fix",
+          "action": "Consider adding a 'PARSE_ERROR' category to _classify_error for exceptions that are json.JSONDecodeError or ValueError with JSON-related messages. This would give FM-18 a specific error_category rather than falling through to 'UNKNOWN', improving observability for malformed API responses."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add negative assertion that tool_result stderr is empty for FM-18, confirming no Python exceptions during REPL execution of the malformed-error handling code."
+        }
+      ]
+    }
+  ]
+}

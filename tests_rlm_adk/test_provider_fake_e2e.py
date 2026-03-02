@@ -29,7 +29,7 @@ from tests_rlm_adk.provider_fake.contract_runner import (
     run_fixture_contract_with_plugins,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 
 
 # ---------------------------------------------------------------------------

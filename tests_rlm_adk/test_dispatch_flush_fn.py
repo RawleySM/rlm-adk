@@ -1,15 +1,12 @@
-"""Tests for dispatch.py flush_fn and optional event_queue.
+"""Tests for dispatch.py flush_fn.
 
 Verifies:
 1. create_dispatch_closures returns a 3-tuple (llm_query_async, llm_query_batched_async, flush_fn)
 2. flush_fn returns accumulated state (dispatch counts, latencies)
 3. flush_fn resets accumulators after call
-4. Dispatch works without event_queue (None)
-5. Dispatch with event_queue still works (backward compat)
+4. Dispatch works without event_queue (events consumed and discarded)
 """
 
-import asyncio
-import inspect
 from unittest.mock import MagicMock
 
 import pytest
@@ -143,35 +140,3 @@ class TestFlushFn:
         result = await llm_query_async("test prompt")
         assert str(result) == "result text"
 
-    @pytest.mark.asyncio
-    async def test_dispatch_with_event_queue_backward_compat(self):
-        """Dispatch with event_queue provided should still emit events."""
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def mock_run(_ctx):
-            worker._result = "result text"  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            return
-            yield
-
-        _patch_worker_run(worker, mock_run)
-        pool._pools["test-model"].put_nowait(worker)
-
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _, flush_fn = create_dispatch_closures(pool, ctx, eq)
-
-        result = await llm_query_async("test prompt")
-        assert str(result) == "result text"
-        # Events should have been queued
-        assert eq.qsize() > 0
-
-    def test_event_queue_parameter_is_optional(self):
-        """create_dispatch_closures should accept no event_queue arg."""
-        sig = inspect.signature(create_dispatch_closures)
-        param = sig.parameters.get("event_queue")
-        assert param is not None, "event_queue parameter missing"
-        assert param.default is None or param.default is inspect.Parameter.empty or param.default is None

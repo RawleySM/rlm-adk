@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -21,20 +21,6 @@ class ReasoningOutput(BaseModel):
     reasoning_summary: str = Field(
         default="", description="Brief reasoning summary."
     )
-
-
-ClientBackend = Literal[
-    "openai",
-    "portkey",
-    "openrouter",
-    "vercel",
-    "vllm",
-    "litellm",
-    "anthropic",
-    "azure_openai",
-    "gemini",
-]
-EnvironmentType = Literal["local", "docker", "modal", "prime", "daytona", "e2b"]
 
 
 def _serialize_value(value: Any) -> Any:
@@ -216,63 +202,5 @@ class REPLResult:
         return result
 
 
-@dataclass
-class CodeBlock:
-    code: str
-    result: REPLResult
-
-    def to_dict(self):
-        return {"code": self.code, "result": self.result.to_dict()}
-
-
-@dataclass
-class RLMIteration:
-    prompt: str | dict[str, Any]
-    response: str
-    code_blocks: list[CodeBlock]
-    final_answer: str | None = None
-    iteration_time: float | None = None
-
-    def to_dict(self):
-        return {
-            "prompt": self.prompt,
-            "response": self.response,
-            "code_blocks": [code_block.to_dict() for code_block in self.code_blocks],
-            "final_answer": self.final_answer,
-            "iteration_time": self.iteration_time,
-        }
-
-
-########################################################
-########   Types for RLM Metadata   #########
-########################################################
-
-
-@dataclass
-class RLMMetadata:
-    """Metadata about the RLM configuration."""
-
-    root_model: str
-    max_depth: int
-    max_iterations: int
-    backend: str
-    backend_kwargs: dict[str, Any]
-    environment_type: str
-    environment_kwargs: dict[str, Any]
-    other_backends: list[str] | None = None
-
-    def to_dict(self):
-        return {
-            "root_model": self.root_model,
-            "max_depth": self.max_depth,
-            "max_iterations": self.max_iterations,
-            "backend": self.backend,
-            "backend_kwargs": {k: _serialize_value(v) for k, v in self.backend_kwargs.items()},
-            "environment_type": self.environment_type,
-            "environment_kwargs": {
-                k: _serialize_value(v) for k, v in self.environment_kwargs.items()
-            },
-            "other_backends": self.other_backends,
-        }
 
 

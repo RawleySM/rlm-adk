@@ -1,0 +1,331 @@
+{
+  "team": "F",
+  "demo_file": "demo_fmea_team_f.md",
+  "reviews": [
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-01"],
+      "rpn": 84,
+      "pathway": "P2",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. _TRANSIENT_STATUS_CODES at orchestrator.py:51 matches frozenset({408, 429, 500, 502, 503, 504}). is_transient_error() at orchestrator.py:54-70 matches the shown code exactly. The retry loop at orchestrator.py:205-226 is correct: line 206 reads RLM_LLM_MAX_RETRIES, line 208 is `for attempt in range(max_retries + 1)`, line 214 is the guard `if not is_transient_error(exc) or attempt >= max_retries:`, line 215 is `raise`, line 226 is `await asyncio.sleep(delay)`. The finally block at orchestrator.py:307-311 matches (tools detach at 309, repl.cleanup at 311). The HttpRetryOptions at agent.py:65-70 matches (attempts=3, initial_delay=1.0, max_delay=60.0, exp_base=2.0). The _build_generate_content_config at agent.py:123-148 matches. The import at orchestrator.py:26 matches `from google.genai.errors import ClientError, ServerError`. All code snippet content in the demo output blocks is verbatim identical to the actual source.",
+        "analysis_accuracy": "The demo's analysis of the two-layer retry architecture is correct: SDK-level HttpRetryOptions(attempts=3) at the transport layer plus application-level RLM_LLM_MAX_RETRIES=3 creating up to 4 orchestrator attempts. The exponential backoff formula (base_delay * 2^attempt yielding 5.0s, 10.0s, 20.0s) is correct. The observation that no FINAL_ANSWER or SHOULD_STOP state delta is yielded on retry exhaustion is verified -- the finally block at 307-311 only does tool cleanup and REPL cleanup, with no state writes. The partial event yield risk (events yielded before mid-conversation failure) is a valid insight -- the retry loop at line 210-211 yields events via `async for event in self.reasoning_agent.run_async(ctx): yield event` before any exception, and a retry restarts run_async which may encounter stale conversation history. The multiplicative retry budget calculation (3 SDK attempts x 4 orchestrator attempts = 12 total HTTP requests) is reasonable, though the exact semantics of HttpRetryOptions.attempts (total attempts vs retries) could affect the math.",
+        "testability_accuracy": "The demo correctly identifies that the existing fault_429_then_success.json fixture (verified to exist at tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json) covers single-retry recovery but not exhaustion. The recommended unit test approach (mock reasoning_agent.run_async to always raise ServerError(code=503)) is sound. However, the demo states the provider-fake infrastructure 'would need to expect the test to raise an exception rather than produce a FINAL_ANSWER' -- this is accurate since the current contract runner framework expects a final_answer. The demo's recommended test scenario (patch run_async, set RLM_LLM_MAX_RETRIES=2, assert 3 attempts then propagation) is well-designed.",
+        "gaps": [
+          "CRITICAL: The demo claims 'No test for the is_transient_error() classifier itself (no unit test)' in the Gaps section. This is WRONG. tests_rlm_adk/test_bug001_orchestrator_retry.py::TestErrorClassificationTypeBased already has 6 tests for is_transient_error() covering ServerError(503)->True, ClientError(429)->True, ServerError(500)->True, ClientError(400)->False, and two generic-exception->False cases. The demo should have cited these existing tests and noted that only the exhaustion integration test is missing.",
+          "The demo does not mention the existing test_bug001_orchestrator_retry.py file at all, which is the primary test file for orchestrator retry/error handling. A thorough review should have referenced it.",
+          "The demo does not discuss the interaction between the retry loop and ADK's InvocationContext state. When the retry loop re-enters reasoning_agent.run_async(ctx) after a transient failure, the InvocationContext may carry stale state from the failed attempt. The demo mentions 'partial events' but does not analyze whether the InvocationContext session state is consistent after a partial failure.",
+          "The demo references the empty-output error path at 'lines 280-305' as a model for improvement. This is accurate (lines 280-305 yield an error event with FINAL_ANSWER and SHOULD_STOP), but the demo does not note that this path is ONLY reachable AFTER the retry loop succeeds (i.e., run_async completes without exception but produces no final answer). On retry exhaustion, the exception propagates before reaching line 228+.",
+          "The demo does not mention that the SDK's HttpRetryOptions may have its own default http_status_codes set. If the SDK retries a different set of status codes than _TRANSIENT_STATUS_CODES, there could be a mismatch between the two retry layers.",
+          "Minor: The demo says 'default 3' for RLM_LLM_MAX_RETRIES, resulting in '4 attempts: indices 0, 1, 2, 3'. This is correct but could be clearer that max_retries=3 means 3 retries after the initial attempt (range(4) = [0,1,2,3])."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "FINAL_ANSWER -- demo recommends asserting it is NOT in state after retry exhaustion",
+          "SHOULD_STOP -- implicitly mentioned as not being set (shared residual risk with FM-02, FM-28)"
+        ],
+        "state_keys_missing": [
+          "ITERATION_COUNT -- if the reasoning_agent yields events before failing, ITERATION_COUNT may have been incremented by REPLTool. The test should verify its value after exhaustion.",
+          "REQUEST_ID -- set in the initial state delta at orchestrator.py:177. After exhaustion, this should still be in state (yielded before the retry loop). Not mentioned in the demo.",
+          "CURRENT_DEPTH -- similarly set in initial state delta. Should be verifiable after exhaustion.",
+          "obs:total_calls -- ObservabilityPlugin may or may not count partial attempts. Worth asserting.",
+          "obs:total_input_tokens / obs:total_output_tokens -- if any events were yielded before failure, these may have been populated by the ObservabilityPlugin."
+        ],
+        "assertions_tested": [
+          "Demo recommends: ServerError propagates after max_retries + 1 calls",
+          "Demo recommends: FINAL_ANSWER is NOT in ctx.session.state",
+          "Demo recommends: reasoning_agent.tools reset to [] (finally block ran)",
+          "Demo recommends: repl.cleanup() was called (finally block ran)"
+        ],
+        "assertions_missing": [
+          "No assertion on the number of asyncio.sleep calls and their delay values. The test should verify exponential backoff: sleep(5.0), sleep(10.0), sleep(20.0) for max_retries=3 with base_delay=5.0.",
+          "No assertion on logger.warning calls. The retry loop logs at orchestrator.py:222-225 on each transient failure. Verifying log output would confirm the retry path was exercised.",
+          "No assertion on print() calls. The retry loop prints to stdout at orchestrator.py:217-221. While less important than logger.warning, it is part of the observable behavior.",
+          "No assertion verifying the initial state delta (CURRENT_DEPTH, ITERATION_COUNT, REQUEST_ID) was yielded before the exception. The try block yields initial events at lines 187-203 before the retry loop starts.",
+          "No assertion that non-persistent REPL cleanup occurs vs persistent REPL skip. The finally block at line 310-311 only calls cleanup when not self.persistent.",
+          "No assertion on the exception type and attributes. The test should verify the propagated exception is a ServerError with code=503, not a wrapped or transformed exception."
+        ],
+        "source_code_refs": [
+          "rlm_adk/orchestrator.py:50-51 (_TRANSIENT_STATUS_CODES definition -- verified correct)",
+          "rlm_adk/orchestrator.py:54-70 (is_transient_error function -- verified correct)",
+          "rlm_adk/orchestrator.py:205-226 (retry loop with exponential backoff -- verified correct)",
+          "rlm_adk/orchestrator.py:307-311 (finally block: tool detach + REPL cleanup -- verified correct)",
+          "rlm_adk/agent.py:65-70 (_DEFAULT_RETRY_OPTIONS: attempts=3, initial_delay=1.0, max_delay=60.0 -- verified correct)",
+          "rlm_adk/agent.py:123-148 (_build_generate_content_config: wires HttpRetryOptions into GenerateContentConfig -- verified correct)",
+          "tests_rlm_adk/test_bug001_orchestrator_retry.py:41-93 (TestErrorClassificationTypeBased -- existing unit tests for is_transient_error that the demo MISSED)"
+        ],
+        "untested_code_paths": [
+          "orchestrator.py:214-215 -- the retry exhaustion path where attempt >= max_retries triggers the raise. No existing test exercises this specific branch.",
+          "orchestrator.py:210-211 -- partial event yield followed by exception mid-iteration. No test verifies the behavior when run_async yields some events then raises.",
+          "orchestrator.py:307-311 -- the finally block after exception propagation. While the finally block always runs, no test verifies that tools are detached and REPL is cleaned up specifically on the exhaustion path.",
+          "The interaction between SDK-level retry (HttpRetryOptions.attempts=3) and application-level retry (RLM_LLM_MAX_RETRIES=3) is completely untested. No test verifies the multiplicative behavior."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "asyncio.sleep call count and delay values during retry exhaustion",
+          "source": "rlm_adk/orchestrator.py:226",
+          "rationale": "Verifying the exact sleep durations (5.0, 10.0, 20.0 for default settings) confirms the exponential backoff formula is correct. A mock on asyncio.sleep would capture both the number of retries and the backoff schedule."
+        },
+        {
+          "trace": "Events yielded before the exception propagates",
+          "source": "rlm_adk/orchestrator.py:187-203 (initial state + prompt events), 210-211 (events from run_async)",
+          "rationale": "The initial state delta and user content events are yielded before the retry loop. On the first attempt, run_async may yield partial events before failing. Capturing all yielded events before the exception would reveal the partial-event contamination risk."
+        },
+        {
+          "trace": "reasoning_agent.run_async call count",
+          "source": "rlm_adk/orchestrator.py:210",
+          "rationale": "The number of times run_async is called should equal max_retries + 1 (4 by default). A mock on run_async would confirm the retry count."
+        },
+        {
+          "trace": "HttpRetryOptions.attempts interaction with orchestrator retries",
+          "source": "rlm_adk/agent.py:65-70 (SDK retry config), rlm_adk/orchestrator.py:205-226 (app retry loop)",
+          "rationale": "The SDK's HttpRetryOptions and the orchestrator's retry loop are independent. A test using a real HTTP mock (not provider-fake) could count total HTTP requests to verify the multiplicative budget."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Create a unit test for retry exhaustion in orchestrator: mock reasoning_agent.run_async as an async generator that always raises ServerError(code=503). Set RLM_LLM_MAX_RETRIES=2 and RLM_LLM_RETRY_DELAY=0.0 via monkeypatch. Assert: (1) ServerError propagates after exactly 3 run_async calls, (2) FINAL_ANSWER is NOT in session state, (3) reasoning_agent.tools == [] after exception (finally ran), (4) repl.cleanup() was called. This is the primary missing test for FM-01."
+        },
+        {
+          "priority": "high",
+          "type": "source_fix",
+          "action": "Add a structured error event yield before re-raising on retry exhaustion. Wrap the final raise at orchestrator.py:215 in a handler that yields an Event with state_delta={FINAL_ANSWER: '[RLM ERROR] Transient error after N retries: <exc>', SHOULD_STOP: True} before propagating the exception. This mirrors the empty-output error path at lines 280-305 and addresses the shared residual risk of FM-01/FM-02/FM-28."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Update the demo document to acknowledge the existing is_transient_error() unit tests in tests_rlm_adk/test_bug001_orchestrator_retry.py::TestErrorClassificationTypeBased (6 tests covering ServerError 503/500, ClientError 429/400, and generic exceptions). The demo's claim of 'no unit test for is_transient_error()' is incorrect."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add a partial-event-yield test: mock run_async to yield 2 events then raise ServerError(code=503) on the first attempt, then succeed on the second attempt. Verify that the retry produces correct results despite stale events from the failed attempt being in the event stream."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add a test for the multiplicative retry budget: use a counting HTTP mock that records all HTTP requests. Configure HttpRetryOptions(attempts=2) and RLM_LLM_MAX_RETRIES=1. Inject transient errors on all attempts. Verify total HTTP request count equals attempts * (max_retries + 1) = 2 * 2 = 4."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-02"],
+      "rpn": 70,
+      "pathway": "P2",
+      "fidelity": {
+        "verdict": "partial",
+        "source_code_accuracy": "All line number citations are accurate. _TRANSIENT_STATUS_CODES at orchestrator.py:51 is correct. is_transient_error at orchestrator.py:54-70 is correct. The exception guard at orchestrator.py:213-215 matches the actual code: line 213 is `except Exception as exc:`, line 214 is `if not is_transient_error(exc) or attempt >= max_retries:`, line 215 is `raise`. The import at orchestrator.py:26 matches. The isinstance check reference at 'line 60' is correct (line 60 is `if isinstance(exc, (ServerError, ClientError)):`).",
+        "analysis_accuracy": "The analysis is correct that a ClientError(code=400) or ClientError(code=404) passes the isinstance check but has a code NOT in _TRANSIENT_STATUS_CODES, so is_transient_error returns False. The short-circuit evaluation at line 214 is correctly described: `not is_transient_error(exc)` evaluates to True, so the `or` short-circuits and raise executes regardless of attempt value. The finally cleanup observation is correct. The ValidationError analysis is correct: it is not a ServerError or ClientError, so it falls through all isinstance checks and returns False. The 'safe default' observation (unknown exceptions return False and are raised immediately) is correct.",
+        "testability_accuracy": "The demo correctly identifies that a pure is_transient_error() unit test is the most lightweight approach. The recommended parametrized test covering ClientError(400)->False, ClientError(404)->False, ClientError(429)->True, ServerError(500)->True, and ValueError->False is well-designed. The integration test approach (mock run_async to raise ClientError(400), assert exactly 1 call) is sound. However, the testability assessment overlooks the EXISTING unit tests in test_bug001_orchestrator_retry.py.",
+        "gaps": [
+          "CRITICAL: The demo claims 'No test for the is_transient_error() classifier itself (no unit test)' -- this is WRONG. tests_rlm_adk/test_bug001_orchestrator_retry.py::TestErrorClassificationTypeBased already tests ClientError(400)->False at line 77-81 (test_client_error_400_is_not_transient). This directly covers the non-transient classification that FM-02 is about.",
+          "CRITICAL: The demo claims 'No test for non-transient error fast-failure path' -- while the integration test (orchestrator not retrying on 400) is indeed missing, the classification unit test does exist. The demo should have distinguished between 'classifier unit test' (exists) and 'orchestrator integration test' (missing).",
+          "The demo's recommended parametrized test includes ClientError(429)->True, but this test ALREADY exists in test_bug001_orchestrator_retry.py:50-54. Similarly ServerError(500)->True already exists at lines 71-75. The demo recommends tests that already exist.",
+          "The demo does not mention the boundary case of ClientError(408). HTTP 408 Request Timeout is in _TRANSIENT_STATUS_CODES, and a ClientError with code 408 would be classified as transient. This is correct behavior but is an interesting boundary case not mentioned.",
+          "The demo does not discuss Python built-in exceptions (e.g., MemoryError, KeyboardInterrupt, SystemExit) that could propagate through the retry loop. These are BaseException subclasses, not Exception, so the `except Exception` at line 213 would not catch them. This is a separate concern from FM-02 but is related to non-transient error handling.",
+          "The demo does not mention that the 'line 60' isinstance check reference in the FM-02 section says 'at line 60' but the analysis says 'code in _TRANSIENT_STATUS_CODES' -- this is at line 61 (getattr(exc, 'code', None) in _TRANSIENT_STATUS_CODES). Minor nitpick but relevant for precision."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "FINAL_ANSWER -- demo recommends asserting NOT in state after non-transient error",
+          "SHOULD_STOP -- implicitly not set (shared residual risk)"
+        ],
+        "state_keys_missing": [
+          "ITERATION_COUNT -- should be 0 if the error occurs before any REPL execution",
+          "REQUEST_ID -- set in initial state delta before retry loop. Should persist after non-transient error.",
+          "CURRENT_DEPTH -- similarly set in initial state delta.",
+          "obs:total_calls -- may be 0 or 1 depending on whether the model call that failed is counted by ObservabilityPlugin"
+        ],
+        "assertions_tested": [
+          "EXISTING (not mentioned by demo): test_client_error_400_is_not_transient asserts is_transient_error(ClientError(400)) is False",
+          "Demo recommends: ClientError(400) propagates without retry (run_async called exactly once)",
+          "Demo recommends: No FINAL_ANSWER in state"
+        ],
+        "assertions_missing": [
+          "No integration test asserting run_async is called exactly 1 time (no retry) on non-transient error. The unit test for is_transient_error exists but the orchestrator-level behavior is not tested.",
+          "No assertion on the type of exception that propagates. The test should verify it is the original ClientError(400), not wrapped.",
+          "No assertion on the finally block running after non-transient error (tools detached, REPL cleaned up).",
+          "No assertion distinguishing the 'attempt 0 non-transient' exception path from 'attempt 3 transient exhaustion' path. From the caller's perspective, both raise -- a test should verify the timing difference (immediate vs after retries).",
+          "No test for ClientError(404) specifically, which the demo lists as a target but is not in the existing test suite.",
+          "No test for ValidationError (Pydantic) propagation through the retry loop. The demo discusses this as a valid non-transient path but does not recommend a specific test."
+        ],
+        "source_code_refs": [
+          "rlm_adk/orchestrator.py:51 (_TRANSIENT_STATUS_CODES -- verified correct)",
+          "rlm_adk/orchestrator.py:54-70 (is_transient_error -- verified correct)",
+          "rlm_adk/orchestrator.py:213-215 (exception guard and raise -- verified correct)",
+          "rlm_adk/orchestrator.py:26 (ClientError, ServerError imports -- verified correct)",
+          "rlm_adk/orchestrator.py:307-311 (finally block -- verified correct)",
+          "tests_rlm_adk/test_bug001_orchestrator_retry.py:77-81 (test_client_error_400_is_not_transient -- EXISTING test the demo missed)"
+        ],
+        "untested_code_paths": [
+          "orchestrator.py:214-215 -- the non-transient immediate-raise path at the orchestrator level (not just the classifier). No integration test exercises this.",
+          "orchestrator.py:307-311 -- the finally block after a non-transient exception. No test verifies cleanup on this specific path.",
+          "is_transient_error with ClientError(404) -- not covered by existing tests (400 is covered, 404 is not).",
+          "is_transient_error with Pydantic ValidationError -- not covered.",
+          "is_transient_error with ClientError(408) -- 408 is in _TRANSIENT_STATUS_CODES, so this would return True. No test for this boundary case."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "reasoning_agent.run_async call count after non-transient error",
+          "source": "rlm_adk/orchestrator.py:210",
+          "rationale": "Asserting run_async was called exactly once confirms the immediate-raise path. This distinguishes FM-02 (no retry) from FM-01 (retry then raise) at the integration level."
+        },
+        {
+          "trace": "asyncio.sleep NOT called",
+          "source": "rlm_adk/orchestrator.py:226",
+          "rationale": "For non-transient errors, asyncio.sleep should never be called because the raise at line 215 executes before reaching line 226. A mock on asyncio.sleep with assert_not_called() would confirm this."
+        },
+        {
+          "trace": "logger.warning NOT called with retry message",
+          "source": "rlm_adk/orchestrator.py:222-225",
+          "rationale": "The retry log message at lines 222-225 should not be emitted for non-transient errors. Asserting logger.warning is not called (or not called with the 'Transient LLM error' pattern) confirms no retry was attempted."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Create an orchestrator-level integration test for non-transient error fast-failure: mock reasoning_agent.run_async to raise ClientError(code=400). Assert: (1) run_async called exactly once, (2) ClientError(400) propagates, (3) asyncio.sleep not called, (4) FINAL_ANSWER not in state, (5) reasoning_agent.tools == [] after exception. This fills the gap between the existing classifier unit test and the missing orchestrator integration test."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Update the demo document to acknowledge the existing is_transient_error unit tests in test_bug001_orchestrator_retry.py. The demo should note: (a) ClientError(400)->False is already tested, (b) ClientError(429)->True is already tested, (c) ServerError(500)->True and ServerError(503)->True are already tested. The actual gap is the orchestrator-level integration test, not the classifier unit test."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Add is_transient_error tests for boundary cases not currently covered: ClientError(404)->False, ClientError(408)->True, ValidationError->False. Add these to the existing TestErrorClassificationTypeBased class in test_bug001_orchestrator_retry.py."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Consider adding exception classification information to the error event recommended for FM-01. When a non-transient error propagates, the yielded error event could include metadata distinguishing 'non-retryable error (code=400)' from 'retry exhausted (code=503, 4 attempts)'. This would address the FMEA's residual risk: 'Caller cannot distinguish gave up vs failed fast'."
+        },
+        {
+          "priority": "low",
+          "type": "unit_test",
+          "action": "Add a test for BaseException subclasses (KeyboardInterrupt, SystemExit) to verify they are NOT caught by the `except Exception` clause at line 213. This confirms the retry loop does not swallow cancellation or shutdown signals."
+        }
+      ]
+    },
+    {
+      "fixture": "source_analysis",
+      "failure_modes": ["FM-28"],
+      "rpn": 6,
+      "pathway": "P2b/P6d",
+      "fidelity": {
+        "verdict": "faithful",
+        "source_code_accuracy": "All line number citations are accurate. is_transient_error at orchestrator.py:54-70 is correct. _TRANSIENT_STATUS_CODES at orchestrator.py:51 is correct and verified to NOT include 401 or 403. _classify_error at worker.py:22-37 is correct: line 24 reads `code = getattr(error, 'code', None)`, line 29 is `if code in (401, 403):`, line 30 is `return \"AUTH\"`. worker_on_model_error at worker.py:111-147 is correct: line 122 accesses `callback_context._invocation_context.agent`, line 125-127 set _result/_result_ready/_result_error, line 130-140 write _call_record with error_category from _classify_error, line 138 is `'error_category': _classify_error(error)`, line 139 is `'http_status': getattr(error, 'code', None)`, lines 142-147 return a synthetic LlmResponse.",
+        "analysis_accuracy": "The demo's analysis of asymmetric handling is accurate and insightful. At the orchestrator level, ClientError(401/403) is non-transient (not in _TRANSIENT_STATUS_CODES) and raises immediately. At the worker level, the error reaches worker_on_model_error which classifies it as 'AUTH' and returns a synthetic LlmResponse so ParallelAgent does not crash. The observation that the two classifiers serve different purposes (binary retry decision vs categorical observability) is correct. The analysis of the SDK-level retry interaction (HttpRetryOptions also excludes 401/403) is correct. The claim about 'line 60' for the isinstance check is actually line 60, confirmed correct.",
+        "testability_accuracy": "The three-part test recommendation is well-structured: (1) is_transient_error with 401/403, (2) _classify_error with 401/403, (3) worker integration test. The demo correctly identifies that no tests exist for 401/403 at either the orchestrator or worker level. The worker integration test recommendation (verify LLMResult with error=True, error_category='AUTH', http_status=401, and that ParallelAgent does not crash) is thorough. The provider-fake fixture approach for the worker path is feasible.",
+        "gaps": [
+          "The demo's claim 'No unit test for is_transient_error() with auth error codes' is accurate -- the existing tests in test_bug001_orchestrator_retry.py cover 400 (INVALID_ARGUMENT) but NOT 401 or 403 specifically. This is a genuine gap.",
+          "The demo states 'No unit test for _classify_error() with auth error codes' -- this is accurate, as grep confirms no tests for _classify_error exist anywhere in the test suite.",
+          "The demo does not mention that _classify_error uses `code == 429` (exact match) at worker.py:27 while is_transient_error uses `code in _TRANSIENT_STATUS_CODES` (set membership) at orchestrator.py:61. The 429 case is handled differently by the two classifiers: is_transient_error returns True (it is in the frozenset), while _classify_error returns 'RATE_LIMIT' (specific category). Both are correct but the different mechanisms could diverge if _TRANSIENT_STATUS_CODES were modified.",
+          "The demo does not discuss what happens if the API key expires DURING a multi-worker batch dispatch. If worker A succeeds but worker B gets a 401, the batch returns mixed results. The demo only considers the case where the auth error is the first error encountered.",
+          "The demo references 'line 127' for _result_error=True but this is actually line 127 in the actual file. Verified correct. Similarly 'line 138' for error_category and 'line 30' for return 'AUTH' are correct.",
+          "Minor: The demo says 'line 60' for the isinstance check in FM-28's orchestrator analysis (section 1), which is correct. But earlier in section 4, it says 'line 60' for isinstance in is_transient_error -- this is the same line 60, which is consistent."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "No state keys are directly tested -- the demo recommends tests but none exist"
+        ],
+        "state_keys_missing": [
+          "FINAL_ANSWER -- should NOT be set after orchestrator-level 401/403 (reasoning path crash)",
+          "SHOULD_STOP -- should NOT be set after orchestrator-level 401/403",
+          "obs:worker_error_counts -- defined in state.py:81 as dict[category, count]. Should contain {'AUTH': 1} after a worker-level 401. Not written by any production code (same gap noted in review_team_a.json).",
+          "obs:worker_rate_limit_count -- defined in state.py:80. Not relevant to AUTH errors but part of the same observability gap family.",
+          "WORKER_DISPATCH_COUNT -- for worker-level test, should be 1 after single worker dispatch with 401."
+        ],
+        "assertions_tested": [
+          "No existing assertions for 401/403 errors at any level"
+        ],
+        "assertions_missing": [
+          "is_transient_error(ClientError(code=401)) returns False -- not tested",
+          "is_transient_error(ClientError(code=403)) returns False -- not tested",
+          "_classify_error(exc_with_code_401) returns 'AUTH' -- not tested (no tests for _classify_error exist)",
+          "_classify_error(exc_with_code_403) returns 'AUTH' -- not tested",
+          "Orchestrator-level 401: ClientError propagates after exactly 1 run_async call -- not tested",
+          "Worker-level 401: LLMResult.error==True, LLMResult.error_category=='AUTH', LLMResult.http_status==401 -- not tested",
+          "Worker-level 401: ParallelAgent does not crash, other workers in batch complete -- not tested",
+          "The _call_record written by worker_on_model_error includes error_category='AUTH' -- not tested"
+        ],
+        "source_code_refs": [
+          "rlm_adk/orchestrator.py:51 (_TRANSIENT_STATUS_CODES excludes 401/403 -- verified correct)",
+          "rlm_adk/orchestrator.py:54-70 (is_transient_error -- verified correct, 401/403 returns False)",
+          "rlm_adk/orchestrator.py:213-215 (non-transient immediate raise -- verified correct)",
+          "rlm_adk/callbacks/worker.py:22-37 (_classify_error -- line 29: code in (401, 403), line 30: return 'AUTH' -- verified correct)",
+          "rlm_adk/callbacks/worker.py:111-147 (worker_on_model_error -- error isolation, _call_record with error_category -- verified correct)",
+          "rlm_adk/dispatch.py:126-128 (worker HttpRetryOptions: attempts=2 -- verified correct, SDK also excludes 401/403 from retry)"
+        ],
+        "untested_code_paths": [
+          "orchestrator.py:214-215 with ClientError(401) -- immediate raise on AUTH error at orchestrator level",
+          "orchestrator.py:214-215 with ClientError(403) -- same path with 403",
+          "worker.py:111-147 with ClientError(401) -- worker_on_model_error handling of AUTH error",
+          "worker.py:29-30 -- _classify_error AUTH classification branch",
+          "The LLMResult construction in dispatch.py that reads _call_record['error_category']='AUTH' -- the entire pipeline from worker error through _classify_error through _call_record through LLMResult.error_category is untested for AUTH errors",
+          "Mixed-batch scenario where one worker gets 401 and others succeed -- untested"
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "is_transient_error(ClientError(code=401)) and is_transient_error(ClientError(code=403))",
+          "source": "rlm_adk/orchestrator.py:60-61",
+          "rationale": "Direct unit test verification that the orchestrator's retry classifier correctly excludes auth error codes. These should be added to the existing TestErrorClassificationTypeBased class in test_bug001_orchestrator_retry.py."
+        },
+        {
+          "trace": "_classify_error with mock exception having .code=401 and .code=403",
+          "source": "rlm_adk/callbacks/worker.py:29-30",
+          "rationale": "The worker-level classifier has a dedicated AUTH branch. Testing this directly confirms the categorical classification is correct. No tests for _classify_error exist anywhere in the test suite."
+        },
+        {
+          "trace": "worker_on_model_error _call_record['error_category'] for AUTH error",
+          "source": "rlm_adk/callbacks/worker.py:138",
+          "rationale": "The _call_record is the carrier that propagates the error classification from the callback to the dispatch closure to the LLMResult. Tracing its value for AUTH errors validates the full pipeline."
+        },
+        {
+          "trace": "LLMResult properties after worker 401 error in dispatch closure",
+          "source": "rlm_adk/dispatch.py:411-423 (error result reading from worker objects)",
+          "rationale": "The dispatch closure reads _result_error, _result, and _call_record from the worker object and constructs an LLMResult. For AUTH errors, LLMResult should have error=True, error_category='AUTH', http_status=401. This end-to-end trace validates the entire error propagation chain."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Add is_transient_error tests for 401 and 403 to the existing TestErrorClassificationTypeBased class in tests_rlm_adk/test_bug001_orchestrator_retry.py: assert is_transient_error(ClientError(401, {...})) is False and is_transient_error(ClientError(403, {...})) is False. This is a minimal addition to an existing test class."
+        },
+        {
+          "priority": "high",
+          "type": "unit_test",
+          "action": "Create a new test class TestClassifyError in a new or existing test file that parametrizes _classify_error with: (mock(code=401)->'AUTH'), (mock(code=403)->'AUTH'), (mock(code=429)->'RATE_LIMIT'), (mock(code=500)->'SERVER'), (mock(code=400)->'CLIENT'), (asyncio.TimeoutError()->'TIMEOUT'), (ConnectionError()->'NETWORK'), (ValueError()->'UNKNOWN'). This covers all branches in _classify_error, which currently has zero test coverage."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create a provider-fake fixture 'worker_auth_error_401.json' that injects an HTTP 401 fault on a worker dispatch. The REPL code should check result.error and result.error_category. Assert: (1) LLMResult.error==True, (2) LLMResult.error_category=='AUTH', (3) LLMResult.http_status==401, (4) ParallelAgent completed without crash, (5) final_answer mentions AUTH error."
+        },
+        {
+          "priority": "medium",
+          "type": "unit_test",
+          "action": "Create an orchestrator-level test for 401: mock reasoning_agent.run_async to raise ClientError(code=401). Assert: (1) exception propagates after exactly 1 call, (2) no asyncio.sleep called, (3) finally block ran (tools=[], repl.cleanup called)."
+        },
+        {
+          "priority": "low",
+          "type": "source_fix",
+          "action": "Document the asymmetric handling of auth errors in the module docstring or architecture docs. The demo correctly identifies that orchestrator auth errors crash while worker auth errors degrade gracefully, but this asymmetry is not documented in the source code. Add a docstring note to is_transient_error and _classify_error explaining their different roles."
+        }
+      ]
+    }
+  ]
+}

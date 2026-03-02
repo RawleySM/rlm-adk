@@ -12,9 +12,7 @@
     "fileFiltering": {
       "respectGitIgnore": true
     },
-    "includeDirectories": [
-      "/home/"
-    ]
+    "includeDirectories": []
   },
   "security": {
     "auth": {

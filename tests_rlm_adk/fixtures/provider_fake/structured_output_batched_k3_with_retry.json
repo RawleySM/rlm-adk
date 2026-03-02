@@ -1,0 +1,215 @@
+{
+  "scenario_id": "structured_output_batched_k3_with_retry",
+  "description": "FM-17 (RPN=90): K=3 structured output batch where Worker 1 and Worker 3 succeed immediately but Worker 2 returns empty sentiment field triggering WorkerRetryPlugin. Worker 2 gets a second API call with corrected data. Exercises BUG-13 suppression under K>1 concurrent ParallelAgent dispatch. Total: 1 reasoning + 3 workers + 1 retry + 1 FINAL = 6.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning emits execute_code with K=3 structured batch using output_schema=SentimentResult",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\n\nclass SentimentResult(BaseModel):\n    sentiment: str\n    confidence: float\n\nprompts = [\"Review: Great product!\", \"Review: Terrible quality\", \"Review: Love it!\"]\nresults = llm_query_batched(prompts, output_schema=SentimentResult)\npositive = sum(1 for r in results if r.parsed and r.parsed.get(\"sentiment\") == \"positive\")\nnegative = sum(1 for r in results if r.parsed and r.parsed.get(\"sentiment\") == \"negative\")\nprint(f\"Results: {positive} positive, {negative} negative\")\nfor i, r in enumerate(results):\n    print(f\"  Review {i+1}: {r.parsed}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 300
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker 1: valid set_model_response with positive sentiment (Review: Great product!)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "positive",
+                      "confidence": 0.95
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Worker 2: BAD set_model_response — empty sentiment triggers WorkerRetryPlugin",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "",
+                      "confidence": 0.0
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Worker 3: valid set_model_response with positive sentiment (Review: Love it!)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "positive",
+                      "confidence": 0.88
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 65
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Worker 2 retry: CORRECTED set_model_response with negative sentiment after WorkerRetryPlugin reflection",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "sentiment": "negative",
+                      "confidence": 0.82
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 180,
+          "candidatesTokenCount": 15,
+          "totalTokenCount": 195
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "reasoning",
+      "note": "Reasoning sees aggregated results (2 positive, 1 negative), returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Sentiment analysis complete. Worker 2 required a retry but eventually returned valid data.\n\nFINAL(3 sentiments: 2 positive, 1 negative with retry)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 450,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 480
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "3 sentiments: 2 positive, 1 negative with retry",
+    "total_iterations": 1,
+    "total_model_calls": 6
+  }
+}

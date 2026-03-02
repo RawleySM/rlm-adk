@@ -1,0 +1,265 @@
+{
+  "team": "J",
+  "demo_file": "demo_fmea_team_j.md",
+  "reviews": [
+    {
+      "fixture": "structured_output_retry_exhaustion.json",
+      "failure_modes": ["FM-16"],
+      "rpn": 50,
+      "pathway": "P6g",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code in call_index=0 defines a Pydantic AnalysisResult schema (summary: str, confidence: float), dispatches via llm_query with output_schema=AnalysisResult, and defensively checks result.error before accessing result.parsed. This accurately exercises the FM-16 retry exhaustion pathway: the REPL code expects the dispatch layer to signal failure via LLMResult.error=True when all retry attempts fail validation, and prints a diagnostic message. The error-checking branch is the correct production pattern for handling structured output exhaustion.",
+        "response_mock_accuracy": "The mocked responses accurately model the three-attempt retry sequence. Attempt 1 (call_index=1) sends set_model_response with only 'summary' (missing 'confidence'), which triggers ADK's built-in Pydantic ValidationError for the missing required field. Attempt 2 (call_index=2) provides both fields but with empty string for 'summary', triggering WorkerRetryPlugin's extract_error_from_result empty-value detection (worker_retry.py:59-64). Attempt 3 (call_index=3) again omits 'confidence', exhausting max_retries=2. The final reasoning response (call_index=4) correctly references the exhaustion in a FINAL() wrapper. One minor weakness: the fixture config sets max_retries=2 at the top level, but dispatch.py hardcodes make_worker_tool_callbacks(max_retries=2) at line 371 -- the config value is not actually read by the dispatch wiring. The fixture happens to match the hardcoded value, so the test passes for the right reasons, but this coupling is implicit.",
+        "fault_injection_accuracy": "No fault_injections are used -- this fixture exercises application-level validation failures, not HTTP faults. The 'faults' are the structurally invalid set_model_response payloads in the mocked responses themselves. This is the correct approach: FM-16 tests the WorkerRetryPlugin + dispatch exhaustion detection pipeline, which operates at the tool callback layer, not the HTTP transport layer.",
+        "gaps": [
+          "The fixture exercises only the combined path where BOTH ADK ValidationError (missing field) AND WorkerRetryPlugin empty-value detection fire across different attempts. There is no fixture isolating pure ValidationError exhaustion (all 3 attempts missing required fields) vs pure WorkerRetryPlugin exhaustion (all 3 attempts with empty-but-present fields). These are distinct code paths: ValidationError fires in ADK's SetModelResponseTool.run_async before reaching after_tool_callback, while empty-value detection fires in WorkerRetryPlugin.extract_error_from_result after the tool succeeds. Testing them independently would clarify which retry mechanism is active at each attempt.",
+          "The fixture does not verify that _acc_error_counts['SCHEMA_VALIDATION_EXHAUSTED'] is incremented (dispatch.py:477-478). The flush_fn writes this to OBS_WORKER_ERROR_COUNTS (dispatch.py:626-627), but no test asserts on this state key. This means the observability pipeline for structured output exhaustion is untested.",
+          "The fixture config has max_retries=2 but dispatch.py hardcodes make_worker_tool_callbacks(max_retries=2) at line 371 without reading the config. If someone changed the hardcoded value to 1, this fixture would break in a confusing way (attempt 2 would succeed because it has valid fields, just empty summary -- and WorkerRetryPlugin would not get a chance to retry). The test should document this coupling or assert that the WorkerRetryPlugin was constructed with max_retries=2."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER state key, asserted to contain 'exhausted' or 'schema' keyword)",
+          "iteration_count (via ITERATION_COUNT state key, asserted == 1)",
+          "Contract: final_answer, total_iterations, total_model_calls (via run_fixture_contract)"
+        ],
+        "state_keys_missing": [
+          "worker_dispatch_count (WORKER_DISPATCH_COUNT) -- written by flush_fn (dispatch.py:619). Should be 1 for a single worker dispatch. Not asserted. This would confirm the dispatch closure counted the exhausted worker as a dispatch.",
+          "obs:worker_error_counts (OBS_WORKER_ERROR_COUNTS) -- written by flush_fn (dispatch.py:627) when _acc_error_counts is non-empty. Should contain {'SCHEMA_VALIDATION_EXHAUSTED': 1}. Not asserted. This is the primary observability signal for FM-16 and is completely untested.",
+          "obs:worker_total_dispatches (OBS_WORKER_TOTAL_DISPATCHES) -- written by flush_fn (dispatch.py:620). Should equal 1. Not asserted.",
+          "obs:worker_dispatch_latency_ms (OBS_WORKER_DISPATCH_LATENCY_MS) -- written by flush_fn (dispatch.py:621). Would confirm dispatch timing was recorded even for the exhausted case. Not asserted.",
+          "last_repl_result (LAST_REPL_RESULT) -- written by REPLTool (repl_tool.py:146). Would confirm the REPL result summary includes error indication. Not asserted.",
+          "obs:total_calls (OBS_TOTAL_CALLS) -- written by ObservabilityPlugin. Should count all 5 model calls (1 reasoning + 3 worker attempts + 1 FINAL). Not asserted.",
+          "obs:total_input_tokens / obs:total_output_tokens -- written by ObservabilityPlugin. Not asserted."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == 'Schema validation exhausted: worker failed to produce valid output'",
+          "Contract: total_iterations == 1",
+          "Contract: total_model_calls == 5",
+          "test_error_in_final_answer: 'exhausted' in FINAL_ANSWER.lower() or 'schema' in FINAL_ANSWER.lower()",
+          "test_single_iteration: ITERATION_COUNT == 1",
+          "test_tool_result_shows_error: at least one execute_code function_response has 'exhausted' or 'schema' or 'error' or 'validation' in combined stdout+stderr"
+        ],
+        "assertions_missing": [
+          "No assertion that LLMResult.error == True on the result returned to the REPL. The REPL code checks result.error, but nothing in the test verifies the LLMResult was actually constructed with error=True. The test only checks that the FINAL_ANSWER mentions 'exhausted', which is an indirect signal dependent on the REPL code's print statement, not the dispatch layer's error flag.",
+          "No assertion on LLMResult.error_category == 'SCHEMA_VALIDATION_EXHAUSTED'. This is the defining characteristic of FM-16 (dispatch.py:470) and is not directly tested. The test relies on the REPL code printing the error string, but does not verify the error_category field itself.",
+          "No assertion on OBS_WORKER_ERROR_COUNTS containing SCHEMA_VALIDATION_EXHAUSTED. The flush_fn at dispatch.py:626-627 writes this, but no test reads it. This is the observability counter for this exact failure mode.",
+          "No assertion that WORKER_DISPATCH_COUNT == 1. The FM-17 tests include test_dispatch_count_equals_3 (an exact assertion), but FM-16 has no corresponding dispatch count test despite being a single-worker dispatch.",
+          "No assertion on the number of worker model calls (3 attempts). The contract checks total_model_calls == 5 (which includes 2 reasoning calls), but nothing verifies that exactly 3 set_model_response attempts occurred. This could be validated by counting set_model_response function_call events in the event stream.",
+          "No assertion that tool_result stderr is empty. This negative assertion would confirm the REPL code did not crash during the error-handling branch.",
+          "No assertion on LLMResult.parsed == None. The FM-16 fix explicitly sets parsed=None (dispatch.py:475), but nothing verifies this field."
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:367-374 (structured output wiring: SetModelResponseTool, make_worker_tool_callbacks, _structured_result=None init)",
+          "rlm_adk/dispatch.py:454-479 (FM-16 fix: result reading with structured exhaustion detection)",
+          "rlm_adk/dispatch.py:590-597 (finally block: structured output cleanup, _structured_result reset)",
+          "rlm_adk/dispatch.py:610-637 (flush_fn: OBS_WORKER_ERROR_COUNTS population from _acc_error_counts)",
+          "rlm_adk/callbacks/worker_retry.py:36-66 (WorkerRetryPlugin: extract_error_from_result for empty-value detection)",
+          "rlm_adk/callbacks/worker_retry.py:69-142 (make_worker_tool_callbacks: after_tool_cb captures _structured_result, delegates to plugin)",
+          "rlm_adk/tools/repl_tool.py:107-127 (REPLTool.run_async: has_llm_calls detection + async execution)"
+        ],
+        "untested_code_paths": [
+          "dispatch.py:480-489 -- the success branch where structured != None and output_schema is provided. This fires for FM-17 but not FM-16. FM-16 only exercises the exhaustion branch (lines 461-479).",
+          "dispatch.py:626-631 -- the flush_fn error count population. No test asserts on OBS_WORKER_ERROR_COUNTS or OBS_WORKER_RATE_LIMIT_COUNT for this fixture.",
+          "worker_retry.py:120-140 -- the on_tool_error_cb path for set_model_response errors. In this fixture, ADK ValidationError on attempts 1 and 3 fires on_tool_error_callback, but the test does not verify that the plugin's retry counting mechanism incremented correctly. The test only observes the end state (exhaustion), not the intermediate retry decisions.",
+          "dispatch.py:404-410 -- the NO_RESULT branch. Not exercised because the worker always sets _result_ready via worker_after_model (the worker produces text output even when structured validation fails)."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "OBS_WORKER_ERROR_COUNTS state key after flush_fn",
+          "source": "rlm_adk/dispatch.py:626-627",
+          "rationale": "The flush_fn writes _acc_error_counts to OBS_WORKER_ERROR_COUNTS when non-empty. For FM-16, this should contain {'SCHEMA_VALIDATION_EXHAUSTED': 1}. Asserting on this state key directly validates the dispatch-layer error classification pipeline and confirms the observability counter is populated correctly."
+        },
+        {
+          "trace": "LLMResult.error and LLMResult.error_category from the REPL namespace",
+          "source": "rlm_adk/dispatch.py:467-470",
+          "rationale": "The dispatch closure constructs LLMResult with error=True and error_category='SCHEMA_VALIDATION_EXHAUSTED' at lines 467-470. Capturing these fields from the REPL execution context (via tool_result stdout or a dedicated test hook) would directly validate the FM-16 fix without depending on the REPL code's print statement to relay the error."
+        },
+        {
+          "trace": "WorkerRetryPlugin retry count (number of extract_error_from_result invocations)",
+          "source": "rlm_adk/callbacks/worker_retry.py:46-66",
+          "rationale": "The plugin tracks retries internally via the parent class's counter. Exposing the retry count (e.g., via a plugin attribute or log capture) would confirm that exactly 2 retries were attempted before exhaustion, validating the max_retries=2 behavior end-to-end."
+        },
+        {
+          "trace": "set_model_response function_call count in event stream",
+          "source": "tests_rlm_adk/test_fmea_e2e.py:55-68 (_extract_tool_results helper)",
+          "rationale": "Counting set_model_response function_call events would confirm exactly 3 attempts occurred (1 initial + 2 retries). The existing _extract_tool_results helper only extracts execute_code responses; a similar helper for set_model_response events would enable this assertion."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on OBS_WORKER_ERROR_COUNTS state key containing {'SCHEMA_VALIDATION_EXHAUSTED': 1}. This is the primary observability signal for FM-16 and is the direct output of the fix (dispatch.py:477-478 -> flush_fn:626-627). Without this assertion, the error classification pipeline's state-level output is completely unverified."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on WORKER_DISPATCH_COUNT == 1 to match the pattern established by FM-17's test_dispatch_count_equals_3. This basic dispatch accounting assertion confirms the dispatch closure counted the exhausted worker correctly."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on tool_result stdout content. The REPL code prints 'Schema validation exhausted: ...' when result.error is True. Asserting that the execute_code function_response stdout contains 'Schema validation exhausted' would confirm the LLMResult.error flag propagated correctly through the REPL namespace, independently of the FINAL_ANSWER text."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create 'structured_output_retry_exhaustion_pure_validation.json' where all 3 attempts fail with missing required fields only (no empty-value variant). This isolates ADK's ValidationError retry path from WorkerRetryPlugin's empty-value detection, testing each mechanism independently."
+        },
+        {
+          "priority": "medium",
+          "type": "source_fix",
+          "action": "Make dispatch.py read max_retries from the config/state rather than hardcoding make_worker_tool_callbacks(max_retries=2) at line 371. The fixture config already specifies max_retries=2 but dispatch ignores it. This coupling is fragile and prevents testing different retry counts without modifying source code."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add negative assertion that tool_result stderr is empty, confirming the REPL error-handling code executed cleanly without Python exceptions."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Assert router.request_log length == 5 after the run completes. This validates the ScenarioRouter consumed exactly the expected number of calls (1 reasoning + 3 worker attempts + 1 FINAL reasoning), confirming the fixture's call_index accounting is correct."
+        }
+      ]
+    },
+    {
+      "fixture": "structured_output_batched_k3_with_retry.json",
+      "failure_modes": ["FM-17"],
+      "rpn": 90,
+      "pathway": "P6g",
+      "fidelity": {
+        "verdict": "faithful",
+        "repl_code_accuracy": "The REPL code in call_index=0 defines a SentimentResult schema (sentiment: str, confidence: float), dispatches K=3 via llm_query_batched with output_schema=SentimentResult, and correctly aggregates results by counting parsed sentiment values. It accesses result.parsed on each element and uses dict .get() for safe field access. This accurately exercises the batched structured output pathway with K>1, which routes through ParallelAgent dispatch in dispatch.py:400-408. The aggregation logic (counting positive/negative) confirms the REPL code exercises all 3 result elements.",
+        "response_mock_accuracy": "The mocked responses realistically model the K=3 batch scenario. Workers 1 and 3 (call_index=1,3) return valid set_model_response with 'positive' sentiment and plausible confidence values (0.95 and 0.88). Worker 2 (call_index=2) returns set_model_response with empty sentiment string and confidence 0.0, which triggers WorkerRetryPlugin's extract_error_from_result empty-value detection (worker_retry.py:59-64). Worker 2's retry (call_index=4) returns corrected 'negative' sentiment with confidence 0.82. The final reasoning response (call_index=5) correctly synthesizes '2 positive, 1 negative with retry' in a FINAL() wrapper. The response token counts are plausible for simple structured output exchanges.",
+        "fault_injection_accuracy": "No fault_injections are used -- this fixture exercises WorkerRetryPlugin validation failures (empty field values), not HTTP faults. The 'fault' is the empty sentiment string in Worker 2's initial response (call_index=2). This is correct: FM-17 tests the interaction between ParallelAgent concurrent dispatch, WorkerRetryPlugin retry, and the BUG-13 monkey-patch, all of which operate at the tool callback layer.",
+        "gaps": [
+          "The fixture only tests the case where exactly 1 of K=3 workers needs a retry. There is no companion fixture where 2 or 3 workers need retries simultaneously. Under ParallelAgent, multiple workers retrying concurrently could create race conditions in the BUG-13 patch (worker_retry.py:185-206) -- the monkey-patched get_structured_model_response is called once per worker's set_model_response event, and if multiple workers emit ToolFailureResponse simultaneously, the patch must correctly suppress all of them. A K=3 fixture with 2 retries would exercise this concurrent suppression path.",
+          "The fixture does not distinguish between the BUG-13 patch suppressing the postprocessor (which allows retry) and the BUG-13 patch being absent (which would cause premature termination). The test_bug13_patch_active test only checks the _rlm_patched flag on the function object -- it does not verify that the patch was actually invoked during the test run. A log capture or counter on the patch function would confirm the patch fired for Worker 2's ToolFailureResponse.",
+          "The fixture exercises the happy path where Worker 2's retry succeeds on the first retry attempt. There is no companion fixture where the retry also fails, testing the interaction between FM-16 (exhaustion) and FM-17 (batched retry) -- i.e., a K=3 batch where one worker exhausts all retries while others succeed. This combined failure mode would exercise both the SCHEMA_VALIDATION_EXHAUSTED error path and the successful structured output path within the same ParallelAgent dispatch."
+        ]
+      },
+      "test_coverage": {
+        "state_keys_tested": [
+          "final_answer (via FINAL_ANSWER state key, asserted to contain '2 positive' and '1 negative')",
+          "worker_dispatch_count (via WORKER_DISPATCH_COUNT state key, asserted == 3)",
+          "Contract: final_answer, total_iterations, total_model_calls (via run_fixture_contract)"
+        ],
+        "state_keys_missing": [
+          "obs:worker_total_batch_dispatches (OBS_WORKER_TOTAL_BATCH_DISPATCHES) -- written by flush_fn (dispatch.py:623-624) when K>1. Should be 1 for this K=3 batch. Not asserted. This would confirm the batch was recorded as a single batch dispatch.",
+          "obs:worker_error_counts (OBS_WORKER_ERROR_COUNTS) -- written by flush_fn (dispatch.py:627) when _acc_error_counts is non-empty. For FM-17 where the retry SUCCEEDS, _acc_error_counts should be EMPTY (no SCHEMA_VALIDATION_EXHAUSTED because Worker 2 eventually produces a valid result). Asserting this is empty would confirm the retry success path does not pollute the error counters.",
+          "obs:worker_dispatch_latency_ms (OBS_WORKER_DISPATCH_LATENCY_MS) -- written by flush_fn (dispatch.py:621). Would confirm dispatch timing was recorded for the batch including the retry delay. Not asserted.",
+          "obs:total_calls (OBS_TOTAL_CALLS) -- written by ObservabilityPlugin. Should count all 6 model calls. Not asserted.",
+          "obs:total_input_tokens / obs:total_output_tokens -- written by ObservabilityPlugin. Not asserted.",
+          "last_repl_result (LAST_REPL_RESULT) -- written by REPLTool. Would confirm the REPL result summary includes the correct counts. Not asserted.",
+          "iteration_count (ITERATION_COUNT) -- not directly asserted (only via contract). A dedicated test_single_iteration assertion (matching FM-16's pattern) would be more explicit."
+        ],
+        "assertions_tested": [
+          "Contract: final_answer == '3 sentiments: 2 positive, 1 negative with retry'",
+          "Contract: total_iterations == 1",
+          "Contract: total_model_calls == 6",
+          "test_retry_worker_recovered: '2 positive' in FINAL_ANSWER and '1 negative' in FINAL_ANSWER",
+          "test_dispatch_count_equals_3: WORKER_DISPATCH_COUNT == 3",
+          "test_bug13_patch_active: _osp.get_structured_model_response._rlm_patched == True"
+        ],
+        "assertions_missing": [
+          "No assertion that all 3 LLMResult.parsed dicts are non-None. The REPL code accesses result.parsed on each element, but the test only checks the FINAL_ANSWER string aggregation ('2 positive', '1 negative'). Directly asserting parsed != None on all 3 results would confirm the structured output pipeline produced valid dicts for all workers including the retried one.",
+          "No assertion that LLMResult.error == False on all 3 results. The FM-17 scenario should produce zero errors (the retry succeeds), but nothing verifies this. If the retry failed silently and dispatch returned error=True for Worker 2, the FINAL_ANSWER could still mention positive/negative from the other workers, and the test would pass.",
+          "No assertion on tool_result stdout content. The REPL code prints 'Results: 2 positive, 1 negative' and per-review details. Asserting on the execute_code function_response stdout would confirm the REPL code actually executed the aggregation logic and that result.parsed was accessible.",
+          "No assertion that the BUG-13 patch was actually INVOKED during the run (only that it is installed). The test_bug13_patch_active test checks _rlm_patched flag existence but does not verify the patch's code path (lines 191-202 of worker_retry.py) executed. A log capture or invocation counter would distinguish between 'patch installed but never fired' and 'patch installed and correctly suppressed premature termination'.",
+          "No assertion on OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1. This would confirm the K=3 dispatch was recorded as a single batch, validating the _acc_batch_dispatches accumulator (dispatch.py:339).",
+          "No assertion that OBS_WORKER_ERROR_COUNTS is empty (negative assertion). Since the retry succeeds, no error category should be accumulated. This would confirm the retry success path correctly avoids polluting error counters.",
+          "No assertion on the number of set_model_response function_call events in the event stream. Should be 4 (3 initial + 1 retry). This would confirm the retry actually generated an additional model call."
+        ],
+        "source_code_refs": [
+          "rlm_adk/dispatch.py:367-374 (structured output wiring per worker)",
+          "rlm_adk/dispatch.py:399-408 (ParallelAgent dispatch for K>1 batch)",
+          "rlm_adk/dispatch.py:454-489 (result reading: structured success vs exhaustion branching)",
+          "rlm_adk/dispatch.py:335-339 (_acc_dispatch_count += k, _acc_batch_dispatches += 1 for K>1)",
+          "rlm_adk/callbacks/worker_retry.py:91-118 (after_tool_cb: captures _structured_result on success, delegates to plugin)",
+          "rlm_adk/callbacks/worker_retry.py:162-206 (BUG-13 monkey-patch: _patch_output_schema_postprocessor)",
+          "rlm_adk/callbacks/worker_retry.py:185-203 (_retry_aware_get_structured_model_response: REFLECT_AND_RETRY_RESPONSE_TYPE sentinel detection)"
+        ],
+        "untested_code_paths": [
+          "worker_retry.py:196-202 -- the BUG-13 patch's REFLECT_AND_RETRY_RESPONSE_TYPE detection branch. While the patch is verified as installed, no test confirms this specific code path executed (parsed.get('response_type') == REFLECT_AND_RETRY_RESPONSE_TYPE returning None). The fixture relies on the patch working correctly but does not observe it.",
+          "dispatch.py:461-479 -- the SCHEMA_VALIDATION_EXHAUSTED branch. Not exercised by FM-17 because the retry succeeds. Only exercised by FM-16.",
+          "dispatch.py:555-578 -- the generic except Exception handler for entire batch dispatch. Not exercised because all workers complete normally (with retry).",
+          "dispatch.py:409-425 -- the ParallelAgent timeout handler. Not exercised because the batch completes within the timeout.",
+          "dispatch.py:430-437 -- the NO_RESULT branch. Not exercised because all 3 workers set _result_ready=True via worker_after_model or the structured output path."
+        ]
+      },
+      "additional_traces": [
+        {
+          "trace": "BUG-13 patch invocation count (number of times _retry_aware_get_structured_model_response returned None for REFLECT_AND_RETRY_RESPONSE_TYPE)",
+          "source": "rlm_adk/callbacks/worker_retry.py:196-202",
+          "rationale": "The BUG-13 patch should fire exactly once for Worker 2's ToolFailureResponse. A log capture or counter would confirm the patch's sentinel detection code actually executed, not just that the function was installed. This distinguishes 'patch installed and active' from 'patch installed but bypassed by a different mechanism'."
+        },
+        {
+          "trace": "OBS_WORKER_TOTAL_BATCH_DISPATCHES state key",
+          "source": "rlm_adk/dispatch.py:338-339, 623-624",
+          "rationale": "For K=3 dispatch, _acc_batch_dispatches increments to 1 (line 339) and flush_fn writes OBS_WORKER_TOTAL_BATCH_DISPATCHES=1 (line 624). Asserting this confirms the batch accounting distinguishes K=1 single dispatches from K>1 batch dispatches."
+        },
+        {
+          "trace": "Worker 2's _structured_result after retry success",
+          "source": "rlm_adk/callbacks/worker_retry.py:107",
+          "rationale": "The after_tool_cb captures the validated structured result on agent._structured_result when set_model_response succeeds. For Worker 2, this should be set on the retry attempt (call_index=4) with sentiment='negative' and confidence=0.82. Capturing this value would confirm the retry produced a valid structured result that was correctly captured on the worker agent."
+        },
+        {
+          "trace": "tool_result stdout from execute_code function_response",
+          "source": "rlm_adk/tools/repl_tool.py:161",
+          "rationale": "The REPL code prints per-review details ('Review 1: ...', 'Review 2: ...', 'Review 3: ...'). Asserting on stdout content would confirm all 3 results.parsed dicts were accessible from the REPL namespace and that the retry result was correctly aggregated."
+        },
+        {
+          "trace": "OBS_WORKER_ERROR_COUNTS state key (negative assertion: should be empty)",
+          "source": "rlm_adk/dispatch.py:626-631",
+          "rationale": "When all retries succeed, _acc_error_counts should remain empty. Asserting OBS_WORKER_ERROR_COUNTS is absent or empty would confirm the successful retry path does not increment error counters. This is the inverse of the FM-16 assertion and validates the error accounting boundary between exhaustion (error) and recovery (success)."
+        }
+      ],
+      "recommendations": [
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion verifying BUG-13 patch was actually invoked during the test, not just installed. Use log capture (logging.getLogger('rlm_adk.callbacks.worker_retry').setLevel(DEBUG)) and assert 'BUG-13 patch: suppressing postprocessor for ToolFailureResponse' appears in log output. The current test_bug13_patch_active only checks _rlm_patched flag, which is a static property unrelated to runtime behavior."
+        },
+        {
+          "priority": "high",
+          "type": "test_fix",
+          "action": "Add assertion on tool_result stdout content. The REPL code prints per-review parsed results. Asserting that stdout contains 'positive' (from Workers 1 and 3) and 'negative' (from Worker 2's retry) would confirm all 3 LLMResult.parsed dicts propagated correctly through the REPL namespace."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add assertion on OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1 from flush_fn output. This confirms the K=3 dispatch was recorded as a single batch dispatch, validating the _acc_batch_dispatches accumulator at dispatch.py:339."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create 'structured_output_batched_k3_multi_retry.json' where 2 of 3 workers need retries simultaneously. This exercises concurrent BUG-13 patch invocation under ParallelAgent and validates that the monkey-patched get_structured_model_response correctly suppresses premature termination for multiple workers in the same batch."
+        },
+        {
+          "priority": "medium",
+          "type": "new_fixture",
+          "action": "Create 'structured_output_batched_k3_mixed_exhaust.json' where 2 workers succeed but 1 worker exhausts all retries. This exercises the combined FM-16 + FM-17 path: SCHEMA_VALIDATION_EXHAUSTED for one worker alongside successful structured output for others within the same ParallelAgent batch. The test should verify that all_results contains 2 valid LLMResults and 1 error LLMResult."
+        },
+        {
+          "priority": "medium",
+          "type": "test_fix",
+          "action": "Add negative assertion on OBS_WORKER_ERROR_COUNTS -- should be empty/absent since the retry succeeds. This validates the error accounting boundary: FM-16 exhaustion produces error counts, FM-17 successful retry does not."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Add test_single_iteration assertion (ITERATION_COUNT == 1) matching FM-16's pattern. Currently only verified via the contract runner, not as a dedicated named test. Consistency with FM-16's test structure improves readability."
+        },
+        {
+          "priority": "low",
+          "type": "test_fix",
+          "action": "Assert router.request_log length == 6 after the run completes. This validates the ScenarioRouter consumed exactly the expected number of calls (1 reasoning + 3 workers + 1 retry + 1 FINAL), confirming the fixture's call_index accounting and that the retry actually generated an additional HTTP request."
+        }
+      ]
+    }
+  ]
+}

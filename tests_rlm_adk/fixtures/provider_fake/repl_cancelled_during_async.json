@@ -1,0 +1,107 @@
+{
+  "scenario_id": "repl_cancelled_during_async",
+  "description": "FM-14 (RPN=96): Simple single-worker happy path fixture used as a base for CancelledError injection tests. Reasoning emits execute_code with llm_query (has_llm_calls=True, enters async path). Worker responds with text. Reasoning returns FINAL. The CancelledError is injected by the test harness, not by the fixture itself — tests patch asyncio to inject CancelledError during the async REPL execution path (repl_tool.py:120-143).",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning emits execute_code with llm_query — enters async path where CancelledError can be injected",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = llm_query(\"Summarize the key findings\")\nprint(f\"Summary: {result}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 240
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker responds with text summary — in CancelledError tests this response may never be consumed",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The key findings indicate a 15% improvement in efficiency across all measured parameters."
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 20,
+          "candidatesTokenCount": 18,
+          "totalTokenCount": 38
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning sees successful REPL output, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The worker summarized the findings successfully.\n\nFINAL(15% efficiency improvement across all parameters)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 370
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "15% efficiency improvement across all parameters",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

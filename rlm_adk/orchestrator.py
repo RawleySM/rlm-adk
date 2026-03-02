@@ -3,7 +3,7 @@
 Phase 5B: The orchestrator no longer manually iterates, parses code blocks,
 or executes them.  Instead it:
 1. Creates a REPLTool wrapping LocalREPL
-2. Wires the reasoning_agent with tools=[REPLTool] and output_schema=ReasoningOutput
+2. Wires the reasoning_agent with tools=[REPLTool] (output_key="reasoning_output")
 3. Yields an initial user Content event with the root_prompt
 4. Delegates to self.reasoning_agent.run_async(ctx) -- ADK's native tool-calling
    loop handles all iteration, code execution, and structured output
@@ -23,7 +23,7 @@ from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.genai import types
-from google.genai.errors import APIError, ClientError, ServerError
+from google.genai.errors import ClientError, ServerError
 
 from rlm_adk.artifacts import save_final_answer
 from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
@@ -42,7 +42,7 @@ from rlm_adk.state import (
     SHOULD_STOP,
 )
 from rlm_adk.tools.repl_tool import REPLTool
-from rlm_adk.types import LLMResult, ReasoningOutput
+from rlm_adk.types import LLMResult
 from rlm_adk.utils.parsing import find_final_answer
 
 logger = logging.getLogger(__name__)
@@ -211,7 +211,30 @@ class RLMOrchestratorAgent(BaseAgent):
                         yield event
                     break
                 except Exception as exc:
-                    if not is_transient_error(exc) or attempt >= max_retries:
+                    transient = is_transient_error(exc)
+                    if not transient or attempt >= max_retries:
+                        # Yield a structured error event before propagating.
+                        http_code = getattr(exc, "code", None)
+                        if transient:
+                            err_detail = (
+                                f"retry exhausted after {attempt + 1} attempts "
+                                f"(code={http_code})"
+                            )
+                        else:
+                            err_detail = (
+                                f"non-retryable error (code={http_code})"
+                            )
+                        error_msg = (
+                            f"[RLM ERROR] {type(exc).__name__}: {err_detail}"
+                        )
+                        yield Event(
+                            invocation_id=ctx.invocation_id,
+                            author=self.name,
+                            actions=EventActions(state_delta={
+                                FINAL_ANSWER: error_msg,
+                                SHOULD_STOP: True,
+                            }),
+                        )
                         raise
                     delay = base_delay * (2 ** attempt)
                     print(

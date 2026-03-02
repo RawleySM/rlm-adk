@@ -1,0 +1,159 @@
+{
+  "scenario_id": "worker_429_mid_batch",
+  "description": "FM-08 (RPN=96): Reasoning emits execute_code with llm_query_batched(K=3). The SECOND worker hits a 429 rate-limit fault on BOTH attempts (SDK HttpRetryOptions attempts=2), triggering on_model_error_callback. Workers 1 and 3 succeed. REPL code checks result.error on each result and reports successes/failures. Then reasoning returns FINAL. Call ordering: index 1=worker_a success, index 2=worker_b 429 #1, index 3=worker_c success (during retry delay), index 4=worker_b 429 #2 (retry exhausted).",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "prompts = [\"Analyze item A\", \"Analyze item B\", \"Analyze item C\"]\nresults = llm_query_batched(prompts)\nsuccesses = [r for r in results if not r.error]\nerrors = [r for r in results if r.error]\nprint(f\"Successes: {len(successes)}, Errors: {len(errors)}\")\nfor i, r in enumerate(results):\n    if r.error:\n        print(f\"  Result {i}: ERROR - {r.error_category}\")\n    else:\n        print(f\"  Result {i}: {str(r)[:50]}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 280
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "worker_a succeeds with text result for prompt A",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Result A"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 15,
+          "candidatesTokenCount": 5,
+          "totalTokenCount": 20
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "worker_c succeeds (indices 2 and 4 consumed by 429 fault injections for worker_b)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Result C"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 15,
+          "candidatesTokenCount": 5,
+          "totalTokenCount": 20
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result with 2 successes and 1 error, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The batch dispatch completed: 2 out of 3 workers succeeded, 1 failed due to rate limiting.\n\nFINAL(Batch: 2 succeeded, 1 failed)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 380
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [
+    {
+      "call_index": 2,
+      "fault_type": "http_error",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Resource has been exhausted (e.g. check quota).",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      }
+    },
+    {
+      "call_index": 4,
+      "fault_type": "http_error",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Resource has been exhausted (e.g. check quota).",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "final_answer": "Batch: 2 succeeded, 1 failed",
+    "total_iterations": 1,
+    "total_model_calls": 6
+  }
+}

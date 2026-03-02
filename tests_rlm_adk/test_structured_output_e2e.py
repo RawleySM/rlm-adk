@@ -33,7 +33,7 @@ from tests_rlm_adk.provider_fake.contract_runner import (
     run_fixture_contract_with_plugins,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +126,14 @@ async def test_happy_path_with_plugins(tmp_path: Path):
         f"No iteration recorded llm_calls — repl_snapshots: {repl_snapshots}"
     )
 
+    # Trace verification: repl_trace_level=1 should produce trace_summary
+    for i, snap in enumerate(repl_snapshots):
+        assert "trace_summary" in snap, (
+            f"snapshot[{i}] missing trace_summary (repl_trace_level=1) — keys: {list(snap.keys())}"
+        )
+        ts = snap["trace_summary"]
+        assert ts["wall_time_ms"] >= 0, f"snapshot[{i}] wall_time_ms < 0"
+
 
 # ===========================================================================
 # Batched K=1 — llm_query_batched with output_schema
@@ -203,3 +211,17 @@ async def test_retry_validation_with_plugins(tmp_path: Path):
     assert result.contract.passed, result.contract.diagnostics()
     assert result.final_state.get(FINAL_ANSWER) == "Market recovering with moderate gains"
     assert len(result.events) > 0
+
+    # Trace verification: every REPL snapshot should have trace_summary
+    repl_snapshots = [
+        (getattr(getattr(ev, "actions", None), "state_delta", None) or {}).get(LAST_REPL_RESULT)
+        for ev in result.events
+    ]
+    repl_snapshots = [s for s in repl_snapshots if s is not None]
+    assert len(repl_snapshots) >= 1, "Expected at least one REPL snapshot"
+    for i, snap in enumerate(repl_snapshots):
+        assert "trace_summary" in snap, (
+            f"snapshot[{i}] missing trace_summary (repl_trace_level=1) — keys: {list(snap.keys())}"
+        )
+        ts = snap["trace_summary"]
+        assert ts["wall_time_ms"] >= 0, f"snapshot[{i}] wall_time_ms < 0"
