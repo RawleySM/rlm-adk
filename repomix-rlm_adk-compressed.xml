@@ -1,0 +1,5135 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+callbacks/
+  __init__.py
+  reasoning.py
+  worker_retry.py
+  worker.py
+dashboard/
+  components/
+    __init__.py
+    api_usage.py
+    chunk_detail.py
+    color_legend.py
+    context_bar.py
+    header.py
+    navigator.py
+    output_panel.py
+    summary_bar.py
+    token_charts.py
+    worker_panel.py
+  __init__.py
+  __main__.py
+  app.py
+  controller.py
+  data_loader.py
+  data_models.py
+  gcloud_usage.py
+  README.md
+eval/
+  __init__.py
+  queries.py
+  session_fork.py
+  trace_reader.py
+plugins/
+  __init__.py
+  cache.py
+  context_snapshot.py
+  debug_logging.py
+  langfuse_tracing.py
+  migration.py
+  observability.py
+  policy.py
+  repl_tracing.py
+  sqlite_tracing.py
+repl/
+  __init__.py
+  ast_rewriter.py
+  local_repl.py
+  trace.py
+skills/
+  __init__.py
+  README.md
+  repomix_helpers.py
+  repomix_skill.py
+tools/
+  __init__.py
+  repl_tool.py
+utils/
+  __init__.py
+  parsing.py
+  prompts.py
+__init__.py
+agent.py
+artifacts.py
+dispatch.py
+orchestrator.py
+state.py
+types.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="callbacks/__init__.py">
+"""Callback functions for RLM ADK agents."""
+⋮----
+__all__ = [
+</file>
+
+<file path="callbacks/reasoning.py">
+"""Reasoning Agent callbacks.
+
+before_model_callback: Merges the ADK-resolved dynamic instruction into
+    system_instruction (from static_instruction).  Sets reasoning_call_start
+    timestamp and per-invocation token accounting.  ADK manages contents
+    (tool call/response history) via include_contents='default'.
+
+after_model_callback: Records per-invocation token accounting from
+    usage_metadata.  The collapsed orchestrator reads the final answer
+    from the output_key ("reasoning_output").
+"""
+⋮----
+def _extract_system_instruction_text(llm_request: LlmRequest) -> str
+⋮----
+"""Extract system_instruction text that ADK set from static_instruction."""
+⋮----
+si = llm_request.config.system_instruction
+⋮----
+# system_instruction may be a Content object with parts
+⋮----
+def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str
+⋮----
+"""Extract the resolved instruction template that ADK placed in contents.
+
+    When both static_instruction and instruction are set, ADK resolves the
+    instruction template and appends it to contents as a user Content.
+    We extract and remove it so it can be relocated to system_instruction.
+    """
+dynamic_text = ""
+⋮----
+"""Merge dynamic instruction into system_instruction.
+
+    ADK has already set:
+      - system_instruction from static_instruction (the stable system prompt)
+      - resolved instruction template in contents (dynamic context metadata)
+
+    This callback:
+      1. Preserves system_instruction from static_instruction
+      2. Extracts the resolved dynamic instruction from contents
+      3. Appends the dynamic metadata to system_instruction
+      4. Leaves contents as ADK manages them (include_contents='default')
+      5. Records per-invocation token accounting
+    """
+⋮----
+# --- Extract what ADK set ---
+static_si = _extract_system_instruction_text(llm_request)
+dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
+⋮----
+# --- Build system_instruction: static prompt + dynamic metadata ---
+system_instruction_text = static_si
+⋮----
+system_instruction_text = dynamic_instruction
+⋮----
+# ADK manages contents via include_contents='default'
+contents = llm_request.contents or []
+⋮----
+# --- Per-invocation token accounting ---
+total_prompt_chars = sum(
+system_chars = len(system_instruction_text)
+content_count = len(contents)
+⋮----
+"""Record per-invocation token accounting from usage_metadata.
+
+    The collapsed orchestrator reads the final answer from the output_key
+    ("reasoning_output") instead of LAST_REASONING_RESPONSE state.
+    """
+# --- Per-invocation token accounting from usage_metadata ---
+usage = llm_response.usage_metadata
+⋮----
+# Return None -- observe only, don't alter the response
+</file>
+
+<file path="callbacks/worker_retry.py">
+"""Worker retry plugin for structured output self-healing.
+
+Provides:
+- WorkerRetryPlugin: Extends ReflectAndRetryToolPlugin to detect empty
+  responses from set_model_response and trigger retries.
+- make_worker_tool_callbacks(): Factory returning (after_tool_cb, on_tool_error_cb)
+  wrapper functions with positional-arg signatures compatible with LlmAgent
+  tool callbacks. These capture validated structured results on the worker
+  agent and delegate retry logic to the plugin.
+- _patch_output_schema_postprocessor(): Module-level monkey-patch that
+  suppresses ADK's premature worker termination when callbacks signal retry
+  (BUG-13 workaround).
+
+Wiring: dispatch.py sets these callbacks on workers when output_schema is provided.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# Observability counter for BUG-13 patch invocations (process-global).
+# Tests can read this to verify the patch was actually invoked at runtime,
+# not just installed. Reset between test runs if needed.
+_bug13_stats: dict[str, int] = {"suppress_count": 0}
+⋮----
+# Canonical tool name for ADK's synthesized set_model_response tool.
+# Used as a guard so that retry/reflection logic only fires for structured
+# output validation, not for other tools like execute_code (REPLTool).
+_SET_MODEL_RESPONSE_TOOL_NAME = "set_model_response"
+⋮----
+class WorkerRetryPlugin(ReflectAndRetryToolPlugin)
+⋮----
+"""Extends ReflectAndRetryToolPlugin for set_model_response validation.
+
+    Detects empty values in set_model_response tool results and triggers
+    retry via the parent class's reflection/retry mechanism.
+    """
+⋮----
+def __init__(self, max_retries: int = 2)
+⋮----
+"""Detect empty responses in set_model_response tool output."""
+⋮----
+# Check if any value in the tool args is empty
+⋮----
+"""Create agent-level tool callback wrappers backed by WorkerRetryPlugin.
+
+    Returns (after_tool_cb, on_tool_error_cb) with positional-arg signatures
+    matching LlmAgent's AfterToolCallback and OnToolErrorCallback types.
+
+    The after_tool_cb captures validated structured results on the worker
+    agent's _structured_result attribute when set_model_response succeeds.
+
+    The on_tool_error_cb delegates to the plugin for retry counting and
+    reflection guidance generation.
+
+    Args:
+        max_retries: Maximum retry attempts for validation errors.
+
+    Returns:
+        Tuple of (after_tool_callback, on_tool_error_callback) callables.
+    """
+plugin = WorkerRetryPlugin(max_retries=max_retries)
+⋮----
+"""After-tool callback: capture structured result, delegate to plugin.
+
+        Note: ADK calls this with ``args=`` and ``tool_response=`` kwargs
+        (see google.adk.flows.llm_flows.functions line 540-545).
+        The plugin's ``after_tool_callback`` expects ``tool_args=`` and
+        ``result=``, so we translate between the two conventions here.
+        """
+# On set_model_response success, store validated dict on the agent
+⋮----
+agent = tool_context._invocation_context.agent
+agent._structured_result = tool_response  # type: ignore[attr-defined]
+⋮----
+# Delegate to plugin for extract_error_from_result checks
+⋮----
+"""On-tool-error callback: delegate to plugin for retry/reflection.
+
+        Only intercepts errors from set_model_response. Errors from other
+        tools (e.g. execute_code / REPLTool) return None so that they
+        propagate normally through ADK's error handling.
+
+        Note: ADK calls this with ``args=`` (see
+        google.adk.flows.llm_flows.functions line 443-447).
+        """
+⋮----
+# ---------------------------------------------------------------------------
+# BUG-13 workaround: Patch ADK's output-schema postprocessor so that
+# ToolFailureResponse dicts (retry guidance from ReflectAndRetryToolPlugin)
+# are NOT treated as successful structured output.
+#
+# Without this patch, get_structured_model_response() matches any
+# func_response with name=='set_model_response' and converts it to a
+# text-only final event — terminating the worker loop before the model
+# gets a second turn.  The patch inspects the response content for the
+# REFLECT_AND_RETRY_RESPONSE_TYPE sentinel and returns None when found,
+# allowing the agent loop to continue for retry.
+⋮----
+# Call site in ADK (module-attribute lookup, patchable):
+#   base_llm_flow.py:849  _output_schema_processor.get_structured_model_response(...)
+⋮----
+def _patch_output_schema_postprocessor() -> None
+⋮----
+"""Install a retry-aware wrapper around get_structured_model_response.
+
+    Idempotent — safe to call multiple times. Guarded with try/except
+    ImportError so that a private ADK module restructure degrades gracefully
+    (FM-21 fix: structured output retry disabled, all other functionality intact).
+    """
+⋮----
+# Guard against double-patching
+⋮----
+_original = _osp.get_structured_model_response
+⋮----
+result = _original(function_response_event)
+⋮----
+parsed = _json.loads(result)
+⋮----
+_retry_aware_get_structured_model_response._rlm_patched = True  # type: ignore[attr-defined]
+⋮----
+# Apply the patch at import time so it is active before any worker dispatch.
+</file>
+
+<file path="callbacks/worker.py">
+"""Worker LlmAgent callbacks for sub-LM dispatch.
+
+worker_before_model: AMEND - Injects the single prompt from the dispatch closure
+    into LlmRequest. Stores prompt metrics on agent object for dispatch aggregation.
+
+worker_after_model: OBSERVE - Extracts text response, writes to worker's output_key
+    in state (for ADK persistence) and onto agent object (for dispatch closure reads).
+
+worker_on_model_error: ERROR ISOLATION - Handles LLM errors gracefully without
+    crashing ParallelAgent. Writes error result onto agent object and returns
+    an LlmResponse so the agent completes normally.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+def _classify_error(error: Exception) -> str
+⋮----
+"""Classify an exception into an error category for observability."""
+⋮----
+code = getattr(error, "code", None)
+⋮----
+# Detect JSON parse / malformed response errors
+⋮----
+err_msg = str(error).lower()
+⋮----
+# Check error message for JSON-related patterns (e.g., wrapped exceptions)
+err_str = str(error).lower()
+⋮----
+"""Inject prompt from dispatch closure into LlmRequest.
+
+    The dispatch closure sets worker._pending_prompt (a string) before
+    running the agent.  This callback reads it and sets it as the
+    LlmRequest contents.
+    """
+agent = callback_context._invocation_context.agent
+pending_prompt = getattr(agent, "_pending_prompt", None)
+⋮----
+return None  # Proceed with model call
+⋮----
+"""Extract response text, write to state output_key and agent object.
+
+    Writes result onto the agent object (_result, _result_ready, _call_record)
+    for the dispatch closure to read after ParallelAgent completes.
+    Also writes to callback_context.state[output_key] for ADK persistence.
+
+    Wrapped in try/except so a callback failure does not crash the entire
+    K-worker batch via ParallelAgent (FM-20 blast radius fix).
+    """
+⋮----
+response_text = ""
+⋮----
+response_text = "".join(
+⋮----
+# Detect safety-filtered responses (BUG-B fix)
+finish_reason = llm_response.finish_reason
+is_safety_filtered = (
+⋮----
+# Write result onto agent object for dispatch closure reads
+agent._result = response_text  # type: ignore[attr-defined]
+agent._result_ready = True  # type: ignore[attr-defined]
+⋮----
+agent._result_error = True  # type: ignore[attr-defined]
+⋮----
+# Extract usage from response metadata
+usage = llm_response.usage_metadata
+input_tokens = 0
+output_tokens = 0
+⋮----
+input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+⋮----
+# Write call record onto agent object for dispatch closure to accumulate
+record: dict[str, Any] = {
+⋮----
+agent._call_record = record  # type: ignore[attr-defined]
+⋮----
+# Write to the worker's output_key in state (for ADK persistence)
+output_key = getattr(agent, "output_key", None)
+⋮----
+# FM-20 fix: isolate callback failure so it doesn't crash siblings
+⋮----
+error_msg = f"[Worker {agent.name} callback error: {type(exc).__name__}: {exc}]"
+agent._result = error_msg  # type: ignore[attr-defined]
+⋮----
+agent._call_record = {  # type: ignore[attr-defined]
+⋮----
+"""Handle worker LLM errors gracefully without crashing ParallelAgent.
+
+    Sets error result on the agent object so the dispatch closure can detect
+    the failure and include the error message in the results list. Returns
+    an LlmResponse so the agent completes normally within ParallelAgent.
+    """
+⋮----
+error_msg = f"[Worker {agent.name} error: {type(error).__name__}: {error}]"
+⋮----
+# Write error call record onto agent object for dispatch closure
+</file>
+
+<file path="dashboard/components/__init__.py">
+"""Dashboard visualization components."""
+⋮----
+__all__ = [
+</file>
+
+<file path="dashboard/components/api_usage.py">
+"""Worker token usage panel -- horizontal badge bar."""
+⋮----
+"""Render a horizontal workers bar: ``worker_1 <in><out> | worker_2 ...``
+
+    Spans full width, sitting directly below the reasoning agent context bar.
+    When *on_worker_click* is provided, the ``{N} in`` badges become
+    clickable and trigger the callback with the worker's ``agent_name``.
+    """
+it_data = controller.state.current_iteration_data
+</file>
+
+<file path="dashboard/components/chunk_detail.py">
+"""Chunk detail panel -- text preview with expand/collapse.
+
+NiceGUI review corrections applied:
+- ``ui.code`` only for REPL_CODE chunks; ``ui.html('<pre>...')`` for all others
+- ``ui.badge`` uses constructor ``color=`` parameter
+- ``ui.scroll_area`` uses ``max-height: 400px`` inside expansions
+"""
+⋮----
+def render_chunk_detail(controller: DashboardController) -> None
+⋮----
+"""Render the chunk detail panel (called from @ui.refreshable scope)."""
+chunk = controller.state.selected_chunk
+⋮----
+is_code = chunk.category == ChunkCategory.REPL_CODE
+⋮----
+# Stat badges (NiceGUI review: use color= constructor param)
+⋮----
+# Percentage of iteration total
+it_data = controller.state.current_iteration_data
+⋮----
+total = it_data.reasoning_window.total_tokens
+⋮----
+pct = chunk.estimated_tokens / total * 100
+⋮----
+# Preview: head
+⋮----
+# Ellipsis separator if head != tail
+⋮----
+# Full text expansion (NiceGUI review: max-height, not height)
+⋮----
+def render_worker_detail(controller: DashboardController) -> None
+⋮----
+"""Render the worker prompt detail panel (right-most of three panels)."""
+chunk = controller.state.selected_worker_chunk
+⋮----
+def _render_text_preview(text: str) -> None
+⋮----
+"""Render arbitrary text faithfully without markdown interpretation.
+
+    NiceGUI review: use ``ui.html('<pre>...')`` for non-code text,
+    not ``ui.code()`` which processes through markdown rendering.
+    """
+escaped = html_mod.escape(text)
+</file>
+
+<file path="dashboard/components/color_legend.py">
+"""Horizontal color legend for chunk categories.
+
+NiceGUI review: use ``ui.badge`` with ``color=`` constructor parameter.
+"""
+⋮----
+def build_color_legend() -> None
+⋮----
+"""Render a horizontal row of color swatches for each chunk category."""
+⋮----
+hex_color = CATEGORY_COLORS[category]
+text_color = CATEGORY_TEXT_COLORS[category]
+label = category.value.replace("_", " ").title()
+</file>
+
+<file path="dashboard/components/context_bar.py">
+"""ECharts stacked horizontal bar for context window visualization.
+
+NiceGUI review corrections applied:
+- One series per chunk (not per category) for click identification
+- ``:formatter`` (colon prefix) with JS function for tooltip
+- ``on_point_click`` constructor parameter on ``ui.echart``
+"""
+⋮----
+def build_context_bar_options(window: ContextWindow) -> dict
+⋮----
+"""Build ECharts options for a stacked horizontal bar.
+
+    One series per chunk so that ``on_point_click`` can identify
+    individual chunks via ``e.series_name`` (= chunk_id).
+    """
+series = []
+total_tokens = sum(c.estimated_tokens for c in window.chunks)
+⋮----
+# NiceGUI review: use ':formatter' for JS function (colon prefix)
+formatter_js = """(params) => {
+</file>
+
+<file path="dashboard/components/header.py">
+"""Header bar with title and session selector."""
+⋮----
+"""Render the header bar with title and session selector dropdown.
+
+    NiceGUI review corrections applied:
+    - ui.select uses ``on_change``, ``with_input=True``, ``value=current``
+    """
+⋮----
+sessions = controller.state.available_sessions
+current = controller.state.selected_session_id
+⋮----
+async def handle_change(e: Any) -> None
+</file>
+
+<file path="dashboard/components/navigator.py">
+"""Iteration navigation buttons and label."""
+⋮----
+"""Render iteration navigation buttons and current-iteration label."""
+total = controller.state.total_iterations
+current = controller.state.current_iteration
+it_data = controller.state.current_iteration_data
+worker_count = len(it_data.worker_windows) if it_data else 0
+⋮----
+label_parts = [f"Iteration {current} of {total - 1}" if total > 0 else "No iterations"]
+⋮----
+"""Handle navigation button clicks."""
+</file>
+
+<file path="dashboard/components/output_panel.py">
+"""Reasoning output panel -- model response text + worker details."""
+⋮----
+def render_output_panel(controller: DashboardController) -> None
+⋮----
+"""Render the model output panel for the current iteration.
+
+    Shows reasoning agent output text with preview/expansion,
+    token badges, and per-worker output summary.
+    """
+it_data = controller.state.current_iteration_data
+⋮----
+reasoning_out = it_data.reasoning_output
+worker_outs = it_data.worker_outputs
+⋮----
+# --- Reasoning output ---
+⋮----
+# Token badges
+⋮----
+# Worker summary line
+⋮----
+total_worker_input = sum(w.input_tokens for w in worker_outs)
+⋮----
+# Error message
+⋮----
+# Output text preview
+⋮----
+# Full output expansion
+⋮----
+# Per-worker details expansion
+⋮----
+def _render_output_preview(head: str, tail: str) -> None
+⋮----
+"""Render head/tail preview with ellipsis."""
+⋮----
+def _render_output_text(text: str) -> None
+⋮----
+"""Render output text in a styled pre block."""
+escaped = html_mod.escape(text)
+⋮----
+def _render_worker_output_row(wo: ModelOutput) -> None
+⋮----
+"""Render a single worker output row with badges."""
+</file>
+
+<file path="dashboard/components/summary_bar.py">
+"""Session summary bar -- stat cards for model, iterations, tokens, time."""
+⋮----
+def build_summary_bar(controller: DashboardController) -> None
+⋮----
+"""Render a row of stat cards summarizing the current session."""
+summary = controller.state.session_summary
+⋮----
+duration = summary.end_time - summary.start_time if summary.end_time > summary.start_time else 0
+⋮----
+time_str = f"{duration / 60:.1f}m"
+⋮----
+time_str = f"{duration:.1f}s"
+⋮----
+cards = [
+</file>
+
+<file path="dashboard/components/token_charts.py">
+"""Cumulative token line chart and per-iteration breakdown table.
+
+NiceGUI review corrections applied:
+- markLine inside series, NOT at top level of options dict
+- Table row click uses ``table.on("rowClick", handler, [[], ["iter"], None])``
+"""
+⋮----
+"""Build ECharts options for the cumulative token line chart.
+
+    NiceGUI review correction: markLine must be inside a series,
+    not at the top level of the options dict.
+    """
+cum_input: list[int] = []
+cum_output: list[int] = []
+running_in = 0
+running_out = 0
+⋮----
+worker_iters = [i for i, it in enumerate(iterations) if it.has_workers]
+⋮----
+# Combine both markLines into the first series
+mark_line_data = [
+⋮----
+"""Build a clickable per-iteration breakdown table.
+
+    NiceGUI review correction: use ``table.on("rowClick", handler, ...)``
+    with the ``args`` parameter to control which JS event arguments are
+    forwarded to Python.
+    """
+columns = [
+⋮----
+rows = []
+prev_total = 0
+⋮----
+total_in = it.reasoning_input_tokens + it.worker_input_tokens
+total_out = it.reasoning_output_tokens + it.worker_output_tokens
+current_total = total_in + total_out
+delta = current_total - prev_total
+worker_count = len(it.worker_windows)
+⋮----
+prev_total = current_total
+⋮----
+table = ui.table(
+⋮----
+# Highlight the current iteration row with a distinct background.
+# Custom body slot replaces Quasar's default <q-tr> which normally emits
+# row-click, so we re-emit it via @click on the <q-tr>.
+⋮----
+# NiceGUI review: wire row click via Quasar's rowClick event.
+# With the custom body slot, args come from our explicit $emit above:
+# args[0] = {} (empty event placeholder), args[1] = row data, args[2] = rowIndex
+def handle_row_click(e) -> None
+⋮----
+row_data = e.args[1]
+⋮----
+iter_index = row_data.get("iter", 0)
+</file>
+
+<file path="dashboard/components/worker_panel.py">
+"""Worker context window panel with collapse at >=6 workers."""
+⋮----
+COLLAPSE_THRESHOLD = 6
+⋮----
+"""Render worker context window bars.
+
+    Collapse rules:
+    - 0 workers: panel hidden (caller checks)
+    - 1-5 workers: individual bars shown
+    - 6+ workers: collapsed summary with ui.expansion toggle
+    """
+⋮----
+count = len(worker_windows)
+total_tokens = sum(w.total_tokens for w in worker_windows)
+⋮----
+# Show individual bars
+⋮----
+# Collapsed summary with expansion toggle
+⋮----
+"""Render a single worker's stacked horizontal bar."""
+options = build_context_bar_options(window)
+⋮----
+def on_bar_click(e) -> None
+⋮----
+chunk_id = e.series_name
+# Search in worker windows
+</file>
+
+<file path="dashboard/__init__.py">
+"""RLM Context Window Dashboard.
+
+NiceGUI-based visualization of context window token composition
+across reasoning and worker agent iterations.
+
+Usage:
+    python -m rlm_adk.dashboard
+    # or
+    from rlm_adk.dashboard import launch_dashboard
+    launch_dashboard()
+"""
+⋮----
+"""Launch the NiceGUI dashboard (lazy import to avoid requiring NiceGUI at import time)."""
+⋮----
+__all__ = ["launch_dashboard"]
+</file>
+
+<file path="dashboard/__main__.py">
+"""Entry point for ``python -m rlm_adk.dashboard``."""
+</file>
+
+<file path="dashboard/app.py">
+"""NiceGUI dashboard entry point.
+
+Defines the ``/dashboard`` page with layout, refreshable sections,
+keyboard navigation, and the ``launch_dashboard()`` function that
+calls ``ui.run()``.
+"""
+⋮----
+@ui.page("/dashboard")
+async def dashboard_page() -> None
+⋮----
+"""Main dashboard page -- each browser tab gets its own instance."""
+loader = DashboardDataLoader()
+controller = DashboardController(loader=loader)
+dashboard_ui = DashboardUI(controller)
+⋮----
+# Initialize available sessions
+⋮----
+# Page settings
+⋮----
+# ------------------------------------------------------------------
+# Define @ui.refreshable functions INSIDE page scope (NiceGUI review)
+⋮----
+@ui.refreshable
+    def cumulative_chart_section() -> None
+⋮----
+options = build_cumulative_chart_options(
+⋮----
+@ui.refreshable
+    def iter_table_section() -> None
+⋮----
+@ui.refreshable
+    def reasoning_chart_section() -> None
+⋮----
+it_data = controller.state.current_iteration_data
+⋮----
+window = it_data.reasoning_window
+options = build_context_bar_options(window)
+⋮----
+def on_bar_click(e) -> None
+⋮----
+chunk_id = e.series_name
+chunk = controller.find_chunk_by_id(chunk_id)
+⋮----
+# Navigate to origin iteration if it differs from current
+⋮----
+# Token summary computed for title row
+cum_input = sum(
+cum_output = sum(
+session_total = 0
+⋮----
+session_total = (
+⋮----
+# Title row: label + token summaries on same line
+⋮----
+# Color legend below bar chart
+⋮----
+@ui.refreshable
+    def workers_bar_section() -> None
+⋮----
+@ui.refreshable
+    def output_section() -> None
+⋮----
+@ui.refreshable
+    def chunk_detail_section() -> None
+⋮----
+@ui.refreshable
+    def worker_detail_section() -> None
+⋮----
+@ui.refreshable
+    def summary_section() -> None
+⋮----
+@ui.refreshable
+    def nav_section() -> None
+⋮----
+# Register all refreshables
+⋮----
+# Helpers
+⋮----
+def _navigate_to_iter(idx: int) -> None
+⋮----
+def _handle_worker_badge_click(agent_name: str) -> None
+⋮----
+"""Select a worker's first context chunk for the worker detail panel."""
+⋮----
+# Session change handler
+⋮----
+async def on_session_change(session_id: str) -> None
+⋮----
+# Build page layout
+⋮----
+# Top row: summary cards + cumulative chart + per-iteration table
+⋮----
+# Reasoning agent context bar (full width)
+⋮----
+# Workers horizontal bar (right-aligned via align-self in component)
+⋮----
+# Three equal panels: chunk detail | output | worker detail
+⋮----
+# Keyboard navigation (NiceGUI review: use e.key.arrow_left property)
+⋮----
+def handle_key(e: KeyEventArguments) -> None
+⋮----
+"""Entry point for launching the dashboard.
+
+    Usage:
+        python -m rlm_adk.dashboard
+        # or
+        from rlm_adk.dashboard import launch_dashboard
+        launch_dashboard()
+    """
+</file>
+
+<file path="dashboard/controller.py">
+"""Dashboard controller -- business logic with no UI dependencies.
+
+Manages state transitions, data loading, and navigation.  Fully testable
+without NiceGUI imports.
+"""
+⋮----
+@dataclass
+class DashboardState
+⋮----
+"""Observable state for the dashboard UI."""
+⋮----
+available_sessions: list[str] = field(default_factory=list)
+selected_session_id: str | None = None
+session_summary: SessionSummary | None = None
+iterations: list[IterationData] = field(default_factory=list)
+current_iteration: int = 0
+selected_chunk: ContextChunk | None = None
+selected_worker_chunk: ContextChunk | None = None
+api_usage: APITokenUsage | None = None
+reconciliation: TokenReconciliation | None = None
+is_loading: bool = False
+⋮----
+@property
+    def current_iteration_data(self) -> IterationData | None
+⋮----
+"""Return the IterationData for the current iteration index."""
+⋮----
+@property
+    def current_reasoning_output(self) -> ModelOutput | None
+⋮----
+"""Return the ModelOutput for the reasoning agent in the current iteration."""
+it_data = self.current_iteration_data
+⋮----
+@property
+    def total_iterations(self) -> int
+⋮----
+class DashboardController
+⋮----
+"""Coordinates data loading and state transitions.
+
+    Contains no UI logic -- all UI interaction goes through
+    DashboardUI.refresh_all().
+    """
+⋮----
+def __init__(self, loader: DashboardDataLoader)
+⋮----
+async def select_session(self, session_id: str) -> None
+⋮----
+"""Load a session and populate state."""
+⋮----
+def navigate(self, delta: int) -> None
+⋮----
+"""Move current_iteration by delta, clamped to valid range."""
+⋮----
+new_idx = self.state.current_iteration + delta
+new_idx = max(0, min(new_idx, len(self.state.iterations) - 1))
+⋮----
+def navigate_to(self, index: int) -> None
+⋮----
+"""Jump to a specific iteration index."""
+⋮----
+index = max(0, min(index, len(self.state.iterations) - 1))
+⋮----
+def select_chunk(self, chunk: ContextChunk) -> None
+⋮----
+"""Select a chunk for detail display."""
+⋮----
+def select_worker_chunk(self, chunk: ContextChunk) -> None
+⋮----
+"""Select a worker chunk for the worker detail panel."""
+⋮----
+def find_chunk_by_id(self, chunk_id: str) -> ContextChunk | None
+⋮----
+"""Find a chunk by its chunk_id in the current iteration."""
+it_data = self.state.current_iteration_data
+⋮----
+"""Return all chunks matching a category in the current iteration."""
+⋮----
+result: list[ContextChunk] = []
+⋮----
+"""Compute reconciliation from local summary and gcloud data."""
+⋮----
+"""Reconcile local token counts against GCloud monitoring data."""
+⋮----
+input_delta = gcloud.total_input_tokens - local.total_input_tokens
+threshold = local.total_input_tokens * 0.05 if local.total_input_tokens > 0 else 0
+⋮----
+api_output_tokens=0,  # Cloud Monitoring does not track output tokens
+⋮----
+output_match=True,  # Cannot verify output tokens
+⋮----
+class DashboardUI
+⋮----
+"""Coordinates UI refresh across multiple refreshable sections.
+
+    NiceGUI review correction: provides a concrete refresh_all() method
+    that the keyboard handler and navigation buttons can call.
+    """
+⋮----
+def __init__(self, controller: DashboardController)
+⋮----
+def register(self, refreshable_fn: Any) -> None
+⋮----
+"""Register a @ui.refreshable for coordinated refresh."""
+⋮----
+def refresh_all(self) -> None
+⋮----
+"""Refresh all registered UI sections."""
+</file>
+
+<file path="dashboard/data_loader.py">
+"""Dashboard data loader -- reads JSONL context snapshots.
+
+Single source of truth: reads ``.adk/context_snapshots.jsonl`` and groups
+entries into ``SessionSummary`` + ``list[IterationData]``.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class DashboardDataLoader
+⋮----
+"""Loads and structures context snapshot data from JSONL.
+
+    Single source of truth: reads .adk/context_snapshots.jsonl
+    and groups entries into SessionSummary + list[IterationData].
+    """
+⋮----
+jsonl_path = str(_project_root() / ".adk" / "context_snapshots.jsonl")
+⋮----
+outputs_path = str(_project_root() / ".adk" / "model_outputs.jsonl")
+⋮----
+def list_sessions(self) -> list[str]
+⋮----
+"""Return distinct session_ids found in the JSONL file."""
+⋮----
+session_ids: list[str] = []
+seen: set[str] = set()
+⋮----
+line = line.strip()
+⋮----
+entry = json.loads(line)
+sid = entry.get("session_id", "")
+⋮----
+"""Load all entries for a session, build structured data."""
+entries = self._read_entries(session_id)
+output_entries = self._read_output_entries(session_id)
+summary = self._build_summary(entries, session_id)
+iterations = self._build_iterations(entries, output_entries)
+⋮----
+def _read_entries(self, session_id: str) -> list[dict]
+⋮----
+"""Read and filter JSONL lines by session_id."""
+⋮----
+entries: list[dict] = []
+⋮----
+def _read_output_entries(self, session_id: str) -> list[dict]
+⋮----
+"""Read and filter model output JSONL lines by session_id.
+
+        Graceful degradation: returns empty list if file doesn't exist.
+        """
+⋮----
+@staticmethod
+    def _build_model_output(entry: dict) -> ModelOutput
+⋮----
+"""Convert a single model output JSONL entry to a ModelOutput."""
+⋮----
+"""Compute session-level aggregates from entries."""
+⋮----
+total_input = sum(e.get("input_tokens", 0) or 0 for e in entries)
+total_output = sum(e.get("output_tokens", 0) or 0 for e in entries)
+reasoning_entries = [e for e in entries if e.get("agent_type") == "reasoning"]
+worker_entries = [e for e in entries if e.get("agent_type") == "worker"]
+timestamps = [e.get("timestamp", 0) for e in entries]
+iterations = [e.get("iteration", 0) for e in entries if e.get("agent_type") == "reasoning"]
+max_iteration = max(iterations) if iterations else 0
+⋮----
+# Get model from first reasoning entry
+model = "unknown"
+⋮----
+m = e.get("model", "") or e.get("model_version", "")
+⋮----
+model = m
+⋮----
+"""Group entries by iteration, build ContextWindow objects."""
+# Group entries by iteration
+by_iteration: dict[int, list[dict]] = defaultdict(list)
+⋮----
+it_idx = entry.get("iteration", 0)
+⋮----
+# Group output entries by iteration
+outputs_by_iteration: dict[int, list[dict]] = defaultdict(list)
+⋮----
+it_idx = oe.get("iteration", 0)
+⋮----
+max_iter = max(by_iteration.keys())
+iterations: list[IterationData] = []
+⋮----
+iter_entries = by_iteration.get(idx, [])
+reasoning_window = None
+worker_windows: list[ContextWindow] = []
+reasoning_in = 0
+reasoning_out = 0
+worker_in = 0
+worker_out = 0
+timestamps: list[float] = []
+⋮----
+window = self._build_context_window(entry)
+⋮----
+reasoning_window = window
+⋮----
+# Build model outputs for this iteration
+reasoning_output: ModelOutput | None = None
+worker_outputs: list[ModelOutput] = []
+⋮----
+mo = self._build_model_output(oe)
+⋮----
+reasoning_output = mo
+⋮----
+def _build_context_window(self, entry: dict) -> ContextWindow
+⋮----
+"""Convert a single JSONL entry to a ContextWindow."""
+chunks: list[ContextChunk] = []
+⋮----
+text = chunk_data.get("text", "")
+lines = text.split("\n")
+head = "\n".join(lines[:5])
+tail = "\n".join(lines[-5:]) if len(lines) > 5 else head
+⋮----
+category = ChunkCategory(chunk_data.get("category", "user_prompt"))
+⋮----
+category = ChunkCategory.USER_PROMPT
+⋮----
+chunk = ContextChunk(
+⋮----
+estimated_tokens=0,  # computed below
+⋮----
+total_tokens = entry.get("input_tokens", 0) or 0
+</file>
+
+<file path="dashboard/data_models.py">
+"""Data models for the Context Window Dashboard.
+
+All dataclasses, enums, color maps, and token estimation used by
+the data loader, controller, and visualization components.
+"""
+⋮----
+# ---------------------------------------------------------------------------
+# Chunk categories
+⋮----
+class ChunkCategory(str, Enum)
+⋮----
+STATIC_INSTRUCTION = "static_instruction"
+DYNAMIC_INSTRUCTION = "dynamic_instruction"
+USER_PROMPT = "user_prompt"
+LLM_RESPONSE = "llm_response"
+REPL_CODE = "repl_code"
+REPL_OUTPUT = "repl_output"
+CONTEXT_VAR = "context_var"
+WORKER_PROMPT = "worker_prompt"
+WORKER_RESPONSE = "worker_response"
+⋮----
+# Color palette  (colorblind-safe, WCAG contrast-compliant)
+⋮----
+CATEGORY_COLORS: dict[ChunkCategory, str] = {
+⋮----
+CATEGORY_TEXT_COLORS: dict[ChunkCategory, str] = {
+⋮----
+# Core data classes
+⋮----
+@dataclass
+class ContextChunk
+⋮----
+chunk_id: str
+category: ChunkCategory
+title: str
+char_count: int
+estimated_tokens: int
+iteration_origin: int  # -1 for static content
+text_preview_head: str  # first 5 lines
+text_preview_tail: str  # last 5 lines
+full_text: str
+⋮----
+@dataclass
+class ContextWindow
+⋮----
+agent_type: str  # "reasoning" | "worker"
+agent_name: str
+iteration: int
+chunks: list[ContextChunk]
+total_chars: int
+total_tokens: int  # from usage_metadata.prompt_token_count
+output_tokens: int  # from usage_metadata.candidates_token_count
+model: str
+⋮----
+@dataclass
+class ModelOutput
+⋮----
+timestamp: float
+session_id: str
+⋮----
+model_version: str
+output_text: str
+output_chars: int
+thought_chars: int
+input_tokens: int
+output_tokens: int
+thoughts_tokens: int
+error: bool = False
+error_message: str | None = None
+⋮----
+@property
+    def text_preview_head(self) -> str
+⋮----
+"""First 5 lines of output text."""
+lines = self.output_text.split("\n")
+⋮----
+@property
+    def text_preview_tail(self) -> str
+⋮----
+"""Last 5 lines of output text."""
+⋮----
+@dataclass
+class IterationData
+⋮----
+iteration_index: int
+reasoning_window: ContextWindow | None
+worker_windows: list[ContextWindow] = field(default_factory=list)
+reasoning_input_tokens: int = 0
+reasoning_output_tokens: int = 0
+worker_input_tokens: int = 0
+worker_output_tokens: int = 0
+has_workers: bool = False
+timestamp_start: float = 0.0
+timestamp_end: float = 0.0
+reasoning_output: ModelOutput | None = None
+worker_outputs: list[ModelOutput] = field(default_factory=list)
+⋮----
+@dataclass
+class SessionSummary
+⋮----
+app_name: str
+⋮----
+total_iterations: int
+total_input_tokens: int
+total_output_tokens: int
+total_calls: int
+reasoning_calls: int
+worker_calls: int
+start_time: float
+end_time: float
+⋮----
+# API Token Reconciliation
+⋮----
+@dataclass
+class ModelTokenUsage
+⋮----
+calls: int
+⋮----
+@dataclass
+class APITokenUsage
+⋮----
+source: str  # "local" | "gcloud_monitoring"
+⋮----
+per_model: dict[str, ModelTokenUsage] = field(default_factory=dict)
+⋮----
+@dataclass
+class TokenReconciliation
+⋮----
+local_input_tokens: int
+local_output_tokens: int
+api_input_tokens: int
+api_output_tokens: int
+input_delta: int
+output_delta: int
+input_match: bool
+output_match: bool
+error_message: str | None
+⋮----
+# Token estimation
+⋮----
+"""Distribute known total tokens proportionally by character count.
+
+    Mutates ``chunk.estimated_tokens`` in place.  Calibrates to the
+    actual Gemini tokenizer output for the specific request (via
+    ``usage_metadata``), which is more accurate than a flat chars/4
+    heuristic.
+    """
+total_chars = sum(c.char_count for c in chunks)
+</file>
+
+<file path="dashboard/gcloud_usage.py">
+"""Cloud Monitoring REST API client for token usage reconciliation.
+
+Fetches ``generativelanguage.googleapis.com`` quota metrics from Google
+Cloud Monitoring.  Uses ``gcloud auth print-access-token`` for OAuth
+bearer tokens.
+
+Graceful degradation:
+- Returns ``None`` if no gcloud credentials are available
+- Returns ``None`` if the Cloud Monitoring API is unreachable
+- Never raises -- all errors are caught and logged
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+_INPUT_TOKEN_METRIC = (
+_REQUEST_COUNT_METRIC = (
+_MONITORING_API_BASE = "https://monitoring.googleapis.com/v3"
+⋮----
+class GCloudUsageClient
+⋮----
+"""Fetches token usage from Google Cloud Monitoring API."""
+⋮----
+def __init__(self, project_id: str | None = None)
+⋮----
+"""Fetch token usage for a time range.
+
+        Returns ``None`` if credentials are unavailable or API errors out.
+        """
+⋮----
+token = await self._get_access_token()
+⋮----
+project = project_id or self._project_id
+start_iso = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime(
+# Extend end time by 5 minutes to account for monitoring ingest delay
+end_iso = datetime.fromtimestamp(end_time + 300, tz=timezone.utc).strftime(
+⋮----
+# Fetch input token counts
+input_data = await self._query_metric(
+⋮----
+# Fetch request counts
+request_data = await self._query_metric(
+⋮----
+# Parse time series into per-model usage
+per_model: dict[str, ModelTokenUsage] = {}
+total_input = 0
+total_calls = 0
+⋮----
+model = ts.get("metric", {}).get("labels", {}).get("model", "unknown")
+tokens = sum(
+⋮----
+# Deduplicate by taking max across limit_name entries
+⋮----
+total_input = max(total_input, sum(
+⋮----
+calls = sum(
+⋮----
+total_calls = sum(m.calls for m in per_model.values())
+⋮----
+# Recompute totals from deduplicated per-model data
+total_input = sum(m.input_tokens for m in per_model.values())
+⋮----
+total_output_tokens=0,  # Cloud Monitoring does not track output tokens
+⋮----
+async def _get_access_token(self) -> str | None
+⋮----
+"""Get OAuth access token via ``gcloud auth print-access-token``."""
+⋮----
+loop = asyncio.get_running_loop()
+result = await loop.run_in_executor(
+⋮----
+token = result.stdout.strip()
+⋮----
+"""Query a specific metric from Cloud Monitoring REST API."""
+⋮----
+filter_str = f'metric.type="{metric_type}"'
+params = urllib.parse.urlencode({
+⋮----
+url = (
+⋮----
+req = urllib.request.Request(url)
+⋮----
+response = await loop.run_in_executor(
+data = json.loads(response.read().decode("utf-8"))
+</file>
+
+<file path="dashboard/README.md">
+# RLM Context Window Dashboard
+
+NiceGUI-based dashboard for visualizing token usage across reasoning and worker agent iterations.
+
+## Quick Start
+
+```bash
+# Install optional dependency
+uv pip install rlms[dashboard]
+
+# Launch
+python -m rlm_adk.dashboard
+```
+
+Open **http://localhost:8080/dashboard** in your browser.
+
+### Programmatic Launch
+
+```python
+from rlm_adk.dashboard import launch_dashboard
+
+launch_dashboard(host="0.0.0.0", port=8080, reload=False)
+```
+
+| Parameter | Default   | Description                        |
+|-----------|-----------|------------------------------------|
+| `host`    | `0.0.0.0` | Bind address                      |
+| `port`    | `8080`    | Listen port                        |
+| `reload`  | `False`   | NiceGUI hot-reload (dev mode)      |
+
+## Data Sources
+
+The dashboard reads two JSONL files from the project root:
+
+| File                              | Required | Contents                                  |
+|-----------------------------------|----------|-------------------------------------------|
+| `.adk/context_snapshots.jsonl`    | Yes      | Context window chunks per iteration       |
+| `.adk/model_outputs.jsonl`        | No       | Model response text and error metadata    |
+
+Each line contains `session_id`, `iteration`, `agent_type`, `agent_name`, token counts, and either chunk data or output text.
+
+### Generating Data with Live Gemini
+
+Set `RLM_CONTEXT_SNAPSHOTS=1` (already in `.env`) and run normally:
+
+```bash
+adk run rlm_adk
+```
+
+### Generating Data with Fake Fixtures (Deterministic, No API Key)
+
+The fake provider contract runner executes fixture JSON files against a local
+HTTP stub that returns canned responses. No Gemini API key required.
+
+```bash
+# List available fixtures
+python -m tests_rlm_adk.provider_fake --list
+
+# Run a fixture by name (stem) with dashboard snapshots
+python -m tests_rlm_adk.provider_fake --snapshot polymorphic_dag_routing
+
+# Run by glob pattern
+python -m tests_rlm_adk.provider_fake --snapshot "multi*"
+
+# Run all fixtures
+python -m tests_rlm_adk.provider_fake --snapshot
+
+# Then launch the dashboard
+python -m rlm_adk.dashboard
+```
+
+| Flag              | Effect                                                  |
+|-------------------|---------------------------------------------------------|
+| `--list`, `-l`    | Print available fixture names and exit                  |
+| `--snapshot`, `-s`| Enable `ContextWindowSnapshotPlugin` (writes `.adk/` JSONL) |
+
+Fixtures live in `tests_rlm_adk/fixtures/provider_fake/` and accept names,
+globs, or full paths as positional arguments.
+
+## Architecture
+
+```
+__main__.py          CLI entry point
+__init__.py          Public API (launch_dashboard)
+app.py               Page route + layout assembly
+controller.py        State management + navigation logic
+data_loader.py       JSONL parsing + token estimation
+data_models.py       Dataclasses (ContextChunk, IterationData, SessionSummary, ...)
+gcloud_usage.py      Optional GCloud Monitoring reconciliation
+components/
+  header.py          Title + session selector dropdown
+  summary_bar.py     Stat cards (model, iterations, tokens, duration, calls)
+  navigator.py       Iteration navigation buttons
+  context_bar.py     ECharts stacked horizontal bar (context window)
+  chunk_detail.py    Text preview with full-text expansion
+  token_charts.py    Cumulative line chart + per-iteration table
+  color_legend.py    Category color swatches
+  api_usage.py       Horizontal worker badges bar
+  output_panel.py    Reasoning output + per-worker summaries
+  worker_panel.py    Worker context windows (auto-collapse at 6+)
+```
+
+### MVC Pattern
+
+- **Model**: `data_models.py` dataclasses + `data_loader.py` (read-only JSONL)
+- **View**: NiceGUI `@ui.refreshable` components in `components/`
+- **Controller**: `DashboardController` manages `DashboardState`, coordinates navigation and selection
+
+### Data Flow
+
+```
+.adk/context_snapshots.jsonl
+        │
+        ▼
+DashboardDataLoader.load_session(session_id)
+        │
+        ▼
+(SessionSummary, list[IterationData])
+        │
+        ▼
+DashboardController.state  ──►  DashboardUI.refresh_all()
+                                        │
+                                        ▼
+                                 NiceGUI components render
+```
+
+## Page Layout
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Header: Title + Session Selector                   │
+├────────────┬──────────────────┬──────────────────────┤
+│ Summary    │ Cumulative Token │ Per-Iteration Table  │
+│ Bar        │ Chart            │ (clickable rows)     │
+├────────────┴──────────────────┴──────────────────────┤
+│  Navigator: << < [Iteration N of M] > >> [N workers] │
+├──────────────────────────────────────────────────────┤
+│  Reasoning Context Bar (stacked horizontal bar)      │
+├──────────────────────────────────────────────────────┤
+│  Workers Bar (clickable badges)                      │
+├─────────────────┬──────────────────┬─────────────────┤
+│  Chunk Detail   │  Output Panel    │  Worker Detail  │
+│  (text preview) │  (reasoning +    │  (selected      │
+│                 │   worker outputs)│   worker chunk) │
+└─────────────────┴──────────────────┴─────────────────┘
+```
+
+## Keyboard Shortcuts
+
+| Key   | Action                    |
+|-------|---------------------------|
+| `←`   | Previous iteration        |
+| `→`   | Next iteration            |
+| Home  | Jump to first iteration   |
+| End   | Jump to last iteration    |
+
+## Chunk Categories
+
+| Category             | Color   | Description                  |
+|----------------------|---------|------------------------------|
+| Static Instruction   | Gray    | System prompts, fixed text   |
+| Dynamic Instruction  | Indigo  | Runtime-injected instructions|
+| User Prompt          | Green   | User input                   |
+| LLM Response         | Amber   | Model output history         |
+| REPL Code            | Cyan    | Executed Python code         |
+| REPL Output          | Teal    | Code execution results       |
+| Context Variable     | Purple  | State variables              |
+| Worker Prompt        | Rose    | Sub-agent prompts            |
+| Worker Response      | Pink    | Sub-agent responses          |
+
+## GCloud Reconciliation
+
+When `gcloud` CLI is available and authenticated, the dashboard can compare local token counts against GCloud Monitoring data. This is optional and degrades gracefully when unavailable.
+
+## Dependencies
+
+- `nicegui>=2.0` (optional extra: `uv pip install rlms[dashboard]`)
+- `google.genai` (project dependency)
+- Optional: `gcloud` CLI for token reconciliation
+</file>
+
+<file path="eval/__init__.py">
+"""RLM ADK Evaluation utilities - DuckDB analytics and session forking."""
+⋮----
+__all__ = ["TraceReader"]
+⋮----
+def __getattr__(name: str)
+</file>
+
+<file path="eval/queries.py">
+"""Evaluation query functions for comparing and analyzing session traces.
+
+All functions operate through a TraceReader instance and return structured
+dataclass instances suitable for programmatic consumption by evaluation agents.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+@dataclass
+class InvocationTrace
+⋮----
+"""Structured representation of a single invocation within a session.
+
+    An invocation corresponds to one user turn: all events sharing the
+    same invocation_id.
+    """
+⋮----
+invocation_id: str
+events: list[dict[str, Any]]
+state_deltas: list[dict[str, Any]]
+timestamp_start: float
+timestamp_end: float
+author_sequence: list[str]
+token_usage: dict[str, int] = field(default_factory=dict)
+⋮----
+@dataclass
+class DivergencePoint
+⋮----
+"""A point where two sessions' trajectories diverge.
+
+    Attributes:
+        invocation_index: 0-based index of the invocation where divergence occurs.
+        invocation_id_a: Invocation ID from session A at the divergence point.
+        invocation_id_b: Invocation ID from session B at the divergence point.
+        reason: Human-readable description of why divergence was detected.
+        details: Additional context (e.g., differing state keys, different authors).
+    """
+⋮----
+invocation_index: int
+invocation_id_a: str
+invocation_id_b: str
+reason: str
+details: dict[str, Any] = field(default_factory=dict)
+⋮----
+@dataclass
+class SessionComparison
+⋮----
+"""Side-by-side comparison of two session trajectories.
+
+    Attributes:
+        session_id_a: First session ID.
+        session_id_b: Second session ID.
+        traces_a: List of InvocationTrace for session A.
+        traces_b: List of InvocationTrace for session B.
+        divergence_points: List of DivergencePoint instances.
+        summary: Dict with high-level comparison metrics.
+    """
+⋮----
+session_id_a: str
+session_id_b: str
+traces_a: list[InvocationTrace]
+traces_b: list[InvocationTrace]
+divergence_points: list[DivergencePoint]
+summary: dict[str, Any] = field(default_factory=dict)
+⋮----
+"""Extract structured invocation-level traces from a session.
+
+    Groups events by invocation_id and extracts state deltas, author
+    sequences, and timing information from each invocation.
+
+    Args:
+        reader: An open TraceReader instance.
+        app_name: Application name.
+        user_id: User ID.
+        session_id: Session ID.
+
+    Returns:
+        List of InvocationTrace objects, ordered chronologically.
+    """
+invocation_ids = reader.get_invocation_ids(app_name, user_id, session_id)
+traces = []
+⋮----
+events = reader.get_events_raw(
+⋮----
+state_deltas: list[dict[str, Any]] = []
+authors: list[str] = []
+token_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+⋮----
+ed = evt.get("event_data", {})
+⋮----
+ed = json.loads(ed)
+⋮----
+ed = {}
+⋮----
+# Extract state_delta from event_data.actions.state_delta
+actions = ed.get("actions", {})
+⋮----
+sd = actions.get("state_delta")
+⋮----
+# Extract author
+author = ed.get("author", "unknown")
+⋮----
+# Extract token usage from usage_metadata if present
+usage = ed.get("usage_metadata", {})
+⋮----
+trace = InvocationTrace(
+⋮----
+"""Find invocations where two sessions' trajectories diverge.
+
+    Compares sessions invocation-by-invocation. Divergence is detected when:
+    1. Author sequences differ at the same invocation index.
+    2. State delta keys differ at the same invocation index.
+    3. One session has more invocations than the other (length mismatch).
+
+    Args:
+        reader: An open TraceReader instance.
+        app_name: Application name.
+        user_id: User ID.
+        session_id_a: First session ID.
+        session_id_b: Second session ID.
+
+    Returns:
+        List of DivergencePoint objects, ordered by invocation_index.
+    """
+traces_a = get_session_traces(reader, app_name, user_id, session_id_a)
+traces_b = get_session_traces(reader, app_name, user_id, session_id_b)
+⋮----
+divergences: list[DivergencePoint] = []
+min_len = min(len(traces_a), len(traces_b))
+⋮----
+ta = traces_a[idx]
+tb = traces_b[idx]
+⋮----
+# Check author sequence divergence
+⋮----
+# Check state delta key divergence
+keys_a: set[str] = set()
+⋮----
+keys_b: set[str] = set()
+⋮----
+# Length mismatch
+⋮----
+"""Full side-by-side comparison of two session trajectories.
+
+    Combines get_session_traces() and get_divergence_points() into a
+    single structured comparison with summary metrics.
+
+    Args:
+        reader: An open TraceReader instance.
+        app_name: Application name.
+        user_id: User ID.
+        session_id_a: First session ID.
+        session_id_b: Second session ID.
+
+    Returns:
+        SessionComparison with traces, divergence points, and summary.
+    """
+⋮----
+divergences = get_divergence_points(
+⋮----
+# Compute summary metrics
+total_tokens_a = sum(
+total_tokens_b = sum(
+⋮----
+duration_a = (
+duration_b = (
+⋮----
+summary = {
+</file>
+
+<file path="eval/session_fork.py">
+"""Session forking for evaluation agents.
+
+Provides fork_session() which creates a new session from an existing one,
+copying events up to a specified invocation point. This enables trajectory
+exploration without modifying the original session.
+
+Pattern:
+1. Identify divergence point (via eval/queries.py)
+2. Fork original session at that point
+3. Re-execute agent on the forked session with modified parameters
+4. Compare original vs forked trajectories
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+"""Fork a session at a specific invocation point.
+
+    Creates a new session with events copied from the source session up to
+    (but not including) the specified invocation. The original session is
+    unchanged.
+
+    Args:
+        session_service: The session service to use for both reading the
+            source and creating the fork.
+        app_name: Application name.
+        user_id: User ID.
+        source_session_id: ID of the session to fork from.
+        fork_before_invocation_id: Fork point. Events with this invocation_id
+            and later are NOT copied. Events before this point ARE copied.
+        new_session_id: Optional explicit ID for the new session. If None,
+            the session service generates a UUID.
+        state_overrides: Optional dict of state keys to override in the
+            forked session's initial state. Applied after copying events.
+
+    Returns:
+        The new (forked) session's ID.
+
+    Raises:
+        ValueError: If source session not found or invocation_id not found.
+    """
+# 1. Load the source session with all events
+source = await session_service.get_session(
+⋮----
+# 2. Find the fork point
+fork_index = None
+⋮----
+fork_index = i
+⋮----
+events_to_copy = source.events[:fork_index]
+⋮----
+# 3. Create new session
+new_session = await session_service.create_session(
+⋮----
+# 4. Replay events into the new session
+⋮----
+# 5. Apply state overrides if provided
+⋮----
+last_inv_id = (
+override_event = Event(
+</file>
+
+<file path="eval/trace_reader.py">
+"""TraceReader - DuckDB analytical overlay for SQLite session data.
+
+Provides columnar, vectorized read access against the ADK session database.
+DuckDB attaches the SQLite file directly (zero-copy) and enables SQL analytics
+(aggregations, window functions, JSON extraction) that would be slow in SQLite.
+
+Usage:
+    reader = TraceReader(".adk/session.db")
+    traces = reader.list_sessions("my_app")
+    reader.close()
+
+    # Or as context manager:
+    with TraceReader(".adk/session.db") as reader:
+        sessions = reader.list_sessions("my_app")
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class TraceReader
+⋮----
+"""DuckDB-backed read-only analytics against SQLite session data.
+
+    Attaches the SQLite session database in read-only mode and provides
+    structured query methods for evaluation agents.
+
+    Attributes:
+        db_path: Path to the SQLite database file.
+        conn: The DuckDB connection with the SQLite file attached.
+    """
+⋮----
+def __init__(self, db_path: str, *, read_only: bool = True)
+⋮----
+"""Initialize the TraceReader.
+
+        Args:
+            db_path: Path to the SQLite session database file.
+            read_only: If True, attach SQLite in read-only mode (default).
+                This is safe for concurrent access while the agent is writing.
+
+        Raises:
+            FileNotFoundError: If db_path does not exist.
+            duckdb.Error: If the SQLite file cannot be attached.
+        """
+⋮----
+@property
+    def conn(self) -> Any
+⋮----
+"""The underlying DuckDB connection."""
+⋮----
+def close(self) -> None
+⋮----
+"""Close the DuckDB connection and detach the SQLite file."""
+⋮----
+def __enter__(self) -> "TraceReader"
+⋮----
+def __exit__(self, *exc) -> None
+⋮----
+def execute(self, sql: str, params: Optional[list] = None) -> list[dict[str, Any]]
+⋮----
+"""Execute a SQL query and return results as list of dicts.
+
+        Args:
+            sql: SQL query string. Tables are prefixed with ``sdb.`` (the
+                attached SQLite schema).
+            params: Optional positional parameters for the query.
+
+        Returns:
+            List of dicts, one per row, with column names as keys.
+        """
+result = self._conn.execute(sql, params or [])
+columns = [desc[0] for desc in result.description]
+⋮----
+"""List all sessions, optionally filtered by user_id.
+
+        Args:
+            app_name: Application name filter.
+            user_id: Optional user ID filter.
+
+        Returns:
+            List of session dicts with keys: id, app_name, user_id,
+            create_time, update_time, event_count.
+        """
+⋮----
+sql = """
+⋮----
+"""Return the total number of events in a session.
+
+        Args:
+            app_name: Application name.
+            user_id: User ID.
+            session_id: Session ID.
+
+        Returns:
+            Integer event count.
+        """
+⋮----
+rows = self.execute(sql, [app_name, user_id, session_id])
+⋮----
+"""Return the current state dict for a session.
+
+        Args:
+            app_name: Application name.
+            user_id: User ID.
+            session_id: Session ID.
+
+        Returns:
+            Parsed JSON state dict, or empty dict if session not found.
+        """
+⋮----
+"""Return distinct invocation IDs in chronological order.
+
+        Args:
+            app_name: Application name.
+            user_id: User ID.
+            session_id: Session ID.
+
+        Returns:
+            Ordered list of invocation ID strings.
+        """
+⋮----
+"""Return raw event rows with parsed event_data JSON.
+
+        Args:
+            app_name: Application name.
+            user_id: User ID.
+            session_id: Session ID.
+            invocation_id: Optional filter for a single invocation.
+            limit: Optional maximum number of events to return.
+
+        Returns:
+            List of event dicts with keys: id, invocation_id, timestamp,
+            event_data (parsed dict).
+        """
+conditions = [
+params: list[Any] = [app_name, user_id, session_id]
+⋮----
+where = " AND ".join(conditions)
+limit_clause = f"LIMIT {limit}" if limit else ""
+⋮----
+sql = f"""
+rows = self.execute(sql, params)
+⋮----
+pass  # Leave as string if not valid JSON
+</file>
+
+<file path="plugins/__init__.py">
+"""RLM ADK Plugins - Before/after agent callbacks for cross-cutting concerns."""
+⋮----
+# SqliteTracingPlugin is conditionally imported -- Track B creates the module.
+⋮----
+SqliteTracingPlugin = None  # type: ignore[assignment,misc]
+⋮----
+MigrationPlugin = None  # type: ignore[assignment,misc]
+⋮----
+__all__ = [
+</file>
+
+<file path="plugins/cache.py">
+"""CachePlugin - Global LLM response cache using intervene pattern.
+
+Trigger points: before_model_callback (check), after_model_callback (store)
+State keys: cache:store, cache:hit_count, cache:miss_count, cache:last_hit_key
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# State key for passing fingerprint from before_model to after_model
+_CACHE_PENDING_FP = "cache_pending_fingerprint"
+⋮----
+class CachePlugin(BasePlugin)
+⋮----
+"""Caches LLM responses by request fingerprint.
+
+    - before_model_callback: Check cache. If hit, return cached response (intervene).
+      Also stores fingerprint in temp state for after_model_callback.
+    - after_model_callback: Store response in cache using the pending fingerprint.
+    """
+⋮----
+"""Check cache for matching request. Store fingerprint for after_model."""
+⋮----
+state = callback_context.state
+fingerprint = _fingerprint(llm_request)
+⋮----
+# Always store fingerprint so after_model_callback can use it
+⋮----
+cache_store: dict = state.get(CACHE_STORE, {})
+⋮----
+entry = cache_store[fingerprint]
+⋮----
+"""Store response in cache after successful model call."""
+⋮----
+pending_fp = state.get(_CACHE_PENDING_FP)
+⋮----
+# LRU eviction if over capacity
+⋮----
+sorted_keys = sorted(
+⋮----
+def _fingerprint(llm_request: LlmRequest) -> str
+⋮----
+"""Generate cache key from LlmRequest.
+
+    Key format: SHA-256(model || prompt_normalized || system_instruction_hash || temperature)
+    """
+parts: list[str] = []
+⋮----
+# Model name
+model = (llm_request.model or "").lower().strip()
+⋮----
+# Prompt content - concatenate all text parts
+content_text = ""
+⋮----
+# System instruction hash
+sys_instruction = ""
+⋮----
+si = getattr(llm_request.config, "system_instruction", None)
+⋮----
+sys_instruction = str(si)
+⋮----
+# Temperature
+temperature = 0.0
+⋮----
+temp = getattr(llm_request.config, "temperature", None)
+⋮----
+temperature = float(temp)
+⋮----
+combined = "||".join(parts)
+⋮----
+def _serialize_response(llm_response: LlmResponse) -> dict
+⋮----
+"""Serialize LlmResponse to JSON-safe dict."""
+⋮----
+text = ""
+⋮----
+def _deserialize_response(data: dict) -> LlmResponse
+⋮----
+"""Deserialize cached response back to LlmResponse."""
+text = data.get("text", "")
+</file>
+
+<file path="plugins/context_snapshot.py">
+"""ContextWindowSnapshotPlugin - Captures full context window decomposition.
+
+Writes one JSONL line per LLM call, capturing the exact per-turn,
+per-agent context decomposition (mirroring reasoning_before_model and
+worker_before_model logic) with full text for every chunk and token
+counts from usage_metadata.
+
+Opt-in: enabled when ``RLM_CONTEXT_SNAPSHOTS=1``.
+
+Architecture note (ADK review correction):
+    Plugins fire BEFORE agent callbacks.  The LlmRequest is not yet
+    populated when before_model_callback runs.  We store a *reference*
+    to the mutable LlmRequest in before_model_callback and decompose
+    it in after_model_callback, by which point the agent callbacks
+    (reasoning_before_model / worker_before_model) have mutated the
+    object in-place.
+
+Thread safety (ADK review correction):
+    ParallelAgent runs multiple workers concurrently.  We use a dict
+    keyed by agent name (not a single ``_pending_request``) and an
+    ``asyncio.Lock`` for JSONL writes.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class ContextWindowSnapshotPlugin(BasePlugin)
+⋮----
+"""Captures full context window decomposition at each LLM call.
+
+    Stores a reference to the LlmRequest in before_model_callback,
+    then decomposes the (now-mutated) request in after_model_callback
+    along with token counts from usage_metadata.
+    """
+⋮----
+# Dict keyed by agent name for concurrent worker safety
+⋮----
+# ------------------------------------------------------------------
+# before_model_callback: stash reference (do NOT decompose yet)
+⋮----
+"""Store a mutable reference to the LlmRequest.
+
+        Agent callbacks (reasoning_before_model / worker_before_model) will
+        mutate this object in-place after all plugin callbacks complete.
+        We read the mutated state in after_model_callback.
+        """
+⋮----
+agent_name = callback_context._invocation_context.agent.name
+⋮----
+# after_model_callback: decompose the mutated request + token counts
+⋮----
+"""Decompose the mutated LlmRequest and pair with token counts."""
+⋮----
+pending = self._pending.pop(agent_name, None)
+⋮----
+llm_request: LlmRequest = pending["request"]
+agent_type = (
+⋮----
+# Decompose the mutated request into chunks
+chunks = self._decompose_request(llm_request, agent_type, agent_name, pending["iteration"])
+⋮----
+# Extract usage_metadata
+usage = llm_response.usage_metadata
+input_tokens = 0
+output_tokens = 0
+thoughts_tokens = 0
+⋮----
+input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+thoughts_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+⋮----
+entry: dict[str, Any] = {
+⋮----
+# --- Model output capture ---
+⋮----
+output_entry: dict[str, Any] = {
+⋮----
+# on_model_error_callback: flush pending with error flag
+⋮----
+"""Flush pending entry with error flag when the model call fails."""
+⋮----
+# The request has been mutated by now (agent callbacks ran)
+chunks = self._decompose_request(
+⋮----
+# --- Model output capture (error case) ---
+error_msg = f"{type(error).__name__}: {error}"
+⋮----
+# after_run_callback: close file handle
+⋮----
+"""Close the JSONL file handles."""
+⋮----
+# Context decomposition
+⋮----
+"""Decompose the mutated LlmRequest into typed chunks."""
+⋮----
+"""Decompose a reasoning agent's LlmRequest into chunks.
+
+        After reasoning_before_model has mutated the request:
+        - system_instruction contains static + dynamic (concatenated with \\n\\n)
+        - contents contains the message history
+        """
+chunks: list[dict[str, Any]] = []
+⋮----
+# 1. System instruction: split into static + dynamic
+si_text = self._extract_system_instruction_text(llm_request)
+⋮----
+# ADK review correction: use "\\n\\nRepository URL:" as boundary
+boundary = "\n\nRepository URL:"
+boundary_idx = si_text.find(boundary)
+⋮----
+static_text = si_text[:boundary_idx]
+dynamic_text = si_text[boundary_idx + 2:]  # skip the \n\n
+⋮----
+# No dynamic instruction -- emit as single static chunk
+⋮----
+# 2. Contents: classify by role and content patterns
+contents = llm_request.contents or []
+content_idx = 0
+# Track iteration origin from message pattern:
+# Each iteration adds: 1 user prompt, 1 model response, N code blocks
+msg_iter = 0
+last_role = None
+⋮----
+text = self._extract_content_text(content)
+role = getattr(content, "role", "user")
+⋮----
+# Iteration 0 user prompt with safeguard
+⋮----
+# REPL code + output, possibly with context vars
+⋮----
+# ADK review correction: CONTEXT_VAR is within REPL output text
+⋮----
+# User prompt for iteration > 0
+⋮----
+# After a user prompt, we are starting a new iteration
+⋮----
+msg_iter_candidate = msg_iter
+⋮----
+# Generic user content
+⋮----
+# Filter out thought parts
+visible_text = self._extract_content_text_no_thoughts(content)
+⋮----
+# After a model response, the next user message starts a new iteration
+⋮----
+last_role = role
+⋮----
+"""Decompose a worker agent's LlmRequest into chunks.
+
+        After worker_before_model has mutated the request:
+        - contents contains only the pending prompt (string or message list)
+        - No system_instruction for workers
+        """
+⋮----
+# ADK review correction: handle both string and list prompt formats
+⋮----
+# Single prompt (string format)
+text = self._extract_content_text(contents[0])
+⋮----
+# Multi-turn message list format
+⋮----
+category = "worker_response"
+title = f"Worker Context (model, msg {idx})"
+⋮----
+category = "worker_prompt"
+title = f"Worker Prompt (msg {idx})"
+⋮----
+# Helpers
+⋮----
+@staticmethod
+    def _extract_system_instruction_text(llm_request: LlmRequest) -> str
+⋮----
+"""Extract system_instruction text from the request config."""
+⋮----
+si = llm_request.config.system_instruction
+⋮----
+@staticmethod
+    def _extract_content_text(content: types.Content) -> str
+⋮----
+"""Extract all text from a Content object's parts."""
+⋮----
+@staticmethod
+    def _extract_content_text_no_thoughts(content: types.Content) -> str
+⋮----
+"""Extract text from Content, filtering out thought parts."""
+⋮----
+@staticmethod
+    def _split_repl_message(text: str) -> tuple[str, str, str]
+⋮----
+"""Split a REPL user message into code, output, and context_var.
+
+        The format (from format_iteration in parsing.py) is:
+            Code executed:
+            ```python
+            <code>
+            ```
+
+            REPL output:
+            <output>
+
+        Context variables are embedded within the REPL output text
+        as a line starting with "REPL variables:".
+        """
+code_text = ""
+output_text = ""
+context_var_text = ""
+⋮----
+# Split code from output
+repl_boundary = "\n\nREPL output:\n"
+boundary_idx = text.find(repl_boundary)
+⋮----
+code_section = text[:boundary_idx]
+output_section = text[boundary_idx + len(repl_boundary):]
+⋮----
+# Extract code from within ```python ... ```
+code_start = code_section.find("```python\n")
+code_end = code_section.rfind("\n```")
+⋮----
+code_text = code_section[code_start + len("```python\n"):code_end]
+⋮----
+# Check for CONTEXT_VAR within output (ADK review correction)
+repl_var_marker = "REPL variables:"
+var_idx = output_section.find(repl_var_marker)
+⋮----
+# Split output from context vars
+context_var_text = output_section[var_idx:].strip()
+output_text = output_section[:var_idx].strip()
+⋮----
+output_text = output_section.strip()
+⋮----
+# No REPL output boundary -- treat entire text as code section
+code_start = text.find("```python\n")
+code_end = text.rfind("\n```")
+⋮----
+code_text = text[code_start + len("```python\n"):code_end]
+⋮----
+"""Create a chunk dict for serialization."""
+⋮----
+@staticmethod
+    def _chunk_to_dict(chunk: dict[str, Any]) -> dict[str, Any]
+⋮----
+"""Pass-through since chunks are already dicts."""
+⋮----
+# Response text extraction
+⋮----
+@staticmethod
+    def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]
+⋮----
+"""Extract visible output text and thought text from LlmResponse.
+
+        Returns:
+            (output_text, thought_text) tuple.
+        """
+output_parts: list[str] = []
+thought_parts: list[str] = []
+⋮----
+# JSONL file I/O
+⋮----
+def _ensure_file_open(self) -> None
+⋮----
+"""Lazily open the JSONL file on first write."""
+⋮----
+def _ensure_output_file_open(self) -> None
+⋮----
+"""Lazily open the model outputs JSONL file on first write."""
+⋮----
+async def _flush_entry(self, entry: dict[str, Any]) -> None
+⋮----
+"""Write a single JSONL line atomically (asyncio.Lock for safety)."""
+⋮----
+line = json.dumps(entry, ensure_ascii=False)
+⋮----
+async def _flush_output_entry(self, entry: dict[str, Any]) -> None
+⋮----
+"""Write a model output JSONL line atomically."""
+</file>
+
+<file path="plugins/debug_logging.py">
+"""DebugLoggingPlugin - Development-only detailed tracing.
+
+Wraps/extends logging with full interaction traces.
+Development only - not for production.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class DebugLoggingPlugin(BasePlugin)
+⋮----
+"""Full interaction trace logging for development.
+
+    Records prompts, responses, tool calls, and state snapshots.
+    Writes traces to YAML on after_run_callback.
+    Not for production use.
+    """
+⋮----
+"""Record agent entry with state snapshot."""
+⋮----
+state = callback_context.state
+agent_name = getattr(agent, "name", "unknown")
+iteration = state.get(ITERATION_COUNT, 0)
+⋮----
+entry: dict[str, Any] = {
+⋮----
+"""Record agent exit."""
+⋮----
+iteration = callback_context.state.get(ITERATION_COUNT, 0)
+⋮----
+"""Record model request details."""
+⋮----
+model = llm_request.model or "unknown"
+⋮----
+num_contents = len(llm_request.contents)
+⋮----
+# Build focused one-line stdout summary with token accounting
+# Detect agent type from state keys set by before_model callbacks
+reasoning_chars = state.get(REASONING_PROMPT_CHARS)
+worker_chars = state.get(WORKER_PROMPT_CHARS)
+⋮----
+history_msgs = state.get(REASONING_HISTORY_MSG_COUNT, 0)
+sys_chars = state.get(REASONING_SYSTEM_CHARS, 0)
+⋮----
+worker_contents = state.get(WORKER_CONTENT_COUNT, 0)
+⋮----
+# Record prompt text
+prompt_parts = []
+⋮----
+si = getattr(llm_request.config, "system_instruction", None)
+⋮----
+# Capture per-invocation token accounting from state
+context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
+⋮----
+token_accounting = {}
+⋮----
+val = state.get(key)
+⋮----
+"""Record model response details."""
+⋮----
+# Extract token usage from response metadata
+tokens_in = 0
+tokens_out = 0
+⋮----
+tokens_in = getattr(
+tokens_out = getattr(
+⋮----
+# Determine agent type from state keys
+reasoning_in = state.get(REASONING_INPUT_TOKENS)
+worker_in = state.get(WORKER_INPUT_TOKENS)
+⋮----
+agent_label = "reasoning"
+⋮----
+agent_label = "worker"
+⋮----
+agent_label = "unknown"
+⋮----
+# Worker dispatch info
+dispatch_count = state.get(WORKER_DISPATCH_COUNT, 0)
+⋮----
+parts = [
+⋮----
+# Record response text
+⋮----
+response_text = ""
+⋮----
+# Record usage metadata
+⋮----
+# Capture per-agent-type response token breakdowns from
+# llm_response.usage_metadata directly (not from state, which
+# lags by one iteration -- see bug-005).
+⋮----
+response_tokens = {}
+⋮----
+"""Record model error details."""
+⋮----
+"""Record tool invocation."""
+⋮----
+"""Record tool result."""
+⋮----
+"""Record events including artifact deltas."""
+⋮----
+delta_keys = list(event.actions.state_delta.keys())
+⋮----
+# Only print state delta summaries for non-trivial deltas
+⋮----
+# Compact display: show key names without the prefix
+short_keys = [k.split(":")[-1] if ":" in k else k for k in delta_keys]
+⋮----
+# Track artifact deltas
+⋮----
+artifact_delta = event.actions.artifact_delta
+⋮----
+"""Write all traces to YAML file and print run summary."""
+⋮----
+state = invocation_context.session.state
+⋮----
+# --- Print run summary to stdout ---
+total_iters = state.get(ITERATION_COUNT, 0)
+total_in = state.get(OBS_TOTAL_INPUT_TOKENS, 0)
+total_out = state.get(OBS_TOTAL_OUTPUT_TOKENS, 0)
+total_calls = state.get(OBS_TOTAL_CALLS, 0)
+total_time = state.get(OBS_TOTAL_EXECUTION_TIME, 0)
+final_answer = state.get(FINAL_ANSWER, "")
+answer_len = len(final_answer) if final_answer else 0
+⋮----
+summary_parts = [
+⋮----
+# Worker dispatch stats
+total_dispatches = state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
+⋮----
+latencies = state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
+avg_latency = (
+⋮----
+# Artifact stats
+artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+⋮----
+artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+⋮----
+state_snapshot = None
+⋮----
+state_snapshot = _safe_state_snapshot(
+⋮----
+output = {
+⋮----
+def _safe_state_snapshot(state: Any) -> dict
+⋮----
+"""Create a JSON-safe snapshot of session state."""
+snapshot = {}
+⋮----
+# state may be a dict-like object
+items = state.items() if hasattr(state, "items") else {}
+⋮----
+# Only include serializable values
+</file>
+
+<file path="plugins/langfuse_tracing.py">
+"""LangfuseTracingPlugin - OpenTelemetry-based tracing to self-hosted Langfuse.
+
+Initializes the Langfuse client and Google ADK OpenInference instrumentor
+so that every model call, tool invocation, and agent transition is captured
+as an OTel span and forwarded to Langfuse automatically.
+
+The plugin is a thin wrapper: all actual tracing is handled by the
+``openinference-instrumentation-google-adk`` package.  This plugin simply
+ensures initialization happens once and in the right order.
+
+Requires environment variables:
+    LANGFUSE_PUBLIC_KEY  - Project public key
+    LANGFUSE_SECRET_KEY  - Project secret key
+    LANGFUSE_BASE_URL    - Self-hosted Langfuse URL (e.g. http://localhost:3100)
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+_INSTRUMENTED = False
+⋮----
+def _init_langfuse_instrumentation() -> bool
+⋮----
+"""One-time initialization of Langfuse + GoogleADK OTel instrumentation.
+
+    Returns True if instrumentation was successfully initialized.
+    """
+⋮----
+public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+base_url = os.getenv("LANGFUSE_BASE_URL")
+⋮----
+# Authenticate the Langfuse client
+client = get_client()
+⋮----
+# Instrument Google ADK with OpenInference
+⋮----
+_INSTRUMENTED = True
+⋮----
+class LangfuseTracingPlugin(BasePlugin)
+⋮----
+"""ADK Plugin that enables Langfuse OpenTelemetry tracing.
+
+    All actual span creation is handled automatically by the
+    ``GoogleADKInstrumentor``.  This plugin's role is to:
+
+    1. Trigger one-time initialization of the instrumentor.
+    2. Provide a clean on/off toggle via the plugin system.
+    3. Log whether tracing is active for operational visibility.
+
+    The plugin is safe to include even when Langfuse env vars are not set:
+    initialization is skipped with a warning and no callbacks fire.
+    """
+⋮----
+def __init__(self, *, name: str = "langfuse_tracing")
+⋮----
+@property
+    def enabled(self) -> bool
+</file>
+
+<file path="plugins/migration.py">
+"""MigrationPlugin - End-of-session batch migration from SQLite to PostgreSQL.
+
+Implements the Strategy B (End-of-Session Migration) from the database
+strategy report. Triggers on after_run_callback to migrate the completed
+session's data to a PostgreSQL long-term store.
+
+Configuration via environment variables:
+    RLM_MIGRATION_ENABLED   - "1" or "true" to enable (default: disabled)
+    RLM_POSTGRES_URL        - SQLAlchemy async Postgres URL
+                              (e.g., postgresql+asyncpg://user:pass@host/db)
+    RLM_SESSION_DB           - Path to the local SQLite session database
+                              (default: .adk/session.db)
+    RLM_MIGRATION_RETENTION  - Number of sessions to retain locally after
+                              migration (default: 50). Set to 0 to disable pruning.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class MigrationPlugin(BasePlugin)
+⋮----
+"""End-of-session batch migration from SQLite to PostgreSQL.
+
+    The plugin reads session data directly from the SQLite file (not through
+    ADK's session service) to avoid holding locks during migration. It writes
+    to PostgreSQL via SQLAlchemy's async engine.
+
+    The plugin is safe to include when PostgreSQL is not configured:
+    initialization logs a warning and all callbacks become no-ops.
+
+    Migration flow (in after_run_callback):
+    1. Read completed session from SQLite (sessions + events tables)
+    2. Upsert session record to Postgres
+    3. Batch-insert events to Postgres (with ON CONFLICT DO NOTHING)
+    4. Mark session as migrated in state
+    5. Optionally prune old migrated sessions from SQLite (FIFO)
+    """
+⋮----
+"""Initialize the MigrationPlugin.
+
+        Args:
+            name: Plugin name.
+            postgres_url: SQLAlchemy async PostgreSQL URL. Falls back to
+                ``RLM_POSTGRES_URL`` env var.
+            sqlite_db_path: Path to the local SQLite database. Falls back to
+                ``RLM_SESSION_DB`` env var, then ``.adk/session.db``.
+            retention_count: Number of sessions to retain locally after
+                migration. Falls back to ``RLM_MIGRATION_RETENTION`` env var,
+                then 50. Set to 0 to disable pruning.
+        """
+⋮----
+async def _get_engine(self)
+⋮----
+"""Lazily create the SQLAlchemy async engine.
+
+        Returns:
+            An AsyncEngine instance, or None if creation fails.
+        """
+⋮----
+# Ensure target tables exist
+⋮----
+async def _ensure_postgres_schema(self)
+⋮----
+"""Create migration target tables in PostgreSQL if they don't exist.
+
+        Uses the same schema as SqliteSessionService for compatibility,
+        with Postgres-specific types (JSONB instead of TEXT for state/event_data).
+        """
+⋮----
+create_sql = text(
+⋮----
+"""Migrate the completed session to PostgreSQL.
+
+        This is the main migration entry point, called by the ADK Runner
+        after the agent run completes.
+        """
+⋮----
+session = invocation_context.session
+app_name = invocation_context.app_name
+user_id = session.user_id
+session_id = session.id
+⋮----
+start_time = time.time()
+⋮----
+engine = await self._get_engine()
+⋮----
+# Read session data from SQLite
+⋮----
+# Upsert to PostgreSQL
+⋮----
+# Update migration tracking
+elapsed = time.time() - start_time
+state = invocation_context.session.state
+⋮----
+# Prune old migrated sessions from SQLite
+⋮----
+pruned = self._prune_local_sessions(app_name, self._retention)
+⋮----
+"""Read session and events from the local SQLite database.
+
+        Uses a synchronous sqlite3 connection (separate from the ADK
+        session service's aiosqlite connections) to avoid lock contention.
+
+        Returns:
+            (session_dict, events_list) or (None, []) if not found.
+        """
+⋮----
+conn = sqlite3.connect(self._sqlite_path)
+⋮----
+row = conn.execute(
+⋮----
+session_data = dict(row)
+⋮----
+events = conn.execute(
+events_data = [dict(e) for e in events]
+⋮----
+"""Upsert session and events to PostgreSQL.
+
+        Uses ON CONFLICT DO UPDATE for the session and ON CONFLICT DO NOTHING
+        for events (events are immutable once written).
+        """
+⋮----
+# Upsert session
+⋮----
+# Batch insert events
+⋮----
+def _prune_local_sessions(self, app_name: str, retention: int) -> int
+⋮----
+"""Remove oldest sessions from SQLite, keeping ``retention`` most recent.
+
+        Prunes any sessions beyond the retention count for the given app,
+        ordered by ``update_time`` ascending (oldest first). Associated events
+        are cascade-deleted via foreign key constraints.
+
+        Returns:
+            Number of sessions deleted.
+        """
+⋮----
+# Count total sessions for the app
+total = conn.execute(
+⋮----
+# Delete oldest sessions beyond retention limit
+to_delete = total - retention
+⋮----
+# VACUUM to reclaim space (only if significant deletions)
+⋮----
+async def close(self) -> None
+⋮----
+"""Clean up the SQLAlchemy engine on runner shutdown."""
+</file>
+
+<file path="plugins/observability.py">
+"""ObservabilityPlugin - Usage tracking, timings, and audit trail.
+
+Trigger points: ALL (before/after agent, model, tool; on_event, after_run)
+Observe only - never returns a value, never blocks execution.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class ObservabilityPlugin(BasePlugin)
+⋮----
+"""Tracks usage metrics, timings, and provides structured audit trail.
+
+    Observe-only: never returns a value, never blocks execution.
+    Logging errors are caught and suppressed.
+    """
+⋮----
+def __init__(self, *, name: str = "observability")
+⋮----
+"""Record agent entry."""
+⋮----
+state = callback_context.state
+⋮----
+agent_name = getattr(agent, "name", "unknown")
+request_id = state.get(REQUEST_ID, "unknown")
+⋮----
+# Keys written by after_model_callback that are ephemeral due to ADK
+# not wiring event_actions on plugin after_model CallbackContext
+# (base_llm_flow.py oversight).  We re-persist them here.
+_EPHEMERAL_FIXED_KEYS: tuple[str, ...] = (
+⋮----
+# Prefixes for dynamic keys generated in after_model_callback
+_EPHEMERAL_DYNAMIC_PREFIXES: tuple[str, ...] = (
+⋮----
+"""Persist ephemeral obs keys and record agent exit.
+
+        ADK's base_llm_flow.py creates CallbackContext *without*
+        event_actions for plugin after_model_callback, so state writes
+        there hit the live session dict but never land in a state_delta
+        Event.  This after_agent_callback re-writes those values through
+        the properly-wired CallbackContext so they appear in final_state.
+        """
+⋮----
+# Read the live session dict to find ephemeral values
+session_state = callback_context._invocation_context.session.state
+⋮----
+# Persist fixed keys
+⋮----
+val = session_state.get(key)
+⋮----
+# Persist dynamic keys (obs:finish_*, obs:model_usage:*)
+⋮----
+val = session_state.get(sess_key)
+⋮----
+"""Record pre-model call metrics."""
+⋮----
+model = llm_request.model or "unknown"
+⋮----
+"""Record post-model call metrics: token usage, call counts."""
+⋮----
+# Increment total calls
+⋮----
+# Extract token usage from response
+usage = llm_response.usage_metadata
+⋮----
+input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+⋮----
+# Per-model tracking via agent_name as proxy since after_model
+# does not receive llm_request
+model = "unknown"
+# Try to get model from response's model_version field
+⋮----
+model = llm_response.model_version
+model_key = obs_model_usage_key(model)
+model_usage = state.get(
+⋮----
+# --- Record finish_reason ---
+# Use .name to get "SAFETY" not "FinishReason.SAFETY" (BUG-A fix)
+finish_reason = llm_response.finish_reason.name if llm_response.finish_reason else None
+⋮----
+key = f"obs:finish_{finish_reason.lower()}_count"
+⋮----
+# --- Per-iteration token breakdown ---
+# Read agent-specific token accounting written by before/after callbacks
+iteration = state.get(ITERATION_COUNT, 0)
+context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
+⋮----
+breakdown_entry: dict[str, Any] = {
+⋮----
+"finish_reason": finish_reason,  # now .name (BUG-A fix)
+⋮----
+# Include agent-type-specific prompt characterization
+reasoning_prompt_chars = state.get(REASONING_PROMPT_CHARS)
+⋮----
+worker_prompt_chars = state.get(WORKER_PROMPT_CHARS)
+⋮----
+breakdowns: list = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
+⋮----
+"""Record tool invocation."""
+⋮----
+tool_name = getattr(tool, "name", str(tool))
+state = tool_context.state
+summary: dict = state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+⋮----
+"""Enrich events with request ID for correlation and track artifact deltas."""
+⋮----
+state = invocation_context.session.state
+request_id = state.get(REQUEST_ID)
+⋮----
+# Log event for audit trail
+⋮----
+# Track artifact operations from event artifact_delta
+⋮----
+artifact_count = len(event.actions.artifact_delta)
+⋮----
+"""Record final execution summary."""
+⋮----
+start_time = state.get(INVOCATION_START_TIME, 0)
+⋮----
+total_time = time.time() - start_time
+⋮----
+# Store last successful call ID for cross-session reference
+⋮----
+breakdowns = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
+reasoning_calls = sum(
+worker_calls = sum(
+⋮----
+artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+⋮----
+log_msg = (
+log_args = [
+</file>
+
+<file path="plugins/policy.py">
+"""PolicyPlugin - Auth/safety guardrails.
+
+Trigger points: before_model_callback, before_tool_callback, on_user_message_callback
+Intervene pattern: blocks when policy violated.
+Fail fast, fail loud per rlm culture.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class PolicyPlugin(BasePlugin)
+⋮----
+"""Enforces auth/safety policies.
+
+    - on_user_message_callback: Generate request_id and idempotency_key.
+    - before_model_callback: Check blocked patterns against prompt.
+    - before_tool_callback: Check auth level against tool requirements.
+    """
+⋮----
+"""Generate request_id and idempotency_key for the invocation."""
+state = invocation_context.session.state
+⋮----
+# Generate unique request ID
+request_id = f"req-{uuid.uuid4().hex[:12]}"
+⋮----
+# Generate idempotency key from message content
+message_text = ""
+⋮----
+user_id = invocation_context.session.user_id or ""
+session_id = invocation_context.session.id or ""
+idem_source = f"{user_id}:{session_id}:{message_text}"
+⋮----
+"""Check blocked patterns against prompt content."""
+⋮----
+# Extract text from request contents
+prompt_text = ""
+⋮----
+# Check each blocked pattern
+⋮----
+match = pattern.search(prompt_text)
+⋮----
+request_id = callback_context.state.get(REQUEST_ID, "unknown")
+violation = f"blocked: pattern '{pattern.pattern}' matched"
+⋮----
+"""Check auth level against tool requirements."""
+state = tool_context.state
+⋮----
+# Check if tool has an auth_level requirement (convention: tool attribute)
+required_level = getattr(tool, "required_auth_level", None)
+⋮----
+user_auth_level = state.get("user:auth_level", "user")
+# Simple level hierarchy: admin > user > guest
+level_order = {"guest": 0, "user": 1, "admin": 2}
+user_rank = level_order.get(user_auth_level, 0)
+required_rank = level_order.get(required_level, 0)
+⋮----
+request_id = state.get(REQUEST_ID, "unknown")
+tool_name = getattr(tool, "name", str(tool))
+violation = (
+</file>
+
+<file path="plugins/repl_tracing.py">
+"""REPLTracingPlugin - Persists REPL traces as JSON artifacts per iteration.
+
+Captures trace summaries from LAST_REPL_RESULT events and saves accumulated
+traces as a single JSON artifact at the end of the run.
+
+Enabled via RLM_REPL_TRACE > 0 env var.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class REPLTracingPlugin(BasePlugin)
+⋮----
+"""Persists REPL traces as JSON artifacts per iteration."""
+⋮----
+def __init__(self, name: str = "repl_tracing")
+⋮----
+"""Capture LAST_REPL_RESULT events that contain trace data."""
+⋮----
+sd = getattr(getattr(event, "actions", None), "state_delta", None) or {}
+repl_result = sd.get(LAST_REPL_RESULT)
+⋮----
+trace_summary = repl_result.get("trace_summary")
+⋮----
+iteration = sd.get(ITERATION_COUNT, 0)
+⋮----
+"""Save accumulated traces as artifact."""
+⋮----
+artifact_service = invocation_context.artifact_service
+⋮----
+trace_data = json.dumps(self._traces_by_iteration, indent=2)
+artifact = types.Part.from_bytes(
+</file>
+
+<file path="plugins/sqlite_tracing.py">
+"""SqliteTracingPlugin - Local SQLite-based span tracing.
+
+Captures span-like telemetry from ADK callbacks into a local traces.db file.
+Provides a lightweight alternative to Langfuse for local development and
+evaluation agent queries.
+
+No external dependencies beyond the Python standard library (sqlite3).
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+_SCHEMA_SQL = """
+⋮----
+class SqliteTracingPlugin(BasePlugin)
+⋮----
+"""ADK Plugin that writes span-like telemetry to a local SQLite database.
+
+    Each invocation (runner.run_async call) creates one trace row.
+    Each callback event (before/after model, tool, agent) creates one span row.
+
+    The plugin is observe-only: all callbacks return None and never block
+    execution. Database write errors are caught and logged as warnings.
+
+    Args:
+        name: Plugin name (default "sqlite_tracing").
+        db_path: Path to the SQLite database file (default ".adk/traces.db").
+            Created if it does not exist. Parent directories are created.
+    """
+⋮----
+# Stack of active span IDs for parent tracking.
+# before_agent pushes, after_agent pops.
+⋮----
+# Map of model key -> span_id for pairing before_model -> after_model spans.
+⋮----
+# Map of tool_name -> span_id for pairing before_tool -> after_tool spans.
+⋮----
+def _init_db(self) -> None
+⋮----
+"""Initialize the database connection and create tables."""
+⋮----
+def _new_span_id(self) -> str
+⋮----
+"""Generate a new unique span ID."""
+⋮----
+def _current_parent_span_id(self) -> Optional[str]
+⋮----
+"""Return the span_id of the most recent unfinished agent span."""
+⋮----
+"""Insert a span row into the database."""
+⋮----
+"""Update a span row with end_time and optional attributes."""
+⋮----
+# ---- Lifecycle callbacks ----
+⋮----
+"""Create a new trace row for this invocation."""
+⋮----
+"""Finalize the trace row with summary stats."""
+⋮----
+state = invocation_context.session.state
+final_answer = state.get(FINAL_ANSWER, "")
+⋮----
+# ---- Agent callbacks ----
+⋮----
+"""Create an agent span and push it onto the parent stack."""
+⋮----
+agent_name = getattr(agent, "name", "unknown")
+span_id = self._new_span_id()
+⋮----
+"""Close the most recent agent span by setting its end_time."""
+⋮----
+span_id = self._agent_span_stack.pop()
+⋮----
+# ---- Model callbacks ----
+⋮----
+"""Create a model_call span and store its ID for pairing with after_model."""
+⋮----
+model = llm_request.model or "unknown"
+num_contents = len(llm_request.contents) if llm_request.contents else 0
+⋮----
+# Store span_id to pair with after_model
+⋮----
+"""Close the model_call span with token usage and end_time."""
+⋮----
+model = llm_response.model_version or "unknown"
+span_id = self._pending_model_spans.pop(model, None)
+# Also try popping with "unknown" if model_version not set
+⋮----
+span_id = self._pending_model_spans.pop("unknown", None)
+# Fallback: pop any remaining span
+⋮----
+tokens_in = 0
+tokens_out = 0
+⋮----
+tokens_in = getattr(llm_response.usage_metadata, "prompt_token_count", 0) or 0
+tokens_out = getattr(llm_response.usage_metadata, "candidates_token_count", 0) or 0
+⋮----
+attributes = {
+⋮----
+# No matching before_model span -- write a standalone span
+standalone_id = self._new_span_id()
+⋮----
+"""Mark the pending model span as an error."""
+⋮----
+# ---- Tool callbacks ----
+⋮----
+"""Create a tool_call span and store its ID for pairing with after_tool."""
+⋮----
+tool_name = getattr(tool, "name", str(tool))
+⋮----
+"""Close the tool_call span with result preview and end_time."""
+⋮----
+span_id = self._pending_tool_spans.pop(tool_name, None)
+⋮----
+# ---- Event callback ----
+⋮----
+"""Capture artifact delta events as artifact_save spans."""
+⋮----
+# ---- Cleanup ----
+⋮----
+async def close(self) -> None
+⋮----
+"""Close the database connection."""
+</file>
+
+<file path="repl/__init__.py">
+"""RLM ADK REPL - Local REPL execution and AST rewriting."""
+</file>
+
+<file path="repl/ast_rewriter.py">
+"""AST rewriter for sync-to-async bridge in REPL code execution.
+
+Transforms LM-generated Python code so that:
+- llm_query(p) -> await llm_query_async(p)
+- llm_query_batched(ps) -> await llm_query_batched_async(ps)
+- Wraps code in: async def _repl_exec(): ... return locals()
+
+Only rewrites if the code actually contains llm_query calls.
+If no LM calls, code runs synchronously via regular exec().
+"""
+⋮----
+def has_llm_calls(code: str) -> bool
+⋮----
+"""Check if code contains llm_query or llm_query_batched calls.
+
+    Uses AST parsing to detect calls accurately (not just string matching,
+    which could match comments or string literals).
+
+    Returns False if code has syntax errors (will be caught during execution).
+    """
+⋮----
+tree = ast.parse(code)
+⋮----
+func = node.func
+⋮----
+class LlmCallRewriter(ast.NodeTransformer)
+⋮----
+"""Transforms llm_query/llm_query_batched calls to their async equivalents.
+
+    Transformations:
+    - llm_query(args) -> await llm_query_async(args)
+    - llm_query_batched(args) -> await llm_query_batched_async(args)
+
+    Preserves all arguments including keyword args (model=, etc).
+    Handles nested calls, calls inside expressions, assignments, loops, etc.
+    """
+⋮----
+_SYNC_TO_ASYNC = {
+⋮----
+def visit_Call(self, node: ast.Call) -> ast.AST
+⋮----
+"""Transform sync LM calls to async await expressions."""
+# Transform children first (handles nested calls like
+# llm_query(llm_query("inner")))
+⋮----
+# Replace function name with async variant
+⋮----
+# Wrap in Await node
+⋮----
+def _contains_await(node: ast.AST) -> bool
+⋮----
+"""Check if a node contains Await without descending into nested scopes."""
+⋮----
+def _promote_functions_to_async(tree: ast.Module) -> set[str]
+⋮----
+"""Promote sync FunctionDef nodes that contain await to AsyncFunctionDef.
+
+    Also wraps call sites of promoted functions with await.  Repeats until
+    no new promotions are needed (transitive closure: if ``foo()`` calls
+    ``bar()`` and ``bar`` was promoted, then ``foo`` needs promotion too).
+
+    Each round only transforms *newly* promoted names to prevent double-await.
+
+    Returns the set of promoted function names.
+    """
+promoted: set[str] = set()
+⋮----
+# Iterate until stable — each round may promote new functions whose
+# callers also need promotion.
+⋮----
+newly_promoted: set[str] = set()
+⋮----
+# Collect FunctionDef nodes that need promotion
+⋮----
+# Replace FunctionDef -> AsyncFunctionDef for newly promoted names
+⋮----
+# Wrap call sites of newly promoted functions with await
+⋮----
+class _FuncDefPromoter(ast.NodeTransformer)
+⋮----
+"""Replace FunctionDef with AsyncFunctionDef for named functions."""
+⋮----
+def __init__(self, names: set[str]) -> None
+⋮----
+def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST
+⋮----
+new_node = ast.AsyncFunctionDef(
+⋮----
+class _PromotedCallAwaiter(ast.NodeTransformer)
+⋮----
+"""Wrap calls to promoted functions with await (if not already awaited)."""
+⋮----
+def visit_Await(self, node: ast.Await) -> ast.AST
+⋮----
+# Already awaited -- leave untouched to prevent double-wrapping.
+⋮----
+def rewrite_for_async(code: str) -> ast.Module
+⋮----
+"""Rewrite code block for async execution.
+
+    1. Parse the code into AST
+    2. Transform llm_query -> await llm_query_async
+    3. Wrap in async def _repl_exec(): ... return locals()
+    4. Return the modified AST module (ready for compile())
+
+    Args:
+        code: Python source code from LM-generated ```repl``` block
+
+    Returns:
+        ast.Module ready for compile() and exec()
+
+    Raises:
+        SyntaxError: If code cannot be parsed
+    """
+# Parse original code
+⋮----
+# Transform LM calls to async awaits
+rewriter = LlmCallRewriter()
+tree = rewriter.visit(tree)
+⋮----
+# Promote any sync functions that now contain await to async def,
+# and wrap their call sites with await (transitively).
+⋮----
+# Take all statements from the module body
+body_stmts = tree.body
+⋮----
+# Add 'return locals()' at the end so the caller can extract
+# variables created during execution
+return_locals = ast.Return(
+⋮----
+# Create async def _repl_exec(): <body>
+async_func = ast.AsyncFunctionDef(
+⋮----
+# Create new module with just the async function definition
+new_module = ast.Module(body=[async_func], type_ignores=[])
+⋮----
+# Fix missing line numbers (required for compile())
+</file>
+
+<file path="repl/local_repl.py">
+"""Local REPL environment adapted for ADK.
+
+Provides sandboxed Python code execution with:
+- Safe builtins (blocks eval/exec/input)
+- Context loading (context_0, context_1, ...)
+- FINAL_VAR and SHOW_VARS helpers
+- stdout/stderr capture
+- Slots for async llm_query/llm_query_batched closures (injected by orchestrator)
+"""
+⋮----
+# Task-local stdout/stderr capture (CRIT-3.4)
+_capture_stdout: contextvars.ContextVar[io.StringIO | None] = contextvars.ContextVar(
+_capture_stderr: contextvars.ContextVar[io.StringIO | None] = contextvars.ContextVar(
+⋮----
+class _TaskLocalStream
+⋮----
+"""Proxy stream that routes writes to a task-local ContextVar buffer when set,
+    otherwise falls through to the original stream."""
+⋮----
+def __init__(self, original: io.TextIOBase, ctx_var: contextvars.ContextVar)
+⋮----
+@property
+    def encoding(self)
+⋮----
+def isatty(self)
+⋮----
+def write(self, s)
+⋮----
+buf = self._ctx_var.get(None)
+⋮----
+def flush(self)
+⋮----
+def fileno(self)
+⋮----
+# Module-level lock protecting process-global state (os.chdir, sys.stdout/stderr)
+# during synchronous execute_code. Ensures concurrent REPLs running in threads
+# do not race on CWD or output capture.
+_EXEC_LOCK = threading.Lock()
+⋮----
+# Safe builtins - blocks dangerous operations like eval/exec/input
+_SAFE_BUILTINS = {
+⋮----
+# Core types and functions
+⋮----
+# Exceptions
+⋮----
+# Blocked
+⋮----
+class LocalREPL
+⋮----
+"""Local REPL environment for ADK-based execution.
+
+    Unlike the original LocalREPL which used socket-based llm_query,
+    this version accepts callable closures for LM dispatch that are
+    injected by the orchestrator.
+    """
+⋮----
+def __init__(self, depth: int = 1, sync_timeout: float | None = None)
+⋮----
+# Setup globals and locals
+⋮----
+# Register helper functions
+⋮----
+def set_llm_query_fns(self, llm_query_fn: Callable, llm_query_batched_fn: Callable) -> None
+⋮----
+"""Set/update the sync LM query functions (called by orchestrator)."""
+⋮----
+"""Set async LM query functions for AST-rewritten code."""
+⋮----
+def _final_var(self, variable_name: str) -> str
+⋮----
+"""Return the value of a variable as a final answer."""
+variable_name = variable_name.strip().strip("\"'")
+⋮----
+available = [k for k in self.locals.keys() if not k.startswith("_")]
+error_hint = ""
+⋮----
+error_hint = f" Last execution error: {self._last_exec_error}"
+⋮----
+def _show_vars(self) -> str
+⋮----
+"""Show all available variables in the REPL environment."""
+available = {k: type(v).__name__ for k, v in self.locals.items() if not k.startswith("_")}
+⋮----
+@contextmanager
+    def _capture_output(self)
+⋮----
+"""Context manager to capture stdout/stderr."""
+⋮----
+@contextmanager
+    def _temp_cwd(self)
+⋮----
+"""Temporarily change to temp directory for execution."""
+old_cwd = os.getcwd()
+⋮----
+"""Inner exec logic, runs under _EXEC_LOCK.
+
+        Returns (stdout, stderr, success) where success=True means no exception.
+        Side-effects: updates self.locals on success, self._last_exec_error on failure.
+        """
+trace_level = int(os.environ.get("RLM_REPL_TRACE", "0"))
+⋮----
+combined = {**self.globals, **self.locals}
+⋮----
+instrumented = TRACE_HEADER_MEMORY + "\n" + code + "\n" + TRACE_FOOTER_MEMORY
+⋮----
+instrumented = TRACE_HEADER + "\n" + code + "\n" + TRACE_FOOTER
+⋮----
+instrumented = code
+⋮----
+# Update locals with new variables (underscore filter hides _rlm_*)
+⋮----
+stdout = stdout_buf.getvalue()
+stderr = stderr_buf.getvalue()
+⋮----
+stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
+⋮----
+def execute_code(self, code: str, trace: REPLTrace | None = None) -> REPLResult
+⋮----
+"""Execute code synchronously in the sandboxed namespace.
+
+        Uses _EXEC_LOCK to serialize access to process-global state
+        (os.chdir, sys.stdout/stderr) so that concurrent REPLs in
+        threads do not race.
+
+        Enforces self.sync_timeout seconds via ThreadPoolExecutor.
+        """
+start_time = time.perf_counter()
+⋮----
+timed_out = False
+⋮----
+pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+future = pool.submit(self._execute_code_inner, code, trace)
+⋮----
+timed_out = True
+stdout = ""
+stderr = (
+⋮----
+# Shut down without waiting for the timed-out thread to finish,
+# so it doesn't overwrite _last_exec_error.
+⋮----
+def _make_cwd_open(self)
+⋮----
+"""Return an open() wrapper that resolves relative paths against self.temp_dir.
+
+        This avoids the need for os.chdir() which modifies process-global state
+        and is unsafe when multiple async REPL instances run concurrently.
+        """
+temp_dir = self.temp_dir
+builtin_open = open
+⋮----
+def _cwd_open(file, *args, **kwargs)
+⋮----
+file = os.path.join(temp_dir, file)
+⋮----
+"""Execute AST-rewritten async code.
+
+        Does NOT call os.chdir() to avoid modifying process-global state.
+        Instead, injects a custom open() that resolves relative paths against
+        self.temp_dir, and sets _repl_cwd for code that needs the working dir.
+
+        Args:
+            code: The original code (before AST rewriting -- for reference/logging)
+            repl_exec_fn: The compiled async function from AST rewriter
+            trace: Optional REPLTrace accumulator for this code block
+        """
+⋮----
+tok_out = _capture_stdout.set(stdout_buf)
+tok_err = _capture_stderr.set(stderr_buf)
+# Also replace sys.stdout/stderr directly: the _TaskLocalStream proxy
+# installed at module load may have been displaced (e.g. by pytest
+# capture), so the ContextVar route alone is not reliable.
+⋮----
+# Inject cwd-aware open() and _repl_cwd into REPL namespace
+# instead of calling os.chdir() (FM-27: avoid process-global state).
+old_open = self.globals.get("__builtins__", {}).get("open")
+⋮----
+# Inject trace into the globals the compiled function sees
+⋮----
+# Run the async _repl_exec function
+new_locals = await repl_exec_fn()
+⋮----
+# Update locals with results
+⋮----
+# Restore original open() builtin
+⋮----
+# Clean up trace and _repl_cwd from globals
+⋮----
+def cleanup(self) -> None
+⋮----
+"""Clean up temp directory and reset state."""
+⋮----
+def __enter__(self)
+⋮----
+def __exit__(self, exc_type, exc_val, exc_tb)
+⋮----
+def __del__(self)
+</file>
+
+<file path="repl/trace.py">
+"""REPL execution tracing infrastructure.
+
+Provides invisible instrumentation for REPL code block execution:
+- REPLTrace: Per-code-block trace accumulator (timing, LLM calls, vars, memory)
+- DataFlowTracker: Detects when one llm_query response feeds into a subsequent prompt
+- Trace header/footer strings for optional code injection (trace_level >= 2)
+
+Trace levels (RLM_REPL_TRACE env var):
+- 0: Off (default) - no tracing overhead
+- 1: LLM call timing + variable snapshots + data flow tracking
+- 2: + tracemalloc memory tracking via injected header/footer
+"""
+⋮----
+@dataclass
+class REPLTrace
+⋮----
+"""Invisible trace accumulator for a single REPL code block execution."""
+⋮----
+start_time: float = 0.0
+end_time: float = 0.0
+llm_calls: list[dict[str, Any]] = field(default_factory=list)
+var_snapshots: list[dict[str, Any]] = field(default_factory=list)
+peak_memory_bytes: int = 0
+exceptions: list[dict[str, Any]] = field(default_factory=list)
+data_flow_edges: list[tuple[int, int]] = field(default_factory=list)
+execution_mode: str = "sync"  # "sync" | "async"
+_call_counter: int = field(default=0, repr=False)
+⋮----
+def record_llm_start(self, call_index: int, prompt: str, call_type: str = "single") -> None
+⋮----
+"""Record the start of an LLM call."""
+⋮----
+"""Record the end of an LLM call, updating the existing entry."""
+⋮----
+# If no matching start entry, create a new one
+⋮----
+def snapshot_vars(self, namespace: dict[str, Any], label: str = "") -> None
+⋮----
+"""Capture a snapshot of user-visible variables."""
+snapshot: dict[str, Any] = {"label": label, "time": time.perf_counter()}
+var_summary: dict[str, str] = {}
+⋮----
+type_name = type(v).__name__
+⋮----
+def to_dict(self) -> dict[str, Any]
+⋮----
+"""Serialize to a JSON-compatible dict."""
+⋮----
+def summary(self) -> dict[str, Any]
+⋮----
+"""Compact summary for LAST_REPL_RESULT enrichment."""
+⋮----
+class DataFlowTracker
+⋮----
+"""Detects when one llm_query() response feeds into a subsequent prompt.
+
+    Uses substring fingerprinting: if a significant substring of a previous
+    response appears in a later prompt, we record a data flow edge.
+    """
+⋮----
+def __init__(self, min_fingerprint_len: int = 40)
+⋮----
+self._responses: dict[int, str] = {}  # call_index -> response text
+⋮----
+def register_response(self, call_index: int, response: str) -> None
+⋮----
+"""Register a completed LLM response for future fingerprint matching."""
+⋮----
+def check_prompt(self, call_index: int, prompt: str) -> None
+⋮----
+"""Check if this prompt contains substrings from previous responses."""
+⋮----
+# Check if a significant substring of the response appears in the prompt
+fingerprint = prev_response[:self._min_len]
+⋮----
+edge = (prev_index, call_index)
+⋮----
+def get_edges(self) -> list[tuple[int, int]]
+⋮----
+"""Return detected data flow edges as (source_index, target_index) tuples."""
+⋮----
+# ---------------------------------------------------------------------------
+# Trace header/footer strings for code injection (trace_level >= 2)
+⋮----
+TRACE_HEADER = '''\
+⋮----
+TRACE_HEADER_MEMORY = '''\
+⋮----
+TRACE_FOOTER = '''\
+⋮----
+TRACE_FOOTER_MEMORY = '''\
+</file>
+
+<file path="skills/__init__.py">
+"""Repomix REPL helper skills for the RLM reasoning agent."""
+⋮----
+__all__ = ["probe_repo", "pack_repo", "shard_repo", "REPOMIX_SKILL"]
+</file>
+
+<file path="skills/README.md">
+# Skills
+
+Skills are domain-specific helper functions pre-loaded into the REPL
+so the reasoning agent can call them with zero imports. Each skill has
+two integration surfaces:
+
+1. **Runtime globals** -- the actual Python functions injected into
+   `repl.globals` by the orchestrator (`orchestrator.py:129-134`).
+2. **Prompt instructions** -- an ADK `Skill` object whose `.instructions`
+   markdown is appended to the reasoning agent's `static_instruction`
+   via `build_skill_instruction_block()` (`agent.py`).
+
+The model sees the instructions in its system prompt and the functions
+are available when ```` ```repl ```` blocks execute.
+
+## Directory layout
+
+```
+rlm_adk/skills/
+  __init__.py              # Re-exports helpers + REPOMIX_SKILL
+  repomix_helpers.py       # probe_repo, pack_repo, shard_repo implementations
+  repomix_skill.py         # Skill definition + build_skill_instruction_block()
+  README.md                # This file
+```
+
+## How a skill reaches the REPL
+
+```
+agent.py
+  create_reasoning_agent()
+    build_skill_instruction_block()
+      format_skills_as_xml([REPOMIX_SKILL.frontmatter])   # XML discovery tag
+      + REPOMIX_SKILL.instructions                         # full markdown docs
+    -> appended to static_instruction for LlmAgent
+
+orchestrator.py
+  _run_async_impl()
+    repl = LocalREPL(depth=1)
+    llm_query_async, llm_query_batched_async = create_dispatch_closures(...)
+    repl.set_async_llm_query_fns(...)              # dispatch closures first
+    repl.globals["probe_repo"]  = probe_repo       # then skill helpers
+    repl.globals["pack_repo"]   = pack_repo
+    repl.globals["shard_repo"]  = shard_repo
+```
+
+When the model emits a ```` ```repl ```` block the orchestrator checks
+whether it contains `llm_query` / `llm_query_batched` calls. If so the
+AST rewriter (`repl/ast_rewriter.py`):
+
+1. Transforms `llm_query(...)` to `await llm_query_async(...)`.
+2. Promotes any user-defined `def` that now contains `await` into
+   `async def` and wraps its call sites with `await` (transitive).
+3. Wraps the entire body in `async def _repl_exec(): ... return locals()`.
+
+The rewritten code runs via `execute_code_async`. Blocks without LM
+calls take the sync path through `execute_code`.
+
+REPL locals persist across iterations within a single invocation, so a
+variable assigned in iteration 1 is available in iteration 2.
+
+## Writing skill instructions
+
+`REPOMIX_SKILL.instructions` is a markdown string containing usage docs
+and code examples. The examples serve two purposes:
+
+- They teach the model how to use the helpers.
+- They are parsed and validated by the test suite.
+
+### Requirements for ```` ```repl ```` examples
+
+1. **Fence with ```` ```repl ````**, not ```` ```python ````.
+   The extraction regex is:
+   ```
+   re.findall(r"```repl\n(.*?)```", text, re.DOTALL)
+   ```
+   Blocks fenced any other way will not be found.
+
+2. **Each block must be valid Python** (`ast.parse` must succeed).
+   The coverage test `test_fixture_repl_blocks_are_valid_python` parses
+   every extracted block. Syntax errors fail the build.
+
+3. **Call helpers by their bare name** (`probe_repo(...)`, not
+   `repomix_helpers.probe_repo(...)`). The test
+   `test_skill_instructions_cover_all_helpers` does AST-based function
+   call extraction and checks that all registered helpers appear:
+
+   ```python
+   for node in ast.walk(tree):
+       if isinstance(node, ast.Call):
+           if isinstance(node.func, ast.Name):
+               names.add(node.func.id)
+           elif isinstance(node.func, ast.Attribute):
+               names.add(node.func.attr)
+   ```
+
+   Both bare calls (`probe_repo()`) and dotted calls (`obj.method()`)
+   are extracted. The canonical check is against the bare name.
+
+4. **Every helper must appear in at least one example.** Currently the
+   three required names are `probe_repo`, `pack_repo`, `shard_repo`.
+
+5. **There must be at least 3 ```` ```repl ```` blocks** in the
+   instructions (one per helper at minimum).
+
+### Summary of enforced constraints
+
+| Check | Test |
+|-------|------|
+| >= 3 repl blocks in instructions | `test_skill_instructions_have_repl_examples` |
+| All helpers called in instruction examples | `test_skill_instructions_cover_all_helpers` |
+| All helpers called in fixture REPL code | `test_fixture_covers_all_helpers` |
+| All fixture REPL blocks parse as Python | `test_fixture_repl_blocks_are_valid_python` |
+
+## Writing a provider-fake fixture for a skill
+
+Fixtures live in `tests_rlm_adk/fixtures/provider_fake/` and are JSON
+files consumed by `ScenarioRouter`. A skill fixture scripts the exact
+model responses across iterations.
+
+### Structure
+
+```json
+{
+  "scenario_id": "skill_helper",
+  "config": { "model": "gemini-fake", "thinking_budget": 0, "max_iterations": 5, "retry_delay": 0.0 },
+  "responses": [
+    { "call_index": 0, "caller": "reasoning", "body": { ... } },
+    { "call_index": 1, "caller": "reasoning", "body": { ... } },
+    { "call_index": 2, "caller": "worker",    "body": { ... } },
+    ...
+  ],
+  "expected": {
+    "final_answer": "...",
+    "total_iterations": 3,
+    "total_model_calls": 5
+  }
+}
+```
+
+### REPL code in fixture JSON
+
+Reasoning responses contain ```` ```repl ```` blocks inside the `text`
+field. JSON escaping rules:
+
+| In Python code | JSON string |
+|----------------|-------------|
+| newline between statements | `\n` (literal escape) |
+| `\n` inside a Python string like `"x = 1\n"` | `\\n` |
+| double quote `"` | `\"` |
+
+### Call ordering
+
+Responses are consumed sequentially. Workers dispatched by
+`llm_query_batched` in iteration N consume the next `call_index` slots
+after that iteration's reasoning response. Example for the
+`skill_helper` fixture:
+
+| call_index | caller | What happens |
+|-----------|--------|--------------|
+| 0 | reasoning | Iter 1: `probe_repo` + `pack_repo` (no workers) |
+| 1 | reasoning | Iter 2: `shard_repo` + `llm_query_batched(2 prompts)` |
+| 2 | worker | Worker response for prompt 1 |
+| 3 | worker | Worker response for prompt 2 |
+| 4 | reasoning | Iter 3: emits `FINAL(...)` |
+
+### Per-iteration REPL introspection
+
+The orchestrator emits a `LAST_REPL_RESULT` state delta per iteration
+(`orchestrator.py:391-399`):
+
+```python
+{
+    "code_blocks": int,        # count of blocks executed
+    "has_output": bool,        # any stdout produced
+    "has_errors": bool,        # any stderr/exceptions
+    "total_llm_calls": int,    # worker dispatch count
+}
+```
+
+Tests extract these snapshots from the event stream and assert per-
+iteration correctness. If a skill helper raises or an assert fails
+inside the REPL, `has_errors` becomes `True` and the test fails on
+the actual execution result.
+
+### Registering a fixture for TEST 8
+
+Add the fixture name (stem, no `.json`) to `_LLM_QUERY_FIXTURE_NAMES`
+in `test_provider_fake_e2e.py` to get automatic validation of:
+
+1. Total model calls match
+2. Worker events present in stream
+3. At least one iteration had code blocks
+4. At least one iteration recorded `llm_query` dispatches
+5. At least one iteration produced clean output (stdout without errors),
+   or alternatively confirmed worker calls as proof of pipeline health
+6. Final answer matches expected (only checked if `expected.final_answer`
+   is present in the fixture)
+
+## Adding a new skill
+
+1. **Create the helper module** in `rlm_adk/skills/` (e.g.
+   `my_skill_helpers.py`) with the functions to inject.
+
+2. **Create the skill definition** (e.g. `my_skill.py`) using
+   `google.adk.skills.models.Skill` and `Frontmatter`. Write a
+   `build_*_instruction_block()` function that returns the XML
+   discovery block + instructions string.
+
+3. **Inject helpers into REPL globals** in `orchestrator.py` alongside
+   the existing repomix helpers.
+
+4. **Append instructions to the system prompt** by calling your build
+   function in `agent.py:create_reasoning_agent()`.
+
+5. **Export from `__init__.py`** so tests can import cleanly.
+
+6. **Write coverage tests** following the pattern in
+   `test_skill_helper_e2e.py::TestSkillInstructionCoverage`:
+   - Instructions have `>= N` repl blocks
+   - All helpers appear in examples
+   - All blocks parse as valid Python
+
+7. **Write a provider-fake fixture** and an e2e test that validates
+   per-iteration REPL snapshots.
+
+8. **Register** the fixture in `_LLM_QUERY_FIXTURE_NAMES`.
+</file>
+
+<file path="skills/repomix_helpers.py">
+"""Pre-built REPL helper functions for repomix-python.
+
+These functions are injected into the REPL globals so the reasoning agent
+can call them directly with zero imports.  They encapsulate the 6+ deep-
+subpackage imports, the ``split_output`` dead-code workaround, and the
+``repo_url=`` keyword pitfall.
+"""
+⋮----
+@dataclass
+class ProbeResult
+⋮----
+"""Lightweight stats returned by :func:`probe_repo`."""
+⋮----
+total_files: int
+total_chars: int
+total_tokens: int
+file_tree: dict
+file_char_counts: dict[str, int]
+file_token_counts: dict[str, int]
+⋮----
+def __str__(self) -> str
+⋮----
+@dataclass
+class ShardResult
+⋮----
+"""Result of :func:`shard_repo` containing split chunks."""
+⋮----
+chunks: list[str]
+⋮----
+def _make_config(calculate_tokens: bool) -> RepomixConfig
+⋮----
+"""Build a standard RepomixConfig for XML output."""
+config = RepomixConfig()
+⋮----
+def _is_remote(source: str) -> bool
+⋮----
+"""Return True if *source* looks like a remote URL."""
+⋮----
+def probe_repo(source: str, calculate_tokens: bool = True) -> ProbeResult
+⋮----
+"""Quick stats: file count, token count, file tree.  No full content returned.
+
+    Args:
+        source: Local directory path or remote git URL.
+        calculate_tokens: Whether to count tokens (slower but useful for
+            deciding between single-shot and sharded analysis).
+
+    Returns:
+        A :class:`ProbeResult` with file counts, token counts, and tree.
+    """
+config = _make_config(calculate_tokens)
+⋮----
+processor = RepoProcessor(repo_url=source, config=config)
+⋮----
+processor = RepoProcessor(source, config=config)
+result = processor.process()
+⋮----
+def pack_repo(source: str, calculate_tokens: bool = True) -> str
+⋮----
+"""Pack entire repo into an XML string.  For small repos (<125K tokens).
+
+    Args:
+        source: Local directory path or remote git URL.
+        calculate_tokens: Whether to count tokens.
+
+    Returns:
+        The full packed XML content as a string.
+    """
+⋮----
+"""Pack + split into chunks at directory boundaries.
+
+    For large repos, use the returned ``chunks`` list with
+    ``llm_query_batched()`` for concurrent analysis.
+
+    Args:
+        source: Local directory path or remote git URL.
+        max_bytes_per_shard: Maximum bytes per output chunk (default 500KB).
+        calculate_tokens: Whether to count tokens.
+
+    Returns:
+        A :class:`ShardResult` with the list of XML chunk strings.
+    """
+⋮----
+# Determine local path — clone if remote
+tmp_dir: Path | None = None
+⋮----
+tmp_dir = create_temp_directory()
+⋮----
+local_path = str(tmp_dir)
+⋮----
+local_path = source
+⋮----
+# Run the file pipeline
+search_result = search_files(local_path, config)
+raw_files = collect_files(search_result.file_paths, local_path)
+processed_files = process_files(raw_files, config)
+⋮----
+file_char_counts = {pf.path: len(pf.content) for pf in processed_files}
+file_token_counts = {pf.path: 0 for pf in processed_files}
+all_file_paths = [pf.path for pf in processed_files]
+⋮----
+parts = generate_split_output_parts(
+⋮----
+chunks = [part.content for part in parts]
+total_chars = sum(len(c) for c in chunks)
+total_files = len(processed_files)
+total_tokens = sum(file_token_counts.values())
+</file>
+
+<file path="skills/repomix_skill.py">
+"""ADK Skill definition for the repomix REPL helpers.
+
+Defines ``REPOMIX_SKILL`` using ``google.adk.skills.models.Skill`` and
+provides ``build_skill_instruction_block()`` which returns the XML discovery
+block + full usage instructions to append to the reasoning agent's
+``static_instruction``.
+"""
+⋮----
+REPOMIX_SKILL = Skill(
+⋮----
+def build_skill_instruction_block() -> str
+⋮----
+"""Return the skill discovery XML + full instructions for prompt injection.
+
+    Appended to ``static_instruction`` in :func:`create_reasoning_agent`.
+    """
+discovery_xml = format_skills_as_xml([REPOMIX_SKILL.frontmatter])
+</file>
+
+<file path="tools/__init__.py">
+
+</file>
+
+<file path="tools/repl_tool.py">
+"""REPLTool -- ADK BaseTool wrapping LocalREPL for function-calling execution.
+
+Replaces regex-parsed ```repl code blocks with a proper ADK tool that the
+model calls via function calling. The tool:
+
+- Executes Python code in a persistent LocalREPL environment
+- Detects llm_query calls and routes through the AST rewriter for async execution
+- Enforces a configurable call limit
+- Records execution traces when a trace_holder list is provided
+- Flushes dispatch accumulators into ToolContext.state when a flush_fn is provided
+"""
+⋮----
+_CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
+⋮----
+class REPLTool(BaseTool)
+⋮----
+"""ADK tool that executes Python code in a persistent REPL environment.
+
+    Variables persist between calls. Returns stdout, stderr, and current
+    variable values. Supports both sync code and async code containing
+    llm_query/llm_query_batched calls (auto-detected via AST analysis).
+    """
+⋮----
+def _get_declaration(self) -> FunctionDeclaration
+⋮----
+code = args["code"]
+⋮----
+# Track iteration count in session state for observability
+⋮----
+llm_calls_made = False
+⋮----
+# Create a REPLTrace when trace_holder is provided so dispatch
+# closures and LocalREPL can record timing/LLM-call data.
+trace: REPLTrace | None = None
+⋮----
+trace = REPLTrace()
+# Orchestrator passes [None]; set [0] so dispatch closures see
+# the live trace.  Empty lists (e.g. from tests) get an append.
+⋮----
+llm_calls_made = True
+tree = rewrite_for_async(code)
+compiled = compile(tree, "<repl>", "exec")
+# Merge globals and locals so _repl_exec sees variables from
+# previous executions (imports, user-defined vars, etc.)
+ns = {**self.repl.globals, **self.repl.locals}
+⋮----
+repl_exec_fn = ns["_repl_exec"]
+result = await self.repl.execute_code_async(code, repl_exec_fn, trace=trace)
+⋮----
+result = self.repl.execute_code(code, trace=trace)
+⋮----
+# FM-13 fix: flush accumulators before returning so dispatch
+# counts from this iteration are not lost (accumulator drift).
+total_llm_calls = 0
+⋮----
+acc = self._flush_fn()
+⋮----
+total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
+# Write LAST_REPL_RESULT even on cancellation for observability
+⋮----
+# FM-14 fix: flush accumulators before returning so dispatch
+⋮----
+# Write LAST_REPL_RESULT even on exception for observability
+⋮----
+# Flush dispatch accumulators into tool_context.state
+⋮----
+# Write LAST_REPL_RESULT summary for observability plugins
+last_repl: dict[str, Any] = {
+⋮----
+# Extract JSON-serializable variables from REPL locals.
+# We attempt json.dumps to catch nested non-serializable objects
+# (e.g., a dict containing module references) that would cause ADK's
+# deepcopy to fail with TypeError.
+variables: dict[str, Any] = {}
+⋮----
+pass  # Skip non-serializable values (incl. circular refs)
+</file>
+
+<file path="utils/__init__.py">
+"""RLM ADK Utilities - Parsing, prompts, and helper functions."""
+</file>
+
+<file path="utils/parsing.py">
+"""Parsing utilities for RLM trajectories."""
+⋮----
+def find_final_answer(text: str, environment: Any = None) -> str | None
+⋮----
+"""
+    Find FINAL(...) or FINAL_VAR(...) statement in response and return the final answer string.
+
+    If FINAL_VAR is found and an environment is provided, executes code to retrieve the variable value.
+    Returns None if neither pattern is found.
+
+    Args:
+        text: The response text to parse
+        environment: Optional environment to execute code for FINAL_VAR retrieval
+
+    Returns:
+        The final answer string, or None if no final answer pattern is found
+    """
+# Check for FINAL_VAR pattern first - must be at start of line
+final_var_pattern = r"^\s*FINAL_VAR\((.*?)\)"
+match = re.search(final_var_pattern, text, re.MULTILINE | re.DOTALL)
+⋮----
+variable_name = match.group(1).strip().strip('"').strip("'")
+⋮----
+result = environment.execute_code(f"print(FINAL_VAR({variable_name!r}))")
+final_answer = result.stdout.strip()
+⋮----
+final_answer = result.stderr.strip() or ""
+⋮----
+# Check for FINAL pattern - must be at start of line
+# Use greedy matching to capture content with nested parentheses
+final_pattern = r"^\s*FINAL\((.*)\)\s*$"
+match = re.search(final_pattern, text, re.MULTILINE | re.DOTALL)
+</file>
+
+<file path="utils/prompts.py">
+# ---------------------------------------------------------------------------
+# STATIC INSTRUCTION (for LlmAgent static_instruction= parameter)
+⋮----
+# The complete RLM system prompt (repomix docs moved to skills/repomix_skill.py).
+# Passed as LlmAgent static_instruction= which ADK places into
+# system_instruction WITHOUT template processing, so raw curly braces
+# in Python f-string code examples are safe and correct.
+#
+# Usage:
+#   static_instruction = RLM_STATIC_INSTRUCTION  (raw, not template-processed)
+#   instruction        = RLM_DYNAMIC_INSTRUCTION  (template with {var?})
+⋮----
+RLM_STATIC_INSTRUCTION = textwrap.dedent("""\
+⋮----
+# DYNAMIC INSTRUCTION (uses ADK state variable injection)
+⋮----
+# This string is set as the LlmAgent instruction= parameter.
+# ADK replaces {var} with session state values at runtime.
+# The ? suffix makes vars optional (no error if missing).
+⋮----
+RLM_DYNAMIC_INSTRUCTION = textwrap.dedent("""\
+</file>
+
+<file path="__init__.py">
+"""RLM ADK - Recursive Language Models on Google Agent Development Kit."""
+⋮----
+__all__ = [
+</file>
+
+<file path="agent.py">
+"""RLM ADK Application - Wires all components into a runnable ADK App.
+
+This module provides:
+- create_rlm_runner(): Factory to create the configured Runner (App + plugins + services)
+- create_rlm_app(): Factory to create the configured App with plugins
+- create_rlm_orchestrator(): Factory to create the configured orchestrator
+- create_reasoning_agent(): Factory to create the reasoning LlmAgent
+
+Architecture (per ADK runtime event-loop):
+
+    Agent -> App (plugins) -> Runner (services + event loop)
+
+The ``Runner`` is the central orchestrator.  It drives the event loop,
+receives Events yielded by agent logic, commits state/artifact changes
+via Services, and forwards processed events upstream.
+
+The ADK CLI (``adk run``, ``adk web``) discovers the module-level ``app``
+symbol and creates its own ``Runner`` internally.  Programmatic callers
+should use ``create_rlm_runner()`` which returns a ``Runner``
+with plugins, session service, and artifact service already wired.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# Load repo-root .env so model and API key env vars are available.
+⋮----
+def _project_root() -> Path
+⋮----
+"""Resolve the project root directory (contains pyproject.toml).
+
+    Uses __file__ to anchor resolution, matching the .env pattern at line 54.
+    """
+⋮----
+_DEFAULT_RETRY_OPTIONS = HttpRetryOptions(
+⋮----
+_DEFAULT_DB_PATH = str(_project_root() / ".adk" / "session.db")
+_DEFAULT_ARTIFACT_ROOT = str(_project_root() / ".adk" / "artifacts")
+⋮----
+_SQLITE_STARTUP_PRAGMAS = """
+⋮----
+"""Create the default SqliteSessionService with performance pragmas.
+
+    Ensures the parent directory exists, applies WAL mode and performance
+    pragmas via a one-time synchronous connection, then returns the ADK
+    SqliteSessionService instance.
+
+    Args:
+        db_path: Path to the SQLite database file.  Defaults to
+            ``RLM_SESSION_DB`` env var, falling back to ``.adk/session.db``.
+
+    Returns:
+        A configured SqliteSessionService instance.
+    """
+⋮----
+resolved_path = db_path or os.getenv("RLM_SESSION_DB", _DEFAULT_DB_PATH)
+⋮----
+# Ensure parent directory exists
+db_dir = Path(resolved_path).parent
+⋮----
+# Apply persistent pragmas via synchronous sqlite3 connection.
+# WAL mode persists on disk once set; other pragmas are per-connection
+# but WAL is the critical one for concurrent reads.
+conn = sqlite3.connect(resolved_path)
+⋮----
+"""Build a GenerateContentConfig with HTTP retry options.
+
+    Args:
+        retry_config: Optional dict with keys matching ``HttpRetryOptions``
+            fields (``attempts``, ``initial_delay``, ``max_delay``,
+            ``exp_base``, ``jitter``, ``http_status_codes``).  When ``None``,
+            sensible defaults (3 attempts, exponential backoff) are used.
+            Pass an empty dict ``{}`` to use the SDK's built-in defaults.
+    """
+⋮----
+retry_opts = HttpRetryOptions(**retry_config) if retry_config else None
+⋮----
+retry_opts = _DEFAULT_RETRY_OPTIONS
+⋮----
+"""Create the ReasoningAgent (main LLM for depth=0 reasoning).
+
+    Args:
+        model: The LLM model identifier.
+        static_instruction: Stable system prompt content (code examples, REPL
+            guidance, repomix docs).  Passed as LlmAgent ``static_instruction=``
+            which ADK places into ``system_instruction`` *without* template
+            processing, so raw curly braces in code examples are safe.
+        dynamic_instruction: Template string with ``{var?}`` state-variable
+            placeholders (repo_url, root_prompt, etc.).
+            Passed as LlmAgent ``instruction=``; when ``static_instruction``
+            is also set, ADK resolves the template and appends the result to
+            ``contents`` as user content.  The before_model callback then
+            relocates it into ``system_instruction`` to maintain proper Gemini
+            role alternation in contents.
+        thinking_budget: Token budget for the model's built-in thinking/planning.
+            Passed to ``BuiltInPlanner`` via ``ThinkingConfig``.  Set to ``0``
+            to disable the planner.
+        retry_config: Optional dict of retry options passed to the Gemini model's
+            ``HttpRetryOptions``.  Keys: ``attempts``, ``initial_delay``,
+            ``max_delay``, ``exp_base``, ``jitter``, ``http_status_codes``.
+            When ``None`` (default), uses sensible defaults (3 attempts,
+            exponential backoff).  Pass an empty dict ``{}`` to use the SDK's
+            built-in defaults only.
+        tools: Optional list of tools (BaseTool, callables, or BaseToolset)
+            to attach to the agent.  When provided, the agent operates in
+            tool-calling mode (ADK manages tool call/response history).
+        output_schema: Optional Pydantic BaseModel subclass for structured
+            output.  When set, ADK injects a ``set_model_response`` tool
+            and validates the model's response against this schema.
+    """
+planner = None
+⋮----
+planner = BuiltInPlanner(
+⋮----
+# Append repomix skill instructions to static instruction
+⋮----
+static_instruction = static_instruction + "\n" + build_skill_instruction_block()
+⋮----
+gcc = _build_generate_content_config(retry_config)
+⋮----
+# ADK manages tool call/response history. Tools are wired at
+# runtime by the orchestrator.
+⋮----
+"""Create the RLMOrchestratorAgent with the reasoning sub-agent."""
+reasoning = create_reasoning_agent(
+⋮----
+# Default WorkerPool if none provided
+⋮----
+worker_pool = WorkerPool(default_model=model)
+⋮----
+kwargs: dict[str, Any] = {
+⋮----
+"""Build the default plugin list.
+
+    ObservabilityPlugin is always included (observe-only, zero overhead on the
+    happy path).  DebugLoggingPlugin is included by default.  Set *debug* to
+    ``False`` **and** leave ``RLM_ADK_DEBUG`` unset to disable it.
+
+    LangfuseTracingPlugin is opt-in (default ``False``).  Enable via
+    ``langfuse=True`` or ``RLM_ADK_LANGFUSE=1`` env var.
+
+    SqliteTracingPlugin is opt-in by default (``sqlite_tracing=True``).
+    Disable via ``sqlite_tracing=False``.  If the plugin module is not yet
+    available (Track B), it is silently skipped.
+    """
+plugins: list[BasePlugin] = [ObservabilityPlugin()]
+_debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
+⋮----
+_sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")
+⋮----
+_langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
+⋮----
+_repl_trace_env = int(os.getenv("RLM_REPL_TRACE", "0"))
+⋮----
+_snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
+⋮----
+_adk_dir = str(_project_root() / ".adk")
+⋮----
+"""Create the full RLM ADK App with plugins wired in.
+
+    This is the recommended entry point for programmatic usage.  The returned
+    ``App`` carries the ``ObservabilityPlugin`` (always) and the
+    ``DebugLoggingPlugin`` (enabled by default).  Pass *plugins* to override
+    the default plugin list entirely.
+
+    Args:
+        model: The LLM model identifier.
+        root_prompt: Initial user prompt for the RLM loop.
+        persistent: Whether to persist REPL state across invocations.
+        worker_pool: Optional WorkerPool for sub-agent dispatch.
+        repl: Optional pre-configured REPL environment.
+        static_instruction: Stable system prompt content.
+        dynamic_instruction: Template string with state-variable placeholders.
+        repo_url: Optional repository URL for context.
+        plugins: Explicit plugin list.  When ``None`` (default), uses
+            :func:`_default_plugins`.
+        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
+            via ``RLM_ADK_DEBUG`` env-var).
+        thinking_budget: Token budget for the reasoning agent's built-in
+            planner.  Set to ``0`` to disable.
+        langfuse: Enable LangfuseTracingPlugin (default ``False``; also
+            enabled via ``RLM_ADK_LANGFUSE=1`` env-var).
+        sqlite_tracing: Enable SqliteTracingPlugin (default ``True``; also
+            enabled via ``RLM_ADK_SQLITE_TRACING=1`` env-var).
+    """
+orchestrator = create_rlm_orchestrator(
+resolved_plugins = plugins if plugins is not None else _default_plugins(
+⋮----
+"""Create the full RLM ADK Runner: App + plugins + services.
+
+    This is the recommended entry point for programmatic usage.  The returned
+    ``Runner`` has:
+
+    - The ``App`` with ``ObservabilityPlugin`` (always) and
+      ``DebugLoggingPlugin`` (enabled by default).
+    - A ``SqliteSessionService`` for persistent state (default), or the
+      caller-provided session service.
+    - A ``FileArtifactService`` for persistent artifact storage (default),
+      or the caller-provided artifact service.
+
+    The ``Runner`` drives the ADK event loop: it calls
+    ``agent.run_async(ctx)``, receives yielded ``Event`` objects, commits
+    ``state_delta`` / ``artifact_delta`` via services, and forwards
+    processed events upstream.
+
+    Usage::
+
+        runner = create_rlm_runner(model="gemini-2.5-flash")
+        session = await runner.session_service.create_session(
+            app_name="rlm_adk", user_id="user",
+        )
+        async for event in runner.run_async(
+            user_id="user", session_id=session.id, new_message=content,
+        ):
+            print(event)
+
+    Args:
+        model: The LLM model identifier.
+        root_prompt: Initial user prompt for the RLM loop.
+        persistent: Whether to persist REPL state across invocations.
+        worker_pool: Optional WorkerPool for sub-agent dispatch.
+        repl: Optional pre-configured REPL environment.
+        static_instruction: Stable system prompt content.
+        dynamic_instruction: Template string with state-variable placeholders.
+        repo_url: Optional repository URL for context.
+        plugins: Explicit plugin list.  When ``None`` (default), uses
+            :func:`_default_plugins`.
+        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
+            via ``RLM_ADK_DEBUG`` env-var).
+        thinking_budget: Token budget for the reasoning agent's built-in
+            planner.  Set to ``0`` to disable.
+        artifact_service: Optional artifact service to use.  When ``None``
+            (default), creates a ``FileArtifactService`` rooted at
+            ``.adk/artifacts/`` for persistent storage with rewind support.
+            Pass ``InMemoryArtifactService()`` for volatile in-memory storage,
+            or any other ``BaseArtifactService`` implementation.
+        session_service: Optional session service to use.  When ``None``
+            (default), creates a ``SqliteSessionService`` backed by
+            ``.adk/session.db`` with WAL mode enabled.  Pass any
+            ``BaseSessionService`` implementation to override.
+    """
+rlm_app = create_rlm_app(
+⋮----
+# Resolve session service: explicit > default factory
+resolved_session_service = session_service or _default_session_service()
+⋮----
+# Resolve artifact service: explicit > default FileArtifactService
+⋮----
+artifact_service = FileArtifactService(root_dir=_DEFAULT_ARTIFACT_ROOT)
+⋮----
+runner = Runner(
+⋮----
+def _root_agent_model() -> str
+⋮----
+"""Resolve model used by ADK CLI-discoverable root_agent."""
+return os.getenv("RLM_ADK_MODEL", "gemini-3.1-pro-preview") #AGENT: DO NOT CHANGE WITHOUT ASKING USER
+⋮----
+# ADK CLI entrypoint (`adk run rlm_adk`, `adk web`) discovers the ``app``
+# symbol first (preferred) with plugins wired in.  The CLI creates its own
+# ``Runner`` wrapping the ``App``.  ``root_agent`` is kept for backward
+# compatibility with callers that import it directly.
+app = create_rlm_app(model=_root_agent_model())
+root_agent = app.root_agent
+</file>
+
+<file path="artifacts.py">
+"""Artifact helper functions for the RLM ADK application.
+
+Provides convenience wrappers around ADK's BaseArtifactService for common
+artifact operations within the RLM orchestrator loop and callbacks.
+
+Design principles:
+- All functions accept InvocationContext (or CallbackContext via extraction)
+- All functions return None/[]/False gracefully when no artifact service is configured
+- All async functions wrap operations in try/except with warning-level logging (NFR-004)
+- should_offload_to_artifact and get_invocation_context are synchronous
+- Naming conventions: repl_output_iter_{N}.txt, worker_{name}_iter_{N}.txt, final_answer.md
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+"""Extract InvocationContext from either InvocationContext or CallbackContext.
+
+    Args:
+        ctx: An InvocationContext or CallbackContext instance.
+
+    Returns:
+        The underlying InvocationContext.
+    """
+⋮----
+def should_offload_to_artifact(data: Union[str, bytes], threshold: int = 10240) -> bool
+⋮----
+"""Determine if data should be stored as artifact vs. inline in state.
+
+    Args:
+        data: The data to check (string or bytes).
+        threshold: Byte threshold (default 10KB). Data larger than this
+            should be offloaded to an artifact.
+
+    Returns:
+        True if len(data) > threshold.
+    """
+⋮----
+"""Save REPL output as a versioned artifact.
+
+    The artifact is named ``repl_output_iter_{iteration}.txt``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        iteration: The current orchestrator iteration number.
+        stdout: Standard output text from the REPL execution.
+        stderr: Standard error text (optional).
+        mime_type: MIME type for the artifact (default text/plain).
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+inv_ctx = get_invocation_context(ctx)
+⋮----
+filename = f"repl_output_iter_{iteration}.txt"
+content = stdout
+⋮----
+content = f"{stdout}\n--- STDERR ---\n{stderr}"
+⋮----
+artifact = types.Part.from_bytes(data=content.encode("utf-8"), mime_type=mime_type)
+version = await inv_ctx.artifact_service.save_artifact(
+⋮----
+"""Save REPL code block as a versioned artifact.
+
+    The artifact is named ``repl_code_iter_{iteration}_turn_{turn}.py``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        iteration: The current orchestrator iteration number.
+        turn: The code block index within this iteration (0-based).
+        code: The Python source code to save.
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+filename = f"repl_code_iter_{iteration}_turn_{turn}.py"
+⋮----
+artifact = types.Part(text=code)
+⋮----
+"""Save detailed REPL trace as a JSON artifact.
+
+    The artifact is named ``repl_trace_iter_{iteration}_turn_{turn}.json``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        iteration: The current orchestrator iteration number.
+        turn: The code block index within this iteration (0-based).
+        trace_dict: The serialized REPLTrace dict.
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+filename = f"repl_trace_iter_{iteration}_turn_{turn}.json"
+data = json.dumps(trace_dict, indent=2)
+⋮----
+artifact = types.Part.from_bytes(
+⋮----
+"""Save worker result as a versioned artifact.
+
+    The artifact is named ``worker_{worker_name}_iter_{iteration}.txt``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        worker_name: Name of the worker agent.
+        iteration: The current orchestrator iteration number.
+        result_text: The worker's text response.
+        mime_type: MIME type for the artifact (default text/plain).
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+filename = f"worker_{worker_name}_iter_{iteration}.txt"
+⋮----
+artifact = types.Part.from_bytes(data=result_text.encode("utf-8"), mime_type=mime_type)
+⋮----
+"""Save the final answer as an artifact.
+
+    The artifact is named ``final_answer.md``.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        answer: The final answer text.
+        mime_type: MIME type for the artifact (default text/markdown).
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+filename = "final_answer.md"
+⋮----
+artifact = types.Part.from_bytes(data=answer.encode("utf-8"), mime_type=mime_type)
+⋮----
+"""Save arbitrary binary data as an artifact.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        filename: The artifact filename.
+        data: Raw binary data.
+        mime_type: MIME type of the binary data.
+
+    Returns:
+        Version number (int), or None if no artifact service configured
+        or if the save operation fails.
+    """
+⋮----
+artifact = types.Part.from_bytes(data=data, mime_type=mime_type)
+⋮----
+"""Load an artifact by filename, optionally at a specific version.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        filename: The artifact filename to load.
+        version: Specific version to load. None loads the latest.
+
+    Returns:
+        The Part data, or None if not found, no service configured,
+        or if the load operation fails.
+    """
+⋮----
+result = await inv_ctx.artifact_service.load_artifact(
+⋮----
+state = inv_ctx.session.state
+⋮----
+"""List all artifact filenames in the current session scope.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+
+    Returns:
+        List of artifact filenames, or empty list if no service configured
+        or if the operation fails.
+    """
+⋮----
+"""Delete an artifact and all its versions.
+
+    Args:
+        ctx: InvocationContext or CallbackContext.
+        filename: The artifact filename to delete.
+
+    Returns:
+        True if deleted (or no-op for nonexistent), False if no service
+        configured or if the operation fails.
+    """
+⋮----
+"""Update session state with artifact save tracking metadata.
+
+    Args:
+        ctx: The InvocationContext.
+        filename: The saved artifact filename.
+        version: The version number returned by the service.
+        size_bytes: Size of the saved data in bytes.
+    """
+⋮----
+state = ctx.session.state
+</file>
+
+<file path="dispatch.py">
+"""Worker pool and dispatch mechanism for sub-LM calls.
+
+Replaces the TCP socket-based LMHandler with ADK LlmAgent workers
+dispatched via ParallelAgent.
+
+Architecture:
+- WorkerPool: Pre-allocated asyncio.Queue of LlmAgent instances per model
+- llm_query_async: Acquire 1 worker, dispatch, return string
+- llm_query_batched_async: Acquire K workers, dispatch via ParallelAgent, return K strings
+- Model routing: model=None uses depth-based default; model="X" uses specific pool
+
+State mutation discipline (AR-CRIT-001):
+- Local accumulators in the closure replace ctx.session.state reads.
+- flush_fn() snapshots accumulators into tool_context.state via REPLTool.
+- Worker results are read from agent objects (_result, _result_ready) not state.
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+class WorkerPool
+⋮----
+"""Manages pools of pre-allocated LlmAgent workers per model backend.
+
+    Each registered model has its own asyncio.Queue of LlmAgent instances.
+    Workers are configured per HIGH-3:
+    - include_contents='none'
+    - disallow_transfer_to_parent=True
+    - disallow_transfer_to_peers=True
+    """
+⋮----
+"""Initialize worker pools.
+
+        Args:
+            default_model: Model name for depth=0 (main backend)
+            other_model: Model name for depth=1 (sub-call backend)
+            pool_size: Number of workers per model pool
+        """
+⋮----
+def register_model(self, model_name: str, pool_size: int | None = None)
+⋮----
+"""Register a model and create its worker pool.
+
+        Args:
+            model_name: The model identifier (e.g. "gemini-2.5-flash")
+            pool_size: Override pool size for this model. Defaults to self.pool_size.
+        """
+size = pool_size or self.pool_size
+# Unbounded queue so that dynamically-created workers can be returned
+queue: asyncio.Queue[LlmAgent] = asyncio.Queue()
+⋮----
+worker = self._create_worker(model_name)
+⋮----
+def _create_worker(self, model_name: str) -> LlmAgent
+⋮----
+"""Create a single LlmAgent worker configured per HIGH-3.
+
+        Workers are isolated: they receive prompts only via
+        before_model_callback (include_contents='none') and cannot
+        transfer to parent or peer agents.
+
+        Each worker is initialized with result carrier attributes for
+        the dispatch closure to read after dispatch completes.
+        """
+⋮----
+worker_name = f"worker_{self._worker_counter}"
+⋮----
+worker = LlmAgent(
+# Slot for the dispatch closure to inject the prompt before dispatch.
+# The worker's before_model_callback reads this to build the LlmRequest.
+worker._pending_prompt = None  # type: ignore[attr-defined]
+⋮----
+# Result carrier attributes (written by after_model / on_model_error callbacks)
+worker._result = None  # type: ignore[attr-defined]
+worker._result_ready = False  # type: ignore[attr-defined]
+worker._result_error = False  # type: ignore[attr-defined]
+⋮----
+# Call record (written by after_model / on_model_error callbacks)
+worker._call_record = None  # type: ignore[attr-defined]
+⋮----
+async def acquire(self, model: str | None = None) -> LlmAgent
+⋮----
+"""Acquire a worker from the appropriate pool.
+
+        If the pool is empty, creates a new worker on demand to prevent
+        deadlocks when batch size exceeds pool capacity.
+
+        Args:
+            model: Model name. None uses the depth=1 default (other_model).
+
+        Returns:
+            An LlmAgent worker ready for prompt injection and dispatch.
+        """
+target_model = model or self.other_model
+⋮----
+# Auto-register on first use for dynamically-specified models
+⋮----
+# Pool exhausted — create a worker on demand to avoid deadlock
+⋮----
+async def release(self, worker: LlmAgent, model: str | None = None)
+⋮----
+"""Return a worker to its pool after dispatch completes.
+
+        Only returns the worker if the pool has not yet reached its
+        configured pool_size. On-demand workers created during pool
+        exhaustion are discarded to prevent unbounded pool growth.
+
+        Args:
+            worker: The LlmAgent to return.
+            model: The model pool to return it to. None uses the depth=1 default.
+        """
+⋮----
+def ensure_initialized(self)
+⋮----
+"""Ensure default and other model pools are created.
+
+        Called during App/orchestrator initialization to pre-allocate workers.
+        """
+⋮----
+_WORKER_DISPATCH_TIMEOUT = float(os.getenv("RLM_WORKER_TIMEOUT", "180"))
+⋮----
+async def _consume_events(run_iter: Any) -> None
+⋮----
+"""Consume events from an agent's run_async iterator, discarding them."""
+⋮----
+"""Create llm_query_async, llm_query_batched_async, and flush_fn closures.
+
+    These closures capture the worker pool and invocation context,
+    and are injected into the REPL namespace so that LM-generated code
+    can call sub-LM queries.
+
+    The closures are async functions. The AST rewriter transforms
+    llm_query(p) -> await llm_query_async(p) so that the REPL code
+    can call them natively from within async def _repl_exec().
+
+    Args:
+        worker_pool: The pre-allocated worker pool
+        ctx: Current invocation context
+        call_log_sink: Optional list to accumulate RLMChatCompletion records.
+        trace_sink: Optional mutable list[REPLTrace | None] holder.
+            trace_sink[0] is the current REPLTrace for per-call recording.
+
+    Returns:
+        (llm_query_async, llm_query_batched_async, flush_fn) 3-tuple.
+        flush_fn() returns a dict of accumulated state and resets accumulators.
+    """
+⋮----
+# Local accumulators — replaces ctx.session.state reads (AR-CRIT-001)
+_acc_dispatch_count = 0
+_acc_batch_dispatches = 0
+_acc_latencies: list[float] = []
+_acc_error_counts: dict[str, int] = {}  # category -> count
+_acc_structured_output_failures = 0
+⋮----
+"""Dispatch a single sub-LM query via worker pool.
+
+        This is the K=1 case: delegates to llm_query_batched_async.
+
+        Args:
+            prompt: The text prompt to send to the sub-LM.
+            model: Optional model name override. None uses depth-based default.
+            output_schema: Optional Pydantic model for structured output validation.
+                When provided, the worker uses SetModelResponseTool + ReflectAndRetry
+                for self-healing structured output.
+
+        Returns:
+            An LLMResult (str subclass) with metadata. If output_schema was provided,
+            result.parsed contains the validated dict.
+        """
+current_trace = trace_sink[0] if trace_sink else None
+call_index = -1
+call_start = 0.0
+⋮----
+call_index = current_trace._call_counter
+⋮----
+call_start = time.perf_counter()
+⋮----
+results = await llm_query_batched_async(
+⋮----
+elapsed_ms = (time.perf_counter() - call_start) * 1000
+⋮----
+"""Dispatch K sub-LM queries via ParallelAgent, chunked by max_concurrent.
+
+        When K > max_concurrent, prompts are split into sequential batches
+        of at most max_concurrent, each batch dispatched in parallel.
+
+        State is tracked via local accumulators and flushed by flush_fn()
+        (AR-CRIT-001: no direct ctx.session.state writes).
+
+        Args:
+            prompts: List of text prompts to send concurrently.
+            model: Optional model name override. None uses depth-based default.
+            output_schema: Optional Pydantic model for structured output validation.
+
+        Returns:
+            List of LLMResult (str subclass) responses, in the same order as prompts.
+        """
+⋮----
+max_concurrent = int(os.getenv("RLM_MAX_CONCURRENT_WORKERS", "4"))
+k = len(prompts)
+dispatch_start = time.perf_counter()
+⋮----
+# Trace support: get current trace and set up data flow tracker
+⋮----
+_data_flow = DataFlowTracker() if current_trace is not None else None
+⋮----
+# Register prompts with data flow tracker for dependency detection
+⋮----
+batch_start_index = current_trace._call_counter
+⋮----
+batch_start_index = 0
+⋮----
+# Update local accumulators (no ctx.session.state reads)
+⋮----
+all_results: list[LLMResult] = []
+⋮----
+# Split prompts into chunks of max_concurrent
+⋮----
+batch_prompts = prompts[batch_idx : batch_idx + max_concurrent]
+batch_num = batch_idx // max_concurrent + 1
+total_batches = (k + max_concurrent - 1) // max_concurrent
+⋮----
+workers: list[LlmAgent] = []
+⋮----
+# Acquire workers and inject prompts for this batch
+⋮----
+worker = await worker_pool.acquire(model)
+# Reset result carrier before dispatch
+worker._pending_prompt = prompt  # type: ignore[attr-defined]
+⋮----
+# Wire structured output when output_schema provided.
+⋮----
+worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
+⋮----
+worker.after_tool_callback = after_cb  # type: ignore[assignment]
+worker.on_tool_error_callback = error_cb  # type: ignore[assignment]
+worker._structured_result = None  # type: ignore[attr-defined]
+⋮----
+workers[0]._result = f"[Worker {workers[0].name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
+workers[0]._result_ready = True  # type: ignore[attr-defined]
+workers[0]._result_error = True  # type: ignore[attr-defined]
+# BUG-D fix: write _call_record so error_category='TIMEOUT' propagates
+workers[0]._call_record = {  # type: ignore[attr-defined]
+⋮----
+"response": workers[0]._result,  # type: ignore[attr-defined]
+⋮----
+parallel = ParallelAgent(
+⋮----
+sub_agents=list(workers),  # type: ignore[arg-type]
+⋮----
+w._result = f"[Worker {w.name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
+w._result_ready = True  # type: ignore[attr-defined]
+w._result_error = True  # type: ignore[attr-defined]
+⋮----
+w._call_record = {  # type: ignore[attr-defined]
+⋮----
+"response": w._result,  # type: ignore[attr-defined]
+⋮----
+# Read results from worker objects
+⋮----
+record = getattr(worker, "_call_record", {}) or {}
+if not worker._result_ready:  # type: ignore[attr-defined]
+⋮----
+worker.name, worker._result,  # type: ignore[attr-defined]
+⋮----
+cat = record.get("error_category", "UNKNOWN")
+⋮----
+worker._result,  # type: ignore[attr-defined]
+⋮----
+# Extract structured result if available
+structured = getattr(worker, "_structured_result", None)
+⋮----
+result_text = json.dumps(structured)
+⋮----
+result_text = worker._result  # type: ignore[attr-defined]
+# FM-16 fix: detect retry exhaustion for structured output
+⋮----
+# Accumulate call records into sink for REPLResult.llm_calls
+⋮----
+record = getattr(worker, "_call_record", None)
+⋮----
+model_name = record.get("model") or "unknown"
+raw_prompt = record["prompt"]
+⋮----
+prompt_val: str | dict = ""
+⋮----
+prompt_val = " | ".join(
+⋮----
+prompt_val = raw_prompt
+⋮----
+# Record batch-level trace entries and data flow edges
+⋮----
+batch_elapsed = (time.perf_counter() - dispatch_start) * 1000
+⋮----
+record = getattr(worker, "_call_record", None) or {}
+ci = batch_start_index + batch_idx + idx
+result_idx = batch_idx + idx
+⋮----
+# Register responses with data flow tracker
+⋮----
+# FM-20 fix: preserve results from workers that already completed
+existing = {i for i, w in enumerate(workers) if getattr(w, '_result_ready', False)}
+⋮----
+w = workers[idx]
+record = getattr(w, "_call_record", {}) or {}
+⋮----
+w._result, error=True,  # type: ignore[attr-defined]
+⋮----
+w._result, error=False,  # type: ignore[attr-defined]
+⋮----
+# Reset structured output wiring
+⋮----
+# Detach from ParallelAgent parent so the worker can be
+# re-used in a future batch (ADK sets parent_agent in
+# model_post_init and raises if already set).
+⋮----
+# Aggregate latency via local accumulator (no ctx.session.state reads)
+dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
+⋮----
+def flush_fn() -> dict
+⋮----
+"""Return accumulated dispatch state and reset accumulators.
+
+        Returns a dict suitable for merging into session state or
+        passing to tool_context.state.  After the call, all accumulators
+        are reset to zero so the next flush returns only new deltas.
+        """
+⋮----
+delta: dict[str, Any] = {
+⋮----
+# Populate per-category error counts (previously dead state keys)
+⋮----
+# Pool exhaustion counter (read from pool object, not local accumulator)
+⋮----
+# Structured output failure counter
+⋮----
+# Reset accumulators
+</file>
+
+<file path="orchestrator.py">
+"""RLM Orchestrator Agent - Custom BaseAgent delegating to reasoning_agent with REPLTool.
+
+Phase 5B: The orchestrator no longer manually iterates, parses code blocks,
+or executes them.  Instead it:
+1. Creates a REPLTool wrapping LocalREPL
+2. Wires the reasoning_agent with tools=[REPLTool] (output_key="reasoning_output")
+3. Yields an initial user Content event with the root_prompt
+4. Delegates to self.reasoning_agent.run_async(ctx) -- ADK's native tool-calling
+   loop handles all iteration, code execution, and structured output
+5. Extracts the final_answer from the output_key ("reasoning_output")
+
+CRIT-1: All state writes inside _run_async_impl use yield Event(actions=EventActions(state_delta={})).
+"""
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# Transient HTTP status codes that warrant a retry.
+_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+⋮----
+def is_transient_error(exc: Exception) -> bool
+⋮----
+"""Classify an exception as transient (retryable) using type-based checks.
+
+    Recognizes google.genai errors, asyncio timeouts, and network-level
+    exceptions as transient.  Generic exceptions are never retried.
+    """
+⋮----
+class RLMOrchestratorAgent(BaseAgent)
+⋮----
+"""Custom BaseAgent that delegates to reasoning_agent with REPLTool.
+
+    The orchestrator wires a REPLTool and ReasoningOutput schema onto the
+    reasoning_agent at runtime, then delegates via run_async.  ADK's native
+    tool-calling loop handles iteration, code execution, and structured output.
+
+    Configuration (set via session state at invocation start):
+    - app:max_iterations: Maximum tool calls (default 30)
+
+    Sub-agents:
+    - reasoning_agent: LlmAgent for main reasoning (depth=0)
+    """
+⋮----
+model_config = {"arbitrary_types_allowed": True}
+⋮----
+# Sub-agents declared as Pydantic fields so ADK recognizes them
+reasoning_agent: LlmAgent
+⋮----
+# Configuration fields
+root_prompt: str | None = None
+repo_url: str | None = None
+persistent: bool = False
+worker_pool: Any = None
+repl: Any = None
+⋮----
+"""Collapsed orchestrator -- delegates to reasoning_agent with REPLTool.
+
+        CRIT-1: All state writes MUST yield Event with EventActions(state_delta).
+        """
+_default_max_iter = int(os.getenv("RLM_MAX_ITERATIONS", "30"))
+max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
+trace_level = int(os.getenv("RLM_REPL_TRACE", "0"))
+⋮----
+# Initialize REPL environment (reuse persistent REPL if provided)
+⋮----
+repl = self.repl
+⋮----
+repl = LocalREPL(depth=1)
+⋮----
+# Inject LLMResult into REPL namespace for skill functions
+⋮----
+# Mutable trace holder: trace_holder[0] is the current REPLTrace per code block.
+# Dispatch closures read this to record per-call timing.
+trace_holder: list[REPLTrace | None] = [None]
+⋮----
+# Wire up WorkerPool dispatch closures -- collapsed mode omits the
+# queue parameter.  The flush_fn is passed to REPLTool which flushes
+# accumulators into tool_context.state after each code execution.
+flush_fn = None
+⋮----
+def sync_llm_query_unsupported(*args, **kwargs)
+⋮----
+# Inject repomix skill helpers into REPL globals
+⋮----
+# Create REPLTool with flush_fn for dispatch accumulator flushing
+repl_tool = REPLTool(
+⋮----
+# Wire reasoning_agent at runtime with tools.
+# Uses object.__setattr__ because LlmAgent is a Pydantic model.
+# Note: output_schema=ReasoningOutput is NOT set here because ADK's
+# __maybe_save_output_to_state validates the raw text response against
+# the schema, which fails when the model responds with plain text
+# instead of a set_model_response tool call.  The orchestrator reads
+# the final answer from the output_key ("reasoning_output") which ADK
+# populates with the raw text of the final response.
+⋮----
+# Ensure ADK manages tool call/response history
+⋮----
+# Build initial state delta.
+initial_state: dict[str, Any] = {
+⋮----
+# Yield initial state
+⋮----
+# Yield initial prompt as a user Content event so the reasoning agent
+# receives the user's query in its conversation history.
+initial_prompt = self.root_prompt or "Analyze and answer the query."
+⋮----
+# --- Delegate to reasoning_agent (with retry for transient errors) ---
+max_retries = int(os.getenv("RLM_LLM_MAX_RETRIES", "3"))
+base_delay = float(os.getenv("RLM_LLM_RETRY_DELAY", "5.0"))
+⋮----
+transient = is_transient_error(exc)
+⋮----
+# Yield a structured error event before propagating.
+http_code = getattr(exc, "code", None)
+⋮----
+err_detail = (
+⋮----
+error_msg = (
+⋮----
+delay = base_delay * (2 ** attempt)
+⋮----
+# --- Extract final_answer from output_key ---
+# ADK's output_key stores the raw text of the final model response.
+# When output_schema is set, it's a JSON dict (ReasoningOutput).
+# When output_schema is NOT set, it's plain text.
+raw = ctx.session.state.get("reasoning_output", "")
+final_answer = ""
+⋮----
+# Already parsed (output_schema was set)
+final_answer = raw.get("final_answer", "")
+⋮----
+# Try JSON first (ReasoningOutput format)
+⋮----
+parsed = json.loads(raw)
+⋮----
+final_answer = parsed.get("final_answer", raw)
+⋮----
+final_answer = raw
+⋮----
+# Plain text -- try FINAL() pattern extraction first
+parsed_final = find_final_answer(raw)
+⋮----
+final_answer = parsed_final
+⋮----
+# No FINAL() marker -- use raw text as-is
+⋮----
+# Auto-save final answer as artifact
+⋮----
+# Yield final content event
+⋮----
+# No final answer extracted -- reasoning agent may not have
+# produced a valid ReasoningOutput
+⋮----
+exhausted_msg = (
+⋮----
+# Clean up reasoning_agent wiring
+</file>
+
+<file path="state.py">
+"""State key constants for the RLM ADK application.
+
+ADK state key prefix scoping:
+- (none): Session scope - persists within session
+- user: : User scope - persists across sessions for same user
+- app: : Application scope - persists across all users/sessions
+
+Note: cache: and obs: prefixes are naming conventions only (session-scoped).
+"""
+⋮----
+# Flow Control Keys
+APP_MAX_DEPTH = "app:max_depth"
+APP_MAX_ITERATIONS = "app:max_iterations"
+CURRENT_DEPTH = "current_depth"
+ITERATION_COUNT = "iteration_count"
+SHOULD_STOP = "should_stop"
+POLICY_VIOLATION = "policy_violation"
+⋮----
+# REPL Execution Keys
+MESSAGE_HISTORY = "message_history"
+LAST_REPL_RESULT = "last_repl_result"
+FINAL_ANSWER = "final_answer"
+⋮----
+# Context Metadata Keys (used by callbacks/observability)
+REPO_URL = "repo_url"
+ROOT_PROMPT = "root_prompt"
+⋮----
+# Dynamic Instruction State Keys (session-scoped for ADK instruction template resolution)
+# These match the {var?} placeholders in RLM_DYNAMIC_INSTRUCTION so ADK can
+# resolve them at runtime via its built-in state variable injection.
+DYN_REPO_URL = "repo_url"
+DYN_ROOT_PROMPT = "root_prompt"
+⋮----
+# Caching Keys (session-scoped despite : separator)
+CACHE_STORE = "cache:store"
+CACHE_HIT_COUNT = "cache:hit_count"
+CACHE_MISS_COUNT = "cache:miss_count"
+CACHE_LAST_HIT_KEY = "cache:last_hit_key"
+⋮----
+# Observability Keys (session-scoped)
+OBS_TOTAL_INPUT_TOKENS = "obs:total_input_tokens"
+OBS_TOTAL_OUTPUT_TOKENS = "obs:total_output_tokens"
+OBS_TOTAL_CALLS = "obs:total_calls"
+OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
+OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
+OBS_PER_ITERATION_TOKEN_BREAKDOWN = "obs:per_iteration_token_breakdown"
+INVOCATION_START_TIME = "invocation_start_time"
+REASONING_CALL_START = "reasoning_call_start"
+⋮----
+# Per-Invocation Token Accounting Keys
+REASONING_PROMPT_CHARS = "reasoning_prompt_chars"
+REASONING_SYSTEM_CHARS = "reasoning_system_chars"
+REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
+REASONING_CONTENT_COUNT = "reasoning_content_count"
+REASONING_INPUT_TOKENS = "reasoning_input_tokens"
+REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
+# Worker accounting keys (session-scoped, cumulative across invocations).
+# Values are aggregated from worker objects in the dispatch closure.
+WORKER_PROMPT_CHARS = "worker_prompt_chars"
+WORKER_CONTENT_COUNT = "worker_content_count"
+WORKER_INPUT_TOKENS = "worker_input_tokens"
+WORKER_OUTPUT_TOKENS = "worker_output_tokens"
+CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
+⋮----
+# Worker Dispatch Lifecycle Keys (session-scoped, cumulative)
+WORKER_DISPATCH_COUNT = "worker_dispatch_count"
+⋮----
+# Worker Dispatch Timing Keys (session-scoped, cumulative)
+OBS_WORKER_DISPATCH_LATENCY_MS = "obs:worker_dispatch_latency_ms"
+OBS_WORKER_TOTAL_DISPATCHES = "obs:worker_total_dispatches"
+OBS_WORKER_TOTAL_BATCH_DISPATCHES = "obs:worker_total_batch_dispatches"
+⋮----
+# Finish Reason Tracking (written by ObservabilityPlugin)
+OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
+OBS_FINISH_RECITATION_COUNT = "obs:finish_recitation_count"
+OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
+⋮----
+# Worker Error Classification (written by dispatch closures)
+OBS_WORKER_TIMEOUT_COUNT = "obs:worker_timeout_count"
+OBS_WORKER_RATE_LIMIT_COUNT = "obs:worker_rate_limit_count"
+OBS_WORKER_ERROR_COUNTS = "obs:worker_error_counts"  # dict[category, count]
+⋮----
+# Worker Pool Observability (written by WorkerPool.acquire)
+OBS_WORKER_POOL_EXHAUSTION_COUNT = "obs:worker_pool_exhaustion_count"
+⋮----
+# Structured Output Observability (written by dispatch closures)
+OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
+⋮----
+# API/Messaging Keys
+REQUEST_ID = "request_id"
+IDEMPOTENCY_KEY = "idempotency_key"
+USER_LAST_SUCCESSFUL_CALL_ID = "user:last_successful_call_id"
+⋮----
+# Artifact Tracking Keys (session-scoped)
+ARTIFACT_SAVE_COUNT = "artifact_save_count"
+ARTIFACT_LOAD_COUNT = "artifact_load_count"
+ARTIFACT_TOTAL_BYTES_SAVED = "artifact_total_bytes_saved"
+ARTIFACT_LAST_SAVED_FILENAME = "artifact_last_saved_filename"
+ARTIFACT_LAST_SAVED_VERSION = "artifact_last_saved_version"
+⋮----
+# Artifact Observability Keys (session-scoped)
+OBS_ARTIFACT_SAVES = "obs:artifact_saves"
+OBS_ARTIFACT_LOADS = "obs:artifact_loads"
+OBS_ARTIFACT_DELETES = "obs:artifact_deletes"
+OBS_ARTIFACT_BYTES_SAVED = "obs:artifact_bytes_saved"
+OBS_ARTIFACT_SAVE_LATENCY_MS = "obs:artifact_save_latency_ms"
+⋮----
+# Artifact Configuration Keys (app-scoped)
+APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"
+⋮----
+# Migration Status Keys (session-scoped, naming convention only)
+MIGRATION_STATUS = "migration:status"
+MIGRATION_TIMESTAMP = "migration:timestamp"
+MIGRATION_ERROR = "migration:error"
+⋮----
+DEPTH_SCOPED_KEYS: set[str] = {
+# NOTE: Only iteration-local keys that need independent state per depth
+# level are included. Global observability keys are excluded.
+⋮----
+def depth_key(key: str, depth: int = 0) -> str
+⋮----
+"""Return a depth-scoped state key.
+
+    At depth 0 the original key is returned unchanged.
+    At depth N > 0 the key is suffixed with ``@dN`` so nested
+    reasoning agents operate on independent state.
+    """
+⋮----
+def obs_model_usage_key(model_name: str) -> str
+⋮----
+"""Generate the observability key for a specific model's usage stats."""
+</file>
+
+<file path="types.py">
+########################################################
+########   Structured Output Schema for Reasoning  #####
+⋮----
+class ReasoningOutput(BaseModel)
+⋮----
+"""Structured output schema for the reasoning agent's final answer.
+
+    Used as ``output_schema`` on the reasoning ``LlmAgent`` so ADK
+    emits a ``set_model_response`` tool call that the model fills with
+    validated JSON matching this schema.
+    """
+⋮----
+final_answer: str = Field(description="Complete final answer to the query.")
+reasoning_summary: str = Field(
+⋮----
+def _serialize_value(value: Any) -> Any
+⋮----
+"""Convert a value to a JSON-serializable representation."""
+⋮----
+# Try to convert to string for other types
+⋮----
+########    Types for Worker LLM Results       #########
+⋮----
+class LLMResult(str)
+⋮----
+"""String subclass carrying worker call metadata.
+
+    Backward-compatible: passes isinstance(x, str), works in f-strings,
+    concatenation, etc. But REPL code can inspect error state:
+
+        result = llm_query("prompt")
+        if result.error:
+            if result.error_category == "TIMEOUT":
+                raise RuntimeError(f"Worker timed out: {result}")
+            elif result.error_category == "RATE_LIMIT":
+                await asyncio.sleep(5)
+                result = llm_query("prompt")  # retry
+    """
+⋮----
+error: bool = False
+error_category: str | None = None  # TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT, NETWORK, FORMAT, UNKNOWN
+http_status: int | None = None
+finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
+input_tokens: int = 0
+output_tokens: int = 0
+model: str | None = None
+wall_time_ms: float = 0.0
+parsed: dict | None = None  # Validated structured output (set when output_schema used)
+⋮----
+def __new__(cls, text: str, **kwargs: Any) -> "LLMResult"
+⋮----
+instance = super().__new__(cls, text)
+⋮----
+########    Types for LM Cost Tracking         #########
+⋮----
+@dataclass
+class ModelUsageSummary
+⋮----
+total_calls: int
+total_input_tokens: int
+total_output_tokens: int
+⋮----
+def to_dict(self)
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "ModelUsageSummary"
+⋮----
+@dataclass
+class UsageSummary
+⋮----
+model_usage_summaries: dict[str, ModelUsageSummary]
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "UsageSummary"
+⋮----
+########   Types for REPL and RLM Iterations   #########
+⋮----
+@dataclass
+class RLMChatCompletion
+⋮----
+"""Record of a single LLM call made from within the environment."""
+⋮----
+root_model: str
+prompt: str | dict[str, Any]
+response: str
+usage_summary: UsageSummary
+execution_time: float
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "RLMChatCompletion"
+⋮----
+@dataclass
+class REPLResult
+⋮----
+stdout: str
+stderr: str
+locals: dict
+execution_time: float | None
+llm_calls: list["RLMChatCompletion"]
+trace: dict[str, Any] | None
+⋮----
+def __str__(self)
+⋮----
+result = {
+</file>
+
+</files>

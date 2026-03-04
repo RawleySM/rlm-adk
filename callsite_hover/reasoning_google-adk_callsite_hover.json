@@ -14,15 +14,19 @@
       "usages": [
         {
           "context": "param:llm_request",
-          "line": 32
+          "line": 40
         },
         {
           "context": "param:llm_request",
-          "line": 48
+          "line": 56
         },
         {
           "context": "param:llm_request",
-          "line": 66
+          "line": 74
+        },
+        {
+          "context": "param:llm_request",
+          "line": 164
         }
       ],
       "hover": {
@@ -34,11 +38,15 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 66
+          "line": 74
         },
         {
           "context": "param:callback_context",
-          "line": 129
+          "line": 137
+        },
+        {
+          "context": "param:callback_context",
+          "line": 164
         }
       ],
       "hover": {
@@ -50,15 +58,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 67
+          "line": 75
         },
         {
           "context": "param:llm_response",
-          "line": 129
+          "line": 137
         },
         {
           "context": "return",
-          "line": 130
+          "line": 138
+        },
+        {
+          "context": "return",
+          "line": 165
         }
       ],
       "hover": {

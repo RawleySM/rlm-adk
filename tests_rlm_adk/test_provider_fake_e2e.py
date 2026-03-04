@@ -28,6 +28,7 @@ from tests_rlm_adk.provider_fake.contract_runner import (
     run_fixture_contract,
     run_fixture_contract_with_plugins,
 )
+from tests_rlm_adk.provider_fake.fixtures import save_captured_requests
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 
@@ -38,7 +39,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 
 def _all_fixture_paths() -> list[Path]:
     """Discover all fixture JSON files in the provider_fake fixture dir."""
-    return sorted(FIXTURE_DIR.glob("*.json"))
+    return sorted(p for p in FIXTURE_DIR.glob("*.json") if p.name != "index.json")
 
 
 # ===========================================================================
@@ -259,3 +260,56 @@ async def test_repl_trace_in_events_multi_iteration(tmp_path: Path):
     assert len(results_with_llm) > 0, (
         f"No tool result had llm_calls_made=True — tool_results: {tool_results}"
     )
+
+
+# ===========================================================================
+# GROUP D: Request body capture
+# ===========================================================================
+
+
+async def test_captured_requests_populated():
+    """ContractResult.captured_requests is populated with full request bodies."""
+    fixture_path = FIXTURE_DIR / "worker_500_then_success.json"
+    result = await run_fixture_contract(fixture_path)
+
+    assert result.passed, result.diagnostics()
+
+    # At least 2 requests: reasoning + worker (possibly retried)
+    assert len(result.captured_requests) >= 2, (
+        f"Expected >= 2 captured requests, got {len(result.captured_requests)}"
+    )
+
+    # First request should be a reasoning call with systemInstruction and contents
+    first = result.captured_requests[0]
+    assert "systemInstruction" in first, (
+        f"First request missing systemInstruction, keys: {list(first.keys())}"
+    )
+    assert "contents" in first, (
+        f"First request missing contents, keys: {list(first.keys())}"
+    )
+
+    # All captured requests should be dicts (deep-copied, not references)
+    for i, req in enumerate(result.captured_requests):
+        assert isinstance(req, dict), f"Request #{i} is not a dict: {type(req)}"
+
+    print(f"  captured_requests: {len(result.captured_requests)}")
+    for i, req in enumerate(result.captured_requests):
+        print(f"    #{i}: keys={sorted(req.keys())}")
+
+
+async def test_save_captured_requests_to_json(tmp_path: Path):
+    """save_captured_requests writes valid JSON that round-trips."""
+    fixture_path = FIXTURE_DIR / "worker_500_then_success.json"
+    result = await run_fixture_contract(fixture_path)
+    assert result.passed, result.diagnostics()
+
+    out = tmp_path / "captured.json"
+    returned_path = save_captured_requests(result.captured_requests, out)
+
+    assert returned_path == out
+    assert out.exists()
+
+    import json
+    loaded = json.loads(out.read_text())
+    assert len(loaded) == len(result.captured_requests)
+    assert loaded[0]["systemInstruction"] == result.captured_requests[0]["systemInstruction"]

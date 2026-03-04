@@ -33,9 +33,73 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from rlm_adk.agent import create_rlm_app, create_rlm_runner
+from rlm_adk.repl.local_repl import LocalREPL
 
 from .fixtures import ContractResult, ScenarioRouter
 from .server import FakeGeminiServer
+
+
+def _wire_test_hooks(app: Any) -> None:
+    """Chain test state hooks onto reasoning agent and worker pool.
+
+    When a fixture sets ``config.test_hooks = true``, this function:
+    1. Chains ``reasoning_test_state_hook`` before ``reasoning_before_model``
+       so the CB_REASONING_CONTEXT dict flows into state and (via the
+       ``{cb_reasoning_context?}`` template placeholder) into systemInstruction.
+    2. Monkey-patches ``WorkerPool._create_worker`` so every new worker gets
+       ``worker_test_state_hook`` chained before ``worker_before_model``,
+       causing the CB_WORKER_CONTEXT dict to appear in worker request contents.
+    """
+    from rlm_adk.callbacks.orchestrator import orchestrator_test_state_hook
+    from rlm_adk.callbacks.reasoning import (
+        reasoning_before_model,
+        reasoning_test_state_hook,
+        tool_test_state_hook,
+    )
+    from rlm_adk.callbacks.worker import (
+        worker_before_model as prod_worker_before_model,
+        worker_test_state_hook,
+    )
+
+    orchestrator = app.root_agent
+
+    # --- Wire orchestrator before_agent_callback ---
+    # Fires before the reasoning agent's first LLM call, so the dict is
+    # in state for ALL reasoning template resolutions (including call 0).
+    object.__setattr__(orchestrator, "before_agent_callback", orchestrator_test_state_hook)
+
+    # --- Chain reasoning hooks ---
+    reasoning_agent = orchestrator.reasoning_agent
+    original_reasoning_cb = reasoning_agent.before_model_callback
+
+    def chained_reasoning_before_model(callback_context, llm_request):
+        reasoning_test_state_hook(callback_context, llm_request)
+        if original_reasoning_cb:
+            return original_reasoning_cb(callback_context=callback_context, llm_request=llm_request)
+        return reasoning_before_model(callback_context, llm_request)
+
+    object.__setattr__(reasoning_agent, "before_model_callback", chained_reasoning_before_model)
+
+    # --- Wire tool before_tool_callback on reasoning agent ---
+    # Fires before each execute_code call, writes CB_TOOL_CONTEXT to state.
+    # Available in reasoning template resolution from the NEXT LLM call onward.
+    object.__setattr__(reasoning_agent, "before_tool_callback", tool_test_state_hook)
+
+    # --- Monkey-patch worker creation to chain worker hooks ---
+    worker_pool = orchestrator.worker_pool
+    original_create = worker_pool._create_worker
+
+    def patched_create_worker(model_name):
+        worker = original_create(model_name)
+
+        def chained_worker_before_model(callback_context, llm_request):
+            worker_test_state_hook(callback_context, llm_request)
+            return prod_worker_before_model(callback_context, llm_request)
+
+        object.__setattr__(worker, "before_model_callback", chained_worker_before_model)
+        return worker
+
+    worker_pool._create_worker = patched_create_worker
 
 
 @dataclasses.dataclass
@@ -88,22 +152,75 @@ def _set_env(base_url: str, router: ScenarioRouter) -> None:
     os.environ["RLM_MAX_ITERATIONS"] = str(router.config.get("max_iterations", 5))
 
 
+def _make_repl(router: ScenarioRouter) -> LocalREPL | None:
+    """Create a LocalREPL pre-loaded with initial_repl_globals from fixture config.
+
+    Supports plain values (dicts, strings, lists) and mock functions via
+    the ``$mock_return`` sentinel::
+
+        "initial_repl_globals": {
+            "pack_repo": {"$mock_return": "known XML string"},
+            "_test_metadata": {"key": "value"}
+        }
+
+    Returns None if no initial_repl_globals are configured.
+    """
+    repl_globals_spec = router.config.get("initial_repl_globals")
+    if not repl_globals_spec:
+        return None
+
+    repl = LocalREPL(depth=1)
+    for key, value in repl_globals_spec.items():
+        if isinstance(value, dict) and "$mock_return" in value:
+            return_value = value["$mock_return"]
+            repl.globals[key] = lambda *args, _rv=return_value, **kwargs: _rv
+        else:
+            repl.globals[key] = value
+    return repl
+
+
 async def _make_runner_and_session(
     router: ScenarioRouter,
 ) -> tuple[Runner, Any]:
     """Create a Runner + session using config from the fixture's router."""
-    app = create_rlm_app(
-        model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
-        thinking_budget=router.config.get("thinking_budget", 0),
-        debug=False,
-        langfuse=False,
-        sqlite_tracing=False,
-    )
+    repl = _make_repl(router)
+
+    # When test_hooks is enabled, append cb_reasoning_context placeholder
+    # to the dynamic instruction so the state dict flows into systemInstruction.
+    dynamic_instruction = None
+    if router.config.get("test_hooks"):
+        from rlm_adk.utils.prompts import RLM_DYNAMIC_INSTRUCTION
+        dynamic_instruction = (
+            RLM_DYNAMIC_INSTRUCTION
+            + "Callback state: {cb_reasoning_context?}\n"
+            + "Orchestrator state: {cb_orchestrator_context?}\n"
+            + "Tool state: {cb_tool_context?}\n"
+        )
+
+    kwargs: dict[str, Any] = {
+        "model": os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
+        "thinking_budget": router.config.get("thinking_budget", 0),
+        "repl": repl,
+        "debug": False,
+        "langfuse": False,
+        "sqlite_tracing": False,
+    }
+    if dynamic_instruction is not None:
+        kwargs["dynamic_instruction"] = dynamic_instruction
+
+    app = create_rlm_app(**kwargs)
+
+    # Wire test hooks onto reasoning agent and worker pool
+    if router.config.get("test_hooks"):
+        _wire_test_hooks(app)
+
     session_service = InMemorySessionService()
     runner = Runner(app=app, session_service=session_service)
+    initial_state = router.config.get("initial_state") or None
     session = await session_service.create_session(
         app_name="rlm_adk",
         user_id="test-user",
+        state=initial_state,
     )
     return runner, session
 
@@ -220,9 +337,11 @@ async def run_fixture_contract_with_plugins(
         artifact_service = InMemoryArtifactService()
         session_service = InMemorySessionService()
 
+        repl = _make_repl(router)
         runner = create_rlm_runner(
             model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
             thinking_budget=router.config.get("thinking_budget", 0),
+            repl=repl,
             plugins=plugins,
             artifact_service=artifact_service,
             session_service=session_service,
@@ -231,9 +350,11 @@ async def run_fixture_contract_with_plugins(
             sqlite_tracing=False,
         )
 
+        initial_state = router.config.get("initial_state") or None
         session = await session_service.create_session(
             app_name="rlm_adk",
             user_id="test-user",
+            state=initial_state,
         )
 
         t0 = time.monotonic()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import logging
@@ -127,6 +128,8 @@ class ContractResult:
     checks: list[dict[str, Any]]       # [{field, expected, actual, ok}, ...]
     call_summary: list[dict[str, Any]]  # from request_log
     total_elapsed_s: float
+    captured_requests: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    captured_metadata: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
     def diagnostics(self) -> str:
         """Multi-line human-readable diagnostic report."""
@@ -188,6 +191,8 @@ class ScenarioRouter:
         self._response_pointer: int = 0
         self._lock = threading.Lock()
         self._request_log: list[dict[str, Any]] = []
+        self._captured_requests: list[dict[str, Any]] = []
+        self._captured_metadata: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -206,6 +211,14 @@ class ScenarioRouter:
     @property
     def request_log(self) -> list[dict[str, Any]]:
         return list(self._request_log)
+
+    @property
+    def captured_requests(self) -> list[dict[str, Any]]:
+        return list(self._captured_requests)
+
+    @property
+    def captured_metadata(self) -> list[dict[str, Any]]:
+        return list(self._captured_metadata)
 
     def next_response(
         self,
@@ -237,6 +250,20 @@ class ScenarioRouter:
                 "first_content_preview": _preview(request_body),
             }
             self._request_log.append(log_entry)
+
+            if request_body is not None:
+                self._captured_requests.append(copy.deepcopy(request_body))
+
+                # Determine caller from the response entry (if available)
+                caller = "unknown"
+                if idx not in self._faults and self._response_pointer < len(self._responses):
+                    caller = self._responses[self._response_pointer].get("caller", "unknown")
+                elif idx in self._faults:
+                    caller = self._faults[idx].get("caller", "fault")
+                self._captured_metadata.append({
+                    "call_index": idx,
+                    "caller": caller,
+                })
 
             # Check fault injection first
             if idx in self._faults:
@@ -370,6 +397,8 @@ class ScenarioRouter:
             checks=checks,
             call_summary=list(self._request_log),
             total_elapsed_s=elapsed_s,
+            captured_requests=list(self._captured_requests),
+            captured_metadata=list(self._captured_metadata),
         )
 
     def reset(self) -> None:
@@ -378,3 +407,64 @@ class ScenarioRouter:
             self._call_index = 0
             self._response_pointer = 0
             self._request_log.clear()
+            self._captured_requests.clear()
+            self._captured_metadata.clear()
+
+
+def _caller_to_model_name(caller: str) -> str:
+    """Map fixture caller type to model name for output keys."""
+    if caller == "reasoning":
+        return "reasoning_agent"
+    if caller == "worker":
+        return "worker"
+    return caller
+
+
+def save_captured_requests(
+    captured: list[dict[str, Any]],
+    output_path: Path,
+    metadata: list[dict[str, Any]] | None = None,
+) -> Path:
+    """Write captured request bodies to a JSON file.
+
+    When *metadata* is provided (from ``ContractResult.captured_metadata``),
+    the output is a dict keyed by ``request_to_<model>_iter_<N>`` with each
+    value containing ``_meta`` (caller, call_index, iteration) and the full
+    request body under ``body``.  Without metadata the output is a plain list
+    for backward compatibility.
+
+    Args:
+        captured: List of request body dicts (from ContractResult.captured_requests).
+        output_path: Destination file path.
+        metadata: Optional parallel list of ``{call_index, caller}`` dicts.
+
+    Returns:
+        The output_path for downstream verification.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if metadata and len(metadata) == len(captured):
+        # Build per-caller iteration counters
+        caller_counters: dict[str, int] = {}
+        keyed: dict[str, Any] = {}
+        for req, meta in zip(captured, metadata):
+            caller = meta.get("caller", "unknown")
+            model_name = _caller_to_model_name(caller)
+            caller_counters[caller] = caller_counters.get(caller, 0) + 1
+            iteration = caller_counters[caller]
+            key = f"request_to_{model_name}_iter_{iteration}"
+            keyed[key] = {
+                "_meta": {
+                    "call_index": meta.get("call_index"),
+                    "caller": caller,
+                    "model": model_name,
+                    "iteration": iteration,
+                },
+                "body": req,
+            }
+        with open(output_path, "w") as f:
+            json.dump(keyed, f, indent=2)
+    else:
+        with open(output_path, "w") as f:
+            json.dump(captured, f, indent=2)
+    return output_path

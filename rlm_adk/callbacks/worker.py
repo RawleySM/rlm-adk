@@ -9,6 +9,12 @@ worker_after_model: OBSERVE - Extracts text response, writes to worker's output_
 worker_on_model_error: ERROR ISOLATION - Handles LLM errors gracefully without
     crashing ParallelAgent. Writes error result onto agent object and returns
     an LlmResponse so the agent completes normally.
+
+worker_test_state_hook: Test-only before_model_callback that writes a
+    guillemet-marked dict to callback_context.state under ``cb_worker_context``
+    and appends its string repr to the pending prompt.  Compose with
+    worker_before_model in provider-fake fixtures to verify the
+    state-dict → worker request body path.
 """
 
 import asyncio
@@ -194,3 +200,54 @@ def worker_on_model_error(
             parts=[types.Part.from_text(text=error_msg)],
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Test-only hook: state dict → worker request body verification
+# ---------------------------------------------------------------------------
+
+
+def worker_test_state_hook(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> LlmResponse | None:
+    """Write a guillemet-marked dict to state and append it to the worker prompt.
+
+    Writes ``CB_WORKER_CONTEXT`` to ``callback_context.state`` containing a
+    structured dict with markers.  Also appends the dict's ``str()`` repr to
+    ``agent._pending_prompt`` so that when ``worker_before_model`` runs next
+    (or this is used standalone), the dict content appears in the worker's
+    ``llm_request.contents`` and thus in the captured request body.
+
+    **Must run before** ``worker_before_model`` in the callback chain so the
+    appended text is picked up when the prompt is injected into contents.
+
+    Usage in provider-fake fixtures::
+
+        # Chain: test hook appends to _pending_prompt, then production
+        # callback injects it into llm_request.contents.
+        def chained_worker_before_model(ctx, req):
+            worker_test_state_hook(ctx, req)
+            return worker_before_model(ctx, req)
+
+        # Wire onto worker:
+        worker.before_model_callback = chained_worker_before_model
+    """
+    from rlm_adk.state import CB_WORKER_CONTEXT
+
+    agent = callback_context._invocation_context.agent
+    worker_name = getattr(agent, "name", "unknown")
+
+    context_dict = {
+        "«CB_WORKER_STATE_START»": True,
+        "hook": "worker_test_state_hook",
+        "worker_name": worker_name,
+        "«CB_WORKER_STATE_END»": True,
+    }
+    callback_context.state[CB_WORKER_CONTEXT] = context_dict
+
+    # Append to pending prompt so it flows into llm_request.contents
+    pending = getattr(agent, "_pending_prompt", None) or ""
+    suffix = "\n\nCallback context: " + str(context_dict)
+    agent._pending_prompt = pending + suffix  # type: ignore[attr-defined]
+
+    return None

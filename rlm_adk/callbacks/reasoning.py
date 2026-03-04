@@ -8,9 +8,15 @@ before_model_callback: Merges the ADK-resolved dynamic instruction into
 after_model_callback: Records per-invocation token accounting from
     usage_metadata.  The collapsed orchestrator reads the final answer
     from the output_key ("reasoning_output").
+
+reasoning_test_state_hook: Test-only before_model_callback that writes a
+    guillemet-marked dict to callback_context.state under the key
+    ``cb_reasoning_context``.  Compose with reasoning_before_model in
+    provider-fake fixtures to verify the state → systemInstruction path.
 """
 
 import time
+from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
@@ -18,7 +24,10 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
 from rlm_adk.state import (
+    CB_REASONING_CONTEXT,
+    CB_TOOL_CONTEXT,
     CONTEXT_WINDOW_SNAPSHOT,
+    ITERATION_COUNT,
     REASONING_CALL_START,
     REASONING_CONTENT_COUNT,
     REASONING_HISTORY_MSG_COUNT,
@@ -145,3 +154,90 @@ def reasoning_after_model(
 
     # Return None -- observe only, don't alter the response
     return None
+
+
+# ---------------------------------------------------------------------------
+# Test-only hook: state dict → systemInstruction verification
+# ---------------------------------------------------------------------------
+
+
+def reasoning_test_state_hook(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> LlmResponse | None:
+    """Write a guillemet-marked dict to state for provider-fake verification.
+
+    Writes ``CB_REASONING_CONTEXT`` to ``callback_context.state`` containing
+    a structured dict with markers.  When the fixture's dynamic instruction
+    includes ``{cb_reasoning_context?}``, ADK resolves the template and the
+    dict's ``str()`` repr flows into systemInstruction — verifiable in
+    captured request bodies.
+
+    Compose with the production callback by setting both as a chain::
+
+        # In contract_runner or test setup:
+        agent.before_model_callback = reasoning_test_state_hook
+        # Then call reasoning_before_model manually, or chain them.
+
+    Or use as a standalone before_model_callback for isolated testing.
+    """
+    iteration = callback_context.state.get(ITERATION_COUNT, 0)
+    context_dict = {
+        "«CB_REASONING_STATE_START»": True,
+        "hook": "reasoning_test_state_hook",
+        "iteration": iteration,
+        "agent": "reasoning_agent",
+        "«CB_REASONING_STATE_END»": True,
+    }
+    callback_context.state[CB_REASONING_CONTEXT] = context_dict
+
+    # Patch the already-resolved template text in contents so the dict
+    # appears on the FIRST iteration too (ADK resolves {cb_reasoning_context?}
+    # before before_model_callback fires, so iter 0 would otherwise be empty).
+    # reasoning_before_model runs next and extracts all content text into
+    # systemInstruction, so this patch flows through automatically.
+    dict_str = str(context_dict)
+    placeholder = "Callback state: \n"
+    if llm_request.contents:
+        for content in llm_request.contents:
+            if content.parts:
+                for part in content.parts:
+                    if part.text and placeholder in part.text:
+                        part.text = part.text.replace(
+                            placeholder, f"Callback state: {dict_str}\n", 1,
+                        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Test-only hook: tool state dict → systemInstruction verification
+# ---------------------------------------------------------------------------
+
+
+def tool_test_state_hook(
+    tool: Any, args: dict, tool_context: Any,
+) -> dict | None:
+    """Write a guillemet-marked dict to state before each REPL tool execution.
+
+    Writes ``CB_TOOL_CONTEXT`` to ``tool_context.state`` containing a
+    structured dict with markers.  When the fixture's dynamic instruction
+    includes ``{cb_tool_context?}``, ADK resolves the template on the *next*
+    reasoning LLM call and the dict's ``str()`` repr flows into
+    systemInstruction — verifiable in captured request bodies.
+
+    The dict is available starting from the reasoning call *after* the first
+    tool execution (call 2 in the comprehensive fixture, since call 0 has no
+    prior tool execution).
+
+    Wire on the reasoning agent as ``before_tool_callback``::
+
+        object.__setattr__(reasoning_agent, "before_tool_callback", tool_test_state_hook)
+    """
+    tool_name = getattr(tool, "name", "unknown")
+    tool_context.state[CB_TOOL_CONTEXT] = {
+        "«CB_TOOL_STATE_START»": True,
+        "hook": "tool_test_state_hook",
+        "tool_name": tool_name,
+        "args_keys": sorted(args.keys()) if args else [],
+        "«CB_TOOL_STATE_END»": True,
+    }
+    return None  # Proceed with normal tool execution

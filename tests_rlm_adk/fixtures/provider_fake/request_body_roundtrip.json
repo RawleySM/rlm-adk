@@ -1,0 +1,116 @@
+{
+  "scenario_id": "request_body_roundtrip",
+  "description": "Verifies request bodies are captured with parseable start/stop markers for reasoning agent, worker dispatch, and multi-iteration content flow",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0,
+    "initial_state": {
+      "test_context": "\u00abDYNAMIC_CONTEXT_START\u00bb This test context was injected via dynamic instruction template {test_key: test_value, marker: roundtrip_check} \u00abDYNAMIC_CONTEXT_END\u00bb"
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent emits execute_code with REPL code containing guillemet-delimited artifact dict and llm_query worker dispatch with instruction markers.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "artifact = {\"«ARTIFACT_START»\": True, \"repo_name\": \"test-repo\", \"files\": {\"main.py\": \"print('hello')\", \"utils.py\": \"def add(a,b): return a+b\"}, \"metadata\": {\"token_estimate\": 42, \"shard_index\": 0}, \"«ARTIFACT_END»\": True}\nresult = llm_query(\"«WORKER_INSTRUCTION_START» Analyze this code artifact and summarize its purpose «WORKER_INSTRUCTION_END»\\n\\n\" + str(artifact))\nprint(result)\nprint(\"«STDOUT_SENTINEL_START» This is a known stdout string from iteration 1 «STDOUT_SENTINEL_END»\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 235
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker response with guillemet-delimited response markers.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "\u00abWORKER_RESPONSE_START\u00bb The code artifact contains a simple Python project with a main entry point and utility functions for basic arithmetic \u00abWORKER_RESPONSE_END\u00bb"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 25,
+          "candidatesTokenCount": 28,
+          "totalTokenCount": 53
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning sees worker response and stdout sentinel in tool result, produces final answer with guillemet markers.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The worker analysis is complete. The code artifact is a simple utility project.\n\nFINAL(\u00abFINAL_ANSWER_START\u00bb Analysis complete: simple Python project with entry point and utilities \u00abFINAL_ANSWER_END\u00bb)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 430
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "\u00abFINAL_ANSWER_START\u00bb Analysis complete: simple Python project with entry point and utilities \u00abFINAL_ANSWER_END\u00bb",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  },
+  "expected_state": {
+    "worker_dispatch_count": 1,
+    "last_repl_result": {
+      "$not_none": true
+    }
+  }
+}

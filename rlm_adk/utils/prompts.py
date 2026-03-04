@@ -82,6 +82,7 @@ When your context includes a repository URL or source code, use the pre-loaded `
 RLM_DYNAMIC_INSTRUCTION = textwrap.dedent("""\
 Repository URL: {repo_url?}
 Original query: {root_prompt?}
+Additional context: {test_context?}
 """)
 
 

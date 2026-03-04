@@ -1,0 +1,192 @@
+{
+  "scenario_id": "request_body_comprehensive",
+  "description": "Comprehensive request body verification: dict-typed dynamic instruction, REPL globals injection, variable persistence, worker result chaining, combined data sources, functionResponse fidelity, worker systemInstruction/generationConfig, and dynamic instruction re-injection across iterations.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0,
+    "test_hooks": true,
+    "initial_state": {
+      "test_context": {
+        "\u00abDICT_STATE_START\u00bb": true,
+        "experiment_id": "exp-42",
+        "parameters": {"learning_rate": 0.001, "epochs": 10, "batch_size": 32},
+        "tags": ["test", "roundtrip", "comprehensive"],
+        "\u00abDICT_STATE_END\u00bb": true
+      }
+    },
+    "initial_repl_globals": {
+      "_repo_xml_data": "\u00abREPO_XML_START\u00bb <repository name=\"test-repo\"><file path=\"main.py\">print('hello world')</file><file path=\"utils.py\">def add(a,b): return a+b</file></repository> \u00abREPO_XML_END\u00bb",
+      "_test_metadata": {
+        "\u00abMETADATA_START\u00bb": true,
+        "source": "unit_test",
+        "version": "1.0.0",
+        "\u00abMETADATA_END\u00bb": true
+      }
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning iter 1: reads _repo_xml_data (REPL global string, simulating pack_repo output), reads _test_metadata (REPL global dict), combines both into llm_query prompt. Tests G4 (combined sources) and G5 (REPL globals injection).",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "repo_xml = _repo_xml_data\nmetadata = _test_metadata\ncombined_prompt = \"\u00abCOMBINED_PROMPT_START\u00bb Analyze this repository:\\n\" + repo_xml + \"\\n\\nWith metadata: \" + str(metadata) + \" \u00abCOMBINED_PROMPT_END\u00bb\"\nresult = llm_query(combined_prompt)\nprint(result)\nprint(\"\u00abSTDOUT_SENTINEL_START\u00bb stdout from iteration 1 \u00abSTDOUT_SENTINEL_END\u00bb\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 350
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Worker 1: receives combined prompt with repo XML and metadata dict. Returns analysis with markers.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "\u00abWORKER_RESPONSE_1_START\u00bb The repository contains a simple Python project with main.py entry point and utils.py helper module providing arithmetic operations \u00abWORKER_RESPONSE_1_END\u00bb"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 80
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning iter 2: uses persisted repo_xml and result from iter 1. Chains worker result into next llm_query. Tests G2 (persistence) and G3 (chaining).",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "prior_analysis = result\nsynthesis_prompt = \"\u00abCHAINED_PROMPT_START\u00bb Synthesize based on prior analysis:\\n\" + prior_analysis + \"\\n\\nOriginal repo:\\n\" + repo_xml + \"\\n\\nMetadata: \" + str(metadata) + \" \u00abCHAINED_PROMPT_END\u00bb\"\nfinal_result = llm_query(synthesis_prompt)\nprint(final_result)\nprint(\"\u00abSTDOUT_SENTINEL_2_START\u00bb stdout from iteration 2 \u00abSTDOUT_SENTINEL_2_END\u00bb\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 45,
+          "totalTokenCount": 545
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Worker 2: receives chained prompt with prior worker result + repo XML + metadata. Returns synthesis.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "\u00abWORKER_RESPONSE_2_START\u00bb Synthesis complete: the codebase is a minimal Python utility project with arithmetic helpers and a main entry point version 1.0.0 \u00abWORKER_RESPONSE_2_END\u00bb"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 80,
+          "candidatesTokenCount": 35,
+          "totalTokenCount": 115
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "reasoning",
+      "note": "Reasoning iter 3: sees worker 2 result in functionResponse, emits final answer. Tests G6 (variables dict) and G9 (dynamic instruction re-injection).",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Analysis and synthesis complete.\n\nFINAL(\u00abFINAL_ANSWER_START\u00bb Comprehensive analysis: minimal Python utility project with arithmetic helpers, main entry point, metadata version 1.0.0 \u00abFINAL_ANSWER_END\u00bb)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 600,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 640
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "\u00abFINAL_ANSWER_START\u00bb Comprehensive analysis: minimal Python utility project with arithmetic helpers, main entry point, metadata version 1.0.0 \u00abFINAL_ANSWER_END\u00bb",
+    "total_iterations": 2,
+    "total_model_calls": 5
+  },
+  "expected_state": {
+    "worker_dispatch_count": 1,
+    "last_repl_result": {
+      "$not_none": true
+    }
+  }
+}

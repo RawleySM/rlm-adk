@@ -1,0 +1,720 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+The content has been processed where comments have been removed, content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+Flow-focused repomix pack for the RLM ADK runtime path:
+reasoning_agent -> REPLTool -> dispatch -> workers -> final answer.
+
+<purpose>
+Provide only the minimum code required to understand the architecture described in
+rlm_adk_docs/architecture_summary.md, with reduced token footprint for model context usage.
+</purpose>
+
+<scope>
+Included files (11):
+- rlm_adk/agent.py
+- rlm_adk/orchestrator.py
+- rlm_adk/dispatch.py
+- rlm_adk/tools/repl_tool.py
+- rlm_adk/repl/local_repl.py
+- rlm_adk/repl/ast_rewriter.py
+- rlm_adk/callbacks/worker.py
+- rlm_adk/callbacks/reasoning.py
+- rlm_adk/callbacks/worker_retry.py
+- rlm_adk/types.py
+- rlm_adk/plugins/repl_tracing.py
+</scope>
+
+<transformations>
+- Tree-sitter compression enabled (code blocks represented by structural snippets, delimited by ⋮----).
+- Comments removed where supported by repomix.
+- Python docstrings removed upstream before packing.
+</transformations>
+
+<exclusions>
+- Tests, fixtures, and docs not required for the primary runtime flow were intentionally excluded.
+- Files filtered by ignore rules and repomix default exclusions are not present.
+</exclusions>
+
+<usage_guidelines>
+- Treat this pack as read-only analysis context.
+- Use each <file path="..."> entry as the source-of-truth boundary for symbols and call flow.
+- For executable edits, modify original repository files, not this packed artifact.
+</usage_guidelines>
+
+<file_format>
+Order of sections:
+1. file_summary
+2. directory_structure
+3. files (one <file path="..."> section per included source file)
+</file_format>
+
+</file_summary>
+
+<directory_structure>
+rlm_adk/
+  callbacks/
+    reasoning.py
+    worker_retry.py
+    worker.py
+  plugins/
+    repl_tracing.py
+  repl/
+    ast_rewriter.py
+    local_repl.py
+  tools/
+    repl_tool.py
+  agent.py
+  dispatch.py
+  orchestrator.py
+  types.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="rlm_adk/plugins/repl_tracing.py">
+logger = logging.getLogger(__name__)
+⋮----
+class REPLTracingPlugin(BasePlugin)
+⋮----
+def __init__(self, name: str='repl_tracing')
+⋮----
+async def on_event_callback(self, *, invocation_context: InvocationContext, event: Event) -> Optional[Event]
+⋮----
+sd = getattr(getattr(event, 'actions', None), 'state_delta', None) or {}
+repl_result = sd.get(LAST_REPL_RESULT)
+⋮----
+trace_summary = repl_result.get('trace_summary')
+⋮----
+iteration = sd.get(ITERATION_COUNT, 0)
+⋮----
+async def after_run_callback(self, *, invocation_context: InvocationContext) -> None
+⋮----
+artifact_service = invocation_context.artifact_service
+⋮----
+trace_data = json.dumps(self._traces_by_iteration, indent=2)
+artifact = types.Part.from_bytes(data=trace_data.encode('utf-8'), mime_type='application/json')
+</file>
+
+<file path="rlm_adk/repl/ast_rewriter.py">
+def has_llm_calls(code: str) -> bool
+⋮----
+tree = ast.parse(code)
+⋮----
+func = node.func
+⋮----
+class LlmCallRewriter(ast.NodeTransformer)
+⋮----
+_SYNC_TO_ASYNC = {'llm_query': 'llm_query_async', 'llm_query_batched': 'llm_query_batched_async'}
+⋮----
+def visit_Call(self, node: ast.Call) -> ast.AST
+⋮----
+def _contains_await(node: ast.AST) -> bool
+⋮----
+def _promote_functions_to_async(tree: ast.Module) -> set[str]
+⋮----
+promoted: set[str] = set()
+⋮----
+newly_promoted: set[str] = set()
+⋮----
+class _FuncDefPromoter(ast.NodeTransformer)
+⋮----
+def __init__(self, names: set[str]) -> None
+⋮----
+def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST
+⋮----
+new_node = ast.AsyncFunctionDef(name=node.name, args=node.args, body=node.body, decorator_list=node.decorator_list, returns=node.returns, type_comment=getattr(node, 'type_comment', None), type_params=getattr(node, 'type_params', []))
+⋮----
+class _PromotedCallAwaiter(ast.NodeTransformer)
+⋮----
+def visit_Await(self, node: ast.Await) -> ast.AST
+⋮----
+def rewrite_for_async(code: str) -> ast.Module
+⋮----
+rewriter = LlmCallRewriter()
+tree = rewriter.visit(tree)
+⋮----
+body_stmts = tree.body
+return_locals = ast.Return(value=ast.Call(func=ast.Name(id='locals', ctx=ast.Load()), args=[], keywords=[]))
+⋮----
+async_func = ast.AsyncFunctionDef(name='_repl_exec', args=ast.arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]), body=body_stmts, decorator_list=[], returns=None, type_comment=None, type_params=[])
+new_module = ast.Module(body=[async_func], type_ignores=[])
+</file>
+
+<file path="rlm_adk/tools/repl_tool.py">
+_CALL_LIMIT_MSG = 'REPL call limit reached. Submit your final answer now.'
+⋮----
+class REPLTool(BaseTool)
+⋮----
+def __init__(self, repl: LocalREPL, *, max_calls: int=60, trace_holder: Optional[list]=None, flush_fn: Optional[Callable[[], dict]]=None)
+⋮----
+def _get_declaration(self) -> FunctionDeclaration
+⋮----
+async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> dict
+⋮----
+code = args['code']
+⋮----
+llm_calls_made = False
+trace: REPLTrace | None = None
+⋮----
+trace = REPLTrace()
+⋮----
+llm_calls_made = True
+tree = rewrite_for_async(code)
+compiled = compile(tree, '<repl>', 'exec')
+ns = {**self.repl.globals, **self.repl.locals}
+⋮----
+repl_exec_fn = ns['_repl_exec']
+result = await self.repl.execute_code_async(code, repl_exec_fn, trace=trace)
+⋮----
+result = self.repl.execute_code(code, trace=trace)
+⋮----
+total_llm_calls = 0
+⋮----
+acc = self._flush_fn()
+⋮----
+total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
+⋮----
+last_repl: dict[str, Any] = {'code_blocks': 1, 'has_errors': bool(result.stderr), 'has_output': bool(result.stdout), 'total_llm_calls': total_llm_calls}
+⋮----
+variables: dict[str, Any] = {}
+</file>
+
+<file path="rlm_adk/callbacks/worker_retry.py">
+logger = logging.getLogger(__name__)
+_bug13_stats: dict[str, int] = {'suppress_count': 0}
+_SET_MODEL_RESPONSE_TOOL_NAME = 'set_model_response'
+⋮----
+class WorkerRetryPlugin(ReflectAndRetryToolPlugin)
+⋮----
+def __init__(self, max_retries: int=2)
+⋮----
+async def extract_error_from_result(self, *, tool: BaseTool, tool_args: dict[str, Any], tool_context: ToolContext, result: Any) -> Optional[dict[str, Any]]
+⋮----
+def make_worker_tool_callbacks(max_retries: int=2) -> tuple[Any, Any]
+⋮----
+plugin = WorkerRetryPlugin(max_retries=max_retries)
+⋮----
+async def after_tool_cb(tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, tool_response: Any) -> Optional[dict[str, Any]]
+⋮----
+agent = tool_context._invocation_context.agent
+⋮----
+async def on_tool_error_cb(tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, error: Exception) -> Optional[dict[str, Any]]
+⋮----
+def _patch_output_schema_postprocessor() -> None
+⋮----
+_original = _osp.get_structured_model_response
+⋮----
+def _retry_aware_get_structured_model_response(function_response_event) -> str | None
+⋮----
+result = _original(function_response_event)
+⋮----
+parsed = _json.loads(result)
+</file>
+
+<file path="rlm_adk/callbacks/reasoning.py">
+def _extract_system_instruction_text(llm_request: LlmRequest) -> str
+⋮----
+si = llm_request.config.system_instruction
+⋮----
+def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str
+⋮----
+dynamic_text = ''
+⋮----
+def reasoning_before_model(callback_context: CallbackContext, llm_request: LlmRequest) -> LlmResponse | None
+⋮----
+static_si = _extract_system_instruction_text(llm_request)
+dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
+system_instruction_text = static_si
+⋮----
+system_instruction_text = dynamic_instruction
+contents = llm_request.contents or []
+⋮----
+total_prompt_chars = sum((len(part.text or '') for content in contents if content.parts for part in content.parts))
+system_chars = len(system_instruction_text)
+content_count = len(contents)
+⋮----
+def reasoning_after_model(callback_context: CallbackContext, llm_response: LlmResponse) -> LlmResponse | None
+⋮----
+usage = llm_response.usage_metadata
+</file>
+
+<file path="rlm_adk/callbacks/worker.py">
+logger = logging.getLogger(__name__)
+⋮----
+def _classify_error(error: Exception) -> str
+⋮----
+code = getattr(error, 'code', None)
+⋮----
+err_msg = str(error).lower()
+⋮----
+err_str = str(error).lower()
+⋮----
+def worker_before_model(callback_context: CallbackContext, llm_request: LlmRequest) -> LlmResponse | None
+⋮----
+agent = callback_context._invocation_context.agent
+pending_prompt = getattr(agent, '_pending_prompt', None)
+⋮----
+def worker_after_model(callback_context: CallbackContext, llm_response: LlmResponse) -> LlmResponse | None
+⋮----
+response_text = ''
+⋮----
+response_text = ''.join((part.text for part in llm_response.content.parts if part.text and (not part.thought)))
+finish_reason = llm_response.finish_reason
+is_safety_filtered = finish_reason is not None and hasattr(finish_reason, 'name') and (finish_reason.name == 'SAFETY')
+⋮----
+usage = llm_response.usage_metadata
+input_tokens = 0
+output_tokens = 0
+⋮----
+input_tokens = getattr(usage, 'prompt_token_count', 0) or 0
+output_tokens = getattr(usage, 'candidates_token_count', 0) or 0
+record: dict[str, Any] = {'prompt': getattr(agent, '_pending_prompt', None), 'response': response_text, 'input_tokens': input_tokens, 'output_tokens': output_tokens, 'model': getattr(llm_response, 'model_version', None), 'finish_reason': finish_reason.name if finish_reason else None, 'error': is_safety_filtered}
+⋮----
+output_key = getattr(agent, 'output_key', None)
+⋮----
+error_msg = f'[Worker {agent.name} callback error: {type(exc).__name__}: {exc}]'
+⋮----
+def worker_on_model_error(callback_context: CallbackContext, llm_request: LlmRequest, error: Exception) -> LlmResponse | None
+⋮----
+error_msg = f'[Worker {agent.name} error: {type(error).__name__}: {error}]'
+</file>
+
+<file path="rlm_adk/types.py">
+class ReasoningOutput(BaseModel)
+⋮----
+final_answer: str = Field(description='Complete final answer to the query.')
+reasoning_summary: str = Field(default='', description='Brief reasoning summary.')
+⋮----
+def _serialize_value(value: Any) -> Any
+⋮----
+class LLMResult(str)
+⋮----
+error: bool = False
+error_category: str | None = None
+http_status: int | None = None
+finish_reason: str | None = None
+input_tokens: int = 0
+output_tokens: int = 0
+model: str | None = None
+wall_time_ms: float = 0.0
+parsed: dict | None = None
+⋮----
+def __new__(cls, text: str, **kwargs: Any) -> 'LLMResult'
+⋮----
+instance = super().__new__(cls, text)
+⋮----
+@dataclass
+class ModelUsageSummary
+⋮----
+total_calls: int
+total_input_tokens: int
+total_output_tokens: int
+⋮----
+def to_dict(self)
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> 'ModelUsageSummary'
+⋮----
+@dataclass
+class UsageSummary
+⋮----
+model_usage_summaries: dict[str, ModelUsageSummary]
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> 'UsageSummary'
+⋮----
+@dataclass
+class RLMChatCompletion
+⋮----
+root_model: str
+prompt: str | dict[str, Any]
+response: str
+usage_summary: UsageSummary
+execution_time: float
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> 'RLMChatCompletion'
+⋮----
+@dataclass
+class REPLResult
+⋮----
+stdout: str
+stderr: str
+locals: dict
+execution_time: float | None
+llm_calls: list['RLMChatCompletion']
+trace: dict[str, Any] | None
+⋮----
+def __init__(self, stdout: str, stderr: str, locals: dict, execution_time: float | None=None, llm_calls: list['RLMChatCompletion'] | None=None, trace: dict[str, Any] | None=None)
+⋮----
+def __str__(self)
+⋮----
+result = {'stdout': self.stdout, 'stderr': self.stderr, 'locals': {k: _serialize_value(v) for k, v in self.locals.items()}, 'execution_time': self.execution_time, 'llm_calls': [call.to_dict() for call in self.llm_calls]}
+</file>
+
+<file path="rlm_adk/repl/local_repl.py">
+_capture_stdout: contextvars.ContextVar[io.StringIO | None] = contextvars.ContextVar('_capture_stdout', default=None)
+_capture_stderr: contextvars.ContextVar[io.StringIO | None] = contextvars.ContextVar('_capture_stderr', default=None)
+⋮----
+class _TaskLocalStream
+⋮----
+def __init__(self, original: io.TextIOBase, ctx_var: contextvars.ContextVar)
+⋮----
+@property
+    def encoding(self)
+⋮----
+def isatty(self)
+⋮----
+def write(self, s)
+⋮----
+buf = self._ctx_var.get(None)
+⋮----
+def flush(self)
+⋮----
+def fileno(self)
+⋮----
+_EXEC_LOCK = threading.Lock()
+_SAFE_BUILTINS = {'print': print, 'len': len, 'str': str, 'int': int, 'float': float, 'list': list, 'dict': dict, 'set': set, 'tuple': tuple, 'bool': bool, 'type': type, 'isinstance': isinstance, 'issubclass': issubclass, 'enumerate': enumerate, 'zip': zip, 'map': map, 'filter': filter, 'sorted': sorted, 'reversed': reversed, 'range': range, 'min': min, 'max': max, 'sum': sum, 'abs': abs, 'round': round, 'any': any, 'all': all, 'pow': pow, 'divmod': divmod, 'chr': chr, 'ord': ord, 'hex': hex, 'bin': bin, 'oct': oct, 'repr': repr, 'ascii': ascii, 'format': format, 'hash': hash, 'id': id, 'iter': iter, 'next': next, 'slice': slice, 'callable': callable, 'hasattr': hasattr, 'getattr': getattr, 'setattr': setattr, 'delattr': delattr, 'dir': dir, 'vars': vars, 'bytes': bytes, 'bytearray': bytearray, 'memoryview': memoryview, 'complex': complex, 'object': object, 'super': super, 'property': property, 'staticmethod': staticmethod, 'classmethod': classmethod, '__import__': __import__, '__build_class__': __build_class__, 'exec': exec, 'open': open, 'Exception': Exception, 'BaseException': BaseException, 'ValueError': ValueError, 'TypeError': TypeError, 'KeyError': KeyError, 'IndexError': IndexError, 'AttributeError': AttributeError, 'FileNotFoundError': FileNotFoundError, 'OSError': OSError, 'IOError': IOError, 'RuntimeError': RuntimeError, 'NameError': NameError, 'ImportError': ImportError, 'StopIteration': StopIteration, 'AssertionError': AssertionError, 'NotImplementedError': NotImplementedError, 'ArithmeticError': ArithmeticError, 'LookupError': LookupError, 'Warning': Warning, 'input': None, 'eval': None, 'compile': None, 'globals': None, 'locals': locals}
+⋮----
+class LocalREPL
+⋮----
+def __init__(self, depth: int=1, sync_timeout: float | None=None)
+⋮----
+def set_llm_query_fns(self, llm_query_fn: Callable, llm_query_batched_fn: Callable) -> None
+⋮----
+def set_async_llm_query_fns(self, llm_query_async_fn: Callable, llm_query_batched_async_fn: Callable) -> None
+⋮----
+def _final_var(self, variable_name: str) -> str
+⋮----
+variable_name = variable_name.strip().strip('"\'')
+⋮----
+available = [k for k in self.locals.keys() if not k.startswith('_')]
+error_hint = ''
+⋮----
+error_hint = f' Last execution error: {self._last_exec_error}'
+⋮----
+def _show_vars(self) -> str
+⋮----
+available = {k: type(v).__name__ for k, v in self.locals.items() if not k.startswith('_')}
+⋮----
+@contextmanager
+    def _capture_output(self)
+⋮----
+@contextmanager
+    def _temp_cwd(self)
+⋮----
+old_cwd = os.getcwd()
+⋮----
+def _execute_code_inner(self, code: str, trace: REPLTrace | None=None) -> tuple[str, str, bool]
+⋮----
+trace_level = int(os.environ.get('RLM_REPL_TRACE', '0'))
+⋮----
+combined = {**self.globals, **self.locals}
+⋮----
+instrumented = TRACE_HEADER_MEMORY + '\n' + code + '\n' + TRACE_FOOTER_MEMORY
+⋮----
+instrumented = TRACE_HEADER + '\n' + code + '\n' + TRACE_FOOTER
+⋮----
+instrumented = code
+⋮----
+stdout = stdout_buf.getvalue()
+stderr = stderr_buf.getvalue()
+⋮----
+stderr = stderr_buf.getvalue() + f'\n{type(e).__name__}: {e}'
+⋮----
+def execute_code(self, code: str, trace: REPLTrace | None=None) -> REPLResult
+⋮----
+start_time = time.perf_counter()
+⋮----
+timed_out = False
+pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+future = pool.submit(self._execute_code_inner, code, trace)
+⋮----
+timed_out = True
+stdout = ''
+stderr = f'\nTimeoutError: Sync execution exceeded {self.sync_timeout}s timeout'
+⋮----
+def _make_cwd_open(self)
+⋮----
+temp_dir = self.temp_dir
+builtin_open = open
+⋮----
+def _cwd_open(file, *args, **kwargs)
+⋮----
+file = os.path.join(temp_dir, file)
+⋮----
+async def execute_code_async(self, code: str, repl_exec_fn: Any, trace: REPLTrace | None=None) -> REPLResult
+⋮----
+tok_out = _capture_stdout.set(stdout_buf)
+tok_err = _capture_stderr.set(stderr_buf)
+⋮----
+old_open = self.globals.get('__builtins__', {}).get('open')
+⋮----
+new_locals = await repl_exec_fn()
+⋮----
+def cleanup(self) -> None
+⋮----
+def __enter__(self)
+⋮----
+def __exit__(self, exc_type, exc_val, exc_tb)
+⋮----
+def __del__(self)
+</file>
+
+<file path="rlm_adk/agent.py">
+logger = logging.getLogger(__name__)
+⋮----
+def _project_root() -> Path
+_DEFAULT_RETRY_OPTIONS = HttpRetryOptions(attempts=3, initial_delay=1.0, max_delay=60.0, exp_base=2.0)
+_DEFAULT_DB_PATH = str(_project_root() / '.adk' / 'session.db')
+_DEFAULT_ARTIFACT_ROOT = str(_project_root() / '.adk' / 'artifacts')
+_SQLITE_STARTUP_PRAGMAS = '\nPRAGMA journal_mode = WAL;\nPRAGMA synchronous = NORMAL;\nPRAGMA cache_size = -64000;\nPRAGMA temp_store = MEMORY;\nPRAGMA mmap_size = 268435456;\nPRAGMA wal_autocheckpoint = 1000;\n'
+⋮----
+def _default_session_service(db_path: str | None=None) -> 'BaseSessionService'
+⋮----
+resolved_path = db_path or os.getenv('RLM_SESSION_DB', _DEFAULT_DB_PATH)
+db_dir = Path(resolved_path).parent
+⋮----
+conn = sqlite3.connect(resolved_path)
+⋮----
+def _build_generate_content_config(retry_config: dict[str, Any] | None) -> GenerateContentConfig | None
+⋮----
+retry_opts = HttpRetryOptions(**retry_config) if retry_config else None
+⋮----
+retry_opts = _DEFAULT_RETRY_OPTIONS
+⋮----
+def create_reasoning_agent(model: str, static_instruction: str=RLM_STATIC_INSTRUCTION, dynamic_instruction: str=RLM_DYNAMIC_INSTRUCTION, thinking_budget: int=1024, retry_config: dict[str, Any] | None=None, *, tools: list | None=None, output_schema: type | None=None) -> LlmAgent
+⋮----
+planner = None
+⋮----
+planner = BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=thinking_budget))
+⋮----
+static_instruction = static_instruction + '\n' + build_skill_instruction_block()
+gcc = _build_generate_content_config(retry_config)
+⋮----
+def create_rlm_orchestrator(model: str, root_prompt: str | None=None, persistent: bool=False, worker_pool: Any=None, repl: Any=None, static_instruction: str=RLM_STATIC_INSTRUCTION, dynamic_instruction: str=RLM_DYNAMIC_INSTRUCTION, repo_url: str | None=None, thinking_budget: int=1024, retry_config: dict[str, Any] | None=None) -> RLMOrchestratorAgent
+⋮----
+reasoning = create_reasoning_agent(model, static_instruction=static_instruction, dynamic_instruction=dynamic_instruction, thinking_budget=thinking_budget, retry_config=retry_config)
+⋮----
+worker_pool = WorkerPool(default_model=model)
+kwargs: dict[str, Any] = {'name': 'rlm_orchestrator', 'description': 'RLM recursive iteration loop orchestrator', 'reasoning_agent': reasoning, 'root_prompt': root_prompt, 'persistent': persistent, 'worker_pool': worker_pool, 'repl': repl, 'sub_agents': [reasoning]}
+⋮----
+def _default_plugins(*, debug: bool=True, langfuse: bool=False, sqlite_tracing: bool=True) -> list[BasePlugin]
+⋮----
+plugins: list[BasePlugin] = [ObservabilityPlugin()]
+_debug_env = os.getenv('RLM_ADK_DEBUG', '').lower() in ('1', 'true', 'yes')
+⋮----
+_sqlite_env = os.getenv('RLM_ADK_SQLITE_TRACING', '').lower() in ('1', 'true', 'yes')
+⋮----
+_langfuse_env = os.getenv('RLM_ADK_LANGFUSE', '').lower() in ('1', 'true', 'yes')
+⋮----
+_repl_trace_env = int(os.getenv('RLM_REPL_TRACE', '0'))
+⋮----
+_snapshot_env = os.getenv('RLM_CONTEXT_SNAPSHOTS', '').lower() in ('1', 'true', 'yes')
+⋮----
+_adk_dir = str(_project_root() / '.adk')
+⋮----
+def create_rlm_app(model: str, root_prompt: str | None=None, persistent: bool=False, worker_pool: Any=None, repl: Any=None, static_instruction: str=RLM_STATIC_INSTRUCTION, dynamic_instruction: str=RLM_DYNAMIC_INSTRUCTION, repo_url: str | None=None, plugins: list[BasePlugin] | None=None, debug: bool=True, thinking_budget: int=1024, langfuse: bool=False, sqlite_tracing: bool=True) -> App
+⋮----
+orchestrator = create_rlm_orchestrator(model=model, root_prompt=root_prompt, persistent=persistent, worker_pool=worker_pool, repl=repl, static_instruction=static_instruction, dynamic_instruction=dynamic_instruction, repo_url=repo_url, thinking_budget=thinking_budget)
+resolved_plugins = plugins if plugins is not None else _default_plugins(debug=debug, langfuse=langfuse, sqlite_tracing=sqlite_tracing)
+⋮----
+def create_rlm_runner(model: str, root_prompt: str | None=None, persistent: bool=False, worker_pool: Any=None, repl: Any=None, static_instruction: str=RLM_STATIC_INSTRUCTION, dynamic_instruction: str=RLM_DYNAMIC_INSTRUCTION, repo_url: str | None=None, plugins: list[BasePlugin] | None=None, debug: bool=True, thinking_budget: int=1024, artifact_service: BaseArtifactService | None=None, session_service: BaseSessionService | None=None, langfuse: bool=False, sqlite_tracing: bool=True) -> Runner
+⋮----
+rlm_app = create_rlm_app(model=model, root_prompt=root_prompt, persistent=persistent, worker_pool=worker_pool, repl=repl, static_instruction=static_instruction, dynamic_instruction=dynamic_instruction, repo_url=repo_url, plugins=plugins, debug=debug, thinking_budget=thinking_budget, langfuse=langfuse, sqlite_tracing=sqlite_tracing)
+resolved_session_service = session_service or _default_session_service()
+⋮----
+artifact_service = FileArtifactService(root_dir=_DEFAULT_ARTIFACT_ROOT)
+runner = Runner(app=rlm_app, session_service=resolved_session_service, artifact_service=artifact_service)
+⋮----
+def _root_agent_model() -> str
+app = create_rlm_app(model=_root_agent_model())
+root_agent = app.root_agent
+</file>
+
+<file path="rlm_adk/orchestrator.py">
+logger = logging.getLogger(__name__)
+_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+⋮----
+def is_transient_error(exc: Exception) -> bool
+⋮----
+class RLMOrchestratorAgent(BaseAgent)
+⋮----
+model_config = {'arbitrary_types_allowed': True}
+reasoning_agent: LlmAgent
+root_prompt: str | None = None
+repo_url: str | None = None
+persistent: bool = False
+worker_pool: Any = None
+repl: Any = None
+⋮----
+async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]
+⋮----
+_default_max_iter = int(os.getenv('RLM_MAX_ITERATIONS', '30'))
+max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
+trace_level = int(os.getenv('RLM_REPL_TRACE', '0'))
+⋮----
+repl = self.repl
+⋮----
+repl = LocalREPL(depth=1)
+⋮----
+trace_holder: list[REPLTrace | None] = [None]
+flush_fn = None
+⋮----
+def sync_llm_query_unsupported(*args, **kwargs)
+⋮----
+repl_tool = REPLTool(repl, max_calls=max_iterations, flush_fn=flush_fn, trace_holder=trace_holder if trace_level > 0 else None)
+⋮----
+initial_state: dict[str, Any] = {CURRENT_DEPTH: 1, ITERATION_COUNT: 0, REQUEST_ID: str(uuid.uuid4())}
+⋮----
+initial_prompt = self.root_prompt or 'Analyze and answer the query.'
+⋮----
+max_retries = int(os.getenv('RLM_LLM_MAX_RETRIES', '3'))
+base_delay = float(os.getenv('RLM_LLM_RETRY_DELAY', '5.0'))
+⋮----
+transient = is_transient_error(exc)
+⋮----
+http_code = getattr(exc, 'code', None)
+⋮----
+err_detail = f'retry exhausted after {attempt + 1} attempts (code={http_code})'
+⋮----
+err_detail = f'non-retryable error (code={http_code})'
+error_msg = f'[RLM ERROR] {type(exc).__name__}: {err_detail}'
+⋮----
+delay = base_delay * 2 ** attempt
+⋮----
+raw = ctx.session.state.get('reasoning_output', '')
+final_answer = ''
+⋮----
+final_answer = raw.get('final_answer', '')
+⋮----
+parsed = json.loads(raw)
+⋮----
+final_answer = parsed.get('final_answer', raw)
+⋮----
+final_answer = raw
+⋮----
+parsed_final = find_final_answer(raw)
+⋮----
+final_answer = parsed_final
+⋮----
+exhausted_msg = '[RLM ERROR] Reasoning agent completed without producing a structured final answer. Check output_schema wiring.'
+</file>
+
+<file path="rlm_adk/dispatch.py">
+logger = logging.getLogger(__name__)
+⋮----
+class WorkerPool
+⋮----
+def __init__(self, default_model: str, other_model: str | None=None, pool_size: int=5)
+⋮----
+def register_model(self, model_name: str, pool_size: int | None=None)
+⋮----
+size = pool_size or self.pool_size
+queue: asyncio.Queue[LlmAgent] = asyncio.Queue()
+⋮----
+worker = self._create_worker(model_name)
+⋮----
+def _create_worker(self, model_name: str) -> LlmAgent
+⋮----
+worker_name = f'worker_{self._worker_counter}'
+worker = LlmAgent(name=worker_name, model=model_name, description=f'Sub-LM worker for {model_name}', instruction="Answer the user's query directly and concisely.", include_contents='none', disallow_transfer_to_parent=True, disallow_transfer_to_peers=True, output_key=f'{worker_name}_output', before_model_callback=worker_before_model, after_model_callback=worker_after_model, on_model_error_callback=worker_on_model_error, generate_content_config=types.GenerateContentConfig(temperature=0.0, http_options=HttpOptions(timeout=int(os.getenv('RLM_WORKER_HTTP_TIMEOUT', '120000')), retry_options=HttpRetryOptions(attempts=2, initial_delay=1.0, max_delay=30.0))))
+⋮----
+async def acquire(self, model: str | None=None) -> LlmAgent
+⋮----
+target_model = model or self.other_model
+⋮----
+async def release(self, worker: LlmAgent, model: str | None=None)
+⋮----
+def ensure_initialized(self)
+_WORKER_DISPATCH_TIMEOUT = float(os.getenv('RLM_WORKER_TIMEOUT', '180'))
+⋮----
+async def _consume_events(run_iter: Any) -> None
+⋮----
+def create_dispatch_closures(worker_pool: WorkerPool, ctx: InvocationContext, call_log_sink: list | None=None, trace_sink: list | None=None) -> tuple[Any, Any, Any]
+⋮----
+_acc_dispatch_count = 0
+_acc_batch_dispatches = 0
+_acc_latencies: list[float] = []
+_acc_error_counts: dict[str, int] = {}
+_acc_structured_output_failures = 0
+⋮----
+async def llm_query_async(prompt: str, model: str | None=None, output_schema: type[BaseModel] | None=None) -> LLMResult
+⋮----
+current_trace = trace_sink[0] if trace_sink else None
+call_index = -1
+call_start = 0.0
+⋮----
+call_index = current_trace._call_counter
+⋮----
+call_start = time.perf_counter()
+results = await llm_query_batched_async([prompt], model=model, output_schema=output_schema)
+⋮----
+elapsed_ms = (time.perf_counter() - call_start) * 1000
+⋮----
+async def llm_query_batched_async(prompts: list[str], model: str | None=None, output_schema: type[BaseModel] | None=None) -> list[LLMResult]
+⋮----
+max_concurrent = int(os.getenv('RLM_MAX_CONCURRENT_WORKERS', '4'))
+k = len(prompts)
+dispatch_start = time.perf_counter()
+⋮----
+_data_flow = DataFlowTracker() if current_trace is not None else None
+⋮----
+batch_start_index = current_trace._call_counter
+⋮----
+batch_start_index = 0
+⋮----
+all_results: list[LLMResult] = []
+⋮----
+batch_prompts = prompts[batch_idx:batch_idx + max_concurrent]
+batch_num = batch_idx // max_concurrent + 1
+total_batches = (k + max_concurrent - 1) // max_concurrent
+⋮----
+workers: list[LlmAgent] = []
+⋮----
+worker = await worker_pool.acquire(model)
+⋮----
+parallel = ParallelAgent(name=f'batch_{batch_num}_{len(workers)}', sub_agents=list(workers))
+⋮----
+record = getattr(worker, '_call_record', {}) or {}
+⋮----
+cat = record.get('error_category', 'UNKNOWN')
+⋮----
+structured = getattr(worker, '_structured_result', None)
+⋮----
+result_text = json.dumps(structured)
+⋮----
+result_text = worker._result
+⋮----
+record = getattr(worker, '_call_record', None)
+⋮----
+model_name = record.get('model') or 'unknown'
+raw_prompt = record['prompt']
+⋮----
+prompt_val: str | dict = ''
+⋮----
+prompt_val = ' | '.join((m.get('content', '') for m in raw_prompt if isinstance(m, dict)))
+⋮----
+prompt_val = raw_prompt
+⋮----
+batch_elapsed = (time.perf_counter() - dispatch_start) * 1000
+⋮----
+record = getattr(worker, '_call_record', None) or {}
+ci = batch_start_index + batch_idx + idx
+result_idx = batch_idx + idx
+⋮----
+existing = {i for i, w in enumerate(workers) if getattr(w, '_result_ready', False)}
+⋮----
+w = workers[idx]
+record = getattr(w, '_call_record', {}) or {}
+⋮----
+dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
+⋮----
+def flush_fn() -> dict
+⋮----
+delta: dict[str, Any] = {WORKER_DISPATCH_COUNT: _acc_dispatch_count, OBS_WORKER_TOTAL_DISPATCHES: _acc_dispatch_count, OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_latencies)}
+</file>
+
+</files>

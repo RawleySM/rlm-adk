@@ -91,6 +91,12 @@ REQUEST_ID = "request_id"
 IDEMPOTENCY_KEY = "idempotency_key"
 USER_LAST_SUCCESSFUL_CALL_ID = "user:last_successful_call_id"
 
+# Test Hook State Keys (session-scoped, written by test-only callbacks)
+CB_REASONING_CONTEXT = "cb_reasoning_context"
+CB_WORKER_CONTEXT = "cb_worker_context"
+CB_ORCHESTRATOR_CONTEXT = "cb_orchestrator_context"
+CB_TOOL_CONTEXT = "cb_tool_context"
+
 # Artifact Tracking Keys (session-scoped)
 ARTIFACT_SAVE_COUNT = "artifact_save_count"
 ARTIFACT_LOAD_COUNT = "artifact_load_count"

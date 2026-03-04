@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.venv/lib/python3.11/site-packages/google/adk/models/google_llm.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.venv/lib/python3.12/site-packages/google/adk/models/google_llm.py",
   "library": "google-genai",
   "import_prefix": "google.genai",
   "imported_classes": [

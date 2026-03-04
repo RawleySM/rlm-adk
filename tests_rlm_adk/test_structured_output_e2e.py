@@ -103,7 +103,7 @@ async def test_happy_path_final_answer():
 
 async def test_happy_path_with_plugins(tmp_path: Path):
     """Plugin pipeline works correctly with structured output workers."""
-    result = await _run_with_plugins("structured_output_happy_path", tmp_path)
+    result = await _run_with_plugins("agent_challenge/structured_output_happy_path", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
     assert result.final_state.get(FINAL_ANSWER) == "Market trending up with strong momentum"
