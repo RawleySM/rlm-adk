@@ -54,5 +54,14 @@
     "final_answer": "ok",
     "total_iterations": 0,
     "total_model_calls": 2
+  },
+  "expected_state": {
+    "reasoning_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }

@@ -1,0 +1,165 @@
+{
+  "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+  "failure_modes": [
+    "FM-16"
+  ],
+  "rpn": 50,
+  "pathway": "P6g",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: The fixture REPL code defines `AnalysisResult(summary: str, confidence: float)`, calls `llm_query(..., output_schema=AnalysisResult)`, and checks `result.error` before touching `result.parsed`, which is the intended FM-16 consumption pattern (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:27`; `rlm_adk/dispatch.py:467-487`). PASS: Queue/FMEA alignment is consistent (`FM-16`, `P6g`, `RPN=50`) (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4786-4791`; `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:254-265`). FAIL: The REPL snippet only prints the error category and does not expose structured/error fields for direct assertions, so tests must infer correctness indirectly unless tool_result assertions are added (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:27`; `tests_rlm_adk/test_fmea_e2e.py:2116-2151`).",
+    "response_mock_accuracy": "PASS: The scripted worker attempts are pure missing-field ValidationError variants (missing `confidence`, then missing `summary`, then missing both), with no empty-string payloads, so the fixture cleanly isolates the pure-validation retry lane requested in prior FM-16 gap analysis (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:48-49,81-82,114-127`; `rlm_adk_docs/FMEA/fmea_gaps_020326.json:1416-1421`). PASS: Call topology and expectations are internally coherent (1 reasoning + 3 worker attempts + 1 reasoning FINAL = 5 calls) (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:13-171,175-178`). FAIL: `config.max_retries=2` is documentary only for this path because dispatch currently hardcodes callback wiring at `max_retries=2`, so fixture-config variation is not actually exercised (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:9`; `rlm_adk/dispatch.py:377`).",
+    "fault_injection_accuracy": "PASS: `fault_injections` is correctly empty for this scenario because FM-16 here is callback/schema-validation exhaustion, not transport failure (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:173`; `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:259-263`). PASS: This matches Team J framing that FM-16 behavior is dispatch/callback classification (`SCHEMA_VALIDATION_EXHAUSTED`) rather than HTTP fault handling (`demo_showboat/demo_fmea_team_j.md:6,37,66`). FAIL: By design, this fixture cannot validate HTTP retry/error-classification interactions (RATE_LIMIT/SERVER/TIMEOUT), so cross-layer resilience remains out of scope for this test (`rlm_adk/dispatch.py:444-458,640-646`).",
+    "gaps": [
+      "FAIL: `test_obs_structured_output_failures` is conditional and can pass without requiring `OBS_WORKER_ERROR_COUNTS` presence or explicit `SCHEMA_VALIDATION_EXHAUSTED` value, leaving the main FM-16 observability signal weakly asserted (`tests_rlm_adk/test_fmea_e2e.py:2136-2141`; `rlm_adk/dispatch.py:483-487,641-643`).",
+      "FAIL: The class has no tool_result assertion for the fixture-specific REPL print (`Pure validation exhausted: ...`), so propagation of `result.error_category` is not directly verified (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:27`; `tests_rlm_adk/test_fmea_e2e.py:2116-2151`; `_extract_tool_results` helper exists at `tests_rlm_adk/test_fmea_e2e.py:64-77`).",
+      "FAIL: No assertion confirms exact retry cardinality (exactly 3 `set_model_response` worker attempts); contract coverage checks only aggregate model-call count (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:46-143,177`; `tests_rlm_adk/provider_fake/fixtures.py:242-250`; `tests_rlm_adk/test_fmea_e2e.py:2111-2114`).",
+      "FAIL: Fixture index metadata still leaves `failure_modes` empty for this scenario, reducing machine-level FM-16 traceability despite queue attribution (`tests_rlm_adk/fixtures/provider_fake/index.json:1175-1180`; `rlm_adk_docs/FMEA/fmea_gaps_020326.json:4786-4791`)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` is checked for exhaustion/validation wording (`tests_rlm_adk/test_fmea_e2e.py:2120-2123`).",
+      "PASS: `ITERATION_COUNT` is asserted `== 1` (`tests_rlm_adk/test_fmea_e2e.py:2129-2130`).",
+      "PASS: `WORKER_DISPATCH_COUNT` is asserted `== 1` (`tests_rlm_adk/test_fmea_e2e.py:2148-2151`).",
+      "PASS: Contract assertions validate expected `final_answer`, `total_iterations`, and `total_model_calls` (`tests_rlm_adk/test_fmea_e2e.py:2111-2114`; `tests_rlm_adk/provider_fake/fixtures.py:219-250`; `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:175-178`).",
+      "PASS (conditional): `OBS_STRUCTURED_OUTPUT_FAILURES` is checked when `SCHEMA_VALIDATION_EXHAUSTED` appears in `OBS_WORKER_ERROR_COUNTS` (`tests_rlm_adk/test_fmea_e2e.py:2136-2141`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `OBS_WORKER_ERROR_COUNTS` is not required/pinned to exact FM-16 category count (`tests_rlm_adk/test_fmea_e2e.py:2137-2141`; `rlm_adk/dispatch.py:483-487,641-643`; `rlm_adk/state.py:81`).",
+      "FAIL: `OBS_WORKER_TOTAL_DISPATCHES` is emitted by flush but unasserted (`rlm_adk/dispatch.py:633-636`; `rlm_adk/state.py:70`).",
+      "FAIL: `OBS_WORKER_DISPATCH_LATENCY_MS` is emitted but unasserted (`rlm_adk/dispatch.py:636`; `rlm_adk/state.py:69`).",
+      "FAIL: `LAST_REPL_RESULT` observability summary is unasserted (`rlm_adk/tools/repl_tool.py:176-185`; `rlm_adk/state.py:21`)."
+    ],
+    "assertions_tested": [
+      "PASS: `TestStructuredOutputRetryExhaustionPureValidation` runs 5 focused tests and currently passes (`tests_rlm_adk/test_fmea_e2e.py:2101-2151`; local run `pytest ...::TestStructuredOutputRetryExhaustionPureValidation -q` -> `5 passed in 3.04s`).",
+      "PASS: Contract test verifies fixture expectations end-to-end (`tests_rlm_adk/test_fmea_e2e.py:2111-2114`; `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:175-178`).",
+      "PASS: Final-answer semantic check verifies exhaustion surfaced to user-facing state (`tests_rlm_adk/test_fmea_e2e.py:2116-2123`).",
+      "PASS: Single-iteration behavior is asserted (`tests_rlm_adk/test_fmea_e2e.py:2125-2130`).",
+      "PASS: Single-worker dispatch accounting is asserted (`tests_rlm_adk/test_fmea_e2e.py:2144-2151`)."
+    ],
+    "assertions_missing": [
+      "FAIL: No strict assertion that `OBS_WORKER_ERROR_COUNTS['SCHEMA_VALIDATION_EXHAUSTED'] == 1` for this single exhausted worker (`tests_rlm_adk/test_fmea_e2e.py:2137-2141`; `rlm_adk/dispatch.py:483-487,641-643`).",
+      "FAIL: No strict assertion that `OBS_STRUCTURED_OUTPUT_FAILURES == 1`; current check is conditional and lower-bounded (`tests_rlm_adk/test_fmea_e2e.py:2136-2141`; `rlm_adk/dispatch.py:651-652`).",
+      "FAIL: No assertion inspects execute_code function_response stdout/stderr to confirm `result.error_category` text reached the REPL output (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:27`; `tests_rlm_adk/test_fmea_e2e.py:64-77,2116-2151`).",
+      "FAIL: No assertion on `LLMResult.parsed is None` / `error_category == 'SCHEMA_VALIDATION_EXHAUSTED'`; these remain indirect via final-answer wording (`rlm_adk/dispatch.py:473-482`; `rlm_adk/types.py:65-74`).",
+      "FAIL: No event-level assertion that exactly 3 `set_model_response` attempts occurred (1 initial + 2 retries) (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:46-143`; `tests_rlm_adk/provider_fake/fixtures.py:242-250`)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4786-4803",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:254-265",
+      "demo_showboat/demo_fmea_team_j.md:6,37,66",
+      "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:2-3,27,46-143,173-178",
+      "tests_rlm_adk/test_fmea_e2e.py:64-77,2101-2151",
+      "tests_rlm_adk/provider_fake/fixtures.py:219-250",
+      "tests_rlm_adk/test_provider_fake_e2e.py:49-59",
+      "rlm_adk/dispatch.py:373-380,461-487,633-653",
+      "rlm_adk/callbacks/worker_retry.py:51-71,96-145,200-210",
+      "tests_rlm_adk/test_adk_worker_retry.py:195-229",
+      "tests_rlm_adk/test_worker_retry_tool_guard.py:160-170",
+      "rlm_adk/tools/repl_tool.py:168-185,200-205",
+      "tests_rlm_adk/fixtures/provider_fake/index.json:1175-1180"
+    ],
+    "untested_code_paths": [
+      "FAIL: Structured-output success branch (`structured != None`) is not exercised by this pure-exhaustion fixture (`rlm_adk/dispatch.py:462-466,488-497`).",
+      "FAIL: Empty-value detection path in `WorkerRetryPlugin.extract_error_from_result` is intentionally out of scope and untested here (`rlm_adk/callbacks/worker_retry.py:63-71`).",
+      "FAIL: NO_RESULT worker branch is untested (`rlm_adk/dispatch.py:436-443`).",
+      "FAIL: Batch-timeout and generic batch-exception paths are untested by this K=1 deterministic fixture (`rlm_adk/dispatch.py:415-431,563-590`)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "Exact FM-16 error-count map in final state",
+      "source": "rlm_adk/dispatch.py:483-487,641-643; tests_rlm_adk/test_fmea_e2e.py:2137-2141",
+      "rationale": "PASS if `OBS_WORKER_ERROR_COUNTS` exists and equals `{\"SCHEMA_VALIDATION_EXHAUSTED\": 1}` for this single-worker fixture; FAIL if key is absent or category/count diverges."
+    },
+    {
+      "trace": "execute_code function_response stdout/stderr payload",
+      "source": "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:27; tests_rlm_adk/test_fmea_e2e.py:64-77; rlm_adk/tools/repl_tool.py:200-205",
+      "rationale": "PASS if stdout contains `Pure validation exhausted: SCHEMA_VALIDATION_EXHAUSTED` and `llm_calls_made` is true; FAIL if only FINAL_ANSWER text is validated without tool-level evidence."
+    },
+    {
+      "trace": "`set_model_response` attempt cardinality in event stream",
+      "source": "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:46-143; tests_rlm_adk/provider_fake/fixtures.py:242-250",
+      "rationale": "PASS if exactly three worker attempts are observed (1 initial + 2 retries); FAIL if retries regress while aggregate model-call assertions still pass."
+    },
+    {
+      "trace": "BUG-13 suppress counter delta during pure-validation retries",
+      "source": "rlm_adk/callbacks/worker_retry.py:33,200-210; tests_rlm_adk/test_fmea_e2e.py:2101-2151",
+      "rationale": "PASS if `_bug13_stats['suppress_count']` increases during this run, proving retry sentinel suppression is active for validation-error-driven retries; FAIL if outcome passes without runtime patch evidence."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "medium",
+      "type": "new_fixture",
+      "action": "Retain `structured_output_retry_exhaustion_pure_validation.json` and its dedicated FM-16 class as the pure ValidationError exhaustion regression anchor.",
+      "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Fixture exists at `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:1-179`; tests exist at `tests_rlm_adk/test_fmea_e2e.py:2101-2151`; prior FM-16 recommendation marked implemented in `rlm_adk_docs/FMEA/fmea_gaps_020326.json:1416-1421`.",
+        "notes": "PASS: The pure-validation variant is present and actively tested (5 tests passing locally)."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Tighten `test_obs_structured_output_failures` to require `OBS_WORKER_ERROR_COUNTS` presence and assert exact values: `SCHEMA_VALIDATION_EXHAUSTED == 1` and `OBS_STRUCTURED_OUTPUT_FAILURES == 1`.",
+      "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current logic is conditional (`if error_counts and ...`) and only checks `sof >= 1` when category exists (`tests_rlm_adk/test_fmea_e2e.py:2137-2141`), while dispatch emits deterministic increments for this path (`rlm_adk/dispatch.py:483-487,651-652`).",
+        "notes": "FAIL: Existing assertions can pass even when key observability counters are missing."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add a tool_result assertion using `_extract_tool_results` to verify execute_code stdout includes `Pure validation exhausted: SCHEMA_VALIDATION_EXHAUSTED` and no unexpected stderr crash signature.",
+      "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "REPL code prints the category (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:27`), helper exists (`tests_rlm_adk/test_fmea_e2e.py:64-77`), but fixture class has no tool_result assertions (`tests_rlm_adk/test_fmea_e2e.py:2116-2151`).",
+        "notes": "FAIL: Coverage currently relies on FINAL_ANSWER keywords rather than direct REPL output evidence."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add event/request-log level assertion for exact retry cardinality (three `set_model_response` worker attempts).",
+      "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Fixture scripts three worker attempts (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json:46-143`), but current checks only validate aggregate `total_model_calls` (`tests_rlm_adk/provider_fake/fixtures.py:242-250`; `tests_rlm_adk/test_fmea_e2e.py:2111-2114`).",
+        "notes": "FAIL: Aggregate count can still pass if retry allocation between reasoning/worker calls regresses."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "unit_test",
+      "action": "Keep existing callback unit tests for ValidationError reflection guidance as baseline guardrails for the pure-validation retry path.",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "`tests_rlm_adk/test_adk_worker_retry.py:195-229` validates `on_tool_error_cb` reflection + exhaustion behavior; `tests_rlm_adk/test_worker_retry_tool_guard.py:160-170` validates set_model_response error interception path.",
+        "notes": "PASS: Unit-level callback behavior exists; remaining gaps are fixture-specific e2e assertion strength."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_j.md",
+  "review_team": "J"
+}

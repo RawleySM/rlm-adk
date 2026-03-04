@@ -1,0 +1,324 @@
+{
+  "generated_at": "2026-03-03",
+  "source": "rlm_adk_docs/FMEA/fmea_gaps_020326.json",
+  "entries": [
+    {
+      "fixture": "empty_reasoning_output_safety.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/empty_reasoning_output_safety.json",
+      "inferred_failure_modes": [
+        "FM-15"
+      ],
+      "priority_bucket": "P3",
+      "owners": [
+        "E"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_e.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1737"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/empty_reasoning_output_safety.json.review.json"
+    },
+    {
+      "fixture": "fault_429_then_success.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json",
+      "inferred_failure_modes": [
+        "FM-01"
+      ],
+      "priority_bucket": "P0",
+      "owners": [
+        "F"
+      ],
+      "showboat_status": "DEMO_CONFIRMED",
+      "demo_files": [
+        "demo_fmea_team_f.md"
+      ],
+      "direct_demo_mentions": [
+        {
+          "file": "demo_fmea_team_f.md",
+          "line_numbers": [
+            183,
+            586
+          ]
+        }
+      ],
+      "candidate_test_refs": [],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/fault_429_then_success.json.review.json"
+    },
+    {
+      "fixture": "max_iterations_exceeded_persistent.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/max_iterations_exceeded_persistent.json",
+      "inferred_failure_modes": [
+        "FM-03"
+      ],
+      "priority_bucket": "P3",
+      "owners": [
+        "D"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_d.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1664"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/max_iterations_exceeded_persistent.json.review.json"
+    },
+    {
+      "fixture": "reasoning_safety_finish.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json",
+      "inferred_failure_modes": [
+        "FM-24",
+        "FM-25"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "E"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_e.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1792"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/reasoning_safety_finish.json.review.json"
+    },
+    {
+      "fixture": "repl_exception_then_retry.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/repl_exception_then_retry.json",
+      "inferred_failure_modes": [
+        "FM-14"
+      ],
+      "priority_bucket": "P1",
+      "owners": [
+        "L"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_l.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1529"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/repl_exception_then_retry.json.review.json"
+    },
+    {
+      "fixture": "repl_runtime_error_partial_state.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json",
+      "inferred_failure_modes": [
+        "FM-05"
+      ],
+      "priority_bucket": "P3",
+      "owners": [
+        "C"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_c.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1594"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/repl_runtime_error_partial_state.json.review.json"
+    },
+    {
+      "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json",
+      "inferred_failure_modes": [
+        "FM-17"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "J"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_j.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:2227"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/structured_output_batched_k3_mixed_exhaust.json.review.json"
+    },
+    {
+      "fixture": "structured_output_batched_k3_multi_retry.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json",
+      "inferred_failure_modes": [
+        "FM-17"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "J"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_j.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:2167"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/structured_output_batched_k3_multi_retry.json.review.json"
+    },
+    {
+      "fixture": "structured_output_retry_empty.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json",
+      "inferred_failure_modes": [
+        "FM-16",
+        "FM-17"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "D",
+        "H"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_d.md",
+        "demo_fmea_team_h.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_structured_output_e2e.py:46",
+        "tests_rlm_adk/test_structured_output_e2e.py:161",
+        "tests_rlm_adk/test_structured_output_e2e.py:171"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/structured_output_retry_empty.json.review.json"
+    },
+    {
+      "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_exhaustion_pure_validation.json",
+      "inferred_failure_modes": [
+        "FM-16"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "J"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_j.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:2109"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/structured_output_retry_exhaustion_pure_validation.json.review.json"
+    },
+    {
+      "fixture": "structured_output_retry_validation.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_validation.json",
+      "inferred_failure_modes": [
+        "FM-16",
+        "FM-17"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "D",
+        "H"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_d.md",
+        "demo_fmea_team_h.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_structured_output_e2e.py:47",
+        "tests_rlm_adk/test_structured_output_e2e.py:188",
+        "tests_rlm_adk/test_structured_output_e2e.py:198",
+        "tests_rlm_adk/test_structured_output_e2e.py:209"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/structured_output_retry_validation.json.review.json"
+    },
+    {
+      "fixture": "worker_500_retry_exhausted_naive.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json",
+      "inferred_failure_modes": [
+        "FM-09"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "K"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_k.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1841"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/worker_500_retry_exhausted_naive.json.review.json"
+    },
+    {
+      "fixture": "worker_auth_error_401.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json",
+      "inferred_failure_modes": [
+        "FM-28"
+      ],
+      "priority_bucket": "P3",
+      "owners": [
+        "F"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_f.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1983"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/worker_auth_error_401.json.review.json"
+    },
+    {
+      "fixture": "worker_empty_response_finish_reason.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/worker_empty_response_finish_reason.json",
+      "inferred_failure_modes": [
+        "FM-25"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "L"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_l.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:2059"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/worker_empty_response_finish_reason.json.review.json"
+    },
+    {
+      "fixture": "worker_max_tokens_naive.json",
+      "fixture_path": "tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json",
+      "inferred_failure_modes": [
+        "FM-25"
+      ],
+      "priority_bucket": "P2",
+      "owners": [
+        "L"
+      ],
+      "showboat_status": "TEAM_DEMO_ONLY",
+      "demo_files": [
+        "demo_fmea_team_l.md"
+      ],
+      "direct_demo_mentions": [],
+      "candidate_test_refs": [
+        "tests_rlm_adk/test_fmea_e2e.py:1916"
+      ],
+      "output_review_file": "rlm_adk_docs/FMEA/queue_reviews_020326/worker_max_tokens_naive.json.review.json"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_max_tokens_naive",
-  "description": "FM-25 residual risk (RPN=75): Single worker dispatch where the worker response has finishReason=MAX_TOKENS with truncated partial text. REPL code does NOT check for truncation — it naively prints the result directly. This exercises FM-25's residual risk: truncated text is consumed as if it were a complete answer.",
+  "description": "FM-25 residual risk (RPN=75): Single worker dispatch where the worker response has finishReason=MAX_TOKENS with truncated partial text. REPL code does NOT check for truncation \u2014 it naively prints the result directly. This exercises FM-25's residual risk: truncated text is consumed as if it were a complete answer.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -12,7 +12,7 @@
     {
       "call_index": 0,
       "caller": "reasoning",
-      "note": "Reasoning agent emits execute_code with llm_query. Code does NOT check for truncation — just prints the result directly.",
+      "note": "Reasoning agent emits execute_code with llm_query. Code does NOT check for truncation \u2014 just prints the result directly.",
       "status": 200,
       "body": {
         "candidates": [
@@ -103,5 +103,16 @@
     "final_answer": "Naive truncated: revenue increasing by 15%",
     "total_iterations": 1,
     "total_model_calls": 3
+  },
+  "expected_state": {
+    "worker_dispatch_count": 1,
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
+    "obs:finish_max_tokens_count": {"$gt": 0}
   }
 }

@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FMEA Gaps Compiled Report",
+  "description": "Compiled FMEA gap analysis: fixture reviews, fidelity verdicts, test coverage, and recommendations with resolution tracking.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "compiled_at",
+    "total_fixtures_reviewed",
+    "existing_fixture_count",
+    "new_fixture_count",
+    "source_analysis_count",
+    "failure_modes_covered",
+    "new_fixtures",
+    "reviews",
+    "verdicts"
+  ],
+  "properties": {
+    "compiled_at": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO date when this report was compiled."
+    },
+    "total_fixtures_reviewed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "existing_fixture_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "new_fixture_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_analysis_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failure_modes_covered": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^FM-\\d{2}$"
+      },
+      "description": "List of failure mode IDs covered by this report."
+    },
+    "new_fixtures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/NewFixture" }
+    },
+    "reviews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Review" }
+    },
+    "verdicts": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/VerdictEnum" },
+      "description": "Map of fixture filename to overall verdict."
+    }
+  },
+
+  "$defs": {
+    "VerdictEnum": {
+      "type": "string",
+      "enum": ["faithful", "partial"]
+    },
+    "PriorityEnum": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "RecommendationTypeEnum": {
+      "type": "string",
+      "enum": ["test_fix", "fixture_fix", "new_fixture", "source_fix", "unit_test"]
+    },
+    "ResolutionStatusEnum": {
+      "type": "string",
+      "enum": ["implemented", "not_needed", "open", "wont_fix"]
+    },
+    "ReviewTypeEnum": {
+      "type": "string",
+      "enum": ["fixture", "source_analysis"]
+    },
+
+    "NewFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture", "failure_modes", "rpn", "demo_file", "review_team", "verdict"],
+      "properties": {
+        "fixture": { "type": "string", "description": "Fixture filename." },
+        "failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "rpn": { "type": "integer", "minimum": 1 },
+        "demo_file": { "type": "string" },
+        "review_team": { "type": "string" },
+        "verdict": { "$ref": "#/$defs/VerdictEnum" }
+      }
+    },
+
+    "Review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture",
+        "failure_modes",
+        "rpn",
+        "pathway",
+        "review_type",
+        "fidelity",
+        "test_coverage",
+        "recommendations",
+        "additional_traces"
+      ],
+      "properties": {
+        "fixture": { "type": "string", "description": "Fixture filename being reviewed." },
+        "failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "rpn": { "type": "integer", "minimum": 1, "description": "Risk Priority Number." },
+        "pathway": { "type": "string", "description": "Execution pathway identifier." },
+        "review_type": { "$ref": "#/$defs/ReviewTypeEnum" },
+        "demo_file": { "type": "string", "description": "Associated demo file. Present only for new fixtures." },
+        "review_team": { "type": "string", "description": "Review team identifier. Present only for new fixtures." },
+        "fidelity": { "$ref": "#/$defs/Fidelity" },
+        "test_coverage": { "$ref": "#/$defs/TestCoverage" },
+        "recommendations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Recommendation" }
+        },
+        "additional_traces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AdditionalTrace" }
+        }
+      }
+    },
+
+    "Fidelity": {
+      "type": "object",
+      "required": ["verdict", "gaps"],
+      "properties": {
+        "verdict": { "$ref": "#/$defs/VerdictEnum" },
+        "gaps": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Identified fidelity gaps."
+        }
+      },
+      "oneOf": [
+        { "$ref": "#/$defs/FidelityFixture" },
+        { "$ref": "#/$defs/FidelitySourceAnalysis" }
+      ]
+    },
+
+    "FidelityFixture": {
+      "description": "Fidelity fields for review_type=fixture.",
+      "type": "object",
+      "required": ["repl_code_accuracy", "response_mock_accuracy", "fault_injection_accuracy"],
+      "properties": {
+        "verdict": true,
+        "gaps": true,
+        "repl_code_accuracy": {
+          "type": "string",
+          "description": "Assessment of REPL code accuracy."
+        },
+        "response_mock_accuracy": {
+          "type": "string",
+          "description": "Assessment of response mock accuracy."
+        },
+        "fault_injection_accuracy": {
+          "type": "string",
+          "description": "Assessment of fault injection accuracy."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "FidelitySourceAnalysis": {
+      "description": "Fidelity fields for review_type=source_analysis.",
+      "type": "object",
+      "required": ["source_code_accuracy", "analysis_accuracy", "testability_accuracy"],
+      "properties": {
+        "verdict": true,
+        "gaps": true,
+        "source_code_accuracy": {
+          "type": "string",
+          "description": "Assessment of source code citation accuracy."
+        },
+        "analysis_accuracy": {
+          "type": "string",
+          "description": "Assessment of the analysis itself."
+        },
+        "testability_accuracy": {
+          "type": "string",
+          "description": "Assessment of testability claims."
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "TestCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state_keys_tested",
+        "state_keys_missing",
+        "assertions_tested",
+        "assertions_missing",
+        "source_code_refs",
+        "untested_code_paths"
+      ],
+      "properties": {
+        "state_keys_tested": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "state_keys_missing": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assertions_tested": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assertions_missing": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source_code_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "untested_code_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "Recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "type", "action", "resolution"],
+      "properties": {
+        "priority": { "$ref": "#/$defs/PriorityEnum" },
+        "type": { "$ref": "#/$defs/RecommendationTypeEnum" },
+        "action": { "type": "string", "description": "Recommended action to take." },
+        "fixture": { "type": "string", "description": "Target fixture filename. Present for fixture reviews." },
+        "failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" },
+          "description": "Related failure mode IDs. Present for fixture reviews."
+        },
+        "resolution": { "$ref": "#/$defs/Resolution" }
+      }
+    },
+
+    "Resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence", "notes"],
+      "properties": {
+        "status": { "$ref": "#/$defs/ResolutionStatusEnum" },
+        "evidence": { "type": "string", "description": "Test or code reference that resolves this recommendation." },
+        "notes": { "type": "string", "description": "Explanation of resolution rationale." }
+      }
+    },
+
+    "AdditionalTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trace", "source", "rationale"],
+      "properties": {
+        "trace": { "type": "string", "description": "Trace point or observable to capture." },
+        "source": { "type": "string", "description": "Source code location (file:lines)." },
+        "rationale": { "type": "string", "description": "Why this trace is useful." }
+      }
+    }
+  }
+}

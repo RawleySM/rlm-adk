@@ -1,0 +1,499 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FMEA Gaps Compilation",
+  "description": "Compiled FMEA gap analysis combining fixture reviews, source analyses, queue entries, fixture metadata, and failure mode cross-references for the RLM-ADK provider-fake test suite.",
+  "type": "object",
+  "required": [
+    "source_metadata",
+    "summary",
+    "fixture_reviews",
+    "source_analyses",
+    "fixture_queue_entries",
+    "fixtures",
+    "failure_mode_index",
+    "schema_notes",
+    "compatibility"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source_metadata": { "$ref": "#/$defs/SourceMetadata" },
+    "summary": { "$ref": "#/$defs/Summary" },
+    "fixture_reviews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FixtureReview" }
+    },
+    "source_analyses": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SourceAnalysis" }
+    },
+    "fixture_queue_entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FixtureQueueEntry" }
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/FixtureRecord" }
+    },
+    "failure_mode_index": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/FailureModeEntry" }
+    },
+    "schema_notes": { "$ref": "#/$defs/SchemaNotes" },
+    "compatibility": { "$ref": "#/$defs/Compatibility" }
+  },
+
+  "$defs": {
+
+    "SourceMetadata": {
+      "type": "object",
+      "required": ["compiled_at", "manifest_version", "generated_from", "selection"],
+      "additionalProperties": false,
+      "properties": {
+        "compiled_at": { "type": "string", "format": "date" },
+        "manifest_version": { "type": "string" },
+        "generated_from": { "$ref": "#/$defs/GeneratedFrom" },
+        "selection": { "$ref": "#/$defs/Selection" }
+      }
+    },
+
+    "GeneratedFrom": {
+      "type": "object",
+      "required": ["index_json", "queue_audit_json", "review_dir", "schema_json", "showboat_audit_json"],
+      "additionalProperties": false,
+      "properties": {
+        "index_json": { "type": "string" },
+        "queue_audit_json": { "type": "string" },
+        "review_dir": { "type": "string" },
+        "schema_json": { "type": "string" },
+        "showboat_audit_json": { "type": "string" }
+      }
+    },
+
+    "Selection": {
+      "type": "object",
+      "required": ["entry_count", "included_status"],
+      "additionalProperties": false,
+      "properties": {
+        "entry_count": { "type": "integer", "minimum": 0 },
+        "included_status": { "type": "string" }
+      }
+    },
+
+    "Summary": {
+      "type": "object",
+      "required": ["source_counts", "normalized_counts", "parity_checks"],
+      "additionalProperties": false,
+      "properties": {
+        "source_counts": { "$ref": "#/$defs/SourceCounts" },
+        "normalized_counts": { "$ref": "#/$defs/NormalizedCounts" },
+        "parity_checks": { "$ref": "#/$defs/ParityChecks" }
+      }
+    },
+
+    "SourceCounts": {
+      "type": "object",
+      "required": [
+        "compiled_reviews_total",
+        "compiled_fixture_reviews",
+        "compiled_source_analyses",
+        "compiled_verdicts",
+        "manifest_entries"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "compiled_reviews_total": { "type": "integer", "minimum": 0 },
+        "compiled_fixture_reviews": { "type": "integer", "minimum": 0 },
+        "compiled_source_analyses": { "type": "integer", "minimum": 0 },
+        "compiled_verdicts": { "type": "integer", "minimum": 0 },
+        "manifest_entries": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "NormalizedCounts": {
+      "type": "object",
+      "required": [
+        "fixture_reviews",
+        "source_analyses",
+        "fixture_queue_entries",
+        "fixtures",
+        "failure_mode_index"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fixture_reviews": { "type": "integer", "minimum": 0 },
+        "source_analyses": { "type": "integer", "minimum": 0 },
+        "fixture_queue_entries": { "type": "integer", "minimum": 0 },
+        "fixtures": { "type": "integer", "minimum": 0 },
+        "failure_mode_index": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "ParityChecks": {
+      "type": "object",
+      "required": [
+        "fixture_reviews_match_compiled_fixture_reviews",
+        "source_analyses_match_compiled_source_analysis_reviews",
+        "fixtures_cover_all_compiled_verdict_keys",
+        "missing_compiled_verdict_fixture_keys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fixture_reviews_match_compiled_fixture_reviews": { "type": "boolean" },
+        "source_analyses_match_compiled_source_analysis_reviews": { "type": "boolean" },
+        "fixtures_cover_all_compiled_verdict_keys": { "type": "boolean" },
+        "missing_compiled_verdict_fixture_keys": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "PriorityEnum": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+
+    "RecommendationTypeEnum": {
+      "type": "string",
+      "enum": ["test_fix", "source_fix", "fixture_fix", "unit_test", "new_fixture"]
+    },
+
+    "ResolutionStatusEnum": {
+      "type": "string",
+      "enum": ["implemented", "open", "not_needed", "wont_fix"]
+    },
+
+    "VerdictEnum": {
+      "type": "string",
+      "enum": ["faithful", "partial"]
+    },
+
+    "Resolution": {
+      "type": "object",
+      "required": ["status", "evidence", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "$ref": "#/$defs/ResolutionStatusEnum" },
+        "evidence": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "AdditionalTrace": {
+      "type": "object",
+      "required": ["trace", "source", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "trace": { "type": "string" },
+        "source": { "type": "string" },
+        "rationale": { "type": "string" }
+      }
+    },
+
+    "TestCoverage": {
+      "type": "object",
+      "required": [
+        "state_keys_tested",
+        "state_keys_missing",
+        "assertions_tested",
+        "assertions_missing",
+        "source_code_refs",
+        "untested_code_paths"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state_keys_tested": { "type": "array", "items": { "type": "string" } },
+        "state_keys_missing": { "type": "array", "items": { "type": "string" } },
+        "assertions_tested": { "type": "array", "items": { "type": "string" } },
+        "assertions_missing": { "type": "array", "items": { "type": "string" } },
+        "source_code_refs": { "type": "array", "items": { "type": "string" } },
+        "untested_code_paths": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "FixtureReviewFidelity": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "repl_code_accuracy",
+        "response_mock_accuracy",
+        "fault_injection_accuracy",
+        "gaps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "$ref": "#/$defs/VerdictEnum" },
+        "repl_code_accuracy": { "type": "string" },
+        "response_mock_accuracy": { "type": "string" },
+        "fault_injection_accuracy": { "type": "string" },
+        "gaps": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "FixtureReviewRecommendation": {
+      "type": "object",
+      "required": ["priority", "type", "action", "resolution"],
+      "additionalProperties": false,
+      "properties": {
+        "priority": { "$ref": "#/$defs/PriorityEnum" },
+        "type": { "$ref": "#/$defs/RecommendationTypeEnum" },
+        "action": { "type": "string" },
+        "fixture": { "type": "string" },
+        "failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "resolution": { "$ref": "#/$defs/Resolution" }
+      }
+    },
+
+    "FixtureReview": {
+      "type": "object",
+      "required": [
+        "fixture",
+        "failure_modes",
+        "rpn",
+        "pathway",
+        "fidelity",
+        "test_coverage",
+        "additional_traces",
+        "recommendations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fixture": { "type": "string" },
+        "failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "rpn": { "type": "integer", "minimum": 1 },
+        "pathway": { "type": "string" },
+        "fidelity": { "$ref": "#/$defs/FixtureReviewFidelity" },
+        "test_coverage": { "$ref": "#/$defs/TestCoverage" },
+        "additional_traces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AdditionalTrace" }
+        },
+        "recommendations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FixtureReviewRecommendation" }
+        },
+        "demo_file": { "type": "string" },
+        "review_team": { "type": "string" }
+      }
+    },
+
+    "SourceAnalysisFidelity": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "source_code_accuracy",
+        "analysis_accuracy",
+        "testability_accuracy",
+        "gaps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "$ref": "#/$defs/VerdictEnum" },
+        "source_code_accuracy": { "type": "string" },
+        "analysis_accuracy": { "type": "string" },
+        "testability_accuracy": { "type": "string" },
+        "gaps": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "SourceAnalysisRecommendation": {
+      "type": "object",
+      "required": ["priority", "type", "action", "resolution"],
+      "additionalProperties": false,
+      "properties": {
+        "priority": { "$ref": "#/$defs/PriorityEnum" },
+        "type": { "$ref": "#/$defs/RecommendationTypeEnum" },
+        "action": { "type": "string" },
+        "resolution": { "$ref": "#/$defs/Resolution" }
+      }
+    },
+
+    "SourceAnalysis": {
+      "type": "object",
+      "required": [
+        "analysis_id",
+        "failure_modes",
+        "rpn",
+        "pathway",
+        "fidelity",
+        "test_coverage",
+        "additional_traces",
+        "recommendations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "analysis_id": { "type": "string", "pattern": "^analysis-FM-\\d{2}$" },
+        "failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "rpn": { "type": "integer", "minimum": 1 },
+        "pathway": { "type": "string" },
+        "fidelity": { "$ref": "#/$defs/SourceAnalysisFidelity" },
+        "test_coverage": { "$ref": "#/$defs/TestCoverage" },
+        "additional_traces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AdditionalTrace" }
+        },
+        "recommendations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SourceAnalysisRecommendation" }
+        }
+      }
+    },
+
+    "DemoMention": {
+      "type": "object",
+      "required": ["file", "line_numbers"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string" },
+        "line_numbers": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+
+    "TeamDemoLink": {
+      "type": "object",
+      "required": ["team", "demo_file", "exists"],
+      "additionalProperties": false,
+      "properties": {
+        "team": { "type": "string" },
+        "demo_file": { "type": "string" },
+        "exists": { "type": "boolean" }
+      }
+    },
+
+    "ShowboatStatusEnum": {
+      "type": "string",
+      "enum": ["DEMO_CONFIRMED", "TEAM_DEMO_ONLY"]
+    },
+
+    "FixtureQueueEntry": {
+      "type": "object",
+      "required": [
+        "fixture",
+        "queue_status",
+        "priority_bucket",
+        "inferred_failure_modes",
+        "owners",
+        "showboat_status",
+        "direct_demo_mentions",
+        "team_demo_links"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fixture": { "type": "string" },
+        "queue_status": { "type": "string" },
+        "priority_bucket": { "type": "string", "pattern": "^P\\d$" },
+        "inferred_failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "owners": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "showboat_status": { "$ref": "#/$defs/ShowboatStatusEnum" },
+        "direct_demo_mentions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DemoMention" }
+        },
+        "team_demo_links": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TeamDemoLink" }
+        }
+      }
+    },
+
+    "FixtureRecord": {
+      "type": "object",
+      "required": [
+        "in_compiled_review_queue",
+        "compiled_verdict",
+        "compiled_failure_modes",
+        "generated_by_review_team",
+        "queue_status",
+        "owners",
+        "showboat_status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "in_compiled_review_queue": { "type": "boolean" },
+        "compiled_verdict": { "type": ["string", "null"], "enum": ["faithful", "partial", null] },
+        "compiled_failure_modes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^FM-\\d{2}$" }
+        },
+        "generated_by_review_team": { "type": "boolean" },
+        "queue_status": { "type": ["string", "null"] },
+        "owners": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "showboat_status": { "type": ["string", "null"] }
+      }
+    },
+
+    "FailureModeEntry": {
+      "type": "object",
+      "required": ["related_fixture_reviews", "related_source_analyses", "related_queue_fixtures"],
+      "additionalProperties": false,
+      "properties": {
+        "related_fixture_reviews": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "related_source_analyses": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "related_queue_fixtures": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "SchemaNotes": {
+      "type": "object",
+      "required": ["parser_simplifications", "deterministic_ordering"],
+      "additionalProperties": false,
+      "properties": {
+        "parser_simplifications": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "deterministic_ordering": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "CompatibilityMapping": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+
+    "Compatibility": {
+      "type": "object",
+      "required": ["reviews_split", "verdicts_mapping", "manifest_mapping", "failure_mode_crosswalk"],
+      "additionalProperties": false,
+      "properties": {
+        "reviews_split": { "$ref": "#/$defs/CompatibilityMapping" },
+        "verdicts_mapping": { "$ref": "#/$defs/CompatibilityMapping" },
+        "manifest_mapping": { "$ref": "#/$defs/CompatibilityMapping" },
+        "failure_mode_crosswalk": { "$ref": "#/$defs/CompatibilityMapping" }
+      }
+    }
+  }
+}

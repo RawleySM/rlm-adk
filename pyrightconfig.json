@@ -5,6 +5,6 @@
   "typeCheckingMode": "basic",
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
-  "include": ["rlm_adk", "*.py"],
+  "include": ["rlm_adk", "tests_rlm_adk", "*.py"],
   "exclude": ["**/__pycache__"]
 }

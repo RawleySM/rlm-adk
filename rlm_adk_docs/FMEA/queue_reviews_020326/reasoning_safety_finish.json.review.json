@@ -1,0 +1,164 @@
+{
+  "fixture": "reasoning_safety_finish.json",
+  "failure_modes": [
+    "FM-24",
+    "FM-25"
+  ],
+  "rpn": 75,
+  "pathway": "P2b primary (reasoning SAFETY first-turn empty output); queue-inferred FM-25/P6d is not exercised by this fixture",
+  "fidelity": {
+    "verdict": "partial",
+    "repl_code_accuracy": "PASS: The fixture intentionally has no execute_code/tool call; call_index=0 is a reasoning response with empty text and `finishReason=SAFETY`, which is the FM-24 trigger (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:13`, `tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:28`, `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:362`). PASS: `TestReasoningSafetyFinish` validates zero REPL iterations and zero tool results (`tests_rlm_adk/test_fmea_e2e.py:1808`, `tests_rlm_adk/test_fmea_e2e.py:1817`). FAIL: Queue inference includes FM-25, but this fixture has no worker call at all (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4661`, `tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:11`, `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:375`).",
+    "response_mock_accuracy": "PASS: The mocked response is coherent for reasoning SAFETY blocking: HTTP 200, empty candidate text, `finishReason=SAFETY`, `candidatesTokenCount=0` (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:16`, `tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:24`, `tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:33`). PASS: Current orchestrator extraction path correctly falls through to the `[RLM ERROR]` branch for empty output (`rlm_adk/orchestrator.py:255`, `rlm_adk/orchestrator.py:270`, `rlm_adk/orchestrator.py:303`). FAIL: No worker response is modeled, so FM-25 worker SAFETY/MAX_TOKENS semantics in dispatch are untestable here (`rlm_adk/dispatch.py:444`, `rlm_adk/dispatch.py:489`).",
+    "fault_injection_accuracy": "PASS: No HTTP fault injection is appropriate because FM-24 is a content-level safety finish on a successful model call, not transport failure (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:40`, `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:363`). FAIL: Because there is no injected worker leg, this fixture cannot evidence FM-25 retry/error-category behavior (`rlm_adk/callbacks/worker.py:78`, `rlm_adk/dispatch.py:625`).",
+    "gaps": [
+      "FAIL: Queue entry maps this fixture to FM-24 and FM-25 (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4661`), but fixture topology only exercises reasoning SAFETY (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:14`).",
+      "FAIL: `TestReasoningSafetyFinish` does not assert `SHOULD_STOP=True`, despite orchestrator writing it in the empty-final-answer branch (`tests_rlm_adk/test_fmea_e2e.py:1799`, `rlm_adk/orchestrator.py:316`).",
+      "FAIL: No assertion verifies reasoning-level finish-reason observability (`obs:finish_safety_count`); class tests only check contract/error format/iteration/tool-results (`tests_rlm_adk/test_fmea_e2e.py:1794`, `tests_rlm_adk/test_fmea_e2e.py:1824`, `rlm_adk/plugins/observability.py:147`)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` exact contract match via fixture expected block (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:42`, `tests_rlm_adk/provider_fake/fixtures.py:220`, `tests_rlm_adk/test_fmea_e2e.py:1794`).",
+      "PASS: `ITERATION_COUNT` constrained to no-execution path (`None` or `0`) (`tests_rlm_adk/test_fmea_e2e.py:1812`).",
+      "PASS: Implicit model-call count coverage through contract expectation (`total_model_calls=1`) using router call index (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:44`, `tests_rlm_adk/provider_fake/fixtures.py:242`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `SHOULD_STOP` is not asserted in this class (`tests_rlm_adk/test_fmea_e2e.py:1794`, `rlm_adk/orchestrator.py:316`).",
+      "FAIL: `OBS_FINISH_SAFETY_COUNT` is not asserted for reasoning SAFETY path (`tests_rlm_adk/test_fmea_e2e.py:1784`, `rlm_adk/state.py:74`, `rlm_adk/plugins/observability.py:150`).",
+      "FAIL: `WORKER_DISPATCH_COUNT == 0` is not asserted explicitly, even though this fixture is intended to avoid worker dispatch (`tests_rlm_adk/test_fmea_e2e.py:1817`, `rlm_adk/state.py:66`)."
+    ],
+    "assertions_tested": [
+      "PASS: Dedicated class exists at the requested candidate location and runs 4 checks (`tests_rlm_adk/test_fmea_e2e.py:1792`, `tests_rlm_adk/test_fmea_e2e.py:1794`, `tests_rlm_adk/test_fmea_e2e.py:1817`).",
+      "PASS: Contract test for this fixture passes through generic provider-fake parametrization (`tests_rlm_adk/test_provider_fake_e2e.py:49`, `tests_rlm_adk/fixtures/provider_fake/index.json:1220`).",
+      "PASS: Local targeted run on 2026-03-03: `pytest tests_rlm_adk/test_fmea_e2e.py::TestReasoningSafetyFinish -q` => `4 passed in 0.96s`.",
+      "PASS: Local targeted run on 2026-03-03: `pytest tests_rlm_adk/test_provider_fake_e2e.py -k reasoning_safety_finish -q` => `1 passed, 38 deselected`.",
+      "PASS: Event-stream check enforces no execute_code tool responses (`tests_rlm_adk/test_fmea_e2e.py:64`, `tests_rlm_adk/test_fmea_e2e.py:1821`)."
+    ],
+    "assertions_missing": [
+      "FAIL: No assertion that the emitted error state_delta contains both `FINAL_ANSWER` and `SHOULD_STOP` on the orchestrator event (`rlm_adk/orchestrator.py:313`, `rlm_adk/orchestrator.py:317`).",
+      "FAIL: No assertion that reasoning finish reason SAFETY was recorded to observability counter (`rlm_adk/plugins/observability.py:148`, `rlm_adk/plugins/observability.py:151`).",
+      "FAIL: No cross-variant assertion that this fixture matches `empty_reasoning_output_safety`/FM-15 error behavior, unlike the companion class pattern (`tests_rlm_adk/test_fmea_e2e.py:1760`, `tests_rlm_adk/test_fmea_e2e.py:1773`)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4658",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:358",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:371",
+      "demo_showboat/demo_fmea_team_e.md:181",
+      "tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:3",
+      "tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:13",
+      "tests_rlm_adk/fixtures/provider_fake/index.json:1217",
+      "tests_rlm_adk/test_fmea_e2e.py:1784",
+      "tests_rlm_adk/test_provider_fake_e2e.py:49",
+      "tests_rlm_adk/provider_fake/fixtures.py:219",
+      "rlm_adk/orchestrator.py:255",
+      "rlm_adk/orchestrator.py:303",
+      "rlm_adk/utils/parsing.py:34",
+      "rlm_adk/plugins/observability.py:147",
+      "rlm_adk/callbacks/worker.py:78",
+      "rlm_adk/dispatch.py:444"
+    ],
+    "untested_code_paths": [
+      "FAIL: Worker callback SAFETY/error categorization path is not exercised (`rlm_adk/callbacks/worker.py:98-132`) because fixture has only reasoning call_index=0.",
+      "FAIL: Dispatch result assembly branches (`_result_error` and non-error worker LLMResult creation) are not exercised (`rlm_adk/dispatch.py:444-497`).",
+      "FAIL: Positive FINAL()/FINAL_VAR extraction branches are not exercised; this fixture only hits empty-string fallback (`rlm_adk/utils/parsing.py:21-39`, `rlm_adk/orchestrator.py:270-275`)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "Reasoning model finish_reason capture for first call",
+      "source": "rlm_adk/plugins/observability.py:147",
+      "rationale": "PASS criterion: SAFETY finish should increment `obs:finish_safety_count`; FAIL criterion: counter absent/persisted value unavailable after run. This directly targets FM-24 residual risk in FMEA (`rlm_adk_docs/FMEA/rlm_adk_FMEA.md:367`)."
+    },
+    {
+      "trace": "Orchestrator error-event state_delta contents",
+      "source": "rlm_adk/orchestrator.py:313",
+      "rationale": "PASS criterion: one state_delta event contains both `FINAL_ANSWER` and `SHOULD_STOP=True`; FAIL criterion: only content event observed or missing termination flag."
+    },
+    {
+      "trace": "ScenarioRouter request_log and call_index final value",
+      "source": "tests_rlm_adk/provider_fake/fixtures.py:141",
+      "rationale": "PASS criterion: exactly one model call confirms first-turn reasoning SAFETY block and no worker invocation; FAIL criterion: call_index > 1 indicates unexpected extra turn."
+    },
+    {
+      "trace": "execute_code function_response absence in event stream",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:64",
+      "rationale": "PASS criterion: `_extract_tool_results` returns empty list; FAIL criterion: any execute_code response means fixture no longer represents pre-REPL FM-24 pathway."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "fixture_fix",
+      "action": "Reclassify this fixture to FM-24-only in queue metadata; keep FM-25 mapped to worker fixtures (`worker_safety_finish`, `worker_empty_response`, `worker_max_tokens_truncated`).",
+      "fixture": "reasoning_safety_finish.json",
+      "failure_modes": [
+        "FM-24",
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Queue entry still infers both FM-24 and FM-25 (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4661`), while fixture has only reasoning caller and no worker call (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:14`).",
+        "notes": "FAIL: Current mapping over-claims FM-25 for this fixture; FM-25 pathway P6d is not represented here."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add `SHOULD_STOP is True` and error state_delta assertions to `TestReasoningSafetyFinish` to verify termination semantics, not only final message text.",
+      "fixture": "reasoning_safety_finish.json",
+      "failure_modes": [
+        "FM-24"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current class asserts contract, `[RLM ERROR]` prefix, zero iterations, and no tool results (`tests_rlm_adk/test_fmea_e2e.py:1794-1824`) but never checks `SHOULD_STOP` (`rlm_adk/orchestrator.py:316`).",
+        "notes": "FAIL: Session-stop correctness is implied but not explicitly verified."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "source_fix",
+      "action": "Expose reasoning finish-reason observability in a persistable test surface (final session state or sqlite metadata) so FM-24 can assert SAFETY counter deterministically.",
+      "fixture": "reasoning_safety_finish.json",
+      "failure_modes": [
+        "FM-24"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Observability writes dynamic finish counters (`rlm_adk/plugins/observability.py:150`), but plugin-run final_state did not surface `obs:finish_safety_count` in local verification, and sqlite tracing schema stores only aggregate token/call fields (`rlm_adk/plugins/sqlite_tracing.py:39-53`, `rlm_adk/plugins/sqlite_tracing.py:229-247`).",
+        "notes": "FAIL: FM-24 residual-risk signal exists in logic but lacks stable e2e assertion channel in this harness."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "new_fixture",
+      "action": "Keep this dedicated first-turn reasoning SAFETY fixture as the FM-24 anchor and prevent regressions that accidentally introduce worker/tool steps.",
+      "fixture": "reasoning_safety_finish.json",
+      "failure_modes": [
+        "FM-24"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Fixture and dedicated class are present (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:1`, `tests_rlm_adk/test_fmea_e2e.py:1784`); targeted runs on 2026-03-03 passed: `4 passed` for class and `1 passed` provider-fake contract for this fixture.",
+        "notes": "PASS: FM-24 reasoning-level SAFETY scenario now exists and is actively exercised."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "test_fix",
+      "action": "Do not add FM-25 worker assertions (for example `OBS_WORKER_ERROR_COUNTS`) to this fixture; keep those checks in worker-scoped tests.",
+      "fixture": "reasoning_safety_finish.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "not_needed",
+        "evidence": "This fixture has no worker calls (`tests_rlm_adk/fixtures/provider_fake/reasoning_safety_finish.json:11`); worker SAFETY assertions already exist in worker fixtures (`tests_rlm_adk/test_fmea_e2e.py:798`, `tests_rlm_adk/test_fmea_e2e.py:2083`).",
+        "notes": "PASS: Scope separation avoids false expectations and keeps FM-24 coverage focused."
+      }
+    }
+  ],
+  "demo_file": "demo_showboat/demo_fmea_team_e.md",
+  "review_team": "E"
+}

@@ -1,6 +1,6 @@
 {
   "scenario_id": "repl_runtime_error_partial_state",
-  "description": "FM-05 variant (RPN=24): Multi-statement code where early statements (x = 10, y = 20) succeed before a NameError on `z = undefined_var`. Verifies that variables from BEFORE the error do NOT persist in self.locals (LocalREPL only updates locals on successful execution — the except block skips the locals update loop). Iteration 2: model defines the missing variable and completes successfully.",
+  "description": "FM-05 variant (RPN=24): Multi-statement code where early statements (x = 10, y = 20) succeed before a NameError on `z = undefined_var`. Verifies that variables from BEFORE the error do NOT persist in self.locals (LocalREPL only updates locals on successful execution \u2014 the except block skips the locals update loop). Iteration 2: model defines the missing variable and completes successfully.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -109,5 +109,14 @@
     "final_answer": "Result: 90",
     "total_iterations": 2,
     "total_model_calls": 3
+  },
+  "expected_state": {
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }

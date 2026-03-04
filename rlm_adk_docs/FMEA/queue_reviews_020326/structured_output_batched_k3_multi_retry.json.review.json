@@ -1,0 +1,161 @@
+{
+  "fixture": "structured_output_batched_k3_multi_retry.json",
+  "failure_modes": [
+    "FM-17"
+  ],
+  "rpn": 90,
+  "pathway": "P6g",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: Queue inference maps this fixture to FM-17 (rlm_adk_docs/FMEA/fmea_gaps_020326.json:4739-4744), and FM-17 is defined as P6g/RPN 90 in the FMEA baseline (rlm_adk_docs/FMEA/rlm_adk_FMEA.md:267-278). PASS: The REPL payload defines a strict SentimentResult schema and dispatches K=3 via llm_query_batched with output_schema, then aggregates positive/negative/neutral via parsed.get across all results (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:26-27). FAIL: The scripted REPL code does not branch on result.error before aggregation, so silent worker-level errors could be hidden by string-only aggregation output (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:26-27).",
+    "response_mock_accuracy": "PASS: The fixture scripts the intended concurrent-retry shape: worker 1 succeeds immediately, workers 2 and 3 return empty sentiment on first attempt, then both retry with corrected payloads (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:45-213). PASS: Expected call accounting is internally consistent at 7 total calls (1 reasoning + 3 worker first attempts + 2 retries + 1 FINAL) (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:3,245-248). PASS: Existing e2e coverage asserts BUG-13 suppression fired multiple times, matching two retrying workers (tests_rlm_adk/test_fmea_e2e.py:2192-2202). FAIL: No mock variant in this fixture mixes empty-value retries with ValidationError retries, so on_tool_error_callback routing is not exercised here (rlm_adk/callbacks/worker_retry.py:125-145).",
+    "fault_injection_accuracy": "PASS: fault_injections is intentionally empty because FM-17 here targets callback/postprocessor behavior (WorkerRetryPlugin + BUG-13 suppression), not HTTP fault classes (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:243; rlm_adk/callbacks/worker_retry.py:51-71,190-209). FAIL: This fixture does not stress mixed conditions where concurrent retries overlap with transport faults/timeouts, so combined-path resilience remains out of scope (rlm_adk/dispatch.py:410-431,563-590).",
+    "gaps": [
+      "FAIL: No direct assertion that OBS_WORKER_ERROR_COUNTS is empty/absent after successful retries in this fixture class, even though success path should avoid error accumulation (tests_rlm_adk/test_fmea_e2e.py:2159-2211; rlm_adk/dispatch.py:640-643).",
+      "FAIL: No assertion on execute_code stdout/tool payload for this fixture, so parsed payload propagation is inferred indirectly from FINAL_ANSWER text only (tests_rlm_adk/test_fmea_e2e.py:2159-2211; tests_rlm_adk/test_fmea_e2e.py:64-77).",
+      "FAIL: Retry-path assertion is lower-bounded (suppress_count delta >= 2) but does not assert exact retry event cardinality (expected 5 set_model_response calls) for tighter regression detection (tests_rlm_adk/test_fmea_e2e.py:2198-2202; tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:45-213)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: final_answer (FINAL_ANSWER) is checked for all three sentiments ('1 positive', '1 negative', '1 neutral') (tests_rlm_adk/test_fmea_e2e.py:2178-2181).",
+      "PASS: worker_dispatch_count (WORKER_DISPATCH_COUNT) is asserted == 3 (tests_rlm_adk/test_fmea_e2e.py:2183-2190).",
+      "PASS: obs:worker_total_batch_dispatches (OBS_WORKER_TOTAL_BATCH_DISPATCHES) is asserted == 1 (tests_rlm_adk/test_fmea_e2e.py:2204-2211).",
+      "PASS: Contract runner validates final_answer, total_iterations, and total_model_calls against fixture expected values (tests_rlm_adk/test_fmea_e2e.py:2169-2172; tests_rlm_adk/provider_fake/fixtures.py:209-250; tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:245-248)."
+    ],
+    "state_keys_missing": [
+      "FAIL: obs:worker_error_counts (OBS_WORKER_ERROR_COUNTS) is not asserted empty/absent for the successful-retry path (tests_rlm_adk/test_fmea_e2e.py:2159-2211; rlm_adk/dispatch.py:640-643).",
+      "FAIL: obs:structured_output_failures (OBS_STRUCTURED_OUTPUT_FAILURES) is not asserted to remain absent/zero when retries recover (tests_rlm_adk/test_fmea_e2e.py:2159-2211; rlm_adk/dispatch.py:651-652).",
+      "FAIL: last_repl_result (LAST_REPL_RESULT) is not inspected for tool stdout/stderr/total_llm_calls details (tests_rlm_adk/test_fmea_e2e.py:2159-2211; rlm_adk/state.py:69).",
+      "FAIL: obs:worker_dispatch_latency_ms (OBS_WORKER_DISPATCH_LATENCY_MS) is not checked despite being emitted by flush_fn (tests_rlm_adk/test_fmea_e2e.py:2159-2211; rlm_adk/dispatch.py:636)."
+    ],
+    "assertions_tested": [
+      "PASS: test_contract enforces fixture expected contract values for final_answer/iterations/model_calls (tests_rlm_adk/test_fmea_e2e.py:2169-2172; tests_rlm_adk/provider_fake/fixtures.py:220-250).",
+      "PASS: test_all_workers_recovered asserts final narrative contains 1 positive, 1 negative, and 1 neutral (tests_rlm_adk/test_fmea_e2e.py:2174-2181).",
+      "PASS: test_dispatch_count_equals_3 asserts exact worker dispatch count (tests_rlm_adk/test_fmea_e2e.py:2183-2190).",
+      "PASS: test_bug13_patch_invoked_multiple asserts BUG-13 suppression runtime activation via _bug13_stats delta >= 2 (tests_rlm_adk/test_fmea_e2e.py:2192-2202; rlm_adk/callbacks/worker_retry.py:33,204-209).",
+      "PASS: test_obs_batch_dispatches asserts single batched dispatch accounting (tests_rlm_adk/test_fmea_e2e.py:2204-2211; rlm_adk/dispatch.py:344-345,638-639)."
+    ],
+    "assertions_missing": [
+      "FAIL: No negative assertion that OBS_WORKER_ERROR_COUNTS is empty/absent for this successful recovery fixture (tests_rlm_adk/test_fmea_e2e.py:2159-2211).",
+      "FAIL: No assertion that all returned LLMResult objects have error == False in the REPL execution path (tests_rlm_adk/test_fmea_e2e.py:2174-2181; rlm_adk/dispatch.py:489-497).",
+      "FAIL: No assertion that all three parsed payloads are non-null and schema-complete after retries (tests_rlm_adk/test_fmea_e2e.py:2174-2181; rlm_adk/callbacks/worker_retry.py:110-113).",
+      "FAIL: No tool_result stdout assertion proving per-review parsed output surfaced in execute_code response for this fixture class (tests_rlm_adk/test_fmea_e2e.py:64-77,2159-2211).",
+      "FAIL: No exact cardinality assertion for set_model_response retry traffic (expected 5 function-call events in this scenario) (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:45-213)."
+    ],
+    "source_code_refs": [
+      "rlm_adk/dispatch.py:373-380 (structured-output worker wiring and callback installation)",
+      "rlm_adk/dispatch.py:342-345 (dispatch and batch counters)",
+      "rlm_adk/dispatch.py:461-497 (structured result extraction and success/exhaustion result construction)",
+      "rlm_adk/dispatch.py:625-653 (flush_fn state emission for dispatch/error/structured-failure counters)",
+      "rlm_adk/callbacks/worker_retry.py:51-71 (empty-value detection in WorkerRetryPlugin.extract_error_from_result)",
+      "rlm_adk/callbacks/worker_retry.py:110-123 (after_tool_cb structured-result capture + plugin delegation)",
+      "rlm_adk/callbacks/worker_retry.py:190-209 (BUG-13 retry-aware postprocessor suppression + suppress_count increment)",
+      "tests_rlm_adk/test_fmea_e2e.py:2159-2211 (fixture-specific FM-17 multi-retry test class)",
+      "tests_rlm_adk/test_adk_worker_retry.py:412-462 (unit test proving retry-sentinel suppression path returns None and increments suppress_count)"
+    ],
+    "untested_code_paths": [
+      "FAIL: dispatch exhaustion branch for structured output (SCHEMA_VALIDATION_EXHAUSTED) is not exercised in this fixture (rlm_adk/dispatch.py:467-487).",
+      "FAIL: batch timeout handling for K>1 workers is untested in this fixture path (rlm_adk/dispatch.py:410-431).",
+      "FAIL: generic batch exception fallback preserving partial worker results is untested here (rlm_adk/dispatch.py:563-590).",
+      "FAIL: WorkerRetryPlugin on_tool_error callback path is not exercised by empty-string retries in this fixture (rlm_adk/callbacks/worker_retry.py:125-145).",
+      "FAIL: BUG-13 import-failure fallback path is not exercised by this fixture-driven test path (rlm_adk/callbacks/worker_retry.py:175-182)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "Negative trace on OBS_WORKER_ERROR_COUNTS for successful-retry FM-17 multi-retry run",
+      "source": "rlm_adk/dispatch.py:640-643; tests_rlm_adk/test_fmea_e2e.py:2159-2211",
+      "rationale": "PASS criterion: successful concurrent retries should not emit error categories; asserting absent/empty error counts tightens boundary with FM-16 exhaustion behavior."
+    },
+    {
+      "trace": "execute_code function_response stdout content for per-review parsed outputs",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:64-77; tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:26-27",
+      "rationale": "PASS criterion: stdout should include positive/negative/neutral and per-review lines, proving parsed dicts propagated through REPL namespace for all workers including retried ones."
+    },
+    {
+      "trace": "Exact set_model_response event count in run event stream",
+      "source": "tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:45-213; tests_rlm_adk/provider_fake/fixtures.py:242-249",
+      "rationale": "PASS criterion: exactly 5 set_model_response calls (3 initial + 2 retries) confirms deterministic retry cardinality and protects against hidden extra retry loops."
+    },
+    {
+      "trace": "Exact BUG-13 suppress_count delta for fixture execution",
+      "source": "rlm_adk/callbacks/worker_retry.py:33,204-209; tests_rlm_adk/test_fmea_e2e.py:2192-2202",
+      "rationale": "PASS criterion: delta == 2 for this scripted fixture; exact matching strengthens regression detection over current lower-bound assertion (>=2)."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "medium",
+      "type": "new_fixture",
+      "action": "Maintain structured_output_batched_k3_multi_retry.json as the FM-17 concurrent-retry anchor fixture (2 retrying workers in one K=3 batch).",
+      "fixture": "structured_output_batched_k3_multi_retry.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:1-249; tests_rlm_adk/test_fmea_e2e.py:2159-2211; tests_rlm_adk/fixtures/provider_fake/index.json:1182-1187; rlm_adk_docs/FMEA/fmea_gaps_020326.json:1242-1247.",
+        "notes": "PASS: The fixture and its dedicated test class exist and are wired into fixture index + FM-17 recommendation lineage."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Keep runtime BUG-13 activation assertion in this fixture class (suppress_count delta check) to guard concurrent retry suppression behavior.",
+      "fixture": "structured_output_batched_k3_multi_retry.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "tests_rlm_adk/test_fmea_e2e.py:2192-2202; rlm_adk/callbacks/worker_retry.py:33,204-209.",
+        "notes": "PASS: The test verifies patch invocation at runtime, not just installation state."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add a fixture-specific negative assertion that OBS_WORKER_ERROR_COUNTS is None or empty after successful multi-retry recovery.",
+      "fixture": "structured_output_batched_k3_multi_retry.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "No such assertion exists in TestStructuredOutputBatchedK3MultiRetry (tests_rlm_adk/test_fmea_e2e.py:2159-2211). Similar coverage exists only for the single-retry fixture (tests_rlm_adk/test_fmea_e2e.py:897-911).",
+        "notes": "FAIL: Current coverage can miss accidental error-counter pollution on successful concurrent retries."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add tool_result stdout assertions for positive/negative/neutral and per-review lines to verify parsed payload propagation through execute_code output.",
+      "fixture": "structured_output_batched_k3_multi_retry.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Multi-retry class does not call _extract_tool_results (tests_rlm_adk/test_fmea_e2e.py:2159-2211), while helper and precedent assertions exist elsewhere (tests_rlm_adk/test_fmea_e2e.py:64-77,871-886).",
+        "notes": "FAIL: FINAL_ANSWER-only checks are weaker than direct tool stdout evidence for parsed-object flow."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "unit_test",
+      "action": "Add deterministic cardinality assertions for this fixture: exact set_model_response count == 5 and exact BUG-13 suppress_count delta == 2.",
+      "fixture": "structured_output_batched_k3_multi_retry.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current assertion only enforces suppress_count delta >= 2 (tests_rlm_adk/test_fmea_e2e.py:2198-2202); fixture script defines exact call sequence with five set_model_response entries (tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_multi_retry.json:45-213).",
+        "notes": "FAIL: Lower-bound checks permit hidden extra retries and reduce regression sensitivity."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_j.md",
+  "review_team": "J"
+}

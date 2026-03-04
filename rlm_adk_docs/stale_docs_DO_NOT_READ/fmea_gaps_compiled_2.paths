@@ -1,0 +1,62 @@
+compiled_at: string/date (required)
+total_fixtures_reviewed: int (required)
+existing_fixture_count: int (required)
+new_fixture_count: int (required)
+source_analysis_count: int (required)
+
+failure_modes_covered: array<string> (required)
+
+new_fixtures: array<object> (required)
+new_fixtures[].fixture: string (required)
+new_fixtures[].failure_modes: array<string> (required)
+new_fixtures[].rpn: int (required)
+new_fixtures[].demo_file: string (required)
+new_fixtures[].review_team: string (required)
+new_fixtures[].verdict: enum[faithful|partial] (required)
+
+reviews: array<object> (required)
+reviews[].fixture: string (required)
+reviews[].failure_modes: array<string> (required)
+reviews[].rpn: int (required)
+reviews[].pathway: string (required)
+reviews[].review_type: enum[fixture|source_analysis] (required)
+reviews[].demo_file: string (optional)
+reviews[].review_team: string (optional)
+
+reviews[].fidelity: object (required) — oneOf by review_type
+reviews[].fidelity.verdict: enum[faithful|partial] (required)
+reviews[].fidelity.gaps: array<string> (required)
+  # when review_type=fixture:
+reviews[].fidelity.repl_code_accuracy: string (required)
+reviews[].fidelity.response_mock_accuracy: string (required)
+reviews[].fidelity.fault_injection_accuracy: string (required)
+  # when review_type=source_analysis:
+reviews[].fidelity.source_code_accuracy: string (required)
+reviews[].fidelity.analysis_accuracy: string (required)
+reviews[].fidelity.testability_accuracy: string (required)
+
+reviews[].test_coverage: object (required)
+reviews[].test_coverage.state_keys_tested: array<string> (required, may be empty)
+reviews[].test_coverage.state_keys_missing: array<string> (required)
+reviews[].test_coverage.assertions_tested: array<string> (required)
+reviews[].test_coverage.assertions_missing: array<string> (required)
+reviews[].test_coverage.source_code_refs: array<string> (required)
+reviews[].test_coverage.untested_code_paths: array<string> (required)
+
+reviews[].recommendations: array<object> (required)
+reviews[].recommendations[].priority: enum[high|medium|low] (required)
+reviews[].recommendations[].type: enum[test_fix|fixture_fix|new_fixture|source_fix|unit_test] (required)
+reviews[].recommendations[].action: string (required)
+reviews[].recommendations[].fixture: string (optional — present for fixture reviews)
+reviews[].recommendations[].failure_modes: array<string> (optional — present for fixture reviews)
+reviews[].recommendations[].resolution: object (required)
+reviews[].recommendations[].resolution.status: enum[implemented|not_needed|open|wont_fix] (required)
+reviews[].recommendations[].resolution.evidence: string (required)
+reviews[].recommendations[].resolution.notes: string (required)
+
+reviews[].additional_traces: array<object> (required)
+reviews[].additional_traces[].trace: string (required)
+reviews[].additional_traces[].source: string (required)
+reviews[].additional_traces[].rationale: string (required)
+
+verdicts: map<string, enum[faithful|partial]> (required)

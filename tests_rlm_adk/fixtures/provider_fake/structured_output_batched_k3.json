@@ -177,5 +177,16 @@
     "final_answer": "3 sentiments: 2 positive, 1 negative",
     "total_iterations": 1,
     "total_model_calls": 5
+  },
+  "expected_state": {
+    "worker_dispatch_count": 3,
+    "obs:worker_total_batch_dispatches": 1,
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }

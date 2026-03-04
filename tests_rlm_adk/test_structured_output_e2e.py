@@ -41,8 +41,8 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 # ---------------------------------------------------------------------------
 
 _STRUCTURED_FIXTURES = [
-    "structured_output_happy_path",
-    "structured_output_batched_k1",
+    "agent_challenge/structured_output_happy_path",
+    "agent_challenge/structured_output_batched_k1",
     "structured_output_retry_empty",
     "structured_output_retry_validation",
 ]
@@ -93,7 +93,7 @@ async def test_structured_output_contract(fixture_name: str):
 async def test_happy_path_final_answer():
     """llm_query + output_schema: worker responds with valid functionCall."""
     result = await run_fixture_contract(
-        FIXTURE_DIR / "structured_output_happy_path.json"
+        FIXTURE_DIR / "agent_challenge" / "structured_output_happy_path.json"
     )
     assert result.passed, result.diagnostics()
     # Verify the specific final answer from the parsed structured output
@@ -143,7 +143,7 @@ async def test_happy_path_with_plugins(tmp_path: Path):
 async def test_batched_k1_final_answer():
     """llm_query_batched K=1 + output_schema: exercises batched code path."""
     result = await run_fixture_contract(
-        FIXTURE_DIR / "structured_output_batched_k1.json"
+        FIXTURE_DIR / "agent_challenge" / "structured_output_batched_k1.json"
     )
     assert result.passed, result.diagnostics()
     fa_check = next(c for c in result.checks if c["field"] == "final_answer")

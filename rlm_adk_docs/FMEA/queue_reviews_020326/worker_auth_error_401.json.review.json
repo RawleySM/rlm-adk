@@ -1,0 +1,167 @@
+{
+  "fixture": "worker_auth_error_401.json",
+  "failure_modes": [
+    "FM-28"
+  ],
+  "rpn": 6,
+  "pathway": "P6d (FM-28 pathway family: P2b/P6d API authentication)",
+  "fidelity": {
+    "verdict": "partial",
+    "repl_code_accuracy": "PASS: Fixture REPL code explicitly checks `result.error` and reports `result.error_category`, matching worker-level FM-28 intent (`tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:27`). PASS: Candidate tests assert auth/error signaling in FINAL_ANSWER and execute_code stdout (`tests_rlm_adk/test_fmea_e2e.py:1995`, `tests_rlm_adk/test_fmea_e2e.py:2013`). FAIL: Tests do not assert exact category value from REPL-visible metadata (`tests_rlm_adk/test_fmea_e2e.py:2020`, `tests_rlm_adk/test_fmea_e2e.py:2033`).",
+    "response_mock_accuracy": "PASS: Scripted sequence is coherent for single worker auth failure: reasoning tool call at index 0, worker fault at index 1, reasoning FINAL at index 2 (`tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:13`, `tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:46`, `tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:76`). PASS: Expected contract values (`final_answer`, `total_iterations=1`, `total_model_calls=3`) are internally consistent (`tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:89`, `tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:90`, `tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:91`). FAIL: Fixture index metadata leaves `failure_modes` empty for this fixture entry (`tests_rlm_adk/fixtures/provider_fake/index.json:1238`, `tests_rlm_adk/fixtures/provider_fake/index.json:1239`).",
+    "fault_injection_accuracy": "PASS: Fault injection is an HTTP 401 `http_error` on the worker call, aligning with FM-28 trigger semantics (`tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:77`, `tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:78`, `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:416`). PASS: Worker callback/dispatch pipeline is wired to propagate category + status via `_call_record` into `LLMResult` (`rlm_adk/callbacks/worker.py:187`, `rlm_adk/callbacks/worker.py:188`, `rlm_adk/dispatch.py:453`, `rlm_adk/dispatch.py:454`). FAIL: Observed runtime still classifies this injected 401 as `UNKNOWN` (not `AUTH`) under current fake-provider flow (`run_fixture_contract_with_plugins` output on 2026-03-03: `error_counts {'UNKNOWN': 1}`; stdout shows `category=UNKNOWN`).",
+    "gaps": [
+      "FAIL: FM-28 queue inference expects this fixture to close an FM-28 gap, but `failure_mode_index` still has no related fixture review entry (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4853`, `rlm_adk_docs/FMEA/fmea_gaps_020326.json:5499`, `rlm_adk_docs/FMEA/fmea_gaps_020326.json:5500`).",
+      "FAIL: Category-level AUTH assertion is intentionally relaxed to total-error-only in candidate tests (`tests_rlm_adk/test_fmea_e2e.py:2020`, `tests_rlm_adk/test_fmea_e2e.py:2032`).",
+      "FAIL: No assertion validates `LLMResult.http_status == 401` despite dispatch support for this field (`rlm_adk/dispatch.py:454`, `rlm_adk/types.py:67`, `tests_rlm_adk/test_fmea_e2e.py:1973`).",
+      "PASS: Queue ownership/demo linkage is consistent for Team F (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4859`, `rlm_adk_docs/FMEA/fmea_gaps_020326.json:4867`, `demo_showboat/demo_fmea_team_f.md:367`)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` semantic check for auth/401/unauthorized text (`tests_rlm_adk/test_fmea_e2e.py:1994`, `tests_rlm_adk/test_fmea_e2e.py:1995`).",
+      "PASS: `ITERATION_COUNT == 1` asserted (no app-level retry loop) (`tests_rlm_adk/test_fmea_e2e.py:2003`, `tests_rlm_adk/test_fmea_e2e.py:2004`).",
+      "PASS: `OBS_WORKER_ERROR_COUNTS` presence and non-zero aggregate asserted (`tests_rlm_adk/test_fmea_e2e.py:2027`, `tests_rlm_adk/test_fmea_e2e.py:2032`, `rlm_adk/state.py:81`).",
+      "PASS: `WORKER_DISPATCH_COUNT == 1` asserted (`tests_rlm_adk/test_fmea_e2e.py:2040`, `tests_rlm_adk/test_fmea_e2e.py:2041`, `rlm_adk/state.py:66`).",
+      "PASS: Contract path checks `final_answer`, `total_iterations`, and `total_model_calls` (`tests_rlm_adk/provider_fake/fixtures.py:220`, `tests_rlm_adk/provider_fake/fixtures.py:231`, `tests_rlm_adk/provider_fake/fixtures.py:242`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: No state assertion for `OBS_WORKER_TOTAL_DISPATCHES` (`rlm_adk/dispatch.py:635`).",
+      "FAIL: No state assertion for `OBS_WORKER_DISPATCH_LATENCY_MS` (`rlm_adk/dispatch.py:636`).",
+      "FAIL: No state assertion for category bucket (for example `AUTH`) inside `OBS_WORKER_ERROR_COUNTS` (`rlm_adk/dispatch.py:641`, `tests_rlm_adk/test_fmea_e2e.py:2031`).",
+      "FAIL: No assertion on `LAST_REPL_RESULT` summary object for this fixture (`tests_rlm_adk/test_fmea_e2e.py:23`, `rlm_adk/tools/repl_tool.py:176`)."
+    ],
+    "assertions_tested": [
+      "PASS: Dedicated fixture class exists and runs six tests (`tests_rlm_adk/test_fmea_e2e.py:1973`).",
+      "PASS: Generic fixture contract test also includes this fixture (`tests_rlm_adk/test_provider_fake_e2e.py:49`, `tests_rlm_adk/fixtures/provider_fake/index.json:1241`).",
+      "PASS: Tool-level error surfaced via execute_code function_response stdout (`tests_rlm_adk/test_fmea_e2e.py:2010`, `tests_rlm_adk/test_fmea_e2e.py:2013`).",
+      "PASS: Targeted runtime execution succeeded: `.venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py::TestWorkerAuthError401 -q` -> `6 passed in 2.61s` (2026-03-03)."
+    ],
+    "assertions_missing": [
+      "FAIL: No strict assertion that worker classification is `AUTH` for this 401 fixture (`tests_rlm_adk/test_fmea_e2e.py:2020`, `tests_rlm_adk/test_fmea_e2e.py:2033`, `rlm_adk/callbacks/worker.py:35`).",
+      "FAIL: No strict assertion that propagated `http_status` equals 401 (`rlm_adk/callbacks/worker.py:188`, `rlm_adk/dispatch.py:454`, `rlm_adk/types.py:67`).",
+      "FAIL: No 403 variant assertion/fixture coverage, though FM-28 includes 401/403 (`rlm_adk_docs/FMEA/rlm_adk_FMEA.md:410`, `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:416`).",
+      "FAIL: This fixture does not validate FM-28 orchestrator-side P2b behavior (handled elsewhere) (`rlm_adk/orchestrator.py:54`, `rlm_adk/orchestrator.py:214`, `tests_rlm_adk/test_bug001_orchestrator_retry.py:323`)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4853",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:410",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:414",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:420",
+      "demo_showboat/demo_fmea_team_f.md:367",
+      "demo_showboat/demo_fmea_team_f.md:567",
+      "tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:3",
+      "tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:77",
+      "tests_rlm_adk/test_fmea_e2e.py:1973",
+      "tests_rlm_adk/test_fmea_e2e.py:2020",
+      "rlm_adk/callbacks/worker.py:26",
+      "rlm_adk/callbacks/worker.py:35",
+      "rlm_adk/callbacks/worker.py:188",
+      "rlm_adk/dispatch.py:449",
+      "rlm_adk/dispatch.py:454",
+      "tests_rlm_adk/test_bug001_orchestrator_retry.py:315"
+    ],
+    "untested_code_paths": [
+      "FAIL: `_classify_error` AUTH branch (`code in (401, 403)`) is not directly asserted in any worker callback unit test (`rlm_adk/callbacks/worker.py:35`, `tests_rlm_adk/test_adk_callbacks.py:189`).",
+      "FAIL: Dispatch `LLMResult.http_status` propagation from `_call_record` is not asserted by this fixture class (`rlm_adk/dispatch.py:454`, `tests_rlm_adk/test_fmea_e2e.py:1973`).",
+      "FAIL: FM-28 orchestrator fast-fail retry classifier branch (`is_transient_error` false path) is outside this fixture's execution path (`rlm_adk/orchestrator.py:54`, `rlm_adk/orchestrator.py:215`).",
+      "FAIL: Mixed batch scenario (one worker AUTH failure, others succeed) remains untested for FM-28 resilience claims (`demo_showboat/demo_fmea_team_f.md:567`)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "Capture worker error category + http_status from tool response payload (or expose via REPL print)",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:2010; rlm_adk/dispatch.py:453",
+      "rationale": "PASS if category resolves to `AUTH` and status=401 for the injected fault; FAIL if category remains `UNKNOWN` or status is absent."
+    },
+    {
+      "trace": "ScenarioRouter request log call ordering",
+      "source": "tests_rlm_adk/provider_fake/fixtures.py:118; tests_rlm_adk/provider_fake/fixtures.py:242",
+      "rationale": "PASS if exactly 3 model calls occur (reasoning, worker fault, reasoning final) proving no hidden retry; FAIL if additional worker calls appear."
+    },
+    {
+      "trace": "worker_on_model_error `_call_record` contents for ClientError(401)",
+      "source": "rlm_adk/callbacks/worker.py:179; rlm_adk/callbacks/worker.py:188",
+      "rationale": "PASS if `_call_record.error_category` and `_call_record.http_status` preserve auth semantics; FAIL if callback receives non-int/opaque code and falls back to `UNKNOWN`."
+    },
+    {
+      "trace": "`OBS_WORKER_ERROR_COUNTS` bucket details",
+      "source": "rlm_adk/dispatch.py:641; tests_rlm_adk/test_fmea_e2e.py:2027",
+      "rationale": "PASS if bucket-level assertion catches category regressions; FAIL if only total-count assertion is used."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "new_fixture",
+      "action": "Retain this fixture + dedicated FM-28 class as the worker-path auth error baseline (single dispatch, 401 fault, graceful completion).",
+      "fixture": "worker_auth_error_401.json",
+      "failure_modes": [
+        "FM-28"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Fixture exists (`tests_rlm_adk/fixtures/provider_fake/worker_auth_error_401.json:1`) and dedicated tests exist (`tests_rlm_adk/test_fmea_e2e.py:1973`); targeted run on 2026-03-03: `.venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py::TestWorkerAuthError401 -q` -> `6 passed in 2.61s`.",
+        "notes": "PASS: FM-28 worker-path scenario is now executable and stable in CI-style targeted runs."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "source_fix",
+      "action": "Harden AUTH classification by normalizing `error.code` in worker callback classification (for example parse numeric status from provider exceptions before `code in (401, 403)` checks).",
+      "fixture": "worker_auth_error_401.json",
+      "failure_modes": [
+        "FM-28"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current runtime for this fixture reports `category=UNKNOWN` and `error_counts {'UNKNOWN': 1}` despite injected 401 (plugin run output on 2026-03-03); classification logic currently depends on direct `getattr(error, \"code\", None)` checks (`rlm_adk/callbacks/worker.py:30`, `rlm_adk/callbacks/worker.py:35`).",
+        "notes": "FAIL: AUTH branch is present in source but not reliably hit in fake-provider integration behavior."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "After classification hardening, tighten `TestWorkerAuthError401` to assert category bucket and propagated status (not just aggregate error count).",
+      "fixture": "worker_auth_error_401.json",
+      "failure_modes": [
+        "FM-28"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current assertions only require non-empty `OBS_WORKER_ERROR_COUNTS` total (`tests_rlm_adk/test_fmea_e2e.py:2031`) and avoid strict AUTH expectation by design (`tests_rlm_adk/test_fmea_e2e.py:2020`).",
+        "notes": "FAIL: Category/status regressions can pass unnoticed under the current relaxed assertions."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "unit_test",
+      "action": "Add direct worker classifier unit tests for 401/403 AUTH mapping and callback `_call_record.http_status` propagation.",
+      "fixture": "worker_auth_error_401.json",
+      "failure_modes": [
+        "FM-28"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Existing `_classify_error` unit coverage is parse/timeouts-oriented (`tests_rlm_adk/test_adk_callbacks.py:189`, `tests_rlm_adk/test_adk_callbacks.py:216`) and has no auth-branch assertions.",
+        "notes": "FAIL: AUTH branch confidence currently depends on indirect integration behavior."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "unit_test",
+      "action": "Keep orchestrator-side FM-28 non-retry propagation test in regression suite and add 403 parity coverage.",
+      "fixture": "worker_auth_error_401.json",
+      "failure_modes": [
+        "FM-28"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "401 orchestrator path test exists (`tests_rlm_adk/test_bug001_orchestrator_retry.py:315`) and passes in targeted run on 2026-03-03: `.venv/bin/python -m pytest tests_rlm_adk/test_bug001_orchestrator_retry.py::TestNonTransient401Propagation::test_401_propagates_without_retry -q` -> `1 passed in 0.03s`.",
+        "notes": "PASS for 401; 403 parity remains an incremental follow-up to fully match FM-28 401/403 scope."
+      }
+    }
+  ],
+  "demo_file": "demo_showboat/demo_fmea_team_f.md",
+  "review_team": "F"
+}

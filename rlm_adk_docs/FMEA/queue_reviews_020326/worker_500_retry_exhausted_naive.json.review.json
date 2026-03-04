@@ -1,0 +1,163 @@
+{
+  "fixture": "worker_500_retry_exhausted_naive.json",
+  "failure_modes": [
+    "FM-09"
+  ],
+  "rpn": 60,
+  "pathway": "P6d",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: The fixture intentionally encodes naive REPL behavior by calling llm_query and immediately stringifying the result (`answer = str(result)`) without checking `result.error` (tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:27). PASS: The dedicated test class explicitly targets this residual-risk behavior and validates that naive output is produced (`FIXTURE = \"worker_500_retry_exhausted_naive\"`, tests_rlm_adk/test_fmea_e2e.py:1841; stdout assertion at :1848-1862). FAIL: The naive tests do not verify dispatch accounting (`worker_dispatch_count`) for this FM-09 pathway, even though the state key exists and is populated by the dispatch flush path (rlm_adk/state.py:66, rlm_adk/dispatch.py:634).",
+    "response_mock_accuracy": "PASS: Response sequencing matches worker-retry exhaustion topology: call_index 0 reasoning tool-call, call_index 1/2 worker HTTP 500 faults, call_index 3 reasoning FINAL (tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:13, :46, :76, :88). PASS: Contract expectations are coherent with this sequence (`total_model_calls=4`, `total_iterations=1`) and are validated by `test_contract` through `ScenarioRouter.check_expectations` (tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:100-104; tests_rlm_adk/test_fmea_e2e.py:1843-1846; tests_rlm_adk/provider_fake/fixtures.py:242-249). FAIL: The final reasoning text does not assert or preserve the worker classification dimension (`SERVER` vs other categories); it only returns a generic `FINAL(Naive error consumed)` string (tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:57).",
+    "fault_injection_accuracy": "PASS: Fault injection faithfully models FM-09 retry exhaustion using two consecutive HTTP 500 injections with explicit attempt labels (tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:76-96). PASS: This matches FM-09 definition and RPN/pathway (`P6d`, `RPN=60`) in FMEA (`if all fail, worker_on_model_error fires`) (rlm_adk_docs/FMEA/rlm_adk_FMEA.md:163-174). PASS: Worker construction configures SDK retry attempts=2 in dispatch (`HttpRetryOptions(attempts=2, initial_delay=1.0, max_delay=30.0)`), consistent with the 2-fault fixture design (rlm_adk/dispatch.py:132-134). FAIL: Test assertions do not directly validate `error_category`/`http_status` propagation from worker callback to `LLMResult` (`_classify_error` and `_call_record`) for this fixture (rlm_adk/callbacks/worker.py:26-52, :179-189; rlm_adk/dispatch.py:449-455).",
+    "gaps": [
+      "FAIL: No naive-fixture assertion for `WORKER_DISPATCH_COUNT == 1`; class coverage currently checks contract/stdout/iteration/stderr/error-count presence only (tests_rlm_adk/test_fmea_e2e.py:1843-1899).",
+      "FAIL: No assertion that consumed stdout includes concrete worker error signature (e.g., `[Worker worker_` and `500`); current check only requires `Answer:` (tests_rlm_adk/test_fmea_e2e.py:1859-1862).",
+      "FAIL: No assertion on category-level observability value (e.g., expected bucket in `OBS_WORKER_ERROR_COUNTS`), only aggregate `sum(values) >= 1` (tests_rlm_adk/test_fmea_e2e.py:1891-1899).",
+      "PASS: Queue inference and team ownership alignment are consistent (`FM-09`, owner `K`, `TEAM_DEMO_ONLY`) (rlm_adk_docs/FMEA/fmea_gaps_020326.json:4833-4849)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "final_answer via contract expectation (`Naive error consumed`) (tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:101; tests_rlm_adk/test_fmea_e2e.py:1843-1846)",
+      "iteration_count asserted == 1 (tests_rlm_adk/test_fmea_e2e.py:1864-1869)",
+      "obs:worker_error_counts presence and non-zero total (tests_rlm_adk/test_fmea_e2e.py:1883-1899)"
+    ],
+    "state_keys_missing": [
+      "worker_dispatch_count exact value for single-dispatch FM-09 naive path (rlm_adk/state.py:66; rlm_adk/dispatch.py:634)",
+      "obs:worker_total_dispatches value for consistency with dispatch_count (rlm_adk/state.py:70; rlm_adk/dispatch.py:635)",
+      "obs:worker_dispatch_latency_ms shape/value sanity (rlm_adk/state.py:69; rlm_adk/dispatch.py:636)",
+      "last_repl_result summary fields (`has_errors`, `total_llm_calls`) are not asserted in this class (rlm_adk/tools/repl_tool.py:176-185)"
+    ],
+    "assertions_tested": [
+      "PASS: Contract check passes for fixture expectations (`final_answer`, `total_iterations`, `total_model_calls`) (tests_rlm_adk/test_fmea_e2e.py:1843-1846; tests_rlm_adk/provider_fake/fixtures.py:219-249)",
+      "PASS: Residual-risk manifestation asserted via tool stdout containing `Answer:` (tests_rlm_adk/test_fmea_e2e.py:1848-1862)",
+      "PASS: Single iteration asserted (tests_rlm_adk/test_fmea_e2e.py:1864-1869)",
+      "PASS: No stderr under pytest harness asserted (tests_rlm_adk/test_fmea_e2e.py:1871-1881)",
+      "PASS: Dispatch-level error observability presence asserted (tests_rlm_adk/test_fmea_e2e.py:1883-1899)"
+    ],
+    "assertions_missing": [
+      "FAIL: Missing explicit `WORKER_DISPATCH_COUNT == 1` assertion for this fixture class (tests_rlm_adk/test_fmea_e2e.py:1832-1899).",
+      "FAIL: Missing `llm_calls_made=True` assertion on execute_code function_response, despite direct llm_query usage (tests_rlm_adk/test_fmea_e2e.py:1856-1862; rlm_adk/tools/repl_tool.py:107-110, :204).",
+      "FAIL: Missing assertion on worker error signature details in stdout (`[Worker ... error: ...500...]`) to confirm the silent-consumption payload, not just the `Answer:` prefix (tests_rlm_adk/test_fmea_e2e.py:1859-1862; rlm_adk/callbacks/worker.py:172).",
+      "FAIL: Missing category-level assertion in `OBS_WORKER_ERROR_COUNTS` (tests_rlm_adk/test_fmea_e2e.py:1891-1899; rlm_adk/dispatch.py:641-643)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:163-174",
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4833-4849",
+      "demo_showboat/demo_fmea_team_k.md:10-13",
+      "tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:1-105",
+      "tests_rlm_adk/test_fmea_e2e.py:1828-1899",
+      "rlm_adk/callbacks/worker.py:26-52",
+      "rlm_adk/callbacks/worker.py:160-189",
+      "rlm_adk/dispatch.py:132-134",
+      "rlm_adk/dispatch.py:444-458",
+      "rlm_adk/dispatch.py:625-643",
+      "rlm_adk/orchestrator.py:251-275",
+      "tests_rlm_adk/provider_fake/fixtures.py:113-115",
+      "tests_rlm_adk/provider_fake/fixtures.py:242-249"
+    ],
+    "untested_code_paths": [
+      "`worker_on_model_error` category/http_status propagation is not asserted end-to-end in this naive class (`_classify_error` + `_call_record`) (rlm_adk/callbacks/worker.py:187-189; tests_rlm_adk/test_fmea_e2e.py:1832-1899).",
+      "Dispatch timeout branch for single worker (`asyncio.TimeoutError`) not exercised by this fixture (rlm_adk/dispatch.py:390-404).",
+      "No-result branch (`_result_ready` false) not exercised (rlm_adk/dispatch.py:436-444).",
+      "Orchestrator raw-text fallback behavior when no `FINAL()` marker is present is not exercised because fixture provides `FINAL(...)` (rlm_adk/orchestrator.py:269-275; tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:57)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "`result.router.call_index` after plugin run",
+      "source": "tests_rlm_adk/provider_fake/contract_runner.py:42-51; tests_rlm_adk/provider_fake/fixtures.py:113-115",
+      "rationale": "PASS/FAIL discriminator for retry consumption: assert exactly 4 calls to confirm reasoning(0) + worker attempts(1,2) + reasoning final(3) were all exercised in plugin-path tests, not only in contract checks."
+    },
+    {
+      "trace": "`WORKER_DISPATCH_COUNT` and `OBS_WORKER_TOTAL_DISPATCHES`",
+      "source": "rlm_adk/dispatch.py:633-636",
+      "rationale": "PASS/FAIL accounting trace: single-worker naive FM-09 should flush count=1; this directly validates dispatch accumulator behavior for the fixture."
+    },
+    {
+      "trace": "`OBS_WORKER_ERROR_COUNTS` category map",
+      "source": "rlm_adk/dispatch.py:641-643",
+      "rationale": "PASS/FAIL observability trace: current tests only assert non-empty totals; category-level assertion would distinguish regression in error bucketing."
+    },
+    {
+      "trace": "execute_code `stdout`/`stderr` function_response payload",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:64-77; tests_rlm_adk/test_fmea_e2e.py:1856-1862",
+      "rationale": "PASS/FAIL residual-risk trace: validate that naive stdout includes the worker error payload itself, not only the `Answer:` label."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "new_fixture",
+      "action": "Retain this fixture and class as the FM-09 residual-risk companion to error-aware FM-09 tests (`worker_500_retry_exhausted.json`) so silent error-consumption behavior remains explicitly covered.",
+      "fixture": "worker_500_retry_exhausted_naive.json",
+      "failure_modes": [
+        "FM-09"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Fixture created at tests_rlm_adk/fixtures/provider_fake/worker_500_retry_exhausted_naive.json:1-105; tests added at tests_rlm_adk/test_fmea_e2e.py:1832-1899; local run `pytest tests_rlm_adk/test_fmea_e2e.py::TestWorker500RetryExhaustedNaive -q` -> `5 passed in 10.48s`.",
+        "notes": "PASS: Residual-risk scenario exists and is executable; this closes the gap previously noted for FM-09 naive consumption coverage."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add `WORKER_DISPATCH_COUNT == 1` assertion in `TestWorker500RetryExhaustedNaive` for parity with other FM-09 coverage and to verify single-dispatch accounting.",
+      "fixture": "worker_500_retry_exhausted_naive.json",
+      "failure_modes": [
+        "FM-09"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Naive class currently has no dispatch-count test in tests_rlm_adk/test_fmea_e2e.py:1832-1899; state key is produced by dispatch flush_fn at rlm_adk/dispatch.py:634.",
+        "notes": "FAIL: Accounting is inferred indirectly from contract/model calls; direct state assertion is missing."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Strengthen `test_error_consumed_silently` by asserting stdout includes worker error payload markers (`[Worker worker_`, `ServerError`, `500`) rather than only `Answer:`.",
+      "fixture": "worker_500_retry_exhausted_naive.json",
+      "failure_modes": [
+        "FM-09"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current assertion only checks `'Answer:'` at tests_rlm_adk/test_fmea_e2e.py:1859-1862; worker error message shape originates from rlm_adk/callbacks/worker.py:172.",
+        "notes": "FAIL: Present test can pass even if payload content regresses while prefix remains unchanged."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add a category-level assertion for `OBS_WORKER_ERROR_COUNTS` (for example, ensure an expected bucket is present) to move beyond total-error-only validation.",
+      "fixture": "worker_500_retry_exhausted_naive.json",
+      "failure_modes": [
+        "FM-09"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current check is only `sum(values) >= 1` (tests_rlm_adk/test_fmea_e2e.py:1896-1899); category map is emitted at rlm_adk/dispatch.py:641-643.",
+        "notes": "FAIL: Without bucket-level assertion, category regressions are not detectable in this class."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "test_fix",
+      "action": "Do not add a plugin-path `router.call_index == 4` assertion; rely on contract-level `total_model_calls == 4` as the authoritative retry-consumption check.",
+      "fixture": "worker_500_retry_exhausted_naive.json",
+      "failure_modes": [
+        "FM-09"
+      ],
+      "resolution": {
+        "status": "not_needed",
+        "evidence": "Contract test already validates model-call count via `ScenarioRouter.check_expectations` (tests_rlm_adk/test_fmea_e2e.py:1843-1846; tests_rlm_adk/provider_fake/fixtures.py:242-249).",
+        "notes": "PASS: Retry slot consumption is already enforced by contract checks; duplicating this in plugin tests is low value."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_k.md",
+  "review_team": "K"
+}

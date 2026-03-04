@@ -131,5 +131,20 @@
     "final_answer": "2 results: 1 valid, 1 blocked by finish_reason",
     "total_iterations": 1,
     "total_model_calls": 4
+  },
+  "expected_state": {
+    "worker_dispatch_count": 2,
+    "obs:worker_error_counts": {
+      "$not_none": true,
+      "$has_key": "SAFETY"
+    },
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
+    "obs:finish_safety_count": {"$gt": 0}
   }
 }

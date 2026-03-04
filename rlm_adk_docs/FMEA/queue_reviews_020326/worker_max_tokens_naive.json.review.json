@@ -1,0 +1,169 @@
+{
+  "fixture": "worker_max_tokens_naive.json",
+  "failure_modes": [
+    "FM-25"
+  ],
+  "rpn": 75,
+  "pathway": "P6d",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: The fixture intentionally encodes naive REPL behavior by printing the worker result directly without truncation checks (`print(f\"Analysis: {result}\")`), which matches FM-25 residual risk semantics (tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:27; rlm_adk_docs/FMEA/rlm_adk_FMEA.md:379-381). PASS: Candidate coverage is explicitly wired to this fixture at `FIXTURE = \"worker_max_tokens_naive\"` and validates truncated text reaches stdout (tests_rlm_adk/test_fmea_e2e.py:1916,1923-1935). FAIL: The naive class does not assert dispatch accounting (`WORKER_DISPATCH_COUNT`) for this pathway, so dispatch flush regressions can evade detection (tests_rlm_adk/test_fmea_e2e.py:1907-1965; rlm_adk/dispatch.py:633-636).",
+    "response_mock_accuracy": "PASS: Response ordering is coherent and deterministic: reasoning tool-call (call_index 0), worker MAX_TOKENS truncated text (call_index 1), reasoning FINAL (call_index 2) (tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:13-99). PASS: Contract expectations (`final_answer`, `total_iterations=1`, `total_model_calls=3`) are aligned and enforced through fixture contract checks (tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:103-105; tests_rlm_adk/provider_fake/fixtures.py:219-250; tests_rlm_adk/test_fmea_e2e.py:1918-1921). FAIL: The worker candidate omits an explicit `index` field (present in some other fixtures), which is a minor realism gap not covered by assertions (tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:51-62).",
+    "fault_injection_accuracy": "PASS: `fault_injections` is correctly empty because this failure is a normal 200 response with `finishReason=MAX_TOKENS`, not an HTTP fault path (tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:61,101; rlm_adk_docs/FMEA/rlm_adk_FMEA.md:376-381). PASS: Source behavior is consistent: `_result_error` is SAFETY-gated, so MAX_TOKENS flows to non-error `LLMResult(error=False, finish_reason=...)` (rlm_adk/callbacks/worker.py:99-110,127-132; rlm_adk/dispatch.py:444-493). FAIL: Naive tests only assert error-count absence and do not directly assert finish-reason propagation or explicit `LLMResult.error=False` object semantics (tests_rlm_adk/test_fmea_e2e.py:1957-1965).",
+    "gaps": [
+      "FAIL: No naive-fixture assertion for `WORKER_DISPATCH_COUNT == 1` despite dispatch flush writing it every run (tests_rlm_adk/test_fmea_e2e.py:1907-1965; rlm_adk/dispatch.py:633-636; rlm_adk/state.py:66).",
+      "FAIL: No assertion on `LAST_REPL_RESULT` (`has_errors`, `has_output`, `total_llm_calls`) in this class, even though REPLTool always writes it on success (rlm_adk/tools/repl_tool.py:176-185; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "FAIL: No assertion on `OBS_FINISH_MAX_TOKENS_COUNT`, the dedicated finish-reason counter for this scenario (tests_rlm_adk/test_fmea_e2e.py:24,1907-1965; rlm_adk/plugins/observability.py:146-151; rlm_adk/state.py:76).",
+      "PASS: Queue inference, owner, and FMEA mapping are aligned (`FM-25`, `P2`, owner `L`, TEAM_DEMO_ONLY) (rlm_adk_docs/FMEA/fmea_gaps_020326.json:4893-4910; rlm_adk_docs/FMEA/rlm_adk_FMEA.md:371-382)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "`final_answer` exact contract match (`Naive truncated: revenue increasing by 15%`) (tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:103; tests_rlm_adk/test_fmea_e2e.py:1918-1921; tests_rlm_adk/provider_fake/fixtures.py:219-228).",
+      "`iteration_count` asserted as `1` for single-iteration completion (tests_rlm_adk/test_fmea_e2e.py:1937-1942).",
+      "`obs:worker_error_counts` negative check (`None` or empty) for MAX_TOKENS non-error classification (tests_rlm_adk/test_fmea_e2e.py:1957-1965; rlm_adk/dispatch.py:641-643)."
+    ],
+    "state_keys_missing": [
+      "`worker_dispatch_count` exact value for this single-dispatch path (rlm_adk/state.py:66; rlm_adk/dispatch.py:633-636; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "`obs:worker_dispatch_latency_ms` presence/length as dispatch-success observability proof (rlm_adk/state.py:69; rlm_adk/dispatch.py:636; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "`last_repl_result` summary fields (`has_errors=False`, `has_output=True`, `total_llm_calls=1`) (rlm_adk/state.py:21; rlm_adk/tools/repl_tool.py:176-185; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "`obs:finish_max_tokens_count` counter verification for finish-reason telemetry (rlm_adk/state.py:76; rlm_adk/plugins/observability.py:146-151; tests_rlm_adk/test_fmea_e2e.py:1907-1965)."
+    ],
+    "assertions_tested": [
+      "PASS: Contract checks for `final_answer`, `total_iterations`, and `total_model_calls` are executed (`run_fixture_contract`) (tests_rlm_adk/test_fmea_e2e.py:1918-1921; tests_rlm_adk/provider_fake/fixtures.py:219-250).",
+      "PASS: Tool stdout contains truncated tail text (`advertising spend and`), proving naive consumption of partial worker output (tests_rlm_adk/test_fmea_e2e.py:1923-1935).",
+      "PASS: `llm_calls_made=True` is required on extracted execute_code result before stdout/stderr assertions (tests_rlm_adk/test_fmea_e2e.py:1929-1931,1950-1951).",
+      "PASS: No Python exception leakage is asserted via empty stderr check (tests_rlm_adk/test_fmea_e2e.py:1944-1955).",
+      "PASS: Current execution confirms class health (`pytest tests_rlm_adk/test_fmea_e2e.py::TestWorkerMaxTokensNaive -q` => `5 passed in 2.18s`, run on 2026-03-03)."
+    ],
+    "assertions_missing": [
+      "FAIL: No direct `WORKER_DISPATCH_COUNT == 1` assertion in naive class (tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "FAIL: No assertion that finish reason propagates as `MAX_TOKENS` through worker callback -> dispatch -> REPL-visible result (rlm_adk/callbacks/worker.py:127; rlm_adk/dispatch.py:492; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "FAIL: No `LAST_REPL_RESULT` assertion to prove success-path observability payload shape in naive mode (rlm_adk/tools/repl_tool.py:176-185; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "FAIL: No assertion on `OBS_FINISH_MAX_TOKENS_COUNT >= 1` despite plugin pipeline usage (tests_rlm_adk/test_fmea_e2e.py:51-61,1907-1965; rlm_adk/plugins/observability.py:146-151).",
+      "FAIL: No explicit router call-log topology assertion (`0->1->2`), only contract-level total call count (tests_rlm_adk/provider_fake/fixtures.py:118-119,241-250; tests_rlm_adk/test_fmea_e2e.py:1918-1921)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4893-4910",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:371-382",
+      "demo_showboat/demo_fmea_team_l.md:16-21",
+      "tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:2-3",
+      "tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:27",
+      "tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:46-62",
+      "tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:73-85",
+      "tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:103-105",
+      "tests_rlm_adk/test_fmea_e2e.py:51-77",
+      "tests_rlm_adk/test_fmea_e2e.py:1907-1965",
+      "tests_rlm_adk/test_fmea_e2e.py:1916",
+      "rlm_adk/callbacks/worker.py:99-110",
+      "rlm_adk/callbacks/worker.py:121-132",
+      "rlm_adk/dispatch.py:444-493",
+      "rlm_adk/dispatch.py:625-643",
+      "rlm_adk/plugins/observability.py:146-151",
+      "rlm_adk/tools/repl_tool.py:168-185",
+      "tests_rlm_adk/provider_fake/fixtures.py:219-250"
+    ],
+    "untested_code_paths": [
+      "`worker_after_model` SAFETY-specific branch (`_result_error=True`) is intentionally not entered for MAX_TOKENS and is not contrasted in this class (rlm_adk/callbacks/worker.py:100-110; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "Dispatch timeout and no-result branches are not exercised by this deterministic single-worker success path (rlm_adk/dispatch.py:390-404,436-444).",
+      "Finish-reason observability counter path is executed by plugin but not asserted for this fixture (`obs:finish_max_tokens_count`) (rlm_adk/plugins/observability.py:146-151; tests_rlm_adk/test_fmea_e2e.py:1907-1965).",
+      "Naive class does not validate `trace_summary`/per-call traces in `LAST_REPL_RESULT`, leaving trace payload integrity unverified (rlm_adk/tools/repl_tool.py:183-185; tests_rlm_adk/test_fmea_e2e.py:1907-1965)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "`OBS_FINISH_MAX_TOKENS_COUNT`",
+      "source": "rlm_adk/plugins/observability.py:146-151; rlm_adk/state.py:76",
+      "rationale": "PASS/FAIL discriminator for FM-25 telemetry: with one worker MAX_TOKENS response, this counter should increment by at least 1 when plugin callbacks are active."
+    },
+    {
+      "trace": "`WORKER_DISPATCH_COUNT` and `OBS_WORKER_DISPATCH_LATENCY_MS`",
+      "source": "rlm_adk/dispatch.py:633-637; rlm_adk/state.py:66,69",
+      "rationale": "PASS/FAIL dispatch trace for naive path: single `llm_query` should flush count=1 and a non-empty latency list."
+    },
+    {
+      "trace": "`LAST_REPL_RESULT` summary payload",
+      "source": "rlm_adk/tools/repl_tool.py:176-185; rlm_adk/state.py:21",
+      "rationale": "PASS/FAIL REPL observability trace: naive truncation should still be a successful REPL run (`has_errors=False`, `has_output=True`, `total_llm_calls=1`)."
+    },
+    {
+      "trace": "`ScenarioRouter.request_log` topology",
+      "source": "tests_rlm_adk/provider_fake/fixtures.py:118-119,241-250",
+      "rationale": "PASS/FAIL sequence trace: confirm exact call order reasoning(0) -> worker(1, MAX_TOKENS) -> reasoning(2) rather than relying only on total call count."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add `test_worker_dispatch_count` in `TestWorkerMaxTokensNaive` asserting `WORKER_DISPATCH_COUNT == 1` for this single-dispatch fixture.",
+      "fixture": "worker_max_tokens_naive.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "No dispatch-count assertion exists in tests_rlm_adk/test_fmea_e2e.py:1907-1965; key is produced in rlm_adk/dispatch.py:633-636.",
+        "notes": "FAIL: Current class can pass even if flush accounting regresses for this naive branch."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add `test_last_repl_result_naive` asserting `LAST_REPL_RESULT.has_errors is False`, `has_output is True`, and `total_llm_calls == 1`.",
+      "fixture": "worker_max_tokens_naive.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Naive class currently does not read LAST_REPL_RESULT (tests_rlm_adk/test_fmea_e2e.py:1907-1965); REPL tool writes this payload on every successful run (rlm_adk/tools/repl_tool.py:176-185).",
+        "notes": "FAIL: Success-path observability is only indirectly inferred from empty stderr/stdout checks."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add assertion that `OBS_FINISH_MAX_TOKENS_COUNT >= 1` in plugin-path execution for this fixture.",
+      "fixture": "worker_max_tokens_naive.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Counter is imported but unused in this class (tests_rlm_adk/test_fmea_e2e.py:24,1907-1965); finish-reason counter update logic lives at rlm_adk/plugins/observability.py:146-151.",
+        "notes": "FAIL: FM-25-specific finish-reason telemetry is not currently validated in the naive variant."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add an explicit finish-reason propagation assertion for naive mode (for example by surfacing result metadata from execute_code or inspecting trace summaries) to prove `MAX_TOKENS` survives callback/dispatch plumbing.",
+      "fixture": "worker_max_tokens_naive.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current naive assertions stop at stdout/stderr/error-count checks (tests_rlm_adk/test_fmea_e2e.py:1923-1965); finish_reason is propagated in source via worker record and dispatch LLMResult (rlm_adk/callbacks/worker.py:127; rlm_adk/dispatch.py:492).",
+        "notes": "FAIL: A regression that drops finish_reason could escape this class while still passing existing naive assertions."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "new_fixture",
+      "action": "Retain `worker_max_tokens_naive.json` as the FM-25 residual-risk companion to the defensive `worker_max_tokens_truncated.json` fixture.",
+      "fixture": "worker_max_tokens_naive.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Fixture exists at tests_rlm_adk/fixtures/provider_fake/worker_max_tokens_naive.json:1-107, has dedicated class at tests_rlm_adk/test_fmea_e2e.py:1907-1965, and currently passes (`pytest tests_rlm_adk/test_fmea_e2e.py::TestWorkerMaxTokensNaive -q` => `5 passed in 2.18s`).",
+        "notes": "PASS: Residual-risk behavior (silent truncated consumption) is explicitly represented and executable."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_l.md",
+  "review_team": "L"
+}

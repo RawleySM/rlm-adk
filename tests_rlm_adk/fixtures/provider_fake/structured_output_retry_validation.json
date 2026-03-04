@@ -1,6 +1,6 @@
 {
   "scenario_id": "structured_output_retry_validation",
-  "description": "Iteration 1: reasoning returns REPL code with llm_query + output_schema. Worker's first functionCall has missing required 'confidence' field — SetModelResponseTool.run_async raises ValidationError, on_tool_error_callback returns reflection guidance as FunctionResponse. Model retries with all fields present — tool succeeds, worker ends. Iteration 2: reasoning returns FINAL. Worker API calls: bad functionCall (missing field) + corrected functionCall = 2.",
+  "description": "Iteration 1: reasoning returns REPL code with llm_query + output_schema. Worker's first functionCall has missing required 'confidence' field \u2014 SetModelResponseTool.run_async raises ValidationError, on_tool_error_callback returns reflection guidance as FunctionResponse. Model retries with all fields present \u2014 tool succeeds, worker ends. Iteration 2: reasoning returns FINAL. Worker API calls: bad functionCall (missing field) + corrected functionCall = 2.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -43,7 +43,7 @@
     {
       "call_index": 1,
       "caller": "worker",
-      "note": "functionCall MISSING required 'confidence' field — SetModelResponseTool raises ValidationError",
+      "note": "functionCall MISSING required 'confidence' field \u2014 SetModelResponseTool raises ValidationError",
       "status": 200,
       "body": {
         "candidates": [
@@ -76,7 +76,7 @@
     {
       "call_index": 2,
       "caller": "worker",
-      "note": "corrected functionCall after reflection guidance — all required fields present, worker ends after tool success",
+      "note": "corrected functionCall after reflection guidance \u2014 all required fields present, worker ends after tool success",
       "status": 200,
       "body": {
         "candidates": [
@@ -140,5 +140,15 @@
     "final_answer": "Market recovering with moderate gains",
     "total_iterations": 1,
     "total_model_calls": 4
+  },
+  "expected_state": {
+    "worker_dispatch_count": 1,
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }

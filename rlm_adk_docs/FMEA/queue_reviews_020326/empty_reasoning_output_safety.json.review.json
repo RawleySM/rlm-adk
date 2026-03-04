@@ -1,0 +1,121 @@
+{
+  "fixture": "empty_reasoning_output_safety.json",
+  "failure_modes": [
+    "FM-15",
+    "FM-24"
+  ],
+  "rpn": 48,
+  "pathway": "P9/P2b intersection: empty reasoning output (FM-15) triggered by SAFETY finishReason (FM-24)",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: call_index=0 reasoning emits execute_code with `x = 42; print(f\"x = {x}\")` \u2014 a valid single REPL call that succeeds. call_index=1 reasoning returns empty text with `finishReason=SAFETY`, triggering the empty-output error path. This correctly exercises both FM-15 (empty reasoning_output) and FM-24 (SAFETY finish at reasoning level). The code path through orchestrator.py:255-275 falls through to the `else` branch at line 303 because `final_answer` is empty string.",
+    "response_mock_accuracy": "PASS: call_index=0 is a well-formed functionCall for execute_code with finishReason=STOP and realistic usageMetadata (150/25/175 tokens). call_index=1 returns HTTP 200 with empty text and finishReason=SAFETY, matching Gemini's content-filtering behavior where candidatesTokenCount=0 and the candidate text is an empty string. This is distinct from HTTP-level errors (which would trigger on_model_error). The response structure matches google.genai GenerateContentResponse format.",
+    "fault_injection_accuracy": "PASS: No fault_injections array entries, which is correct \u2014 FM-15/24 are content-level failures on successful HTTP 200 responses, not transport-layer faults. The SAFETY finish is modeled via the response body finishReason field, not via HTTP status codes.",
+    "gaps": [
+      "The fixture uses `finishReason=SAFETY` on the final reasoning turn (call_index=1) but does not model a SAFETY finish on the first reasoning turn (call_index=0). The companion fixture `reasoning_safety_finish.json` covers the first-turn-only SAFETY case. Together they provide full coverage but this relationship is not documented in the fixture description.",
+      "No assertion that ITERATION_COUNT=1 confirms exactly one successful REPL execution before the SAFETY-blocked final turn. The test class does verify this (`test_single_repl_iteration`), but the fixture `expected` block only checks total_model_calls=2 and total_iterations=1."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` exact contract match via fixture expected block \u2014 asserts `[RLM ERROR] Reasoning agent completed without producing a structured final answer. Check output_schema wiring.` (`tests_rlm_adk/test_fmea_e2e.py:1739`, `tests_rlm_adk/fixtures/provider_fake/empty_reasoning_output_safety.json:75`).",
+      "PASS: `ITERATION_COUNT` verified as 1 via `test_single_repl_iteration` (`tests_rlm_adk/test_fmea_e2e.py:1753-1758`).",
+      "PASS: Implicit total_model_calls=2 coverage through contract expectation (`tests_rlm_adk/fixtures/provider_fake/empty_reasoning_output_safety.json:77`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `SHOULD_STOP` is not asserted in `TestEmptyReasoningOutputSafety`. The orchestrator sets `SHOULD_STOP=True` in the error branch (`rlm_adk/orchestrator.py:316-318`), but no test verifies this.",
+      "FAIL: `OBS_FINISH_SAFETY_COUNT` is not asserted. The ObservabilityPlugin should increment this counter when it sees `finishReason=SAFETY` on the reasoning response (`rlm_adk/plugins/observability.py:147-150`), but no test checks it.",
+      "FAIL: `WORKER_DISPATCH_COUNT == 0` is not explicitly asserted, even though this fixture exercises no worker dispatch path."
+    ],
+    "assertions_tested": [
+      "PASS: `test_contract` \u2014 validates expected final_answer, total_iterations, total_model_calls (`tests_rlm_adk/test_fmea_e2e.py:1739-1742`).",
+      "PASS: `test_error_message_format` \u2014 asserts FINAL_ANSWER starts with '[RLM ERROR]' (`tests_rlm_adk/test_fmea_e2e.py:1744-1751`).",
+      "PASS: `test_single_repl_iteration` \u2014 asserts ITERATION_COUNT == 1 (`tests_rlm_adk/test_fmea_e2e.py:1753-1758`).",
+      "PASS: `test_same_error_as_stop_variant` \u2014 cross-variant assertion that SAFETY and STOP variants of FM-15 produce identical error messages (`tests_rlm_adk/test_fmea_e2e.py:1760-1775`). This is a strong invariant test."
+    ],
+    "assertions_missing": [
+      "FAIL: No assertion that the error state_delta event contains both `FINAL_ANSWER` and `SHOULD_STOP=True` (`rlm_adk/orchestrator.py:313-318`).",
+      "FAIL: No assertion on `OBS_FINISH_SAFETY_COUNT` \u2014 the SAFETY finishReason should be tracked by the observability plugin.",
+      "FAIL: No assertion that this fixture produces zero worker dispatches (WORKER_DISPATCH_COUNT == 0)."
+    ],
+    "source_code_refs": [
+      "tests_rlm_adk/fixtures/provider_fake/empty_reasoning_output_safety.json:1",
+      "tests_rlm_adk/test_fmea_e2e.py:1729-1775",
+      "tests_rlm_adk/fixtures/provider_fake/index.json:1210",
+      "rlm_adk/orchestrator.py:255-328",
+      "rlm_adk/orchestrator.py:303-318",
+      "rlm_adk/tools/repl_tool.py:80-91",
+      "rlm_adk/plugins/observability.py:147-150",
+      "rlm_adk/state.py:74"
+    ],
+    "untested_code_paths": [
+      "FAIL: ObservabilityPlugin reasoning-level SAFETY counter path (`rlm_adk/plugins/observability.py:147-150`) \u2014 counter is written but never asserted in any test for this fixture.",
+      "FAIL: Worker dispatch/callback paths (`rlm_adk/dispatch.py:430-497`, `rlm_adk/callbacks/worker.py:78-157`) are not exercised since this fixture has no worker calls.",
+      "FAIL: FINAL()/FINAL_VAR extraction branches (`rlm_adk/utils/parsing.py:21-39`) are not exercised \u2014 this fixture only hits the empty-string fallback."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "Cross-variant parity: SAFETY vs STOP empty output",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:1760",
+      "rationale": "PASS criterion: `fa_safety == fa_stop` confirms orchestrator treats empty output identically regardless of finishReason. FAIL criterion: different error messages would indicate finish-reason-dependent branching in orchestrator."
+    },
+    {
+      "trace": "Orchestrator error-event state_delta contents",
+      "source": "rlm_adk/orchestrator.py:313",
+      "rationale": "PASS criterion: one state_delta event contains both `FINAL_ANSWER` (error message) and `SHOULD_STOP=True`. FAIL criterion: missing termination flag or separate events."
+    },
+    {
+      "trace": "REPL execution before SAFETY block",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:1753",
+      "rationale": "PASS criterion: ITERATION_COUNT == 1 confirms the execute_code call at call_index=0 succeeded before the SAFETY block at call_index=1. FAIL criterion: ITERATION_COUNT != 1."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add `SHOULD_STOP is True` assertion to `TestEmptyReasoningOutputSafety` to verify termination semantics match the orchestrator error branch.",
+      "fixture": "empty_reasoning_output_safety.json",
+      "failure_modes": [
+        "FM-15",
+        "FM-24"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current class asserts contract, error format, iteration count, and cross-variant parity (`tests_rlm_adk/test_fmea_e2e.py:1729-1775`) but never checks `SHOULD_STOP` (`rlm_adk/orchestrator.py:316`).",
+        "notes": "FAIL: Session-stop correctness is implied but not explicitly verified."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add `OBS_FINISH_SAFETY_COUNT >= 1` assertion to verify the observability plugin records the SAFETY finishReason.",
+      "fixture": "empty_reasoning_output_safety.json",
+      "failure_modes": [
+        "FM-24"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "ObservabilityPlugin writes finish counters (`rlm_adk/plugins/observability.py:147-150`), but no test for this fixture verifies the SAFETY counter was incremented.",
+        "notes": "FAIL: FM-24 observability signal exists in logic but lacks e2e assertion."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "test_fix",
+      "action": "Add explicit `WORKER_DISPATCH_COUNT == 0` assertion to confirm no worker dispatch occurred in this reasoning-only scenario.",
+      "fixture": "empty_reasoning_output_safety.json",
+      "failure_modes": [
+        "FM-15"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Fixture has no worker calls. Asserting zero dispatch count guards against regressions that might accidentally add worker steps.",
+        "notes": "Low priority: implicitly covered by total_model_calls=2."
+      }
+    }
+  ],
+  "demo_file": "demo_showboat/demo_fmea_team_e.md",
+  "review_team": "E"
+}

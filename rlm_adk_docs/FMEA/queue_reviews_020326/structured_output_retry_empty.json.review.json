@@ -1,0 +1,151 @@
+{
+  "fixture": "structured_output_retry_empty.json",
+  "failure_modes": [
+    "FM-16",
+    "FM-17"
+  ],
+  "rpn": 90,
+  "pathway": "P6g",
+  "fidelity": {
+    "verdict": "partial",
+    "repl_code_accuracy": "PASS: The REPL code uses `llm_query(..., output_schema=AnalysisResult)` and reads `result.parsed[...]`, which directly exercises structured-output worker wiring and parsed payload usage (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:25`; `rlm_adk/dispatch.py:373-380,460-497`). FAIL: The call is K=1 (`llm_query`), so FM-17's K>1 parallel structured-output path is not exercised (`rlm_adk_docs/FMEA/rlm_adk_FMEA.md:267-277`; `rlm_adk/dispatch.py:405-414`).",
+    "response_mock_accuracy": "PASS: The scripted sequence is coherent for soft-error self-healing: worker call 1 sends empty `summary`, worker call 2 sends corrected args, then reasoning emits FINAL (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:44-137`). This matches `WorkerRetryPlugin.extract_error_from_result` empty-string detection (`rlm_adk/callbacks/worker_retry.py:51-71`). FAIL: This fixture proves retry recovery only, not FM-16 exhaustion behavior (`rlm_adk_docs/FMEA/rlm_adk_FMEA.md:254-265`) and does not hit exhaustion classification in dispatch (`rlm_adk/dispatch.py:466-487`).",
+    "fault_injection_accuracy": "PASS: `fault_injections` is intentionally empty because the failure is tool-level validation/reflection, not HTTP transport (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:139`; `rlm_adk/callbacks/worker_retry.py:63-69,120-145`). FAIL: With no transport faults, this fixture cannot validate structured-output retry interaction with worker error categorization/observability counters (`rlm_adk/callbacks/worker.py:26-52`; `rlm_adk/dispatch.py:641-646`).",
+    "gaps": [
+      "FAIL: FM-17 coverage is inferred by queue metadata but this fixture is single-worker only; K>1 parallel wiring risk remains untested by this fixture (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4762-4765`; `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:25`).",
+      "FAIL: No plugin-enabled test for this fixture, so BUG-13 suppression runtime (`_bug13_stats['suppress_count']`) is not asserted here (`tests_rlm_adk/test_structured_output_e2e.py:158-177`; `rlm_adk/callbacks/worker_retry.py:33,200-210`).",
+      "FAIL: Tests validate final answer and total calls, but not the structured payload content (`parsed.summary`, `parsed.confidence`) produced after retry (`tests_rlm_adk/test_structured_output_e2e.py:164-177`).",
+      "FAIL: No assertions for dispatch/observability state keys (`WORKER_DISPATCH_COUNT`, `OBS_WORKER_ERROR_COUNTS`, `OBS_STRUCTURED_OUTPUT_FAILURES`) for this scenario (`rlm_adk/dispatch.py:633-653`; `rlm_adk/state.py:66,81,87`)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` exact match is asserted in `test_retry_empty_final_answer` (`tests_rlm_adk/test_structured_output_e2e.py:158-165`).",
+      "PASS: `ITERATION_COUNT` is covered indirectly via contract expectations (`tests_rlm_adk/test_structured_output_e2e.py:69-85`; `tests_rlm_adk/provider_fake/fixtures.py:230-239`; `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:142-143`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `WORKER_DISPATCH_COUNT` not asserted for this fixture (`rlm_adk/state.py:66`; `rlm_adk/dispatch.py:633-639`; `tests_rlm_adk/test_structured_output_e2e.py:158-177`).",
+      "FAIL: `OBS_WORKER_ERROR_COUNTS` absence/emptiness is not asserted for successful retry (`rlm_adk/state.py:81`; `rlm_adk/dispatch.py:641-646`; `tests_rlm_adk/test_structured_output_e2e.py:158-177`).",
+      "FAIL: `OBS_STRUCTURED_OUTPUT_FAILURES` is not asserted to remain zero in this recovery case (`rlm_adk/state.py:87`; `rlm_adk/dispatch.py:651-652`).",
+      "FAIL: `LAST_REPL_RESULT` structured details are not checked (`rlm_adk/state.py:21`; `tests_rlm_adk/test_structured_output_e2e.py:158-177`)."
+    ],
+    "assertions_tested": [
+      "PASS: Contract test includes this fixture and checks `final_answer`, `total_iterations`, and `total_model_calls` through `run_fixture_contract` (`tests_rlm_adk/test_structured_output_e2e.py:43-48,69-85`; `tests_rlm_adk/provider_fake/fixtures.py:219-250`).",
+      "PASS: Final answer is explicitly asserted as `Market shows steady upward trend` (`tests_rlm_adk/test_structured_output_e2e.py:164-165`).",
+      "PASS: Total model calls are explicitly asserted as 4 (1 reasoning + 2 worker + 1 final reasoning) (`tests_rlm_adk/test_structured_output_e2e.py:174-177`; `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:142-144`)."
+    ],
+    "assertions_missing": [
+      "FAIL: No assertion that retry actually produced a non-empty structured payload (`summary` and `confidence`) in worker result (`tests_rlm_adk/test_structured_output_e2e.py:158-177`; `tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:92-94`).",
+      "FAIL: No assertion that BUG-13 suppression was invoked during retry path (`rlm_adk/callbacks/worker_retry.py:33,200-210`), unlike FM-17 e2e tests (`tests_rlm_adk/test_fmea_e2e.py:858-869`).",
+      "FAIL: No plugin-run assertion for this fixture (only validation variant has one) (`tests_rlm_adk/test_structured_output_e2e.py:207-227`).",
+      "FAIL: No assertion that worker dispatch observability keys are coherent for successful retry (`tests_rlm_adk/test_structured_output_e2e.py:158-177`; `rlm_adk/dispatch.py:633-653`)."
+    ],
+    "source_code_refs": [
+      "tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:25,44-60,78-94,112-123,139,142-144",
+      "tests_rlm_adk/test_structured_output_e2e.py:43-48,69-85,158-177,207-227",
+      "tests_rlm_adk/provider_fake/fixtures.py:118-119,219-250",
+      "rlm_adk/callbacks/worker_retry.py:33,51-71,96-123,140-145,167-217",
+      "rlm_adk/dispatch.py:373-380,405-414,460-497,633-653",
+      "rlm_adk/state.py:21,66,81,87",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:254-278",
+      "demo_showboat/demo_fmea_team_h.md:5-16,119-153",
+      "demo_showboat/demo_fmea_team_d.md:6-12,64-73,181-189"
+    ],
+    "untested_code_paths": [
+      "FAIL: K>1 structured-output parallel branch (`ParallelAgent`) not exercised by this fixture (`rlm_adk/dispatch.py:405-414`).",
+      "FAIL: FM-16 exhaustion classification branch (`SCHEMA_VALIDATION_EXHAUSTED`) not exercised because second attempt succeeds (`rlm_adk/dispatch.py:466-487`).",
+      "FAIL: ValidationError on-tool-error path for `set_model_response` not exercised in this fixture (empty-string path only) (`rlm_adk/callbacks/worker_retry.py:125-145`).",
+      "FAIL: Runtime assertion of BUG-13 patch invocation count is not covered for this fixture (`rlm_adk/callbacks/worker_retry.py:33,200-210`)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "BUG-13 suppress counter delta",
+      "source": "rlm_adk/callbacks/worker_retry.py:33,200-210",
+      "rationale": "Track `_bug13_stats['suppress_count']` before/after this fixture run. PASS if delta >= 1 confirms retry-guidance suppression path executed; FAIL if delta == 0 indicates retry occurred without proven postprocessor suppression."
+    },
+    {
+      "trace": "ScenarioRouter request_log ordering",
+      "source": "tests_rlm_adk/provider_fake/fixtures.py:118-119,141-150; tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:12-137",
+      "rationale": "Assert exact call topology (reasoning->worker->worker->reasoning) instead of call-count-only. This tightens evidence that retry happened on worker call index 2 after empty args on index 1."
+    },
+    {
+      "trace": "Dispatch/observability state deltas for successful retry",
+      "source": "rlm_adk/dispatch.py:633-653; rlm_adk/state.py:66,81,87",
+      "rationale": "Capture `WORKER_DISPATCH_COUNT==1`, `OBS_WORKER_ERROR_COUNTS` absent/empty, and `OBS_STRUCTURED_OUTPUT_FAILURES` absent/0 for this fixture to distinguish successful self-heal from exhaustion/error paths."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add `test_retry_empty_with_plugins` in `tests_rlm_adk/test_structured_output_e2e.py` that runs `_run_with_plugins('structured_output_retry_empty', tmp_path)` and asserts final answer, at least one tool_result with `llm_calls_made=True`, and stable trace_summary presence (mirroring validation fixture plugin test).",
+      "fixture": "structured_output_retry_empty.json",
+      "failure_modes": [
+        "FM-16",
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "No plugin test exists for retry-empty path (`tests_rlm_adk/test_structured_output_e2e.py:158-177`), while validation variant has plugin coverage (`tests_rlm_adk/test_structured_output_e2e.py:207-227`).",
+        "notes": "Current coverage proves contract outputs but not plugin/trace behavior for this exact fixture."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add assertions that the recovered structured payload is non-empty and schema-meaningful (e.g., `summary` not blank, `confidence` > 0) by inspecting function_response or REPL snapshot payloads, not just FINAL text/call count.",
+      "fixture": "structured_output_retry_empty.json",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Existing tests assert only `final_answer` and total calls (`tests_rlm_adk/test_structured_output_e2e.py:164-177`); no assertion on structured fields from corrected call (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:92-94`).",
+        "notes": "This prevents false pass where text output is correct but structured payload handling regresses."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "fixture_fix",
+      "action": "Document in fixture/queue metadata that this file is FM-16 recovery-focused and FM-17-adjacent only (K=1), to avoid treating it as standalone FM-17 closure.",
+      "fixture": "structured_output_retry_empty.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Queue infers FM-17 (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4762-4765`) but fixture REPL call is single-worker `llm_query` (`tests_rlm_adk/fixtures/provider_fake/structured_output_retry_empty.json:25`).",
+        "notes": "Clarification reduces interpretation risk when triaging FM-17 evidence."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "new_fixture",
+      "action": "Create a K>1 retry fixture where one or more parallel workers retry under structured output to close FM-17 concurrency risk.",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "not_needed",
+        "evidence": "K>1 retry fixtures/tests already exist: `structured_output_batched_k3_with_retry` (`tests_rlm_adk/test_fmea_e2e.py:824-911`) and `structured_output_batched_k3_multi_retry` (`tests_rlm_adk/test_fmea_e2e.py:2159-2211`).",
+        "notes": "Use existing FM-17 fixtures for concurrency validation; this fixture should remain K=1 recovery-focused."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "unit_test",
+      "action": "Retain and treat tool-guard/empty-value unit tests as baseline regression checks for this fixture path.",
+      "failure_modes": [
+        "FM-16"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "`tests_rlm_adk/test_worker_retry_tool_guard.py:95-125,160-171` and `tests_rlm_adk/test_adk_worker_retry.py:559-640` already verify empty-value detection, set_model_response guard, and retry guidance return behavior.",
+        "notes": "Unit coverage exists; remaining gap is fixture-specific plugin/e2e depth."
+      }
+    }
+  ],
+  "demo_file": "demo_showboat/demo_fmea_team_d.md; demo_showboat/demo_fmea_team_h.md",
+  "review_team": "D,H"
+}

@@ -24,6 +24,9 @@ from rlm_adk.state import (
     ITERATION_COUNT,
     OBS_ARTIFACT_BYTES_SAVED,
     OBS_ARTIFACT_SAVES,
+    OBS_FINISH_MAX_TOKENS_COUNT,
+    OBS_FINISH_RECITATION_COUNT,
+    OBS_FINISH_SAFETY_COUNT,
     OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
@@ -70,16 +73,61 @@ class ObservabilityPlugin(BasePlugin):
             pass
         return None
 
+    # Keys written by after_model_callback that are ephemeral due to ADK
+    # not wiring event_actions on plugin after_model CallbackContext
+    # (base_llm_flow.py oversight).  We re-persist them here.
+    _EPHEMERAL_FIXED_KEYS: tuple[str, ...] = (
+        OBS_TOTAL_CALLS,
+        OBS_TOTAL_INPUT_TOKENS,
+        OBS_TOTAL_OUTPUT_TOKENS,
+        OBS_PER_ITERATION_TOKEN_BREAKDOWN,
+        OBS_FINISH_SAFETY_COUNT,
+        OBS_FINISH_RECITATION_COUNT,
+        OBS_FINISH_MAX_TOKENS_COUNT,
+    )
+
+    # Prefixes for dynamic keys generated in after_model_callback
+    _EPHEMERAL_DYNAMIC_PREFIXES: tuple[str, ...] = (
+        "obs:finish_",
+        "obs:model_usage:",
+    )
+
     async def after_agent_callback(
         self,
         *,
         agent: BaseAgent,
         callback_context: CallbackContext,
     ) -> Optional[types.Content]:
-        """Record agent exit."""
+        """Persist ephemeral obs keys and record agent exit.
+
+        ADK's base_llm_flow.py creates CallbackContext *without*
+        event_actions for plugin after_model_callback, so state writes
+        there hit the live session dict but never land in a state_delta
+        Event.  This after_agent_callback re-writes those values through
+        the properly-wired CallbackContext so they appear in final_state.
+        """
         try:
+            state = callback_context.state
+            # Read the live session dict to find ephemeral values
+            session_state = callback_context._invocation_context.session.state
+
+            # Persist fixed keys
+            for key in self._EPHEMERAL_FIXED_KEYS:
+                val = session_state.get(key)
+                if val is not None:
+                    state[key] = val
+
+            # Persist dynamic keys (obs:finish_*, obs:model_usage:*)
+            for sess_key in list(session_state.keys()):
+                for prefix in self._EPHEMERAL_DYNAMIC_PREFIXES:
+                    if sess_key.startswith(prefix):
+                        val = session_state.get(sess_key)
+                        if val is not None:
+                            state[sess_key] = val
+                        break
+
             agent_name = getattr(agent, "name", "unknown")
-            request_id = callback_context.state.get(REQUEST_ID, "unknown")
+            request_id = state.get(REQUEST_ID, "unknown")
             logger.debug("[%s] Agent '%s' completed", request_id, agent_name)
         except Exception:
             pass

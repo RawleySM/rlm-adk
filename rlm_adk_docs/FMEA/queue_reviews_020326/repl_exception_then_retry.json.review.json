@@ -1,0 +1,133 @@
+{
+  "fixture": "repl_exception_then_retry.json",
+  "failure_modes": [
+    "FM-14"
+  ],
+  "rpn": 96,
+  "pathway": "P7",
+  "fidelity": {
+    "verdict": "partial",
+    "repl_code_accuracy": "PASS: Iteration 1 executes llm_query and then raises RuntimeError, and iteration 2 re-dispatches and succeeds (tests_rlm_adk/fixtures/provider_fake/repl_exception_then_retry.json:26-27,87-88,164-166). PASS: This routes through async REPL execution via has_llm_calls -> execute_code_async (rlm_adk/tools/repl_tool.py:108-117).",
+    "response_mock_accuracy": "PASS: The response sequence reasoning->worker->reasoning->worker->reasoning is coherent and matches expected totals (tests_rlm_adk/fixtures/provider_fake/repl_exception_then_retry.json:12-160,164-167). PASS: Candidate tests validate contract, retry count, RuntimeError visibility, final answer, and no-drift dispatch count (tests_rlm_adk/test_fmea_e2e.py:1531-1576).",
+    "fault_injection_accuracy": "FAIL: FM-14 in the FMEA requires an exception path that returns before flush_fn (rlm_adk_docs/FMEA/rlm_adk_FMEA.md:232-238), but this fixture's RuntimeError is caught inside LocalREPL.execute_code_async (rlm_adk/repl/local_repl.py:421-424), so REPLTool normal-path flush still executes (rlm_adk/tools/repl_tool.py:168-175). PASS: test_worker_dispatch_count_no_drift asserts WORKER_DISPATCH_COUNT == 1, consistent with per-iteration accumulator reset (tests_rlm_adk/test_fmea_e2e.py:1563-1576; rlm_adk/dispatch.py:625-659).",
+    "gaps": [
+      "FAIL: The fixture does not force an exception to escape execute_code_async, so it does not directly traverse REPLTool's exception handlers (rlm_adk/repl/local_repl.py:421-424; rlm_adk/tools/repl_tool.py:120-166).",
+      "FAIL: No assertion in TestReplExceptionThenRetry checks LAST_REPL_RESULT contents, so per-iteration has_errors/total_llm_calls observability is unverified for this fixture (tests_rlm_adk/test_fmea_e2e.py:1519-1576; rlm_adk/tools/repl_tool.py:176-185).",
+      "FAIL: No assertion on OBS_WORKER_DISPATCH_LATENCY_MS, so flush cadence is inferred indirectly from WORKER_DISPATCH_COUNT only (rlm_adk/dispatch.py:636,656; tests_rlm_adk/test_fmea_e2e.py:1563-1576).",
+      "FAIL: demo_showboat/demo_fmea_team_l.md does not mention this fixture directly; evidence is indirect FM-14 narrative on repl_cancelled_during_async (demo_showboat/demo_fmea_team_l.md:23-35,62-74)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: iteration_count == 2 (tests_rlm_adk/test_fmea_e2e.py:1540-1541)",
+      "PASS: final_answer contains recovered-42 (tests_rlm_adk/test_fmea_e2e.py:1560-1561)",
+      "PASS: worker_dispatch_count == 1 (tests_rlm_adk/test_fmea_e2e.py:1572-1575)"
+    ],
+    "state_keys_missing": [
+      "FAIL: last_repl_result (no assertion in TestReplExceptionThenRetry) (tests_rlm_adk/test_fmea_e2e.py:1519-1576)",
+      "FAIL: obs:worker_dispatch_latency_ms (no assertion on latency list) (rlm_adk/dispatch.py:636)",
+      "FAIL: obs:worker_total_dispatches (no assertion on total dispatch delta) (rlm_adk/dispatch.py:635)"
+    ],
+    "assertions_tested": [
+      "PASS: contract check passed for fixture (tests_rlm_adk/test_fmea_e2e.py:1531-1534)",
+      "PASS: RuntimeError visible in first tool stderr (tests_rlm_adk/test_fmea_e2e.py:1543-1554)",
+      "PASS: retry converges to recovered final answer (tests_rlm_adk/test_fmea_e2e.py:1556-1561)",
+      "PASS: no accumulator drift signal via worker_dispatch_count == 1 (tests_rlm_adk/test_fmea_e2e.py:1563-1576)"
+    ],
+    "assertions_missing": [
+      "FAIL: No assertion that first and second tool responses both have llm_calls_made=True (rlm_adk/tools/repl_tool.py:109,204; tests_rlm_adk/test_fmea_e2e.py:1547-1554)",
+      "FAIL: No assertion on LAST_REPL_RESULT.has_errors / total_llm_calls for this fixture (rlm_adk/tools/repl_tool.py:176-185)",
+      "FAIL: No assertion that OBS_WORKER_DISPATCH_LATENCY_MS final delta length == 1 to harden drift detection (rlm_adk/dispatch.py:636-657)"
+    ],
+    "source_code_refs": [
+      "rlm_adk/tools/repl_tool.py:107-175",
+      "rlm_adk/repl/local_repl.py:368-445",
+      "rlm_adk/dispatch.py:341-345",
+      "rlm_adk/dispatch.py:625-659",
+      "rlm_adk/orchestrator.py:123-157",
+      "tests_rlm_adk/test_fmea_e2e.py:1519-1576"
+    ],
+    "untested_code_paths": [
+      "FAIL: REPLTool CancelledError branch is not exercised by this fixture (rlm_adk/tools/repl_tool.py:120-143)",
+      "FAIL: REPLTool generic except Exception branch is not exercised by this fixture path because LocalREPL catches user RuntimeError first (rlm_adk/repl/local_repl.py:421-424; rlm_adk/tools/repl_tool.py:144-166)",
+      "FAIL: Per-iteration latency/error state validation remains untested for this fixture (rlm_adk/dispatch.py:636-647; rlm_adk/tools/repl_tool.py:176-185)"
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "OBS_WORKER_DISPATCH_LATENCY_MS final delta",
+      "source": "rlm_adk/dispatch.py:636-657",
+      "rationale": "PASS criterion: final-state latency list length is 1 for iteration-2-only delta; FAIL criterion: length 2 implies iteration-1 accumulator carry-over."
+    },
+    {
+      "trace": "LAST_REPL_RESULT snapshots from tool events",
+      "source": "rlm_adk/tools/repl_tool.py:176-185",
+      "rationale": "PASS criterion: iteration 1 snapshot has has_errors=true and iteration 2 has has_errors=false; FAIL criterion: missing or inconsistent snapshots indicate observability regression."
+    },
+    {
+      "trace": "tool_response.llm_calls_made for both execute_code calls",
+      "source": "rlm_adk/tools/repl_tool.py:108-117,200-205",
+      "rationale": "PASS criterion: both tool responses set llm_calls_made=true, proving async dispatch path each iteration; FAIL criterion: false indicates routing mismatch and invalid FM-14 inference."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "source_fix",
+      "action": "Retain the generic exception FM-14 safeguard in REPLTool (flush_fn + LAST_REPL_RESULT write) and treat removal as a regression gate.",
+      "fixture": "repl_exception_then_retry.json",
+      "failure_modes": [
+        "FM-14"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "rlm_adk/tools/repl_tool.py:144-159",
+        "notes": "PASS: The generic except Exception branch now flushes accumulators and writes LAST_REPL_RESULT, so the historical FM-14 source bug is addressed in current code."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "unit_test",
+      "action": "Keep a dedicated escaped-exception test separate from this fixture to verify FM-14 behavior when errors occur after dispatch but before normal return.",
+      "fixture": "repl_exception_then_retry.json",
+      "failure_modes": [
+        "FM-14"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "tests_rlm_adk/test_fmea_e2e.py:1415-1511; PYTHONWARNINGS=ignore PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py::TestReplExceptionFlushFn tests_rlm_adk/test_fmea_e2e.py::TestReplExceptionThenRetry -q => 8 passed",
+        "notes": "PASS: TestReplExceptionFlushFn monkeypatches LocalREPL.execute_code_async to raise RuntimeError after dispatch, exercising REPLTool's generic exception handling and validating flush/observability writes."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Extend TestReplExceptionThenRetry with assertions for LAST_REPL_RESULT fields and OBS_WORKER_DISPATCH_LATENCY_MS final delta to make no-drift evidence explicit.",
+      "fixture": "repl_exception_then_retry.json",
+      "failure_modes": [
+        "FM-14"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "tests_rlm_adk/test_fmea_e2e.py:1519-1576 (current assertions stop at worker_dispatch_count)",
+        "notes": "FAIL: Current coverage infers flush behavior indirectly; direct assertions on observability keys are still missing for this fixture."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "fixture_fix",
+      "action": "Update Team L showboat notes to include this fixture explicitly and clarify it is a no-drift recovery scenario, not a direct escaped-exception injector.",
+      "fixture": "repl_exception_then_retry.json",
+      "failure_modes": [
+        "FM-14"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "demo_showboat/demo_fmea_team_l.md:23-35,62-74",
+        "notes": "FAIL: The current demo file documents repl_cancelled_during_async and does not provide fixture-specific narrative for repl_exception_then_retry."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_l.md",
+  "review_team": "L"
+}

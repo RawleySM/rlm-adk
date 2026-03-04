@@ -1,0 +1,119 @@
+{
+  "fixture": "max_iterations_exceeded_persistent.json",
+  "failure_modes": [
+    "FM-03"
+  ],
+  "rpn": 30,
+  "pathway": "P2d: model persistently ignores advisory call limit (REPLTool _CALL_LIMIT_MSG)",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: Fixture models 4 sequential execute_code calls with `max_iterations=2` (wired as `max_calls=2` on REPLTool). Calls 1-2 succeed with code that builds on prior state (`x=10`, `y=x+20`). Calls 3-4 attempt `z=y*2` and `w=z+100` but hit the `_call_count > _max_calls` guard at `repl_tool.py:84`, returning `_CALL_LIMIT_MSG` in stderr with empty stdout. The model ignores the limit message twice before finally producing FINAL text. This faithfully exercises FM-03's residual risk: model non-compliance with advisory limits.",
+    "response_mock_accuracy": "PASS: All 5 responses are HTTP 200 with realistic usageMetadata showing increasing promptTokenCount (200\u2192700) as the conversation grows. call_index=0-3 are functionCall execute_code responses, call_index=4 is final text. The FINAL text includes FINAL() marker with the expected parse output. Token counts are monotonically increasing, which is realistic for an accumulating conversation context.",
+    "fault_injection_accuracy": "PASS: Empty fault_injections array is correct \u2014 FM-03 is a model-behavior failure mode (ignoring advisory limits), not a transport or API fault. The failure is in the model's decision to keep calling execute_code despite receiving the limit message.",
+    "gaps": [
+      "The fixture config uses `max_retries=0` to disable orchestrator-level retry, isolating the call-limit test. This is a valid test design but the fixture description does not explain why max_retries=0 was chosen.",
+      "The fixture's `expected.total_iterations=4` implies that REPLTool counts blocked calls in ITERATION_COUNT. This is correct per repl_tool.py:83 (`self._call_count += 1` before the limit check), but the fixture description could be clearer that 'iterations' includes blocked calls."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` exact contract match \u2014 asserts `Persistent limit: x=10 y=30` (`tests_rlm_adk/fixtures/provider_fake/max_iterations_exceeded_persistent.json:175`, `tests_rlm_adk/test_fmea_e2e.py:1666-1669`).",
+      "PASS: `ITERATION_COUNT == 4` explicitly verified via `test_four_iterations_counted` (`tests_rlm_adk/test_fmea_e2e.py:1671-1678`).",
+      "PASS: `FINAL_ANSWER` content check in `test_final_answer_reflects_limit` \u2014 asserts 'limit' in lowercase final_answer (`tests_rlm_adk/test_fmea_e2e.py:1714-1721`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `SHOULD_STOP` is not asserted. The orchestrator sets `SHOULD_STOP=True` when extracting the FINAL answer (`rlm_adk/orchestrator.py:291`), but no test verifies this.",
+      "FAIL: `LAST_REPL_RESULT` is not asserted for the blocked calls. REPLTool does NOT write LAST_REPL_RESULT on the limit-exceeded early return path (`repl_tool.py:84-91`) \u2014 only on the normal execution path (`repl_tool.py:163`). This may be a source coverage gap.",
+      "FAIL: `WORKER_DISPATCH_COUNT == 0` not asserted \u2014 this fixture has no worker dispatch."
+    ],
+    "assertions_tested": [
+      "PASS: `test_contract` \u2014 validates expected final_answer, total_iterations=4, total_model_calls=5 (`tests_rlm_adk/test_fmea_e2e.py:1666-1669`).",
+      "PASS: `test_four_iterations_counted` \u2014 asserts ITERATION_COUNT == 4 confirming all 4 calls counted (`tests_rlm_adk/test_fmea_e2e.py:1671-1678`).",
+      "PASS: `test_two_blocked_calls` \u2014 asserts 'REPL call limit reached' in stderr of tool_results[2] and tool_results[3] (`tests_rlm_adk/test_fmea_e2e.py:1680-1697`).",
+      "PASS: `test_blocked_calls_have_empty_stdout` \u2014 asserts empty stdout on calls 3 and 4, confirming code was not executed (`tests_rlm_adk/test_fmea_e2e.py:1699-1712`).",
+      "PASS: `test_final_answer_reflects_limit` \u2014 asserts 'limit' keyword in FINAL_ANSWER (`tests_rlm_adk/test_fmea_e2e.py:1714-1721`)."
+    ],
+    "assertions_missing": [
+      "FAIL: No assertion that calls 1-2 have non-empty stdout confirming successful execution. `test_blocked_calls_have_empty_stdout` only checks calls 3-4.",
+      "FAIL: No assertion on the specific stdout values of calls 1-2 (expected `x = 10` and `y = 30`). This would verify REPL state persistence across calls.",
+      "FAIL: No assertion that LAST_REPL_RESULT is NOT written on the limit-exceeded path. This is a design gap in REPLTool: the limit path returns before the LAST_REPL_RESULT write at line 163."
+    ],
+    "source_code_refs": [
+      "tests_rlm_adk/fixtures/provider_fake/max_iterations_exceeded_persistent.json:1",
+      "tests_rlm_adk/test_fmea_e2e.py:1656-1721",
+      "tests_rlm_adk/fixtures/provider_fake/index.json:1203",
+      "rlm_adk/tools/repl_tool.py:27",
+      "rlm_adk/tools/repl_tool.py:80-91",
+      "rlm_adk/orchestrator.py:255-293",
+      "rlm_adk/utils/parsing.py:21-39"
+    ],
+    "untested_code_paths": [
+      "FAIL: REPLTool limit-exceeded path does not write LAST_REPL_RESULT (`repl_tool.py:84-91` returns before line 163). No test verifies that LAST_REPL_RESULT is absent or stale after a blocked call.",
+      "FAIL: No test verifies that the REPL namespace state from calls 1-2 is preserved during blocked calls 3-4 (the blocked path returns immediately without touching the REPL).",
+      "FAIL: The orchestrator FINAL() extraction path (`rlm_adk/utils/parsing.py:21-39`) is exercised here but `find_final_answer` is not directly asserted \u2014 only the extracted result is checked."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "REPLTool _call_count increment before limit check",
+      "source": "rlm_adk/tools/repl_tool.py:81-84",
+      "rationale": "PASS criterion: `_call_count` increments unconditionally (line 81) before the limit check (line 84), so blocked calls are counted in ITERATION_COUNT. FAIL criterion: if increment moved after the guard, ITERATION_COUNT would only count successful calls."
+    },
+    {
+      "trace": "Persistent model non-compliance across two blocked calls",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:1680",
+      "rationale": "PASS criterion: both tool_results[2] and tool_results[3] contain _CALL_LIMIT_MSG in stderr, confirming the model ignored the limit message twice. FAIL criterion: fewer than 2 blocked results would indicate the model complied earlier than modeled."
+    },
+    {
+      "trace": "Blocked call produces empty stdout (no code execution)",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:1699",
+      "rationale": "PASS criterion: stdout is empty for both blocked calls, confirming REPLTool returned before executing any code. FAIL criterion: non-empty stdout would mean code executed despite the limit."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add assertions for calls 1-2 stdout values (`x = 10` and `y = 30`) to verify REPL state persistence across successful calls before the limit kicks in.",
+      "fixture": "max_iterations_exceeded_persistent.json",
+      "failure_modes": [
+        "FM-03"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current tests only verify blocked calls (3-4) have empty stdout and limit message. Successful calls (1-2) are not explicitly checked for correct output.",
+        "notes": "Medium priority: indirectly covered by final_answer containing 'x=10 y=30', but direct stdout assertion would be stronger."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "source_fix",
+      "action": "Consider writing LAST_REPL_RESULT on the limit-exceeded early return path in REPLTool (repl_tool.py:84-91) so observability is consistent across all call outcomes.",
+      "fixture": "max_iterations_exceeded_persistent.json",
+      "failure_modes": [
+        "FM-03"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "The limit-exceeded path returns at line 91 before the LAST_REPL_RESULT write at line 163. This means observability is incomplete for blocked calls.",
+        "notes": "The omission may be intentional (limit-exceeded is not a 'real' execution), but it creates an asymmetry with the exception paths (lines 130, 154) which do write LAST_REPL_RESULT."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "test_fix",
+      "action": "Add `SHOULD_STOP is True` assertion to verify orchestrator termination after FINAL() extraction.",
+      "fixture": "max_iterations_exceeded_persistent.json",
+      "failure_modes": [
+        "FM-03"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Orchestrator sets SHOULD_STOP=True at line 291 when extracting FINAL answer, but no test verifies this for the persistent-limit scenario.",
+        "notes": "Low priority: implicitly verified by the test completing without timeout."
+      }
+    }
+  ],
+  "demo_file": "demo_showboat/demo_fmea_team_d.md",
+  "review_team": "D"
+}

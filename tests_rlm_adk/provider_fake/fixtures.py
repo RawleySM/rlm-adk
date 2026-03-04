@@ -12,6 +12,92 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Matcher helpers for declarative expected_state assertions
+# ---------------------------------------------------------------------------
+
+def _match_value(
+    actual: Any,
+    spec: Any,
+) -> tuple[bool, str]:
+    """Match *actual* against a matcher *spec*.
+
+    Returns ``(ok, detail)`` where *detail* describes the mismatch (empty
+    string on success).
+
+    If *spec* is a plain value (not a dict with ``$`` operator keys), exact
+    equality is checked.  If *spec* is a dict whose keys all start with
+    ``$``, each operator is evaluated and results are ANDed.
+    """
+    # Plain equality shortcut
+    if not isinstance(spec, dict) or not all(
+        isinstance(k, str) and k.startswith("$") for k in spec
+    ):
+        ok = actual == spec
+        return ok, "" if ok else f"expected {spec!r}, got {actual!r}"
+
+    # Operator dict — every operator must pass
+    for op, operand in spec.items():
+        if op == "$gt":
+            if actual is None or actual <= operand:
+                return False, f"${op}: expected > {operand}, got {actual!r}"
+        elif op == "$gte":
+            if actual is None or actual < operand:
+                return False, f"${op}: expected >= {operand}, got {actual!r}"
+        elif op == "$lt":
+            if actual is None or actual >= operand:
+                return False, f"${op}: expected < {operand}, got {actual!r}"
+        elif op == "$lte":
+            if actual is None or actual > operand:
+                return False, f"${op}: expected <= {operand}, got {actual!r}"
+        elif op == "$not_none":
+            if operand and actual is None:
+                return False, "$not_none: got None"
+        elif op == "$not_empty":
+            if operand:
+                if actual is None:
+                    return False, "$not_empty: got None"
+                if hasattr(actual, "__len__") and len(actual) == 0:
+                    return False, f"$not_empty: got empty {type(actual).__name__}"
+        elif op == "$has_key":
+            if not isinstance(actual, dict):
+                return False, f"$has_key: expected dict, got {type(actual).__name__}"
+            if operand not in actual:
+                return False, f"$has_key: key {operand!r} not in {list(actual.keys())}"
+        elif op == "$type":
+            type_map = {
+                "list": list, "dict": dict, "str": str,
+                "int": int, "float": float, "bool": bool,
+            }
+            expected_type = type_map.get(operand)
+            if expected_type is None:
+                return False, f"$type: unknown type {operand!r}"
+            if not isinstance(actual, expected_type):
+                return False, f"$type: expected {operand}, got {type(actual).__name__}"
+        elif op == "$contains":
+            if not isinstance(actual, str):
+                return False, f"$contains: expected str, got {type(actual).__name__}"
+            if operand not in actual:
+                return False, f"$contains: {operand!r} not in {actual!r}"
+        elif op == "$len_gte":
+            if actual is None or not hasattr(actual, "__len__"):
+                return False, f"$len_gte: expected sized, got {type(actual).__name__}"
+            if len(actual) < operand:
+                return False, f"$len_gte: expected len >= {operand}, got {len(actual)}"
+        elif op == "$len_eq":
+            if actual is None or not hasattr(actual, "__len__"):
+                return False, f"$len_eq: expected sized, got {type(actual).__name__}"
+            if len(actual) != operand:
+                return False, f"$len_eq: expected len == {operand}, got {len(actual)}"
+        elif op == "$absent":
+            # Handled by caller — should not reach here, but be safe
+            pass
+        else:
+            return False, f"unknown operator {op!r}"
+
+    return True, ""
+
+
 def _preview(body: dict[str, Any] | None, max_len: int = 200) -> str:
     """Extract first text content from a request/response body, truncated."""
     if not body:
@@ -52,8 +138,10 @@ class ContractResult:
         ]
         for c in self.checks:
             mark = "ok" if c["ok"] else "MISMATCH"
+            detail = c.get("detail", "")
+            detail_suffix = f"  ({detail})" if detail else ""
             lines.append(
-                f"    [{mark}] {c['field']}: expected={c['expected']!r}  actual={c['actual']!r}"
+                f"    [{mark}] {c['field']}: expected={c['expected']!r}  actual={c['actual']!r}{detail_suffix}"
             )
         lines.append("")
         lines.append(f"  Call log ({len(self.call_summary)} calls):")
@@ -89,6 +177,7 @@ class ScenarioRouter:
         self.description: str = fixture.get("description", "")
         self.config: dict[str, Any] = fixture.get("config", {})
         self.expected: dict[str, Any] = fixture.get("expected", {})
+        self.expected_state: dict[str, Any] = fixture.get("expected_state", {})
 
         self._responses: list[dict[str, Any]] = fixture.get("responses", [])
         self._faults: dict[int, dict[str, Any]] = {
@@ -247,6 +336,30 @@ class ScenarioRouter:
                 "expected": expected_calls,
                 "actual": actual_calls,
                 "ok": actual_calls == expected_calls,
+            })
+
+        # Declarative expected_state assertions
+        for key, spec in self.expected_state.items():
+            # $absent: key should not exist in state
+            if isinstance(spec, dict) and spec.get("$absent"):
+                present = key in final_state
+                checks.append({
+                    "field": f"state:{key}",
+                    "expected": "$absent",
+                    "actual": final_state[key] if present else "<absent>",
+                    "ok": not present,
+                    "detail": f"key {key!r} should not exist" if present else "",
+                })
+                continue
+
+            actual = final_state.get(key)
+            ok, detail = _match_value(actual, spec)
+            checks.append({
+                "field": f"state:{key}",
+                "expected": spec,
+                "actual": actual,
+                "ok": ok,
+                "detail": detail,
             })
 
         passed = all(c["ok"] for c in checks)

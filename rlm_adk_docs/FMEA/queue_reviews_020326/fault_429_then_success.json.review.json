@@ -1,0 +1,156 @@
+{
+  "fixture": "fault_429_then_success.json",
+  "failure_modes": [
+    "FM-01"
+  ],
+  "rpn": 84,
+  "pathway": "P2 - reasoning_agent.run_async retry loop",
+  "fidelity": {
+    "verdict": "partial",
+    "repl_code_accuracy": "PASS: The scenario stays on the reasoning path and does not invoke execute_code; only a direct reasoning success response is scripted (`tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:10`, `tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:12`). FAIL: FM-01 is defined as retry exhaustion, but this fixture models transient recovery, not exhaustion (`rlm_adk_docs/FMEA/rlm_adk_FMEA.md:64`, `rlm_adk_docs/FMEA/rlm_adk_FMEA.md:70`).",
+    "response_mock_accuracy": "PASS: The success response carries `FINAL(ok)` with STOP finish reason and matching expectations (`tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:22`, `tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:26`, `tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:54`). FAIL: No terminal error response is present, so this fixture cannot validate the retry-exhausted error-event branch (`rlm_adk/orchestrator.py:230`, `rlm_adk/orchestrator.py:238`).",
+    "fault_injection_accuracy": "PASS: A 429 is injected at call_index=0 and 429 is classified as transient by orchestrator retry logic (`tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:41`, `rlm_adk/orchestrator.py:51`, `rlm_adk/orchestrator.py:61`). FAIL: Only one transient fault is injected, so `attempt >= max_retries` is never exercised (`rlm_adk/orchestrator.py:215`).",
+    "gaps": [
+      "FAIL: Queue inference and team demo both identify this fixture as single-retry recovery only, not FM-01 exhaustion coverage (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4613`, `demo_showboat/demo_fmea_team_f.md:183`, `demo_showboat/demo_fmea_team_f.md:586`).",
+      "FAIL: Fixture-to-test mapping shows only the generic contract parametrization for this fixture (`tests_rlm_adk/fixtures/provider_fake/index.json:905`, `tests_rlm_adk/fixtures/provider_fake/index.json:908`, `tests_rlm_adk/test_provider_fake_e2e.py:49`).",
+      "FAIL: Contract checks validate only `final_answer`, `total_iterations`, and `total_model_calls`; they do not assert retry metadata or failure-event keys (`tests_rlm_adk/provider_fake/fixtures.py:219`, `tests_rlm_adk/provider_fake/fixtures.py:231`, `tests_rlm_adk/provider_fake/fixtures.py:242`)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` equality check (`tests_rlm_adk/provider_fake/fixtures.py:219`, `tests_rlm_adk/provider_fake/fixtures.py:227`).",
+      "PASS: `ITERATION_COUNT` equality check (`tests_rlm_adk/provider_fake/fixtures.py:231`, `tests_rlm_adk/provider_fake/fixtures.py:238`).",
+      "PASS: model-call count via ScenarioRouter `_call_index` (`tests_rlm_adk/provider_fake/fixtures.py:242`, `tests_rlm_adk/provider_fake/fixtures.py:249`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `SHOULD_STOP` is not asserted for this fixture (`rlm_adk/state.py:16`).",
+      "FAIL: retry-exhausted error `FINAL_ANSWER` format is not asserted from fixture coverage (`rlm_adk/orchestrator.py:228`, `rlm_adk/orchestrator.py:234`).",
+      "FAIL: no assertion on initial orchestrator setup keys (`CURRENT_DEPTH`, `REQUEST_ID`) even though they are written before retry loop (`rlm_adk/orchestrator.py:175`, `rlm_adk/orchestrator.py:177`)."
+    ],
+    "assertions_tested": [
+      "PASS: `test_fixture_contract[fault_429_then_success]` requires contract pass for this fixture (`tests_rlm_adk/test_provider_fake_e2e.py:49`, `tests_rlm_adk/test_provider_fake_e2e.py:59`).",
+      "PASS: Fixture expects `final_answer=ok`, `total_iterations=0`, `total_model_calls=2` (`tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:54`, `tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:55`, `tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:56`).",
+      "PASS: Targeted run confirmed current behavior: `.venv/bin/python -m pytest tests_rlm_adk/test_provider_fake_e2e.py -k fault_429_then_success -q` -> `1 passed` (runtime verification on 2026-03-03)."
+    ],
+    "assertions_missing": [
+      "FAIL: no fixture-level assertion that retry exhaustion branch emits error event before raise (`rlm_adk/orchestrator.py:230`, `rlm_adk/orchestrator.py:237`).",
+      "FAIL: no fixture-level assertion on backoff timing/sleep behavior across retries (`rlm_adk/orchestrator.py:239`, `rlm_adk/orchestrator.py:249`).",
+      "FAIL: no fixture-level assertion of per-attempt call sequence from `request_log` (`tests_rlm_adk/provider_fake/fixtures.py:141`, `tests_rlm_adk/provider_fake/fixtures.py:150`)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:63",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:69",
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4610",
+      "demo_showboat/demo_fmea_team_f.md:183",
+      "demo_showboat/demo_fmea_team_f.md:586",
+      "tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:41",
+      "tests_rlm_adk/test_provider_fake_e2e.py:49",
+      "tests_rlm_adk/provider_fake/fixtures.py:219",
+      "rlm_adk/orchestrator.py:206",
+      "rlm_adk/orchestrator.py:215",
+      "tests_rlm_adk/test_source_fixes_fmea.py:78",
+      "tests_rlm_adk/test_bug001_orchestrator_retry.py:219"
+    ],
+    "untested_code_paths": [
+      "`rlm_adk/orchestrator.py:215-238` retry-exhausted raise path is not exercised by this fixture (single-fault recovery only).",
+      "`rlm_adk/orchestrator.py:239-249` multi-retry exponential backoff sequence is not exercised by this fixture.",
+      "`tests_rlm_adk/provider_fake/fixtures.py:141-150` request-log details are collected but not asserted for this fixture's contract test."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "ScenarioRouter.request_log with per-call metadata",
+      "source": "tests_rlm_adk/provider_fake/fixtures.py:141",
+      "rationale": "Confirms observed sequence is exactly call_index 0 (429 fault) then call_index 1 (200 success), and verifies no hidden worker calls."
+    },
+    {
+      "trace": "Count of reasoning_agent.run_async invocations under forced repeated transient errors",
+      "source": "tests_rlm_adk/test_source_fixes_fmea.py:97",
+      "rationale": "Validates FM-01 attempt accounting (max_retries + 1) independently of this recovery fixture."
+    },
+    {
+      "trace": "Error-event state_delta containing `FINAL_ANSWER` and `SHOULD_STOP`",
+      "source": "rlm_adk/orchestrator.py:233",
+      "rationale": "Proves the current source fix emits structured failure metadata before re-raise on retry exhaustion."
+    },
+    {
+      "trace": "Backoff sleep call(s) during transient retry",
+      "source": "tests_rlm_adk/test_bug001_orchestrator_retry.py:288",
+      "rationale": "Confirms retry loop executed a delay between attempts and did not fast-fail."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "new_fixture",
+      "action": "Add a dedicated provider-fake fixture for FM-01 exhaustion (for example, 429 on every reasoning call through retry limit) plus a contract path that expects raised exception + emitted error state event.",
+      "fixture": "fault_429_then_success.json",
+      "failure_modes": [
+        "FM-01"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "FM-01 remains marked as gap in fixture mapping (`tests_rlm_adk/fixtures/provider_fake/index.json:11`, `tests_rlm_adk/fixtures/provider_fake/index.json:12`); this fixture only scripts one transient fault (`tests_rlm_adk/fixtures/provider_fake/fault_429_then_success.json:41`).",
+        "notes": "Current fixture is useful for recovery behavior but does not cover retry exhaustion end-to-end."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add a dedicated FM-01 behavioral test class for this fixture (or its exhaustion companion) in `test_fmea_e2e.py` to assert event/state behavior, not only contract pass/fail.",
+      "fixture": "fault_429_then_success.json",
+      "failure_modes": [
+        "FM-01"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Only generic contract parametrization references this fixture (`tests_rlm_adk/fixtures/provider_fake/index.json:908`, `tests_rlm_adk/test_provider_fake_e2e.py:49`).",
+        "notes": "Behavioral FM-01 coverage is currently provided only by unit tests, not provider-fake fixture-specific e2e tests."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "source_fix",
+      "action": "Emit structured orchestrator error event (`FINAL_ANSWER` + `SHOULD_STOP`) before re-raising on retry exhaustion/non-retryable reasoning errors.",
+      "fixture": "fault_429_then_success.json",
+      "failure_modes": [
+        "FM-01"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "`rlm_adk/orchestrator.py:216-238` now yields error state before `raise`; validated by `tests_rlm_adk/test_source_fixes_fmea.py:78-125` and runtime run `.venv/bin/python -m pytest tests_rlm_adk/test_source_fixes_fmea.py -k 'retry_exhausted_yields_error_event or non_transient_error_yields_error_event' -q` -> `2 passed`.",
+        "notes": "This closes the older FM-01 residual-risk claim that no structured error state was emitted."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "unit_test",
+      "action": "Keep and maintain explicit retry-exhaustion metadata test coverage for orchestrator path.",
+      "fixture": "fault_429_then_success.json",
+      "failure_modes": [
+        "FM-01"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "`tests_rlm_adk/test_source_fixes_fmea.py:78-125` asserts `retry exhausted` and `code=503` in emitted error message.",
+        "notes": "Unit coverage exists and passed in local targeted run; fixture-level e2e exhaustion coverage is still missing."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "unit_test",
+      "action": "Retain partial-event-yield retry test to guard against regressions where stale events precede a successful retry.",
+      "fixture": "fault_429_then_success.json",
+      "failure_modes": [
+        "FM-01"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "`tests_rlm_adk/test_bug001_orchestrator_retry.py:219-307` verifies a transient failure after partial events still retries and reaches final answer.",
+        "notes": "This addresses FM-01 edge-case behavior but does not replace provider-fake exhaustion fixture coverage."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_f.md",
+  "review_team": "F"
+}

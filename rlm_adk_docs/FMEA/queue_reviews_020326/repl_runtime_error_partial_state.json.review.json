@@ -1,0 +1,152 @@
+{
+  "fixture": "repl_runtime_error_partial_state.json",
+  "failure_modes": [
+    "FM-05"
+  ],
+  "rpn": 24,
+  "pathway": "P4a (sync execute_code; FM-05 pathway family is P4a/P4b)",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: The fixture encodes the intended partial-state FM-05 variant: multi-statement sync code assigns `x` and `y` before failing on `undefined_var` (tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json:27). PASS: Because no `llm_query` calls exist, REPLTool routes through sync `execute_code` (`has_llm_calls(code)` false path) (rlm_adk/tools/repl_tool.py:108-119; rlm_adk/repl/ast_rewriter.py:15-36). PASS: Sync locals are only merged into `self.locals` after successful `exec`; exception path skips that merge (rlm_adk/repl/local_repl.py:294-309).",
+    "response_mock_accuracy": "PASS: Response topology is coherent for a two-iteration self-correction flow: reasoning tool call -> corrected tool call -> final text with `FINAL(Result: 90)` (tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json:11-112). PASS: Expected contract values (`total_iterations=2`, `total_model_calls=3`) are consistent with this topology and are exercised by tests (tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json:108-112; tests_rlm_adk/test_fmea_e2e.py:1596-1607).",
+    "fault_injection_accuracy": "PASS: FM-05 here is code-intrinsic runtime failure, so no synthetic HTTP/transport fault injection is needed (`fault_injections` is intentionally empty) (tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json:107). PASS: This matches FM-05 definition where runtime exceptions are raised by user code and surfaced through local_repl exception handling (rlm_adk_docs/FMEA/rlm_adk_FMEA.md:116-121; rlm_adk/repl/local_repl.py:305-309).",
+    "gaps": [
+      "FAIL: The class does not explicitly assert `llm_calls_made == False` for the tool responses, so sync-path routing is inferred rather than directly asserted (tests_rlm_adk/test_fmea_e2e.py:1608-1648; rlm_adk/tools/repl_tool.py:93-119,204).",
+      "FAIL: The first-tool variables check is key-level (`x` and `y` absent) rather than strict equality (`variables == {}`), which leaves room for unnoticed leakage of other keys (tests_rlm_adk/test_fmea_e2e.py:1633-1641).",
+      "FAIL: Team C demo documents FM-05 sync behavior conceptually but does not yet mention this new fixture by name, so traceability is indirect (demo_showboat/demo_fmea_team_c.md:329-341,454-455)."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `iteration_count == 2` is asserted in the fixture-specific class (tests_rlm_adk/test_fmea_e2e.py:1601-1607).",
+      "PASS: `final_answer` contains `90` after correction (tests_rlm_adk/test_fmea_e2e.py:1643-1648)."
+    ],
+    "state_keys_missing": [
+      "FAIL: `last_repl_result` is not asserted in this class (tests_rlm_adk/test_fmea_e2e.py:1596-1648; rlm_adk/tools/repl_tool.py:176-185).",
+      "FAIL: `worker_dispatch_count`/`obs:worker_total_dispatches` zero-dispatch expectation is not asserted (tests_rlm_adk/test_fmea_e2e.py:1596-1648; rlm_adk/dispatch.py:633-637).",
+      "FAIL: `obs:worker_dispatch_latency_ms` empty-list expectation is not asserted for this no-worker path (rlm_adk/dispatch.py:636,656; tests_rlm_adk/test_fmea_e2e.py:1596-1648)."
+    ],
+    "assertions_tested": [
+      "PASS: Contract check validates expected fixture outputs (tests_rlm_adk/test_fmea_e2e.py:1596-1599).",
+      "PASS: First tool stderr contains `NameError` (tests_rlm_adk/test_fmea_e2e.py:1608-1619).",
+      "PASS: Partial-state guard is asserted via missing `x` and `y` in first tool-response variables (tests_rlm_adk/test_fmea_e2e.py:1621-1641).",
+      "PASS: Targeted execution confirmed class status: `pytest tests_rlm_adk/test_fmea_e2e.py::TestReplRuntimeErrorPartialState -q` -> `5 passed in 2.22s` (run on 2026-03-03)."
+    ],
+    "assertions_missing": [
+      "FAIL: No strict assertion that first tool response `variables == {}` (tests_rlm_adk/test_fmea_e2e.py:1633-1641; compare stronger pattern in tests_rlm_adk/test_fmea_e2e.py:188-207).",
+      "FAIL: No assertion that both tool responses have `llm_calls_made == False`, leaving sync routing unproven in-test (tests_rlm_adk/test_fmea_e2e.py:1608-1648; rlm_adk/tools/repl_tool.py:93-119,204).",
+      "FAIL: No assertion that second tool-response variables include expected recovered keys (`x`,`y`,`undefined_var`,`z`) (tests_rlm_adk/test_fmea_e2e.py:1643-1648; rlm_adk/tools/repl_tool.py:191-198).",
+      "FAIL: No assertion on `LAST_REPL_RESULT.has_errors=False` in final state for the successful second iteration (rlm_adk/tools/repl_tool.py:176-185; tests_rlm_adk/test_fmea_e2e.py:1596-1648)."
+    ],
+    "source_code_refs": [
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4699-4715",
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:829-837",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:111-122",
+      "tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json:2-112",
+      "tests_rlm_adk/test_fmea_e2e.py:1584-1648",
+      "rlm_adk/tools/repl_tool.py:93-119",
+      "rlm_adk/tools/repl_tool.py:176-206",
+      "rlm_adk/repl/local_repl.py:283-309",
+      "rlm_adk/repl/ast_rewriter.py:15-36",
+      "rlm_adk/dispatch.py:625-659",
+      "tests_rlm_adk/test_adk_repl_local.py:54-60",
+      "tests_rlm_adk/test_adk_repl_local.py:215-219"
+    ],
+    "untested_code_paths": [
+      "FAIL: REPLTool async execution branch (`has_llm_calls` true -> `execute_code_async`) is intentionally out of scope for this fixture and untested here (rlm_adk/tools/repl_tool.py:108-117).",
+      "FAIL: REPLTool exception branches that return early with explicit empty variables are not exercised by this fixture path (rlm_adk/tools/repl_tool.py:120-166).",
+      "FAIL: Variable-serialization skip logic for non-JSON/circular values is not exercised in this FM-05 fixture (rlm_adk/tools/repl_tool.py:191-198; tests_rlm_adk/test_adk_repl_local.py:311-339)."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "`tool_response.llm_calls_made` for both execute_code calls",
+      "source": "rlm_adk/tools/repl_tool.py:93-119,200-205",
+      "rationale": "PASS criterion: both responses show `llm_calls_made=false` for sync routing; FAIL criterion: any `true` indicates unintended async/worker path for this fixture."
+    },
+    {
+      "trace": "`tool_response.variables` exact dicts for iteration 1 and iteration 2",
+      "source": "tests_rlm_adk/test_fmea_e2e.py:64-77,1633-1641; rlm_adk/tools/repl_tool.py:191-198",
+      "rationale": "PASS criterion: iteration 1 variables is exactly `{}` and iteration 2 includes expected recovered keys; FAIL criterion: leakage in iter1 or missing recovered keys in iter2."
+    },
+    {
+      "trace": "Final-state `last_repl_result` and dispatch keys on no-worker path",
+      "source": "rlm_adk/tools/repl_tool.py:176-185; rlm_adk/dispatch.py:633-637",
+      "rationale": "PASS criterion: `last_repl_result.has_errors=false` and dispatch counters remain zero; FAIL criterion: stale error flag or non-zero dispatch values indicates state carryover/regression."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "type": "new_fixture",
+      "action": "Keep `repl_runtime_error_partial_state.json` and its dedicated class as the FM-05 sync partial-state regression guard.",
+      "fixture": "repl_runtime_error_partial_state.json",
+      "failure_modes": [
+        "FM-05"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Queue recommendation recorded as implemented (rlm_adk_docs/FMEA/fmea_gaps_020326.json:829-837); fixture + class exist (tests_rlm_adk/fixtures/provider_fake/repl_runtime_error_partial_state.json:2-112; tests_rlm_adk/test_fmea_e2e.py:1584-1648); targeted run on 2026-03-03: `pytest tests_rlm_adk/test_fmea_e2e.py::TestReplRuntimeErrorPartialState -q` -> `5 passed in 2.22s`.",
+        "notes": "PASS: The original FM-05 gap for sync partial-state behavior is now covered by a concrete provider-fake fixture and dedicated e2e tests."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add explicit assertions that both tool responses set `llm_calls_made == False` to prove sync-path routing.",
+      "fixture": "repl_runtime_error_partial_state.json",
+      "failure_modes": [
+        "FM-05"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current class checks NameError and variables/final answer only (tests_rlm_adk/test_fmea_e2e.py:1608-1648); `llm_calls_made` is returned by tool response (rlm_adk/tools/repl_tool.py:204).",
+        "notes": "FAIL: Without this assertion, sync-path proof is indirect."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Strengthen variable assertions: require first response `variables == {}` and second response contains `x`, `y`, `undefined_var`, `z` with expected values.",
+      "fixture": "repl_runtime_error_partial_state.json",
+      "failure_modes": [
+        "FM-05"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current check only verifies absence of `x` and `y` in first response (tests_rlm_adk/test_fmea_e2e.py:1633-1641); REPLTool variable serialization path is at rlm_adk/tools/repl_tool.py:191-198.",
+        "notes": "FAIL: Current assertions can miss partial-leak regressions on other keys and do not validate recovered-state payload after correction."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "test_fix",
+      "action": "Add final-state assertions for `last_repl_result` and zero-dispatch counters (`worker_dispatch_count`, `obs:worker_total_dispatches`).",
+      "fixture": "repl_runtime_error_partial_state.json",
+      "failure_modes": [
+        "FM-05"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "These keys are written by REPLTool/dispatch flush logic (rlm_adk/tools/repl_tool.py:176-185; rlm_adk/dispatch.py:633-637) but are not asserted in this class (tests_rlm_adk/test_fmea_e2e.py:1596-1648).",
+        "notes": "FAIL: Observability/state-serialization behavior for this fixture is currently unguarded by fixture-specific assertions."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "fixture_fix",
+      "action": "Update Team C demo notes to reference this fixture explicitly for FM-05 sync partial-state coverage.",
+      "fixture": "repl_runtime_error_partial_state.json",
+      "failure_modes": [
+        "FM-05"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Queue marks `TEAM_DEMO_ONLY` link to Team C with no direct mention list (rlm_adk_docs/FMEA/fmea_gaps_020326.json:4708-4715); demo currently names `repl_runtime_error.json` and general sync partial-state concept only (demo_showboat/demo_fmea_team_c.md:329-341,454-455).",
+        "notes": "FAIL: Traceability from demo narrative to this generated fixture remains indirect."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_c.md",
+  "review_team": "C"
+}

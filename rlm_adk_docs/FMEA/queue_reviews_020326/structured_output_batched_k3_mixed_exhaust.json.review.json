@@ -1,0 +1,147 @@
+{
+  "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+  "failure_modes": [
+    "FM-17"
+  ],
+  "rpn": 90,
+  "pathway": "P6g",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: The fixture REPL code uses `llm_query_batched(prompts, output_schema=SentimentResult)` and computes mixed success/failure from `r.error` across K=3 results (`tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:27`). PASS: This matches FM-17 batched structured-output dispatch semantics (`rlm_adk_docs/FMEA/rlm_adk_FMEA.md:271-277`).",
+    "response_mock_accuracy": "PASS: Worker call sequence is coherent for mixed exhaust: two immediate valid `set_model_response` calls (`...mixed_exhaust.json:46-78`, `:113-145`), then one worker fails validation/empty-value/final-validation across three attempts (`:80-111`, `:147-179`, `:181-212`). PASS: This directly targets dispatch exhaustion handling where `output_schema != None` and `_structured_result == None` emits `SCHEMA_VALIDATION_EXHAUSTED` (`rlm_adk/dispatch.py:467-487`).",
+    "fault_injection_accuracy": "PASS: `fault_injections` is intentionally empty (`tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:242`) because this scenario is callback/schema-retry behavior, not transport faults. PASS: Team J demo describes FM-17 as retry/BUG-13 structured-output behavior, not HTTP failure injection (`demo_showboat/demo_fmea_team_j.md:6`, `:37`).",
+    "gaps": [
+      "FAIL: Queue attribution is FM-17-only (`rlm_adk_docs/FMEA/fmea_gaps_020326.json:4719-4724`) while fixture description executes combined FM-16+FM-17 behavior (`tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:3`), so FM-16 coupling is implicit rather than indexed in `failure_modes`.",
+      "FAIL: Runtime BUG-13 suppression is implied but not directly asserted in this fixture's class; the patch branch is in `rlm_adk/callbacks/worker_retry.py:200-210`, but `TestStructuredOutputBatchedK3MixedExhaust` has no `_bug13_stats` assertion (`tests_rlm_adk/test_fmea_e2e.py:2219-2279`).",
+      "FAIL: Fixture index metadata leaves `failure_modes` empty for this generated fixture (`tests_rlm_adk/fixtures/provider_fake/index.json:1189-1191`), which weakens machine-level traceability despite clear scenario intent."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `final_answer` content asserted for mixed outcome (`tests_rlm_adk/test_fmea_e2e.py:2238-2242`).",
+      "PASS: `worker_dispatch_count` asserted exactly 3 (`tests_rlm_adk/test_fmea_e2e.py:2248-2251`).",
+      "PASS: `iteration_count` asserted exactly 1 (`tests_rlm_adk/test_fmea_e2e.py:2278-2279`).",
+      "PASS (conditional): `obs:worker_error_counts[SCHEMA_VALIDATION_EXHAUSTED] >= 1` checked when key exists (`tests_rlm_adk/test_fmea_e2e.py:2257-2261`).",
+      "PASS (conditional): `obs:structured_output_failures >= 1` checked when exhaustion category exists (`tests_rlm_adk/test_fmea_e2e.py:2267-2272`).",
+      "PASS: Contract checks run for fixture (`tests_rlm_adk/test_fmea_e2e.py:2229-2232`) and standalone provider contract passes (`tests_rlm_adk/test_provider_fake_e2e.py:49-60`)."
+    ],
+    "state_keys_missing": [
+      "FAIL: No assertion on `obs:worker_total_batch_dispatches == 1` for K=3 dispatch, even though flush writes it when `_acc_batch_dispatches > 0` (`rlm_adk/dispatch.py:638-640`).",
+      "FAIL: No assertion on `last_repl_result` summary/trace payload even though REPL tool writes it each run (`rlm_adk/tools/repl_tool.py:176-185`).",
+      "FAIL: No direct assertion on per-result `LLMResult.error` / `LLMResult.parsed` split (2 success + 1 exhausted error), despite these being first-class fields (`rlm_adk/types.py:65-74`)."
+    ],
+    "assertions_tested": [
+      "PASS: `TestStructuredOutputBatchedK3MixedExhaust` class executes 6 tests and currently passes (`tests_rlm_adk/test_fmea_e2e.py:2219-2279`; local run: `6 passed`).",
+      "PASS: `FINAL_ANSWER` must contain both success count and exhaustion wording (`tests_rlm_adk/test_fmea_e2e.py:2238-2242`).",
+      "PASS: Dispatch accounting is exact for this batch (`tests_rlm_adk/test_fmea_e2e.py:2248-2251`).",
+      "PASS: Exhaustion observability counters are checked on the presence path (`tests_rlm_adk/test_fmea_e2e.py:2257-2261`, `:2267-2272`).",
+      "PASS: Fixture contract for expected model-call shape also passes (`tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:244-247`; `tests_rlm_adk/test_provider_fake_e2e.py:49-60`)."
+    ],
+    "assertions_missing": [
+      "FAIL: Conditional guards allow silent pass if `OBS_WORKER_ERROR_COUNTS` is absent (`if error_counts is not None`) or lacks exhaustion category (`if error_counts and ...`) (`tests_rlm_adk/test_fmea_e2e.py:2257-2261`, `:2269-2272`).",
+      "FAIL: No exact-count assertion that `SCHEMA_VALIDATION_EXHAUSTED == 1` for the single exhausted worker (`tests_rlm_adk/test_fmea_e2e.py:2259-2261`).",
+      "FAIL: No assertion that exactly one worker result is error and two are success-parsed; current checks can pass with incorrect internal allocation as long as final string contains keywords (`tests_rlm_adk/test_fmea_e2e.py:2238-2242`).",
+      "FAIL: No fixture-specific assertion that BUG-13 suppression executed at runtime (no `_bug13_stats` delta check), unlike sister FM-17 tests (`tests_rlm_adk/test_fmea_e2e.py:859-866`, `:2192-2200`)."
+    ],
+    "source_code_refs": [
+      "tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:3,27,80,147,181,225,242,244-247",
+      "tests_rlm_adk/test_fmea_e2e.py:51-61,2219-2279",
+      "tests_rlm_adk/test_provider_fake_e2e.py:49-60",
+      "rlm_adk/dispatch.py:373-380,433-458,467-487,638-652",
+      "rlm_adk/callbacks/worker_retry.py:33,167-176,190-210",
+      "rlm_adk/types.py:65-74",
+      "rlm_adk_docs/FMEA/fmea_gaps_020326.json:4719-4724",
+      "rlm_adk_docs/FMEA/rlm_adk_FMEA.md:267-278",
+      "demo_showboat/demo_fmea_team_j.md:6,37"
+    ],
+    "untested_code_paths": [
+      "rlm_adk/callbacks/worker_retry.py:200-210 — BUG-13 sentinel suppression branch not directly asserted in this fixture's tests.",
+      "rlm_adk/dispatch.py:638-640 — batch dispatch counter flush path (`OBS_WORKER_TOTAL_BATCH_DISPATCHES`) unasserted for this fixture.",
+      "rlm_adk/dispatch.py:563-590 — generic batch exception recovery path untested by mixed-exhaust scenario.",
+      "rlm_adk/dispatch.py:416-431 — parallel timeout fallback path untested by mixed-exhaust scenario.",
+      "rlm_adk/tools/repl_tool.py:176-205 — REPL summary + variable serialization behavior unasserted for this fixture."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "BUG-13 suppress count delta for this fixture run (`_bug13_stats['suppress_count']`)",
+      "source": "rlm_adk/callbacks/worker_retry.py:33,200-210; assertion pattern in tests_rlm_adk/test_fmea_e2e.py:859-866",
+      "rationale": "FAIL currently: mixed-exhaust tests do not prove runtime patch invocation, only downstream exhaustion behavior."
+    },
+    {
+      "trace": "Batch counter in final state (`obs:worker_total_batch_dispatches` expected 1)",
+      "source": "rlm_adk/dispatch.py:344-345,638-640",
+      "rationale": "FAIL currently: K=3 batch semantics are inferred from fixture/test intent but not explicitly asserted from state."
+    },
+    {
+      "trace": "Structured-output exhaustion counts exactness (`obs:worker_error_counts.SCHEMA_VALIDATION_EXHAUSTED == 1`, `obs:structured_output_failures == 1`)",
+      "source": "rlm_adk/dispatch.py:483-487,651-652; tests_rlm_adk/test_fmea_e2e.py:2257-2272",
+      "rationale": "FAIL currently: assertions are conditional and threshold-based (`>=1`), so single-worker exactness is not locked."
+    },
+    {
+      "trace": "Per-review stdout lines from execute_code showing two parsed outputs and one failed category line",
+      "source": "tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:27; rlm_adk/tools/repl_tool.py:200-205",
+      "rationale": "FAIL currently: test class checks final answer keywords only; stdout-level evidence would directly validate mixed worker result shaping."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "medium",
+      "type": "new_fixture",
+      "action": "Maintain `structured_output_batched_k3_mixed_exhaust.json` + `TestStructuredOutputBatchedK3MixedExhaust` as required regression for combined mixed-success/mixed-exhaust K>1 structured output behavior.",
+      "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "implemented",
+        "evidence": "Fixture exists at `tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:1-248`; tests exist at `tests_rlm_adk/test_fmea_e2e.py:2219-2279`; local execution passed (`6 passed`, `1 passed` contract).",
+        "notes": "PASS baseline: mixed exhaust path is present and executable in CI-style provider-fake flow."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Tighten observability assertions: require `OBS_WORKER_ERROR_COUNTS` presence and assert exact `SCHEMA_VALIDATION_EXHAUSTED == 1`; require `OBS_STRUCTURED_OUTPUT_FAILURES == 1` without conditional guards.",
+      "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current checks are conditional/threshold only (`tests_rlm_adk/test_fmea_e2e.py:2257-2261`, `:2269-2272`), while dispatch writes deterministic single-worker increments (`rlm_adk/dispatch.py:483-487`, `:651-652`).",
+        "notes": "FAIL today: test can pass even if expected keys are absent."
+      }
+    },
+    {
+      "priority": "high",
+      "type": "test_fix",
+      "action": "Add a fixture-specific BUG-13 runtime assertion (`_bug13_stats` delta >= 1) for mixed-exhaust class, mirroring existing FM-17 retry classes.",
+      "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "BUG-13 invocation checks exist in sibling tests (`tests_rlm_adk/test_fmea_e2e.py:859-866`, `:2192-2200`) but not in mixed-exhaust tests (`:2219-2279`). Runtime suppression branch is at `rlm_adk/callbacks/worker_retry.py:200-210`.",
+        "notes": "FAIL today: this fixture validates outcome but not explicit patch activation."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Assert explicit mixed result partition in tool output/state (exactly 2 successful parsed results and 1 exhausted error result/category), rather than relying only on final-answer substring matching.",
+      "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+      "failure_modes": [
+        "FM-17"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Current validation is final-answer keyword based (`tests_rlm_adk/test_fmea_e2e.py:2238-2242`); LLMResult structured fields exist for exact checks (`rlm_adk/types.py:65-74`), and REPL stdout carries per-review lines (`tests_rlm_adk/fixtures/provider_fake/structured_output_batched_k3_mixed_exhaust.json:27`).",
+        "notes": "FAIL today: internal partition correctness can regress while final text still passes."
+      }
+    }
+  ],
+  "demo_file": "demo_fmea_team_j.md",
+  "review_team": "J"
+}

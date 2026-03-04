@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ac43f55a/.claude/worktrees/agent-a3cf42ac/rlm_adk/tools/repl_tool.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/tools/repl_tool.py",
   "library": "google-genai",
   "import_prefix": "google.genai",
   "imported_classes": [
@@ -13,11 +13,11 @@
       "instances": [
         {
           "name": null,
-          "line": 59
+          "line": 61
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) FunctionDeclaration: Unknown\n```"
+        "markdown": "```python\nclass FunctionDeclaration(\n    *,\n    behavior: Behavior | None = None,\n    description: str | None = None,\n    name: str | None = None,\n    parameters: Schema | None = None,\n    parameters_json_schema: Any | None = None,\n    response: Schema | None = None,\n    response_json_schema: Any | None = None\n)\n```\n---\nDefines a function that the model can generate JSON inputs for.\n\nThe inputs are based on `OpenAPI 3.0 specifications\n<https://spec.openapis.org/oas/v3.0.3>`\\_."
       }
     },
     {
@@ -25,15 +25,15 @@
       "instances": [
         {
           "name": null,
-          "line": 62
+          "line": 64
         },
         {
           "name": null,
-          "line": 65
+          "line": 67
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) Schema: Unknown\n```"
+        "markdown": "```python\nclass Schema(\n    *,\n    additional_properties: Any | None = None,\n    defs: dict[str, Schema] | None = None,\n    ref: str | None = None,\n    any_of: list[Schema] | None = None,\n    default: Any | None = None,\n    description: str | None = None,\n    enum: list[str] | None = None,\n    example: Any | None = None,\n    format: str | None = None,\n    items: Schema | None = None,\n    max_items: int | None = None,\n    max_length: int | None = None,\n    max_properties: int | None = None,\n    maximum: float | None = None,\n    min_items: int | None = None,\n    min_length: int | None = None,\n    min_properties: int | None = None,\n    minimum: float | None = None,\n    nullable: bool | None = None,\n    pattern: str | None = None,\n    properties: dict[str, Schema] | None = None,\n    property_ordering: list[str] | None = None,\n    required: list[str] | None = None,\n    title: str | None = None,\n    type: Type | None = None\n)\n```\n---\nSchema is used to define the format of input/output data.\n\nRepresents a select subset of an \\[OpenAPI 3.0 schema  \nobject\\](https://spec.openapis.org/oas/v3.0.3#schema-object). More fields may\nbe added in the future as needed."
       }
     }
   ],

@@ -1,0 +1,124 @@
+{
+  "fixture": "worker_empty_response_finish_reason.json",
+  "failure_modes": [
+    "FM-25"
+  ],
+  "rpn": 75,
+  "pathway": "P6d: worker returns empty text with non-STOP finishReason (SAFETY), detected via LLMResult.finish_reason attribute",
+  "fidelity": {
+    "verdict": "faithful",
+    "repl_code_accuracy": "PASS: The REPL code dispatches a K=2 batch via `llm_query_batched([\"Analyze market A\", \"Analyze market B\"])` and inspects each result using `getattr(r, 'finish_reason', None)` to detect non-STOP values. This exercises the `LLMResult.finish_reason` attribute path, which is distinct from the `str(r).strip()` detection in the companion fixture `worker_empty_response.json`. The code correctly uses `getattr` with a None default for forward compatibility, and the summary line counts valid vs blocked results.",
+    "response_mock_accuracy": "PASS: call_index=0 (reasoning) emits a well-formed functionCall for execute_code. call_index=1 (worker 1) returns 'Analysis: positive trend' with finishReason=STOP \u2014 a valid worker response. call_index=2 (worker 2) returns empty text with finishReason=SAFETY \u2014 triggering the `is_safety_filtered` check in `worker.py:100-103` which sets `_result_error=True` and `_call_record.error_category='SAFETY'`. call_index=3 (reasoning) returns FINAL text. Token counts are realistic. The SAFETY worker response correctly models Gemini's content filtering behavior on HTTP 200.",
+    "fault_injection_accuracy": "PASS: Empty fault_injections \u2014 correct because FM-25 is a content-level finish-reason issue on successful HTTP 200 responses. The SAFETY filter is modeled via `finishReason=SAFETY` in the response body, not via HTTP errors. The worker callback at `worker.py:98-104` handles this case.",
+    "gaps": [
+      "The REPL code uses `getattr(r, 'finish_reason', None)` but `LLMResult.finish_reason` is a constructor parameter (dispatch.py:451-455), so `getattr` is not strictly necessary \u2014 plain attribute access would work. However, using `getattr` is a safer coding pattern and does not affect correctness.",
+      "The fixture config does not set `max_retries`, so it uses the orchestrator default. For FM-25 testing, the default is fine since the fixture completes in one iteration, but this differs from some companion fixtures that explicitly set `max_retries=0`."
+    ]
+  },
+  "test_coverage": {
+    "state_keys_tested": [
+      "PASS: `FINAL_ANSWER` exact contract match \u2014 asserts `2 results: 1 valid, 1 blocked by finish_reason` (`tests_rlm_adk/fixtures/provider_fake/worker_empty_response_finish_reason.json:131`, `tests_rlm_adk/test_fmea_e2e.py:2061-2064`).",
+      "PASS: `ITERATION_COUNT == 1` verified via `test_single_iteration_suffices` (`tests_rlm_adk/test_fmea_e2e.py:2076-2081`).",
+      "PASS: `OBS_WORKER_ERROR_COUNTS` checked for SAFETY >= 1 via `test_obs_error_counts_safety` (`tests_rlm_adk/test_fmea_e2e.py:2083-2093`). This is a strong observability assertion."
+    ],
+    "state_keys_missing": [
+      "FAIL: `WORKER_DISPATCH_COUNT == 2` is not asserted. Dispatch should count 2 workers dispatched (K=2 batch).",
+      "FAIL: `OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1` is not asserted. K=2 qualifies as a batch dispatch.",
+      "FAIL: `LAST_REPL_RESULT` is not directly asserted for content (has_errors, total_llm_calls, etc.)."
+    ],
+    "assertions_tested": [
+      "PASS: `test_contract` \u2014 validates expected final_answer, total_iterations=1, total_model_calls=4 (`tests_rlm_adk/test_fmea_e2e.py:2061-2064`).",
+      "PASS: `test_finish_reason_detection_in_final_answer` \u2014 asserts '1 valid' and 'blocked' in FINAL_ANSWER (`tests_rlm_adk/test_fmea_e2e.py:2066-2073`).",
+      "PASS: `test_single_iteration_suffices` \u2014 asserts ITERATION_COUNT == 1 (`tests_rlm_adk/test_fmea_e2e.py:2076-2081`).",
+      "PASS: `test_obs_error_counts_safety` \u2014 asserts OBS_WORKER_ERROR_COUNTS has SAFETY >= 1 (`tests_rlm_adk/test_fmea_e2e.py:2083-2093`). This directly tests the dispatch closure's `_acc_error_counts['SAFETY']` path."
+    ],
+    "assertions_missing": [
+      "FAIL: No assertion that the successful worker (result 0) has `error=False` and `finish_reason='STOP'`. Only the aggregate FINAL_ANSWER is checked, not individual LLMResult attributes.",
+      "FAIL: No assertion on `WORKER_DISPATCH_COUNT == 2` to confirm K=2 dispatch accounting.",
+      "FAIL: No assertion on the tool_result content (stdout) to verify the REPL code's print output matches expected format ('Result 0: OK', 'Result 1: BLOCKED')."
+    ],
+    "source_code_refs": [
+      "tests_rlm_adk/fixtures/provider_fake/worker_empty_response_finish_reason.json:1",
+      "tests_rlm_adk/test_fmea_e2e.py:2051-2093",
+      "tests_rlm_adk/fixtures/provider_fake/index.json:1168",
+      "rlm_adk/callbacks/worker.py:78-132",
+      "rlm_adk/callbacks/worker.py:98-104",
+      "rlm_adk/dispatch.py:434-458",
+      "rlm_adk/dispatch.py:538-557",
+      "rlm_adk/state.py:81"
+    ],
+    "untested_code_paths": [
+      "FAIL: Worker `_result_error` + `_call_record.error_category='SAFETY'` path at `dispatch.py:444-458` is exercised but the individual LLMResult error fields are not directly asserted in any test.",
+      "FAIL: The `finish_reason` field written by `worker.py:127` (`finish_reason.name if finish_reason else None`) is propagated to LLMResult at `dispatch.py:455` but only tested indirectly via OBS_WORKER_ERROR_COUNTS.",
+      "FAIL: Dispatch flush_fn `_acc_error_counts` \u2192 `OBS_WORKER_ERROR_COUNTS` path (`dispatch.py:538-557`) is tested for the SAFETY category but not for WORKER_DISPATCH_COUNT or OBS_WORKER_TOTAL_BATCH_DISPATCHES."
+    ]
+  },
+  "additional_traces": [
+    {
+      "trace": "Worker SAFETY detection in worker_after_model callback",
+      "source": "rlm_adk/callbacks/worker.py:98-104",
+      "rationale": "PASS criterion: `is_safety_filtered=True` when `finish_reason.name == 'SAFETY'`, setting `_result_error=True`. FAIL criterion: `_result_error` not set would cause dispatch to treat SAFETY response as valid."
+    },
+    {
+      "trace": "OBS_WORKER_ERROR_COUNTS accumulation in dispatch closure",
+      "source": "rlm_adk/dispatch.py:458",
+      "rationale": "PASS criterion: `_acc_error_counts['SAFETY'] >= 1` after batch completes, flushed to OBS_WORKER_ERROR_COUNTS via flush_fn. FAIL criterion: missing SAFETY key would indicate worker callback did not set error_category."
+    },
+    {
+      "trace": "LLMResult.finish_reason attribute availability in REPL namespace",
+      "source": "rlm_adk/dispatch.py:455",
+      "rationale": "PASS criterion: `getattr(r, 'finish_reason', None)` returns 'SAFETY' for the blocked worker result. FAIL criterion: None return would mean dispatch.py did not propagate finish_reason from _call_record."
+    },
+    {
+      "trace": "K=2 batch dispatch path through ParallelAgent",
+      "source": "rlm_adk/dispatch.py:331-335",
+      "rationale": "PASS criterion: `_acc_dispatch_count += 2`, `_acc_batch_dispatches += 1`. FAIL criterion: incorrect counts would indicate dispatch accounting error for mixed-result batches."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add `WORKER_DISPATCH_COUNT == 2` assertion to verify K=2 batch dispatch accounting for the mixed-result batch.",
+      "fixture": "worker_empty_response_finish_reason.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "Dispatch closure increments `_acc_dispatch_count += k` at `dispatch.py:333` with k=2, but no test verifies the flushed value.",
+        "notes": "Other FM-25 variants also lack this assertion. Adding it here would establish a pattern."
+      }
+    },
+    {
+      "priority": "medium",
+      "type": "test_fix",
+      "action": "Add assertion verifying tool_result stdout contains expected REPL output format ('Result 0: OK', 'Result 1: BLOCKED') to confirm REPL-level finish_reason detection.",
+      "fixture": "worker_empty_response_finish_reason.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "The REPL code prints detection results but no test inspects the tool_result stdout. Only FINAL_ANSWER is checked, which is an indirect proxy.",
+        "notes": "Medium priority: stdout inspection would directly verify the REPL code's finish_reason branching logic."
+      }
+    },
+    {
+      "priority": "low",
+      "type": "test_fix",
+      "action": "Add `OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1` assertion to verify batch-level dispatch tracking.",
+      "fixture": "worker_empty_response_finish_reason.json",
+      "failure_modes": [
+        "FM-25"
+      ],
+      "resolution": {
+        "status": "open",
+        "evidence": "K=2 qualifies as batch dispatch (`dispatch.py:551-552`), but no test checks `OBS_WORKER_TOTAL_BATCH_DISPATCHES`.",
+        "notes": "Low priority: batch dispatch accounting is tested in other fixtures but not for the finish_reason detection variant."
+      }
+    }
+  ],
+  "demo_file": "demo_showboat/demo_fmea_team_l.md",
+  "review_team": "L"
+}

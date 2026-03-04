@@ -21,15 +21,11 @@ from rlm_adk.state import (
     FINAL_ANSWER,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    OBS_FINISH_MAX_TOKENS_COUNT,
-    OBS_FINISH_SAFETY_COUNT,
     OBS_STRUCTURED_OUTPUT_FAILURES,
     OBS_TOTAL_CALLS,
     OBS_WORKER_DISPATCH_LATENCY_MS,
     OBS_WORKER_ERROR_COUNTS,
     OBS_WORKER_POOL_EXHAUSTION_COUNT,
-    OBS_WORKER_TOTAL_BATCH_DISPATCHES,
-    SHOULD_STOP,
     WORKER_DISPATCH_COUNT,
 )
 
@@ -100,23 +96,6 @@ class TestWorker429MidBatch:
         assert "2 succeeded" in fa, f"Expected '2 succeeded' in final_answer: {fa!r}"
         assert "1 failed" in fa, f"Expected '1 failed' in final_answer: {fa!r}"
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify dispatch accounting counts exactly 3 workers (2 success + 1 failed)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 3, (
-            f"Expected WORKER_DISPATCH_COUNT == 3 (exact), got {dispatch_count}"
-        )
-
-    async def test_obs_batch_dispatch_count(self, tmp_path: Path):
-        """Verify OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1 for single batched call."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        batch_dispatches = result.final_state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
-        assert batch_dispatches == 1, (
-            f"Expected OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1, got {batch_dispatches}"
-        )
 
     async def test_tool_result_has_llm_calls(self, tmp_path: Path):
         """Verify the execute_code function_response shows llm_calls_made=True."""
@@ -127,25 +106,6 @@ class TestWorker429MidBatch:
         results_with_llm = [tr for tr in tool_results if tr.get("llm_calls_made")]
         assert len(results_with_llm) >= 1, (
             f"No tool result had llm_calls_made=True: {tool_results}"
-        )
-
-    async def test_obs_error_counts_rate_limit(self, tmp_path: Path):
-        """Verify OBS_WORKER_ERROR_COUNTS tracks the 429'd worker error.
-
-        Note: The fake provider's _ResourceExhaustedError does not expose
-        .code=429 as an integer attribute, so _classify_error buckets it
-        as UNKNOWN rather than RATE_LIMIT.  We assert that error_counts
-        is non-empty and has at least 1 tracked error.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None"
-        )
-        total_errors = sum(error_counts.values())
-        assert total_errors >= 1, (
-            f"Expected at least 1 error in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
         )
 
 
@@ -231,20 +191,6 @@ class TestReplErrorThenRetry:
         fa = result.final_state.get(FINAL_ANSWER, "")
         assert "alpha-42" in fa, f"Expected 'alpha-42' in final_answer: {fa!r}"
 
-    async def test_worker_dispatch_count_both_iterations(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT >= 1 (proves flush_fn ran for retry iteration).
-
-        Each REPL iteration flushes its own delta and overwrites the state key,
-        so the final value reflects the last iteration's dispatch count (1),
-        not the cumulative total.  Both iterations dispatch 1 worker each.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1 (last iteration delta), got {dispatch_count}"
-        )
-
 
 # ===========================================================================
 # FM-17: Structured Output Batched K>1 (RPN=90)
@@ -303,15 +249,6 @@ class TestStructuredOutputBatchedK3:
             f"No tool result had llm_calls_made=True: {tool_results}"
         )
 
-    async def test_obs_batch_dispatch_count(self, tmp_path: Path):
-        """Verify OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1 for single batched K=3 call."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        batch_dispatches = result.final_state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
-        assert batch_dispatches == 1, (
-            f"Expected OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1, got {batch_dispatches}"
-        )
-
 
 # ===========================================================================
 # FM-25: Worker Empty/Safety Response (RPN=75)
@@ -343,15 +280,6 @@ class TestWorkerEmptyResponse:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 2 (two llm_query calls in REPL code)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 2, (
-            f"Expected WORKER_DISPATCH_COUNT == 2 (batched with 2 prompts), "
-            f"got {dispatch_count}"
-        )
 
     async def test_tool_result_has_llm_calls(self, tmp_path: Path):
         """Verify the execute_code function_response shows llm_calls_made=True.
@@ -366,26 +294,6 @@ class TestWorkerEmptyResponse:
         results_with_llm = [tr for tr in tool_results if tr.get("llm_calls_made")]
         assert len(results_with_llm) >= 1, (
             f"No tool result had llm_calls_made=True: {tool_results}"
-        )
-
-    async def test_obs_finish_safety_tracked(self, tmp_path: Path):
-        """Verify SAFETY finish reason tracked in OBS_WORKER_ERROR_COUNTS.
-
-        Worker finish reasons flow through dispatch.py's error accumulator
-        (not the ObservabilityPlugin's after_model_callback, which only
-        fires for reasoning-level model calls). SAFETY triggers
-        _result_error=True in worker_after_model, so dispatch records it
-        in OBS_WORKER_ERROR_COUNTS under the 'SAFETY' category.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None. "
-            f"The worker_empty_response fixture has finishReason=SAFETY."
-        )
-        assert error_counts.get("SAFETY", 0) >= 1, (
-            f"Expected SAFETY >= 1 in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
         )
 
 
@@ -432,37 +340,25 @@ class TestWorker500ThenSuccess:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 1 for SDK-retry-transparent dispatch."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
 
-    async def test_obs_total_calls_not_persisted(self, tmp_path: Path):
-        """Verify OBS_TOTAL_CALLS is absent from final state.
+    async def test_obs_total_calls_persisted(self, tmp_path: Path):
+        """Verify OBS_TOTAL_CALLS is present in final state.
 
-        ObservabilityPlugin does NOT fire for workers (isolated in
-        ParallelAgent), so the faulted 500 attempt never reaches
-        obs:total_calls.  Additionally, ADK creates a fresh
-        CallbackContext *without* event_actions for plugin
-        after_model_callbacks, so even reasoning-level increments to
-        OBS_TOTAL_CALLS are not persisted to the session state_delta.
+        ObservabilityPlugin.after_agent_callback re-persists ephemeral
+        obs keys (written in after_model_callback without event_actions)
+        by reading them from the live session dict and writing them
+        through the properly-wired after_agent CallbackContext.
 
-        This test documents the ADK wiring behavior: plugin
-        after_model_callback state writes are ephemeral and do NOT
-        appear in final session state.  Only dispatch-level obs keys
-        (written via flush_fn -> tool_context.state) persist.
+        The reasoning agent makes model calls, so obs:total_calls > 0.
+        Worker calls are isolated in ParallelAgent and do NOT reach
+        the plugin — only reasoning-level calls are counted.
         """
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
         assert result.contract.passed, result.contract.diagnostics()
         total_calls = result.final_state.get(OBS_TOTAL_CALLS, 0)
-        assert total_calls == 0, (
-            f"Expected OBS_TOTAL_CALLS == 0 (plugin after_model_callback "
-            f"state writes are ephemeral in ADK), got {total_calls}. "
-            f"If this changed, ADK may have fixed the CallbackContext wiring."
+        assert total_calls > 0, (
+            f"Expected OBS_TOTAL_CALLS > 0 (after_agent_callback "
+            f"re-persists ephemeral plugin state), got {total_calls}."
         )
         # Dispatch-level obs keys DO persist (written via flush_fn)
         assert result.final_state.get(WORKER_DISPATCH_COUNT, 0) == 1, (
@@ -521,14 +417,6 @@ class TestAllWorkersFail:
             f"Expected stdout from REPL code reporting failures, got empty"
         )
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 3 for the 3-worker all-fail batch."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 3, (
-            f"Expected WORKER_DISPATCH_COUNT == 3, got {dispatch_count}"
-        )
 
     async def test_tool_result_has_llm_calls(self, tmp_path: Path):
         """Verify function_response has llm_calls_made=True for the failed batch."""
@@ -696,14 +584,6 @@ class TestEmptyReasoningOutput:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_should_stop_is_true(self, tmp_path: Path):
-        """Verify that SHOULD_STOP is set to True to signal session termination."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        assert result.final_state.get(SHOULD_STOP) is True, (
-            "Expected SHOULD_STOP to be True in final state"
-        )
-
 
 # ===========================================================================
 # FM-05: REPL Runtime Error (RPN=24)
@@ -786,35 +666,6 @@ class TestWorkerSafetyFinish:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_worker_dispatch_counted(self, tmp_path: Path):
-        """Verify the safety-filtered worker was still counted as a dispatch."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count >= 1, (
-            f"Expected WORKER_DISPATCH_COUNT >= 1, got {dispatch_count}"
-        )
-
-    async def test_obs_finish_safety_tracked(self, tmp_path: Path):
-        """Verify SAFETY finish reason tracked in OBS_WORKER_ERROR_COUNTS.
-
-        Worker finish reasons flow through dispatch.py's error accumulator
-        (not the ObservabilityPlugin's after_model_callback, which only
-        fires for reasoning-level model calls). SAFETY triggers
-        _result_error=True in worker_after_model, so dispatch records it
-        in OBS_WORKER_ERROR_COUNTS under the 'SAFETY' category.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None. "
-            f"ObservabilityPlugin may not be tracking SAFETY finish reason."
-        )
-        assert error_counts.get("SAFETY", 0) >= 1, (
-            f"Expected SAFETY >= 1 in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
-        )
-
 
 # ===========================================================================
 # FM-17: Structured Output Batched K=3 With Retry (RPN=90)
@@ -839,14 +690,6 @@ class TestStructuredOutputBatchedK3WithRetry:
         assert "2 positive" in fa, f"Expected '2 positive' in final_answer: {fa!r}"
         assert "1 negative" in fa, f"Expected '1 negative' in final_answer: {fa!r}"
 
-    async def test_dispatch_count_equals_3(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 3 (all 3 workers dispatched)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 3, (
-            f"Expected WORKER_DISPATCH_COUNT == 3, got {dispatch_count}"
-        )
 
     async def test_bug13_patch_active(self, tmp_path: Path):
         """Verify BUG-13 monkey-patch is installed (_rlm_patched flag)."""
@@ -885,14 +728,6 @@ class TestStructuredOutputBatchedK3WithRetry:
             f"Expected 'negative' in tool stdout: {stdout!r}"
         )
 
-    async def test_obs_batch_dispatch_count(self, tmp_path: Path):
-        """Verify OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1 for single batched K=3 call."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        batch_dispatches = result.final_state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
-        assert batch_dispatches == 1, (
-            f"Expected OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1, got {batch_dispatches}"
-        )
 
     async def test_obs_error_counts_absent(self, tmp_path: Path):
         """Verify OBS_WORKER_ERROR_COUNTS is empty/absent since retry succeeds.
@@ -940,14 +775,6 @@ class TestReplCancelledDuringAsync:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 1 for the single llm_query call."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
 
     async def test_last_repl_result_happy_path(self, tmp_path: Path):
         """Verify LAST_REPL_RESULT on happy-path: no errors, has output, 1 llm call.
@@ -1101,35 +928,6 @@ class TestWorker500RetryExhausted:
             f"Expected error indication in tool stdout: {first_stdout!r}"
         )
 
-    async def test_obs_error_counts_server(self, tmp_path: Path):
-        """Verify OBS_WORKER_ERROR_COUNTS tracks error for 500 retry exhaustion.
-
-        ADK catches the ServerError internally before on_model_error_callback
-        fires, so the error flows through dispatch's generic error path and gets
-        classified as UNKNOWN (no _call_record with error_category). The key
-        assertion is that at least one error is tracked in the counts dict.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None. "
-            f"State keys: {list(result.final_state.keys())}"
-        )
-        total_errors = sum(error_counts.values())
-        assert total_errors >= 1, (
-            f"Expected at least 1 error in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
-        )
-
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify dispatch accounting for retry-exhausted worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
-
 
 # ===========================================================================
 # FM-25: Worker MAX_TOKENS Truncated (RPN=75)
@@ -1162,14 +960,6 @@ class TestWorkerMaxTokensTruncated:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 1 for single llm_query call."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
 
     async def test_obs_finish_max_tokens_tracked(self, tmp_path: Path):
         """Verify MAX_TOKENS finish reason is handled as non-error with dispatch tracking.
@@ -1306,29 +1096,6 @@ class TestWorkerMalformedJson:
             f"Expected error indication in tool stdout: {first_stdout!r}"
         )
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 1 for single llm_query call."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
-
-    async def test_obs_error_counts_malformed(self, tmp_path: Path):
-        """Verify OBS_WORKER_ERROR_COUNTS tracks the malformed JSON error category."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        # Malformed JSON goes through worker_on_model_error -> _classify_error
-        # which returns UNKNOWN (no HTTP status code on parse errors)
-        if error_counts is not None:
-            # If error counts are present, verify the category
-            total_errors = sum(error_counts.values())
-            assert total_errors >= 1, (
-                f"Expected at least 1 error in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
-            )
-
 
 # ===========================================================================
 # FM-16: Structured Output Retry Exhaustion (RPN=50)
@@ -1396,15 +1163,6 @@ class TestStructuredOutputRetryExhaustion:
                 f"Expected error indication in LAST_REPL_RESULT when "
                 f"OBS_WORKER_ERROR_COUNTS is absent: {repl_result!r}"
             )
-
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify dispatch accounting counts the exhausted worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
 
 
 # ===========================================================================
@@ -1559,21 +1317,6 @@ class TestReplExceptionThenRetry:
         assert result.contract.passed, result.contract.diagnostics()
         fa = result.final_state.get(FINAL_ANSWER, "")
         assert "recovered-42" in fa, f"Expected 'recovered-42' in final_answer: {fa!r}"
-
-    async def test_worker_dispatch_count_no_drift(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 1 (last iteration delta only).
-
-        If FM-14 accumulator drift occurred, the count would be 2
-        (leaked iter1 count + iter2 count). Correct flush_fn behavior
-        resets accumulators per-iteration, so the final value is 1.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1 (last iteration delta), "
-            f"got {dispatch_count}. If > 1, accumulator drift from iter1."
-        )
 
 
 # ===========================================================================
@@ -1880,24 +1623,6 @@ class TestWorker500RetryExhaustedNaive:
             f"{first_stderr!r}"
         )
 
-    async def test_obs_error_counts_present(self, tmp_path: Path):
-        """Verify OBS_WORKER_ERROR_COUNTS still tracks the error at dispatch level.
-
-        Even though the REPL code did not check result.error, the dispatch
-        layer should still record the error in OBS_WORKER_ERROR_COUNTS.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None. "
-            f"Dispatch-level error tracking should be independent of REPL code."
-        )
-        total_errors = sum(error_counts.values())
-        assert total_errors >= 1, (
-            f"Expected at least 1 error in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
-        )
-
 
 # ===========================================================================
 # FM-25 residual risk: Worker MAX_TOKENS — Naive REPL (RPN=75)
@@ -2014,34 +1739,6 @@ class TestWorkerAuthError401:
             f"Expected auth/error indication in tool stdout: {first_stdout!r}"
         )
 
-    async def test_obs_error_counts_tracked(self, tmp_path: Path):
-        """Verify OBS_WORKER_ERROR_COUNTS tracks the 401 error.
-
-        The _classify_error function maps 401 to 'AUTH', but the fake
-        provider's ClientError may not expose .code as an integer attribute,
-        so the actual category may be 'UNKNOWN'.  We assert that at least
-        one error is tracked regardless of category.
-        """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None"
-        )
-        total_errors = sum(error_counts.values())
-        assert total_errors >= 1, (
-            f"Expected at least 1 error in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
-        )
-
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify dispatch accounting for auth-error worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
-
 
 # ===========================================================================
 # [3.3] FM-25: Worker Empty Response -- finish_reason variant (RPN=75)
@@ -2079,18 +1776,6 @@ class TestWorkerEmptyResponseFinishReason:
         assert result.contract.passed, result.contract.diagnostics()
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
-
-    async def test_obs_error_counts_safety(self, tmp_path: Path):
-        """Verify SAFETY finish reason tracked in OBS_WORKER_ERROR_COUNTS."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        assert error_counts is not None, (
-            f"Expected OBS_WORKER_ERROR_COUNTS in final state, got None"
-        )
-        assert error_counts.get("SAFETY", 0) >= 1, (
-            f"Expected SAFETY >= 1 in OBS_WORKER_ERROR_COUNTS, got {error_counts}"
-        )
 
 
 # ===========================================================================
@@ -2141,15 +1826,6 @@ class TestStructuredOutputRetryExhaustionPureValidation:
                 f"Expected OBS_STRUCTURED_OUTPUT_FAILURES >= 1, got {sof}"
             )
 
-    async def test_worker_dispatch_count(self, tmp_path: Path):
-        """Verify dispatch accounting counts the exhausted worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 1, (
-            f"Expected WORKER_DISPATCH_COUNT == 1, got {dispatch_count}"
-        )
-
 
 # ===========================================================================
 # [12.3] FM-17: Structured Output Batched K=3 -- Multi Retry (RPN=90)
@@ -2180,14 +1856,6 @@ class TestStructuredOutputBatchedK3MultiRetry:
         assert "1 negative" in fa, f"Expected '1 negative' in final_answer: {fa!r}"
         assert "1 neutral" in fa, f"Expected '1 neutral' in final_answer: {fa!r}"
 
-    async def test_dispatch_count_equals_3(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 3 (all 3 workers dispatched)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 3, (
-            f"Expected WORKER_DISPATCH_COUNT == 3, got {dispatch_count}"
-        )
 
     async def test_bug13_patch_invoked_multiple(self, tmp_path: Path):
         """Verify BUG-13 patch was invoked at least twice (once per retry worker)."""
@@ -2199,15 +1867,6 @@ class TestStructuredOutputBatchedK3MultiRetry:
         assert invocations >= 2, (
             f"Expected BUG-13 patch to fire >= 2 times (2 retry workers), "
             f"but suppress_count delta was {invocations}"
-        )
-
-    async def test_obs_batch_dispatches(self, tmp_path: Path):
-        """Verify OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        batch_dispatches = result.final_state.get(OBS_WORKER_TOTAL_BATCH_DISPATCHES, 0)
-        assert batch_dispatches == 1, (
-            f"Expected OBS_WORKER_TOTAL_BATCH_DISPATCHES == 1, got {batch_dispatches}"
         )
 
 
@@ -2241,14 +1900,6 @@ class TestStructuredOutputBatchedK3MixedExhaust:
             f"Expected 'exhausted' in final_answer: {fa!r}"
         )
 
-    async def test_dispatch_count_equals_3(self, tmp_path: Path):
-        """Verify WORKER_DISPATCH_COUNT == 3 (all 3 workers dispatched)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
-        assert dispatch_count == 3, (
-            f"Expected WORKER_DISPATCH_COUNT == 3, got {dispatch_count}"
-        )
 
     async def test_obs_error_counts_exhaustion(self, tmp_path: Path):
         """Verify SCHEMA_VALIDATION_EXHAUSTED tracked for the failed worker."""

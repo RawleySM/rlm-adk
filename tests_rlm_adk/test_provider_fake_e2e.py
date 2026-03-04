@@ -85,7 +85,7 @@ async def test_observability_state_happy_path(tmp_path: Path):
     to the session service via event state_deltas.  We verify through the
     traces DB which reads from the live session state.
     """
-    result = await _run_with_plugins("happy_path_single_iteration", tmp_path)
+    result = await _run_with_plugins("agent_challenge/happy_path_single_iteration", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
     assert result.traces_db_path is not None
@@ -114,7 +114,7 @@ async def test_observability_state_happy_path(tmp_path: Path):
 
 async def test_artifact_persistence_happy_path(tmp_path: Path):
     """InMemoryArtifactService stores final_answer.md artifact."""
-    result = await _run_with_plugins("happy_path_single_iteration", tmp_path)
+    result = await _run_with_plugins("agent_challenge/happy_path_single_iteration", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
 
@@ -138,7 +138,7 @@ async def test_artifact_persistence_happy_path(tmp_path: Path):
 
 async def test_artifact_persistence_multi_iteration(tmp_path: Path):
     """InMemoryArtifactService stores code/output artifacts for worker fixtures."""
-    result = await _run_with_plugins("multi_iteration_with_workers", tmp_path)
+    result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
     assert result.final_state.get(FINAL_ANSWER) == "4"
@@ -158,7 +158,7 @@ async def test_artifact_persistence_multi_iteration(tmp_path: Path):
 
 async def test_sqlite_traces_recorded_happy_path(tmp_path: Path):
     """SqliteTracingPlugin writes a completed trace row with token stats."""
-    result = await _run_with_plugins("happy_path_single_iteration", tmp_path)
+    result = await _run_with_plugins("agent_challenge/happy_path_single_iteration", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
     assert result.traces_db_path is not None
@@ -191,7 +191,7 @@ async def test_sqlite_traces_recorded_happy_path(tmp_path: Path):
 
 async def test_sqlite_traces_recorded_multi_iteration(tmp_path: Path):
     """SqliteTracingPlugin captures spans for multi-iteration worker runs."""
-    result = await _run_with_plugins("multi_iteration_with_workers", tmp_path)
+    result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
     assert result.traces_db_path is not None
@@ -227,7 +227,7 @@ async def test_repl_trace_in_events_multi_iteration(tmp_path: Path):
     function_response event contains stdout from code execution and that the
     llm_calls_made flag is set.
     """
-    result = await _run_with_plugins("multi_iteration_with_workers", tmp_path)
+    result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
 

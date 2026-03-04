@@ -45,7 +45,7 @@
     {
       "call_index": 1,
       "caller": "worker",
-      "note": "Worker response with finishReason=SAFETY and empty text — safety filter blocked the content. worker_after_model extracts '' as response_text. Dispatch closure creates LLMResult('') with error=False.",
+      "note": "Worker response with finishReason=SAFETY and empty text \u2014 safety filter blocked the content. worker_after_model extracts '' as response_text. Dispatch closure creates LLMResult('') with error=False.",
       "status": 200,
       "body": {
         "candidates": [
@@ -103,5 +103,22 @@
     "final_answer": "Worker returned empty (safety filtered)",
     "total_iterations": 1,
     "total_model_calls": 3
+  },
+  "expected_state": {
+    "worker_dispatch_count": {
+      "$gte": 1
+    },
+    "obs:worker_error_counts": {
+      "$not_none": true,
+      "$has_key": "SAFETY"
+    },
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
+    "obs:finish_safety_count": {"$gt": 0}
   }
 }

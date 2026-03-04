@@ -78,7 +78,7 @@
     {
       "call_index": 2,
       "caller": "worker",
-      "note": "Worker 2: BAD set_model_response — empty sentiment triggers WorkerRetryPlugin",
+      "note": "Worker 2: BAD set_model_response \u2014 empty sentiment triggers WorkerRetryPlugin",
       "status": 200,
       "body": {
         "candidates": [
@@ -112,7 +112,7 @@
     {
       "call_index": 3,
       "caller": "worker",
-      "note": "Worker 3: BAD set_model_response — empty sentiment triggers WorkerRetryPlugin (concurrent with Worker 2)",
+      "note": "Worker 3: BAD set_model_response \u2014 empty sentiment triggers WorkerRetryPlugin (concurrent with Worker 2)",
       "status": 200,
       "body": {
         "candidates": [
@@ -245,5 +245,16 @@
     "final_answer": "3 sentiments: 1 positive, 1 negative, 1 neutral with 2 retries",
     "total_iterations": 1,
     "total_model_calls": 7
+  },
+  "expected_state": {
+    "worker_dispatch_count": 3,
+    "obs:worker_total_batch_dispatches": 1,
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }

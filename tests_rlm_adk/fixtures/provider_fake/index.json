@@ -1,8 +1,7 @@
 {
   "$schema": "Failure Mode → Fixture → Test mapping for RLM-ADK FMEA coverage",
-  "$generated": "2026-03-02",
-  "$source": "rlm_adk_FMEA.md (commit c809837)",
-
+  "$generated": "2026-03-03",
+  "$source": "rlm_adk_docs/FMEA/fmea_gaps_020326.json (compiled_at 2026-03-02)",
   "failure_modes": {
     "FM-01": {
       "id": "FM-01",
@@ -13,8 +12,7 @@
       "fixtures": [
         {
           "fixture": "fault_429_then_success.json",
-          "coverage_level": "partial",
-          "note": "Covers single-retry recovery, not exhaustion"
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -32,7 +30,8 @@
       "rpn": 70,
       "coverage": "gap",
       "fixtures": [],
-      "tests": []
+      "tests": [],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: partial); no dedicated provider-fake fixture review."
     },
     "FM-03": {
       "id": "FM-03",
@@ -43,6 +42,10 @@
       "fixtures": [
         {
           "fixture": "max_iterations_exceeded.json",
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "max_iterations_exceeded_persistent.json",
           "coverage_level": "full"
         }
       ],
@@ -122,13 +125,16 @@
       "coverage": "covered",
       "fixtures": [
         {
+          "fixture": "repl_error_then_retry.json",
+          "coverage_level": "partial"
+        },
+        {
           "fixture": "repl_runtime_error.json",
           "coverage_level": "full"
         },
         {
-          "fixture": "repl_error_then_retry.json",
-          "coverage_level": "full",
-          "note": "Also exercises FM-14, FM-23"
+          "fixture": "repl_runtime_error_partial_state.json",
+          "coverage_level": "full"
         }
       ],
       "tests": [
@@ -191,7 +197,8 @@
       "rpn": 18,
       "coverage": "gap",
       "fixtures": [],
-      "tests": []
+      "tests": [],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-07": {
       "id": "FM-07",
@@ -200,7 +207,8 @@
       "rpn": 16,
       "coverage": "gap",
       "fixtures": [],
-      "tests": []
+      "tests": [],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-08": {
       "id": "FM-08",
@@ -250,14 +258,16 @@
       "coverage": "covered",
       "fixtures": [
         {
-          "fixture": "worker_500_then_success.json",
-          "coverage_level": "full",
-          "note": "SDK retry recovery path"
+          "fixture": "worker_500_retry_exhausted.json",
+          "coverage_level": "full"
         },
         {
-          "fixture": "worker_500_retry_exhausted.json",
-          "coverage_level": "full",
-          "note": "SDK retry exhaustion path"
+          "fixture": "worker_500_retry_exhausted_naive.json",
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "worker_500_then_success.json",
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -316,7 +326,7 @@
       "coverage": "gap",
       "fixtures": [],
       "tests": [],
-      "note": "Fake server doesn't support delay injection"
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-11": {
       "id": "FM-11",
@@ -326,26 +336,15 @@
       "coverage": "gap",
       "fixtures": [],
       "tests": [],
-      "note": "Unit test exists but no e2e fixture"
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: partial); no dedicated provider-fake fixture review."
     },
     "FM-12": {
       "id": "FM-12",
       "name": "Worker parent_agent Not Cleared",
       "pathway": "P6h",
       "rpn": 16,
-      "coverage": "partial",
-      "fixtures": [
-        {
-          "fixture": "multi_iteration_with_workers.json",
-          "coverage_level": "partial",
-          "note": "Exercises multi-worker path but doesn't assert on re-pooling"
-        },
-        {
-          "fixture": "structured_control_plane.json",
-          "coverage_level": "partial",
-          "note": "K=3 batch exercises parent_agent lifecycle"
-        }
-      ],
+      "coverage": "gap",
+      "fixtures": [],
       "tests": [
         {
           "file": "tests_rlm_adk/test_provider_fake_e2e.py",
@@ -357,21 +356,16 @@
           "test": "test_fixture_contract[structured_control_plane]",
           "type": "contract"
         }
-      ]
+      ],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-13": {
       "id": "FM-13",
       "name": "CancelledError Swallowed by REPLTool",
       "pathway": "P2d",
       "rpn": 56,
-      "coverage": "partial",
-      "fixtures": [
-        {
-          "fixture": "repl_cancelled_during_async.json",
-          "coverage_level": "partial",
-          "note": "Happy-path base fixture; does not inject CancelledError"
-        }
-      ],
+      "coverage": "gap",
+      "fixtures": [],
       "tests": [
         {
           "file": "tests_rlm_adk/test_provider_fake_e2e.py",
@@ -393,19 +387,27 @@
           "test": "TestReplCancelledDuringAsync::test_single_iteration",
           "type": "behavioral"
         }
-      ]
+      ],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-14": {
       "id": "FM-14",
       "name": "flush_fn Skipped on REPL Exception",
       "pathway": "P7",
       "rpn": 96,
-      "coverage": "covered",
+      "coverage": "partial",
       "fixtures": [
         {
+          "fixture": "repl_cancelled_during_async.json",
+          "coverage_level": "partial"
+        },
+        {
           "fixture": "repl_error_then_retry.json",
-          "coverage_level": "full",
-          "note": "REPL exception in iter1 triggers flush_fn skip path"
+          "coverage_level": "partial"
+        },
+        {
+          "fixture": "repl_exception_then_retry.json",
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -446,6 +448,10 @@
         {
           "fixture": "empty_reasoning_output.json",
           "coverage_level": "full"
+        },
+        {
+          "fixture": "empty_reasoning_output_safety.json",
+          "coverage_level": "full"
         }
       ],
       "tests": [
@@ -479,18 +485,20 @@
       "coverage": "covered",
       "fixtures": [
         {
+          "fixture": "structured_output_retry_empty.json",
+          "coverage_level": "partial"
+        },
+        {
           "fixture": "structured_output_retry_exhaustion.json",
           "coverage_level": "full"
         },
         {
-          "fixture": "structured_output_retry_empty.json",
-          "coverage_level": "partial",
-          "note": "Exercises empty-field retry but not exhaustion"
+          "fixture": "structured_output_retry_exhaustion_pure_validation.json",
+          "coverage_level": "full"
         },
         {
           "fixture": "structured_output_retry_validation.json",
-          "coverage_level": "partial",
-          "note": "Exercises validation retry but not exhaustion"
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -550,13 +558,27 @@
       "fixtures": [
         {
           "fixture": "structured_output_batched_k3.json",
-          "coverage_level": "full",
-          "note": "K=3 batch happy path"
+          "coverage_level": "partial"
+        },
+        {
+          "fixture": "structured_output_batched_k3_mixed_exhaust.json",
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "structured_output_batched_k3_multi_retry.json",
+          "coverage_level": "full"
         },
         {
           "fixture": "structured_output_batched_k3_with_retry.json",
-          "coverage_level": "full",
-          "note": "K=3 batch with one worker needing retry (BUG-13 coverage)"
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "structured_output_retry_empty.json",
+          "coverage_level": "partial"
+        },
+        {
+          "fixture": "structured_output_retry_validation.json",
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -689,14 +711,15 @@
       "rpn": 24,
       "coverage": "gap",
       "fixtures": [],
-      "tests": []
+      "tests": [],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-21": {
       "id": "FM-21",
       "name": "BUG-13 Patch Import Failure",
       "pathway": "module import",
       "rpn": 18,
-      "coverage": "partial",
+      "coverage": "gap",
       "fixtures": [],
       "tests": [
         {
@@ -706,7 +729,7 @@
           "note": "Asserts _rlm_patched flag but doesn't test import failure"
         }
       ],
-      "note": "Not testable via provider-fake; needs unit test"
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-22": {
       "id": "FM-22",
@@ -715,19 +738,19 @@
       "rpn": 25,
       "coverage": "gap",
       "fixtures": [],
-      "tests": []
+      "tests": [],
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-23": {
       "id": "FM-23",
       "name": "Cross-Iteration Variable Persistence After Error",
       "pathway": "P4a/P4b",
       "rpn": 48,
-      "coverage": "covered",
+      "coverage": "partial",
       "fixtures": [
         {
           "fixture": "repl_error_then_retry.json",
-          "coverage_level": "full",
-          "note": "Iter1 raises KeyError; iter2 retries with different approach"
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -758,10 +781,22 @@
       "name": "Reasoning Agent SAFETY Finish Reason",
       "pathway": "P2b",
       "rpn": 48,
-      "coverage": "gap",
-      "fixtures": [],
-      "tests": [],
-      "note": "worker_safety_finish.json reclassified to FM-25-only (worker-level SAFETY, not reasoning-level)"
+      "coverage": "covered",
+      "fixtures": [
+        {
+          "fixture": "empty_reasoning_output_safety.json",
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "reasoning_safety_finish.json",
+          "coverage_level": "partial"
+        },
+        {
+          "fixture": "worker_safety_finish.json",
+          "coverage_level": "partial"
+        }
+      ],
+      "tests": []
     },
     "FM-25": {
       "id": "FM-25",
@@ -771,19 +806,28 @@
       "coverage": "covered",
       "fixtures": [
         {
-          "fixture": "worker_empty_response.json",
-          "coverage_level": "full",
-          "note": "SAFETY finish with empty text"
+          "fixture": "reasoning_safety_finish.json",
+          "coverage_level": "partial"
         },
         {
-          "fixture": "worker_safety_finish.json",
-          "coverage_level": "full",
-          "note": "Explicit SAFETY finish reason"
+          "fixture": "worker_empty_response.json",
+          "coverage_level": "partial"
+        },
+        {
+          "fixture": "worker_empty_response_finish_reason.json",
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "worker_max_tokens_naive.json",
+          "coverage_level": "full"
         },
         {
           "fixture": "worker_max_tokens_truncated.json",
-          "coverage_level": "full",
-          "note": "MAX_TOKENS truncated response"
+          "coverage_level": "full"
+        },
+        {
+          "fixture": "worker_safety_finish.json",
+          "coverage_level": "partial"
         }
       ],
       "tests": [
@@ -852,7 +896,7 @@
       "coverage": "gap",
       "fixtures": [],
       "tests": [],
-      "note": "Not testable via provider-fake without timeout support"
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-27": {
       "id": "FM-27",
@@ -862,19 +906,23 @@
       "coverage": "gap",
       "fixtures": [],
       "tests": [],
-      "note": "Architectural — not testable via single-REPL fixtures"
+      "note": "Assessed via source_analysis in fmea_gaps_020326.json (verdict: faithful); no dedicated provider-fake fixture review."
     },
     "FM-28": {
       "id": "FM-28",
       "name": "HTTP 401/403 Authentication Error",
       "pathway": "P2b/P6d",
       "rpn": 6,
-      "coverage": "gap",
-      "fixtures": [],
+      "coverage": "partial",
+      "fixtures": [
+        {
+          "fixture": "worker_auth_error_401.json",
+          "coverage_level": "partial"
+        }
+      ],
       "tests": []
     }
   },
-
   "fixtures": {
     "adaptive_confidence_gating.json": {
       "failure_modes": [],
@@ -883,11 +931,14 @@
       ]
     },
     "all_workers_fail_batch.json": {
-      "failure_modes": ["FM-19"],
+      "failure_modes": [
+        "FM-19"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[all_workers_fail_batch]",
         "tests_rlm_adk/test_fmea_e2e.py::TestAllWorkersFail"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "battlefield_report_telemetry.json": {
       "failure_modes": [],
@@ -902,11 +953,14 @@
       ]
     },
     "empty_reasoning_output.json": {
-      "failure_modes": ["FM-15"],
+      "failure_modes": [
+        "FM-15"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[empty_reasoning_output]",
         "tests_rlm_adk/test_fmea_e2e.py::TestEmptyReasoningOutput"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "exec_sandbox_codegen.json": {
       "failure_modes": [],
@@ -915,7 +969,9 @@
       ]
     },
     "fault_429_then_success.json": {
-      "failure_modes": ["FM-01"],
+      "failure_modes": [
+        "FM-01"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[fault_429_then_success]"
       ]
@@ -943,14 +999,17 @@
       ]
     },
     "max_iterations_exceeded.json": {
-      "failure_modes": ["FM-03"],
+      "failure_modes": [
+        "FM-03"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[max_iterations_exceeded]",
         "tests_rlm_adk/test_fmea_e2e.py::TestMaxIterationsExceeded"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "multi_iteration_with_workers.json": {
-      "failure_modes": ["FM-12"],
+      "failure_modes": [],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[multi_iteration_with_workers]",
         "tests_rlm_adk/test_provider_fake_e2e.py::test_artifact_persistence_multi_iteration",
@@ -971,39 +1030,55 @@
       ]
     },
     "repl_cancelled_during_async.json": {
-      "failure_modes": ["FM-13"],
+      "failure_modes": [
+        "FM-14"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_cancelled_during_async]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReplCancelledDuringAsync"
-      ]
+      ],
+      "verdict": "partial"
     },
     "repl_error_then_retry.json": {
-      "failure_modes": ["FM-05", "FM-14", "FM-23"],
+      "failure_modes": [
+        "FM-05",
+        "FM-14",
+        "FM-23"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_error_then_retry]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReplErrorThenRetry"
-      ]
+      ],
+      "verdict": "partial"
     },
     "repl_exception_then_retry.json": {
-      "failure_modes": ["FM-14"],
+      "failure_modes": [
+        "FM-14"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_exception_then_retry]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReplExceptionThenRetry"
       ]
     },
     "repl_runtime_error.json": {
-      "failure_modes": ["FM-05"],
+      "failure_modes": [
+        "FM-05"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_runtime_error]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReplRuntimeError"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "repl_syntax_error.json": {
-      "failure_modes": ["FM-04"],
+      "failure_modes": [
+        "FM-04"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_syntax_error]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReplSyntaxError"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "skill_helper.json": {
       "failure_modes": [],
@@ -1019,7 +1094,7 @@
       ]
     },
     "structured_control_plane.json": {
-      "failure_modes": ["FM-12"],
+      "failure_modes": [],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_control_plane]"
       ]
@@ -1033,18 +1108,24 @@
       ]
     },
     "structured_output_batched_k3.json": {
-      "failure_modes": ["FM-17"],
+      "failure_modes": [
+        "FM-17"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_batched_k3]",
         "tests_rlm_adk/test_fmea_e2e.py::TestStructuredOutputBatchedK3"
-      ]
+      ],
+      "verdict": "partial"
     },
     "structured_output_batched_k3_with_retry.json": {
-      "failure_modes": ["FM-17"],
+      "failure_modes": [
+        "FM-17"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_batched_k3_with_retry]",
         "tests_rlm_adk/test_fmea_e2e.py::TestStructuredOutputBatchedK3WithRetry"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "structured_output_happy_path.json": {
       "failure_modes": [],
@@ -1056,7 +1137,10 @@
       ]
     },
     "structured_output_retry_empty.json": {
-      "failure_modes": ["FM-16"],
+      "failure_modes": [
+        "FM-16",
+        "FM-17"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_retry_empty]",
         "tests_rlm_adk/test_structured_output_e2e.py::test_structured_output_contract[structured_output_retry_empty]",
@@ -1065,14 +1149,20 @@
       ]
     },
     "structured_output_retry_exhaustion.json": {
-      "failure_modes": ["FM-16"],
+      "failure_modes": [
+        "FM-16"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_retry_exhaustion]",
         "tests_rlm_adk/test_fmea_e2e.py::TestStructuredOutputRetryExhaustion"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "structured_output_retry_validation.json": {
-      "failure_modes": ["FM-16"],
+      "failure_modes": [
+        "FM-16",
+        "FM-17"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_retry_validation]",
         "tests_rlm_adk/test_structured_output_e2e.py::test_structured_output_contract[structured_output_retry_validation]",
@@ -1081,179 +1171,309 @@
       ]
     },
     "worker_429_mid_batch.json": {
-      "failure_modes": ["FM-08"],
+      "failure_modes": [
+        "FM-08"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_429_mid_batch]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorker429MidBatch"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "worker_500_retry_exhausted.json": {
-      "failure_modes": ["FM-09"],
+      "failure_modes": [
+        "FM-09"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_500_retry_exhausted]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorker500RetryExhausted"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "worker_500_then_success.json": {
-      "failure_modes": ["FM-09"],
+      "failure_modes": [
+        "FM-09"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_500_then_success]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorker500ThenSuccess"
-      ]
+      ],
+      "verdict": "partial"
     },
     "worker_empty_response.json": {
-      "failure_modes": ["FM-25"],
+      "failure_modes": [
+        "FM-25"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_empty_response]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerEmptyResponse"
-      ]
+      ],
+      "verdict": "partial"
     },
     "worker_malformed_json.json": {
-      "failure_modes": ["FM-18"],
+      "failure_modes": [
+        "FM-18"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_malformed_json]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerMalformedJson"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "worker_max_tokens_truncated.json": {
-      "failure_modes": ["FM-25"],
+      "failure_modes": [
+        "FM-25"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_max_tokens_truncated]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerMaxTokensTruncated"
-      ]
+      ],
+      "verdict": "faithful"
     },
     "worker_safety_finish.json": {
-      "failure_modes": ["FM-25"],
+      "failure_modes": [
+        "FM-24",
+        "FM-25"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_safety_finish]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerSafetyFinish"
-      ]
+      ],
+      "verdict": "partial"
     },
     "worker_empty_response_finish_reason.json": {
-      "failure_modes": ["FM-25"],
+      "failure_modes": [
+        "FM-25"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_empty_response_finish_reason]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerEmptyResponseFinishReason"
       ]
     },
     "structured_output_retry_exhaustion_pure_validation.json": {
-      "failure_modes": ["FM-16"],
+      "failure_modes": [
+        "FM-16"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_retry_exhaustion_pure_validation]",
         "tests_rlm_adk/test_fmea_e2e.py::TestStructuredOutputRetryExhaustionPureValidation"
       ]
     },
     "structured_output_batched_k3_multi_retry.json": {
-      "failure_modes": ["FM-17"],
+      "failure_modes": [
+        "FM-17"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_batched_k3_multi_retry]",
         "tests_rlm_adk/test_fmea_e2e.py::TestStructuredOutputBatchedK3MultiRetry"
       ]
     },
     "structured_output_batched_k3_mixed_exhaust.json": {
-      "failure_modes": ["FM-16", "FM-17"],
+      "failure_modes": [
+        "FM-17"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_batched_k3_mixed_exhaust]",
         "tests_rlm_adk/test_fmea_e2e.py::TestStructuredOutputBatchedK3MixedExhaust"
       ]
     },
     "repl_runtime_error_partial_state.json": {
-      "failure_modes": ["FM-05"],
+      "failure_modes": [
+        "FM-05"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_runtime_error_partial_state]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReplRuntimeErrorPartialState"
       ]
     },
     "max_iterations_exceeded_persistent.json": {
-      "failure_modes": ["FM-03"],
+      "failure_modes": [
+        "FM-03"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[max_iterations_exceeded_persistent]",
         "tests_rlm_adk/test_fmea_e2e.py::TestMaxIterationsExceededPersistent"
       ]
     },
     "empty_reasoning_output_safety.json": {
-      "failure_modes": ["FM-15", "FM-24"],
+      "failure_modes": [
+        "FM-15",
+        "FM-24"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[empty_reasoning_output_safety]",
         "tests_rlm_adk/test_fmea_e2e.py::TestEmptyReasoningOutputSafety"
       ]
     },
     "reasoning_safety_finish.json": {
-      "failure_modes": ["FM-24"],
+      "failure_modes": [
+        "FM-24",
+        "FM-25"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[reasoning_safety_finish]",
         "tests_rlm_adk/test_fmea_e2e.py::TestReasoningSafetyFinish"
       ]
     },
     "worker_500_retry_exhausted_naive.json": {
-      "failure_modes": ["FM-09"],
+      "failure_modes": [
+        "FM-09"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_500_retry_exhausted_naive]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorker500RetryExhaustedNaive"
       ]
     },
     "worker_max_tokens_naive.json": {
-      "failure_modes": ["FM-25"],
+      "failure_modes": [
+        "FM-25"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_max_tokens_naive]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerMaxTokensNaive"
       ]
     },
     "worker_auth_error_401.json": {
-      "failure_modes": ["FM-28"],
+      "failure_modes": [
+        "FM-28"
+      ],
       "tests": [
         "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[worker_auth_error_401]",
         "tests_rlm_adk/test_fmea_e2e.py::TestWorkerAuthError401"
       ]
     }
   },
-
   "summary": {
     "total_failure_modes": 28,
-    "covered": 16,
+    "covered": 12,
     "partial": 4,
-    "gap": 8,
-    "total_fixtures": 35,
-    "fmea_fixtures": 20,
+    "gap": 12,
+    "total_fixtures": 47,
+    "fmea_fixtures": 32,
     "non_fmea_fixtures": 15,
     "coverage_by_rpn_band": {
       "critical_rpn_gte_75": {
-        "total": 4,
-        "covered": 4,
+        "total": 5,
+        "covered": 3,
+        "partial": 2,
         "gap": 0,
-        "modes": ["FM-08 (96)", "FM-14 (96)", "FM-17 (90)", "FM-25 (75)"]
+        "modes": [
+          "FM-08 (96)",
+          "FM-14 (96)",
+          "FM-17 (90)",
+          "FM-01 (84)",
+          "FM-25 (75)"
+        ]
       },
       "high_rpn_50_74": {
-        "total": 6,
-        "covered": 4,
-        "partial": 1,
-        "gap": 1,
-        "modes": ["FM-01 (84)", "FM-02 (70)", "FM-09 (60)", "FM-19 (60)", "FM-13 (56)", "FM-11 (54)"]
+        "total": 7,
+        "covered": 3,
+        "partial": 0,
+        "gap": 4,
+        "modes": [
+          "FM-02 (70)",
+          "FM-09 (60)",
+          "FM-19 (60)",
+          "FM-13 (56)",
+          "FM-11 (54)",
+          "FM-10 (50)",
+          "FM-16 (50)"
+        ]
       },
       "medium_rpn_25_49": {
         "total": 5,
-        "covered": 3,
+        "covered": 2,
         "partial": 1,
-        "gap": 1,
-        "modes": ["FM-10 (50)", "FM-16 (50)", "FM-23 (48)", "FM-24 (48)", "FM-27 (32)"]
+        "gap": 2,
+        "modes": [
+          "FM-23 (48)",
+          "FM-24 (48)",
+          "FM-27 (32)",
+          "FM-03 (30)",
+          "FM-22 (25)"
+        ]
       },
       "low_rpn_lt_25": {
-        "total": 13,
-        "covered": 5,
-        "partial": 2,
+        "total": 11,
+        "covered": 4,
+        "partial": 1,
         "gap": 6,
-        "modes": ["FM-03 (30)", "FM-22 (25)", "FM-05 (24)", "FM-18 (24)", "FM-20 (24)", "FM-26 (24)", "FM-06 (18)", "FM-21 (18)", "FM-07 (16)", "FM-12 (16)", "FM-15 (16)", "FM-04 (10)", "FM-28 (6)"]
+        "modes": [
+          "FM-05 (24)",
+          "FM-18 (24)",
+          "FM-20 (24)",
+          "FM-26 (24)",
+          "FM-06 (18)",
+          "FM-21 (18)",
+          "FM-07 (16)",
+          "FM-12 (16)",
+          "FM-15 (16)",
+          "FM-04 (10)",
+          "FM-28 (6)"
+        ]
       }
     },
     "remaining_gaps": [
-      {"id": "FM-02", "rpn": 70, "name": "Non-Transient Reasoning API Error"},
-      {"id": "FM-11", "rpn": 54, "name": "Worker Pool Exhaustion with On-Demand Creation"},
-      {"id": "FM-10", "rpn": 50, "name": "Worker Dispatch Timeout"},
-      {"id": "FM-27", "rpn": 32, "name": "execute_code_async CWD Race Condition"},
-      {"id": "FM-22", "rpn": 25, "name": "RecursionError from REPL Variable Serialization"},
-      {"id": "FM-20", "rpn": 24, "name": "worker_after_model Callback Exception"},
-      {"id": "FM-26", "rpn": 24, "name": "Sync REPL Infinite Loop Under Lock"},
-      {"id": "FM-28", "rpn": 6, "name": "HTTP 401/403 Authentication Error"}
+      {
+        "id": "FM-02",
+        "rpn": 70,
+        "name": "Non-Transient Reasoning API Error"
+      },
+      {
+        "id": "FM-13",
+        "rpn": 56,
+        "name": "CancelledError Swallowed by REPLTool"
+      },
+      {
+        "id": "FM-11",
+        "rpn": 54,
+        "name": "Worker Pool Exhaustion with On-Demand Creation"
+      },
+      {
+        "id": "FM-10",
+        "rpn": 50,
+        "name": "Worker Dispatch Timeout"
+      },
+      {
+        "id": "FM-27",
+        "rpn": 32,
+        "name": "execute_code_async CWD Race Condition"
+      },
+      {
+        "id": "FM-22",
+        "rpn": 25,
+        "name": "RecursionError from REPL Variable Serialization"
+      },
+      {
+        "id": "FM-20",
+        "rpn": 24,
+        "name": "worker_after_model Callback Exception"
+      },
+      {
+        "id": "FM-26",
+        "rpn": 24,
+        "name": "Sync REPL Under _EXEC_LOCK with Infinite Loop"
+      },
+      {
+        "id": "FM-06",
+        "rpn": 18,
+        "name": "AST Rewriter Alias Blindness"
+      },
+      {
+        "id": "FM-21",
+        "rpn": 18,
+        "name": "BUG-13 Patch Import Failure"
+      },
+      {
+        "id": "FM-07",
+        "rpn": 16,
+        "name": "AST Rewriter — List Comprehension with llm_query"
+      },
+      {
+        "id": "FM-12",
+        "rpn": 16,
+        "name": "Worker parent_agent Not Cleared"
+      }
     ]
   }
 }

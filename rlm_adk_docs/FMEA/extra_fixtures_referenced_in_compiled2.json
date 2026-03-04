@@ -1,0 +1,137 @@
+{
+  "source_file": "rlm_adk_docs/FMEA/fmea_gaps_compiled_2.json",
+  "generated_on": "2026-03-03",
+  "criteria": "Referenced in compiled_2 (raw_mentions > 0) and not directly reviewed as reviews[].fixture/verdicts key",
+  "count": 16,
+  "extra_fixtures_referenced_in_compiled2": [
+    {
+      "filename": "empty_reasoning_output_safety.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1593,
+        1600
+      ]
+    },
+    {
+      "filename": "fault_429_then_success.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        2869
+      ]
+    },
+    {
+      "filename": "index.json",
+      "raw_mentions": 5,
+      "mention_lines": [
+        825,
+        1776,
+        1953,
+        2123,
+        2133
+      ]
+    },
+    {
+      "filename": "max_iterations_exceeded_persistent.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1465,
+        1472
+      ]
+    },
+    {
+      "filename": "reasoning_safety_finish.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1783,
+        1791
+      ]
+    },
+    {
+      "filename": "repl_exception_then_retry.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        2658,
+        2661
+      ]
+    },
+    {
+      "filename": "repl_runtime_error_partial_state.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1183,
+        1190
+      ]
+    },
+    {
+      "filename": "structured_output_batched_k3_mixed_exhaust.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        2130,
+        2133
+      ]
+    },
+    {
+      "filename": "structured_output_batched_k3_multi_retry.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        2120,
+        2123
+      ]
+    },
+    {
+      "filename": "structured_output_retry_empty.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1239,
+        3744
+      ]
+    },
+    {
+      "filename": "structured_output_retry_exhaustion_pure_validation.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1950,
+        1953
+      ]
+    },
+    {
+      "filename": "structured_output_retry_validation.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        1239,
+        3744
+      ]
+    },
+    {
+      "filename": "worker_500_retry_exhausted_naive.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        2305,
+        2308
+      ]
+    },
+    {
+      "filename": "worker_auth_error_401.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        3237,
+        3240
+      ]
+    },
+    {
+      "filename": "worker_empty_response_finish_reason.json",
+      "raw_mentions": 1,
+      "mention_lines": [
+        825
+      ]
+    },
+    {
+      "filename": "worker_max_tokens_naive.json",
+      "raw_mentions": 2,
+      "mention_lines": [
+        2806,
+        2809
+      ]
+    }
+  ]
+}

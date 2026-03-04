@@ -155,5 +155,24 @@
     "final_answer": "Batch: 2 succeeded, 1 failed",
     "total_iterations": 1,
     "total_model_calls": 6
+  },
+  "expected_state": {
+    "worker_dispatch_count": 3,
+    "obs:worker_total_batch_dispatches": 1,
+    "obs:worker_dispatch_latency_ms": {
+      "$type": "list",
+      "$not_empty": true
+    },
+    "obs:worker_error_counts": {
+      "$not_none": true,
+      "$not_empty": true
+    },
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }

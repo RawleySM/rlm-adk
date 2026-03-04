@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_auth_error_401",
-  "description": "FM-28 (RPN=6): Single worker dispatch where the worker HTTP response is 401 Unauthorized. Unlike 5xx errors, 4xx ClientErrors are NOT retried by the SDK — the error propagates directly to on_model_error_callback which sets _result_error=True. REPL code checks result.error and result.error_category. The _classify_error function in worker.py maps status code 401 to 'AUTH' category, but the fake provider's ClientError may not expose .code as an integer attribute, so actual classification may be 'UNKNOWN'.",
+  "description": "FM-28 (RPN=6): Single worker dispatch where the worker HTTP response is 401 Unauthorized. Unlike 5xx errors, 4xx ClientErrors are NOT retried by the SDK \u2014 the error propagates directly to on_model_error_callback which sets _result_error=True. REPL code checks result.error and result.error_category. The _classify_error function in worker.py maps status code 401 to 'AUTH' category, but the fake provider's ClientError may not expose .code as an integer attribute, so actual classification may be 'UNKNOWN'.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -89,5 +89,19 @@
     "final_answer": "Worker auth error: 401 unauthorized",
     "total_iterations": 1,
     "total_model_calls": 3
+  },
+  "expected_state": {
+    "worker_dispatch_count": 1,
+    "obs:worker_error_counts": {
+      "$not_none": true,
+      "$not_empty": true
+    },
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0},
+    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
   }
 }
