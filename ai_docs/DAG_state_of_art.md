@@ -102,3 +102,69 @@ class DAGBuilder:
 2. **Traversal:** The engine executes nodes whose incoming edges are satisfied.
 3. **State Mutation:** Each node returns a partial state update, which the engine merges into the global state (often using specific reducer functions for lists or dictionaries).
 4. **Completion:** The graph terminates when it reaches a node with no outgoing edges (a sink node).
+
+---
+
+## 4. New Findings (Comprehensive Sweep, March 4, 2026)
+
+### 4.1 ADK-Python DAG Composition: Official Capabilities + Community Signals
+
+For this repository (`google-adk` in Python), DAG behavior can be built as compositional workflow control:
+
+*   **Workflow control primitives are first-class and deterministic:** [`SequentialAgent`, `ParallelAgent`, `LoopAgent`](https://google.github.io/adk-docs/agents/workflow-agents/).
+*   **`SequentialAgent`** provides ordered stage-by-stage orchestration ([docs](https://google.github.io/adk-docs/agents/workflow-agents/sequential-agents/)).
+*   **`ParallelAgent`** provides fan-out concurrency for independent branches ([docs](https://google.github.io/adk-docs/agents/workflow-agents/parallel-agents/)).
+*   **`LoopAgent`** provides bounded iterative execution ([docs](https://google.github.io/adk-docs/agents/workflow-agents/loop-agents/)).
+*   **Custom orchestration (custom edges/routing)** is explicitly supported through custom agents (`BaseAgent`, `_run_async_impl`) ([docs](https://google.github.io/adk-docs/agents/custom-agents/)).
+*   **Tool-level parallelism** is documented for async function tools ([tool performance docs](https://google.github.io/adk-docs/tools-custom/performance/)).
+*   **Composition patterns** (coordinator/dispatcher, fan-out/fan-in, hierarchical, iterative) are documented in ADK multi-agent guidance ([docs](https://google.github.io/adk-docs/agents/multi-agents/)).
+
+Community / forum exploration (requested):
+
+*   [google/adk-python issue #1828](https://github.com/google/adk-python/issues/1828): request for map-style dynamic fan-out workflow behavior.
+*   [google/adk-python issue #1376](https://github.com/google/adk-python/issues/1376): loop termination and parent continuation semantics discussion.
+*   [google/adk-python issue #3081](https://github.com/google/adk-python/issues/3081): transfer/routing behavior edge case report.
+*   [google/adk-python discussion #3348](https://github.com/google/adk-python/discussions/3348): resume behavior and sequential re-execution questions.
+*   [Google Developer Forum workflow guide](https://discuss.google.dev/t/a-practical-guide-to-production-ready-agentic-workflows-with-adk-and-agent-engine/265828): production workflow patterns with ADK and Agent Engine.
+
+**Practical inference for `rlm_adk`:** ADK already supports DAG-like orchestration by composing workflow agents and custom agents, but it is not yet a native arbitrary DAG scheduler with runtime graph generation as a core primitive.
+
+### 4.2 Production Workflow Orchestrators (Durability, Retries, Scheduling)
+
+These are strong options when DAG execution must survive process crashes, support scheduling, or provide operational controls:
+
+*   **[Prefect](https://github.com/PrefectHQ/prefect)** ([docs](https://docs.prefect.io/v3/get-started)): Pythonic task/flow orchestration with retries, states, schedules, and async support.
+*   **[Dagster](https://github.com/dagster-io/dagster)** ([docs](https://docs.dagster.io/)): typed graph execution, scheduling/sensors, and strong observability.
+*   **[Apache Airflow](https://github.com/apache/airflow)** ([DAG docs](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html)): mature, scheduler-first DAG orchestration.
+*   **[Temporal + Python SDK](https://github.com/temporalio/sdk-python)** ([docs](https://docs.temporal.io/develop/python)): durable, event-sourced workflow runtime for long-running executions.
+*   **[Flyte](https://github.com/flyteorg/flyte)** ([docs](https://docs.flyte.org/en/latest/)): typed workflows and scalable orchestration for Python tasks.
+*   **[Argo Workflows](https://github.com/argoproj/argo-workflows)** ([docs](https://argo-workflows.readthedocs.io/en/latest/)): Kubernetes-native DAG/workflow execution.
+*   **[Metaflow](https://github.com/Netflix/metaflow)** ([docs](https://docs.metaflow.org/)): Python workflow authoring with production backends.
+*   **[Hatchet](https://github.com/hatchet-dev/hatchet)** ([site/docs](https://hatchet.run/)): modern task/workflow runtime focused on durable execution patterns.
+
+### 4.3 Embedded Python DAG / Graph Engines (Library-Level Integration)
+
+These are good fits for embedding DAG execution directly into the current codebase without adopting a full external control plane:
+
+*   **[Dask Task Graphs](https://github.com/dask/dask)** ([graphs docs](https://docs.dask.org/en/stable/graphs.html)): dynamic task graphs with local/distributed execution.
+*   **[Hamilton](https://github.com/apache/hamilton)** ([docs](https://hamilton.apache.org/)): function-based DAG construction with explicit dependencies.
+*   **[Parsl](https://github.com/Parsl/parsl)** ([docs](https://parsl.readthedocs.io/en/stable/)): parallel scripting and dependency-aware workflow execution.
+*   **[Celery Canvas](https://github.com/celery/celery)** ([canvas docs](https://docs.celeryq.dev/en/stable/userguide/canvas.html)): DAG-like chains/groups/chords on distributed workers.
+*   **[Luigi](https://github.com/spotify/luigi)** ([docs](https://luigi.readthedocs.io/en/stable/)): dependency-driven Python pipelines.
+*   **[redun](https://github.com/insitro/redun)** ([docs](https://insitro.github.io/redun/)): workflow execution with caching and provenance.
+*   **[NetworkX](https://github.com/networkx/networkx)** ([DAG algorithms](https://networkx.org/documentation/stable/reference/algorithms/dag.html)): low-level DAG modeling/analysis (pair with a custom executor).
+*   **Python stdlib [`graphlib.TopologicalSorter`](https://docs.python.org/3/library/graphlib.html)**: lightweight topological execution planning primitive.
+
+### 4.4 Agent-Oriented Graph Frameworks (Beyond Existing Entries)
+
+Additional agent-graph repos that can accelerate DAG-like multi-agent orchestration patterns:
+
+*   **[AutoGen GraphFlow](https://github.com/microsoft/autogen)** ([docs](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/graph-flow.html)): explicit directed execution graphs for agent teams (sequential/parallel/conditional/looping).
+*   **[AG2](https://github.com/ag2ai/ag2)** ([StateFlow docs](https://docs.ag2.ai/latest/docs/use-cases/notebooks/notebooks/agentchat_groupchat_stateflow/)): state-driven multi-agent orchestration patterns.
+*   **[CrewAI Flows](https://github.com/crewAIInc/crewAI)** ([docs](https://docs.crewai.com/en/concepts/flows)): event-driven agent flow control with branching and looping.
+*   **[LlamaIndex Workflows](https://github.com/run-llama/llama_index)** ([docs](https://developers.llamaindex.ai/python/llamaagents/workflows/)): step/event-based agent workflow composition.
+*   **[Haystack Pipelines](https://github.com/deepset-ai/haystack)** ([pipeline docs](https://docs.haystack.deepset.ai/docs/pipelines)): directed multigraph pipelines with async/branching support.
+*   **[Pydantic Graph (`pydantic-graph`)](https://github.com/pydantic/pydantic-ai)** ([docs](https://ai.pydantic.dev/graph/)): strongly-typed async graph/FSM library for Python.
+*   **[Apache Burr](https://github.com/apache/burr)** ([docs](https://burr.apache.org/)): state-machine-oriented orchestration for agent applications.
+*   **[Griptape Workflows](https://github.com/griptape-ai/griptape)** ([docs](https://docs.griptape.ai/stable/griptape-framework/structures/workflows/)): task workflows modeled as a non-sequential DAG.
+*   **[Semantic Kernel Process Framework](https://github.com/microsoft/semantic-kernel)** ([docs](https://learn.microsoft.com/en-us/semantic-kernel/frameworks/process/process-framework)): event-driven multi-step process orchestration.

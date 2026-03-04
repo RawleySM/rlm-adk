@@ -26,7 +26,7 @@ from tests_rlm_adk.provider_fake.server import FakeGeminiServer
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 
-SKILL_FIXTURE = FIXTURE_DIR / "skill_helper.json"
+SKILL_FIXTURE = FIXTURE_DIR / "agent_challenge" / "skill_helper.json"
 EXPECTED_FINAL = (
     "skill_helpers_validated: probe=4_files, pack=xml_ok, "
     "shard=chunks_ok, batched=2_analyses"

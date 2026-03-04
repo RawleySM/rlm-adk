@@ -44,6 +44,7 @@ from rlm_adk.plugins.debug_logging import DebugLoggingPlugin
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.utils.prompts import (
+    RLM_CHILD_STATIC_INSTRUCTION,
     RLM_DYNAMIC_INSTRUCTION,
     RLM_STATIC_INSTRUCTION,
 )
@@ -157,6 +158,9 @@ def create_reasoning_agent(
     *,
     tools: list | None = None,
     output_schema: type | None = None,
+    include_repomix: bool = True,
+    name: str = "reasoning_agent",
+    output_key: str = "reasoning_output",
 ) -> LlmAgent:
     """Create the ReasoningAgent (main LLM for depth=0 reasoning).
 
@@ -198,15 +202,16 @@ def create_reasoning_agent(
             )
         )
 
-    # Append repomix skill instructions to static instruction
-    from rlm_adk.skills.repomix_skill import build_skill_instruction_block
+    # Append repomix skill instructions to static instruction (parent only)
+    if include_repomix:
+        from rlm_adk.skills.repomix_skill import build_skill_instruction_block
 
-    static_instruction = static_instruction + "\n" + build_skill_instruction_block()
+        static_instruction = static_instruction + "\n" + build_skill_instruction_block()
 
     gcc = _build_generate_content_config(retry_config)
 
     return LlmAgent(
-        name="reasoning_agent",
+        name=name,
         model=model,
         description="Main reasoning agent for RLM iteration loop",
         instruction=dynamic_instruction,
@@ -216,7 +221,7 @@ def create_reasoning_agent(
         include_contents="default",
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
-        output_key="reasoning_output",
+        output_key=output_key,
         planner=planner,
         generate_content_config=gcc,
         before_model_callback=reasoning_before_model,
@@ -265,6 +270,55 @@ def create_rlm_orchestrator(
         kwargs["repo_url"] = repo_url
 
     return RLMOrchestratorAgent(**kwargs)
+
+
+def create_child_orchestrator(
+    model: str,
+    depth: int,
+    prompt: str,
+    worker_pool: WorkerPool | None = None,
+    max_iterations: int = 10,
+    thinking_budget: int = 512,
+    output_schema: type | None = None,
+) -> RLMOrchestratorAgent:
+    """Create a child orchestrator for recursive dispatch at *depth* > 0.
+
+    The child uses a condensed static instruction (no repomix/repo docs)
+    and depth-suffixed output keys to prevent state collisions.
+
+    Args:
+        model: The LLM model identifier.
+        depth: Nesting depth (must be > 0).
+        prompt: The sub-query for this child to solve.
+        worker_pool: Optional shared WorkerPool (created if None).
+        max_iterations: Max tool calls for the child reasoning agent.
+        thinking_budget: Token budget for built-in planner.
+        output_schema: Optional Pydantic schema for structured output.
+    """
+    reasoning = create_reasoning_agent(
+        model,
+        static_instruction=RLM_CHILD_STATIC_INSTRUCTION,
+        thinking_budget=thinking_budget,
+        include_repomix=False,
+        name=f"child_reasoning_d{depth}",
+        output_key=f"reasoning_output@d{depth}",
+        output_schema=output_schema,
+    )
+
+    if worker_pool is None:
+        worker_pool = WorkerPool(default_model=model)
+
+    return RLMOrchestratorAgent(
+        name=f"child_orchestrator_d{depth}",
+        description=f"Child orchestrator at depth {depth}",
+        reasoning_agent=reasoning,
+        root_prompt=prompt,
+        persistent=False,
+        worker_pool=worker_pool,
+        depth=depth,
+        output_schema=output_schema,
+        sub_agents=[reasoning],
+    )
 
 
 def _default_plugins(

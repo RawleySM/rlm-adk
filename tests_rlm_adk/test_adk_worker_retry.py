@@ -5,35 +5,20 @@ Covers:
 - Cycle 1: LLMResult.parsed field
 - Cycle 2: WorkerRetryPlugin subclass
 - Cycle 3: make_worker_tool_callbacks() wrappers
-- Cycle 4: llm_query_async accepts output_schema
-- Cycle 5: Worker gets schema + tools + callbacks when output_schema provided
-- Cycle 6: Structured result extraction into LLMResult.parsed
 - Cycle 7: BUG-13 patch wrapper suppresses retry responses (FM-21)
 - Cycle 8: BUG-13 patch idempotency (FM-21)
 - FM-16 (Item 19): after_tool_cb delegation with empty value triggers retry
+
+Note: Cycles 4-6 removed (tested old WorkerPool leaf-worker dispatch internals).
 """
 
-import asyncio
 import inspect
 import json
 from unittest.mock import MagicMock
 
 import pytest
 
-from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
 from rlm_adk.types import LLMResult
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────
-
-
-def _make_invocation_context(invocation_id: str = "test") -> MagicMock:
-    """Build a mock InvocationContext for dispatch closure tests."""
-    ctx = MagicMock()
-    ctx.invocation_id = invocation_id
-    # Provide session.state as a real dict so closures can interact with it
-    ctx.session.state = {}
-    return ctx
 
 
 # ── Cycle 0: No ctx.session.state reads in dispatch.py ──────────────────
@@ -43,11 +28,17 @@ class TestDispatchNoSessionStateReads:
     """Dispatch closures must not read from ctx.session.state."""
 
     def test_dispatch_source_has_no_session_state_reads(self):
-        """Verify dispatch.py contains zero ctx.session.state references in code."""
+        """Verify dispatch.py contains zero unexpected ctx.session.state references.
+
+        The child orchestrator legitimately reads ctx.session.state.get() to
+        collect child output_key results. All other reads are disallowed.
+        """
         from rlm_adk import dispatch
 
         source = inspect.getsource(dispatch)
         lines = source.split("\n")
+        # Allowed: reading child orchestrator output_key results
+        allowed_patterns = ["_child_output_key"]
         code_lines = [
             ln
             for ln in lines
@@ -57,6 +48,7 @@ class TestDispatchNoSessionStateReads:
             and not ln.strip().startswith("'")
             and not ln.strip().startswith("-")  # docstring bullet points
             and "no direct" not in ln  # docstring references
+            and not any(p in ln for p in allowed_patterns)
         ]
         assert code_lines == [], f"Found ctx.session.state reads: {code_lines}"
 
@@ -227,180 +219,6 @@ class TestMakeWorkerToolCallbacks:
         # Second attempt: should raise
         with pytest.raises(ValueError, match="bad schema"):
             await error_cb(tool, {}, tool_context, error)
-
-
-# ── Cycle 4: llm_query_async accepts output_schema ──────────────────────
-
-
-class TestDispatchOutputSchema:
-    @pytest.mark.asyncio
-    async def test_llm_query_async_signature_accepts_output_schema(self):
-        """llm_query_async should accept output_schema kwarg."""
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
-        sig = inspect.signature(llm_query_async)
-        assert "output_schema" in sig.parameters
-
-    @pytest.mark.asyncio
-    async def test_llm_query_batched_async_signature_accepts_output_schema(self):
-        """llm_query_batched_async should accept output_schema kwarg."""
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        _, llm_query_batched_async, _ = create_dispatch_closures(pool, ctx, eq)
-        sig = inspect.signature(llm_query_batched_async)
-        assert "output_schema" in sig.parameters
-
-
-# ── Cycle 5: Worker gets schema + tools + callbacks ──────────────────────
-
-
-def _patch_worker_run(worker, run_fn):
-    """Patch run_async on a Pydantic LlmAgent using object.__setattr__."""
-    object.__setattr__(worker, "run_async", run_fn)
-
-
-class TestDispatchSchemaWiring:
-    @pytest.mark.asyncio
-    async def test_dispatch_with_schema_sets_worker_attrs(self):
-        """Full dispatch with output_schema should configure worker."""
-        from pydantic import BaseModel
-
-        class TestSchema(BaseModel):
-            answer: str
-
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-
-        captured_state = {}
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def capture_run(_ctx):
-            captured_state["output_schema"] = worker.output_schema
-            captured_state["tools"] = list(worker.tools)
-            captured_state["after_tool_callback"] = worker.after_tool_callback
-            captured_state["on_tool_error_callback"] = worker.on_tool_error_callback
-            worker._result = '{"answer": "test"}'  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            worker._structured_result = {"answer": "test"}  # type: ignore[attr-defined]
-            return
-            yield  # make it an async generator
-
-        _patch_worker_run(worker, capture_run)
-        pool._pools["test-model"].put_nowait(worker)
-
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
-
-        await llm_query_async("test prompt", output_schema=TestSchema)
-
-        assert captured_state["output_schema"] is TestSchema
-        assert len(captured_state["tools"]) > 0
-        assert captured_state["after_tool_callback"] is not None
-        assert captured_state["on_tool_error_callback"] is not None
-
-    @pytest.mark.asyncio
-    async def test_dispatch_cleanup_resets_schema_attrs(self):
-        """After dispatch, worker schema/tools/callbacks must be reset."""
-        from pydantic import BaseModel
-
-        class TestSchema(BaseModel):
-            answer: str
-
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def noop_run(_):
-            worker._result = "done"  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            return
-            yield  # make it an async generator
-
-        _patch_worker_run(worker, noop_run)
-        pool._pools["test-model"].put_nowait(worker)
-
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
-
-        await llm_query_async("test", output_schema=TestSchema)
-
-        # Worker should be back in pool with attrs reset
-        released = await pool.acquire()
-        assert released.output_schema is None
-        assert released.tools == []
-        assert released.after_tool_callback is None
-        assert released.on_tool_error_callback is None
-
-
-# ── Cycle 6: Structured result extraction into LLMResult.parsed ──────────
-
-
-class TestStructuredResultExtraction:
-    @pytest.mark.asyncio
-    async def test_structured_result_populates_parsed(self):
-        """When worker._structured_result is set, LLMResult.parsed should contain it."""
-        from pydantic import BaseModel
-
-        class TestSchema(BaseModel):
-            answer: str
-            score: float
-
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def mock_run(_):
-            worker._result = '{"answer":"test","score":0.95}'  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            worker._structured_result = {"answer": "test", "score": 0.95}  # type: ignore[attr-defined]
-            return
-            yield
-
-        _patch_worker_run(worker, mock_run)
-        pool._pools["test-model"].put_nowait(worker)
-
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
-
-        result = await llm_query_async("analyze this", output_schema=TestSchema)
-
-        assert result.parsed is not None
-        assert result.parsed["answer"] == "test"
-        assert result.parsed["score"] == 0.95
-        assert '"answer"' in str(result)
-
-    @pytest.mark.asyncio
-    async def test_no_schema_result_has_no_parsed(self):
-        """Without output_schema, result.parsed should be None."""
-        pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def mock_run(_):
-            worker._result = "plain text response"  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            return
-            yield
-
-        _patch_worker_run(worker, mock_run)
-        pool._pools["test-model"].put_nowait(worker)
-
-        ctx = _make_invocation_context()
-        eq: asyncio.Queue = asyncio.Queue()
-        llm_query_async, _, _ = create_dispatch_closures(pool, ctx, eq)
-
-        result = await llm_query_async("just a question")
-
-        assert result.parsed is None
-        assert str(result) == "plain text response"
 
 
 # ── Cycle 7: BUG-13 patch wrapper suppresses retry responses (FM-21) ────

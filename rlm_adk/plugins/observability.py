@@ -24,6 +24,8 @@ from rlm_adk.state import (
     ITERATION_COUNT,
     OBS_ARTIFACT_BYTES_SAVED,
     OBS_ARTIFACT_SAVES,
+    OBS_CHILD_DISPATCH_COUNT,
+    OBS_CHILD_ERROR_COUNTS,
     OBS_FINISH_MAX_TOKENS_COUNT,
     OBS_FINISH_RECITATION_COUNT,
     OBS_FINISH_SAFETY_COUNT,
@@ -320,6 +322,8 @@ class ObservabilityPlugin(BasePlugin):
 
             artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
             artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+            child_dispatches = state.get(OBS_CHILD_DISPATCH_COUNT, 0)
+            child_errors = state.get(OBS_CHILD_ERROR_COUNTS, {})
 
             log_msg = (
                 "[%s] Run completed: calls=%d (reasoning=%d, worker=%d), "
@@ -334,6 +338,13 @@ class ObservabilityPlugin(BasePlugin):
                 state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_EXECUTION_TIME, 0),
             ]
+
+            if child_dispatches > 0:
+                log_msg += ", child_dispatches=%d"
+                log_args.append(child_dispatches)
+                if child_errors:
+                    log_msg += ", child_errors=%s"
+                    log_args.append(child_errors)
 
             if artifact_saves > 0:
                 log_msg += ", artifact_saves=%d, artifact_bytes=%d"

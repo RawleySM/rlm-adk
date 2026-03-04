@@ -1,0 +1,36 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_source_fixes_fmea.py",
+  "library": "google-genai",
+  "import_prefix": "google.genai",
+  "imported_classes": [
+    "ClientError",
+    "ServerError"
+  ],
+  "call_sites": [
+    {
+      "symbol": "ClientError",
+      "instances": [
+        {
+          "name": "exc",
+          "line": 46
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass ClientError(\n    code: int,\n    response_json: Any,\n    response: Unknown | Response | ClientResponse | None = None\n)\n```\n---\nClient error raised by the GenAI API."
+      }
+    },
+    {
+      "symbol": "ServerError",
+      "instances": [
+        {
+          "name": "exc",
+          "line": 95
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass ServerError(\n    code: int,\n    response_json: Any,\n    response: Unknown | Response | ClientResponse | None = None\n)\n```\n---\nServer error raised by the GenAI API."
+      }
+    }
+  ],
+  "type_annotations": []
+}

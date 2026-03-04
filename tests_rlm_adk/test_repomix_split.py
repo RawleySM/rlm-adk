@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from repomix import RepoProcessor, RepomixConfig
 from repomix.config.config_load import load_config
 from repomix.core.file.file_process import process_files
@@ -30,18 +32,32 @@ REPO_URL = "https://github.com/AndersonBY/python-repomix"
 CLONE_DIR = Path("/tmp/python-repomix")
 OUTPUT_DIR = Path("/tmp/repomix-split-test")
 SPLIT_SIZE = 500 * 1024  # 500KB per part
+FALLBACK_SOURCE_DIR = Path(__file__).resolve().parents[1] / "rlm_adk" / "repl"
 
 
 def clone_repo():
-    """Clone the target repo (or reuse existing clone)."""
+    """Clone the target repo (or fallback to a local fixture directory)."""
     if CLONE_DIR.exists():
         print(f"Reusing existing clone at {CLONE_DIR}")
         return
     print(f"Cloning {REPO_URL} -> {CLONE_DIR}")
-    subprocess.run(
-        ["git", "clone", "--depth=1", REPO_URL, str(CLONE_DIR)],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["git", "clone", "--depth=1", REPO_URL, str(CLONE_DIR)],
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        print(f"Clone failed ({exc!r}); using local fallback at {FALLBACK_SOURCE_DIR}")
+        shutil.copytree(FALLBACK_SOURCE_DIR, CLONE_DIR)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _prepare_split_test_env():
+    """Ensure split tests always have a source repo and clean output dir."""
+    clone_repo()
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def test_builtin_split_output_is_dead():

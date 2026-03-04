@@ -101,101 +101,11 @@ async def test_g1_dict_state_nested_structure_preserved(contract_result):
 
 
 # ---------------------------------------------------------------------------
-# G5: REPL globals injection (mock pack_repo + _test_metadata)
+# G5, G4, G2, G3: Worker prompt injection tests — REMOVED (Phase 3 migration)
+# These tests verified data flow into leaf LlmAgent worker prompts.
+# With child orchestrators, the prompt is passed to a child reasoning agent
+# that has its own systemInstruction, tools, and call structure.
 # ---------------------------------------------------------------------------
-
-
-async def test_g5_repo_xml_in_worker1_prompt(contract_result):
-    """Call 1 (worker 1) contains REPO_XML_START/END markers from mock pack_repo."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    assert "REPO_XML_START" in req_str, "REPO_XML_START not in worker 1 request"
-    assert "REPO_XML_END" in req_str, "REPO_XML_END not in worker 1 request"
-
-
-async def test_g5_repo_xml_content_not_truncated(contract_result):
-    """Call 1 (worker 1) contains full repo XML including file contents."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    content = _find_marker_content(req_str, "«REPO_XML_START»", "«REPO_XML_END»")
-    assert content is not None, "Could not extract REPO_XML content"
-    assert "test-repo" in content, "repo name not in REPO_XML"
-    assert "main.py" in content, "main.py not in REPO_XML"
-    assert "utils.py" in content, "utils.py not in REPO_XML"
-
-
-async def test_g5_metadata_dict_in_worker1_prompt(contract_result):
-    """Call 1 (worker 1) contains METADATA_START/END markers from _test_metadata global."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    assert "METADATA_START" in req_str, "METADATA_START not in worker 1 request"
-    assert "METADATA_END" in req_str, "METADATA_END not in worker 1 request"
-
-
-# ---------------------------------------------------------------------------
-# G4: Combined data sources in single worker prompt
-# ---------------------------------------------------------------------------
-
-
-async def test_g4_combined_prompt_markers(contract_result):
-    """Call 1 (worker 1) contains COMBINED_PROMPT_START/END wrapping both sources."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    assert "COMBINED_PROMPT_START" in req_str, "COMBINED_PROMPT_START not in worker 1"
-    assert "COMBINED_PROMPT_END" in req_str, "COMBINED_PROMPT_END not in worker 1"
-
-
-async def test_g4_both_sources_in_combined_prompt(contract_result):
-    """Call 1 combined prompt contains BOTH repo XML markers AND metadata markers."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    content = _find_marker_content(req_str, "«COMBINED_PROMPT_START»", "«COMBINED_PROMPT_END»")
-    assert content is not None, "Could not extract COMBINED_PROMPT content"
-    assert "REPO_XML_START" in content, "REPO_XML not inside COMBINED_PROMPT"
-    assert "METADATA_START" in content, "METADATA not inside COMBINED_PROMPT"
-
-
-# ---------------------------------------------------------------------------
-# G2: Variable persistence across REPL iterations
-# ---------------------------------------------------------------------------
-
-
-async def test_g2_persisted_repo_xml_in_worker2(contract_result):
-    """Call 3 (worker 2) contains repo_xml persisted from iter 1."""
-    req_str = _serialize(contract_result.captured_requests[3])
-    assert "REPO_XML_START" in req_str, "Persisted repo_xml not in worker 2 request"
-    assert "REPO_XML_END" in req_str, "Persisted repo_xml END not in worker 2 request"
-
-
-async def test_g2_persisted_metadata_in_worker2(contract_result):
-    """Call 3 (worker 2) contains metadata dict persisted from iter 1."""
-    req_str = _serialize(contract_result.captured_requests[3])
-    assert "METADATA_START" in req_str, "Persisted metadata not in worker 2 request"
-
-
-# ---------------------------------------------------------------------------
-# G3: Prior worker result chaining
-# ---------------------------------------------------------------------------
-
-
-async def test_g3_chained_prompt_markers(contract_result):
-    """Call 3 (worker 2) contains CHAINED_PROMPT_START/END markers."""
-    req_str = _serialize(contract_result.captured_requests[3])
-    assert "CHAINED_PROMPT_START" in req_str, "CHAINED_PROMPT_START not in worker 2"
-    assert "CHAINED_PROMPT_END" in req_str, "CHAINED_PROMPT_END not in worker 2"
-
-
-async def test_g3_prior_worker_result_in_chained_prompt(contract_result):
-    """Call 3 (worker 2) contains worker 1's response text in the chained prompt."""
-    req_str = _serialize(contract_result.captured_requests[3])
-    content = _find_marker_content(req_str, "«CHAINED_PROMPT_START»", "«CHAINED_PROMPT_END»")
-    assert content is not None, "Could not extract CHAINED_PROMPT content"
-    assert "WORKER_RESPONSE_1_START" in content, "Worker 1 response not in chained prompt"
-    assert "arithmetic operations" in content, "Worker 1 content not in chained prompt"
-
-
-async def test_g3_chained_prompt_has_both_old_and_new_data(contract_result):
-    """Call 3 chained prompt has BOTH prior worker result AND original repo XML."""
-    req_str = _serialize(contract_result.captured_requests[3])
-    content = _find_marker_content(req_str, "«CHAINED_PROMPT_START»", "«CHAINED_PROMPT_END»")
-    assert content is not None, "Could not extract CHAINED_PROMPT content"
-    assert "WORKER_RESPONSE_1_START" in content, "Prior worker result missing"
-    assert "REPO_XML_START" in content, "Original repo XML missing from chained prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -240,34 +150,9 @@ async def test_g6_variables_contain_metadata_dict(contract_result):
 
 
 # ---------------------------------------------------------------------------
-# G7: Worker systemInstruction content
+# G7, G8: Worker systemInstruction + generationConfig — REMOVED (Phase 3)
+# Child orchestrators have their own systemInstruction and generationConfig.
 # ---------------------------------------------------------------------------
-
-
-async def test_g7_worker_has_system_instruction(contract_result):
-    """Call 1 (worker) has systemInstruction with 'Answer the user' instruction."""
-    req = contract_result.captured_requests[1]
-    assert "systemInstruction" in req, "Worker request missing systemInstruction"
-    sys_text = json.dumps(req["systemInstruction"], ensure_ascii=False)
-    assert "Answer" in sys_text, (
-        f"Worker systemInstruction missing expected instruction: {sys_text[:200]}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# G8: Worker generationConfig
-# ---------------------------------------------------------------------------
-
-
-async def test_g8_worker_generation_config(contract_result):
-    """Call 1 (worker) has generationConfig with temperature=0.0."""
-    req = contract_result.captured_requests[1]
-    assert "generationConfig" in req, "Worker request missing generationConfig"
-    gen_config = req["generationConfig"]
-    # temperature may be 0 or 0.0
-    assert gen_config.get("temperature") == 0 or gen_config.get("temperature") == 0.0, (
-        f"Worker temperature not 0.0: {gen_config}"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -312,15 +197,8 @@ async def test_reasoning_calls_have_tools(contract_result):
         assert "execute_code" in tools_str, f"Call {idx} missing execute_code tool"
 
 
-async def test_worker_calls_lack_execute_code(contract_result):
-    """Worker calls (1, 3) should NOT have execute_code in tools."""
-    for idx in (1, 3):
-        req = contract_result.captured_requests[idx]
-        if "tools" in req:
-            tools_str = json.dumps(req["tools"])
-            assert "execute_code" not in tools_str, (
-                f"Worker call {idx} should not have execute_code tool"
-            )
+    # test_worker_calls_lack_execute_code — REMOVED (Phase 3 migration)
+    # Child orchestrators DO have execute_code as they are full reasoning agents.
 
 
 # ---------------------------------------------------------------------------
@@ -397,35 +275,10 @@ async def test_cb_reasoning_context_has_hook_name(contract_result):
 
 
 # ---------------------------------------------------------------------------
-# CB_WORKER_CONTEXT: callback state dict in worker request contents
+# CB_WORKER_CONTEXT — REMOVED (Phase 3 migration)
+# Worker hooks are no longer wired via _create_worker monkey-patching.
+# Child orchestrators are spawned on-demand and cannot be pre-hooked.
 # ---------------------------------------------------------------------------
-
-
-async def test_cb_worker_context_in_worker1(contract_result):
-    """Call 1 (worker 1) contents contain CB_WORKER_STATE_START/END from test hook."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    assert "CB_WORKER_STATE_START" in req_str, (
-        f"CB_WORKER_STATE_START not in worker 1 request: {req_str[:300]}"
-    )
-    assert "CB_WORKER_STATE_END" in req_str, (
-        f"CB_WORKER_STATE_END not in worker 1 request: {req_str[:300]}"
-    )
-
-
-async def test_cb_worker_context_in_worker2(contract_result):
-    """Call 3 (worker 2) contents contain CB_WORKER_STATE markers."""
-    req_str = _serialize(contract_result.captured_requests[3])
-    assert "CB_WORKER_STATE_START" in req_str, (
-        "CB_WORKER_STATE_START not in worker 2 request"
-    )
-
-
-async def test_cb_worker_context_has_hook_name(contract_result):
-    """Worker request contains the hook function name in the context dict."""
-    req_str = _serialize(contract_result.captured_requests[1])
-    assert "worker_test_state_hook" in req_str, (
-        "Hook name not in worker request — dict may not be fully serialized"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -546,23 +399,19 @@ async def test_skill_frontmatter_in_all_reasoning_calls(contract_result):
 
 
 async def test_save_captured_requests_roundtrip(contract_result, tmp_path):
-    """Save captured requests to JSON, reload, verify all markers survive."""
+    """Save captured requests to JSON, reload, verify basic structure survives."""
     out_path = tmp_path / "captured_comprehensive.json"
     save_captured_requests(contract_result.captured_requests, out_path)
 
     with open(out_path) as f:
         reloaded = json.load(f)
 
-    assert len(reloaded) == 5
+    assert len(reloaded) == len(contract_result.captured_requests)
 
-    # Spot-check key markers in reloaded data
-    markers_by_call = {
-        1: ["REPO_XML_START", "METADATA_START", "COMBINED_PROMPT_START"],
-        3: ["CHAINED_PROMPT_START", "WORKER_RESPONSE_1_START", "REPO_XML_START"],
-    }
-    for call_idx, markers in markers_by_call.items():
-        req_str = json.dumps(reloaded[call_idx], ensure_ascii=False)
-        for marker in markers:
-            assert marker in req_str, (
-                f"{marker} not found after roundtrip in call {call_idx}"
+    # Spot-check key markers in reasoning calls (indices 0, 2, 4)
+    for idx in (0, 2, 4):
+        if idx < len(reloaded):
+            req_str = json.dumps(reloaded[idx], ensure_ascii=False)
+            assert "DICT_STATE_START" in req_str, (
+                f"DICT_STATE_START not found after roundtrip in call {idx}"
             )

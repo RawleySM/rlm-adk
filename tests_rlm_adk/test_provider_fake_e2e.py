@@ -37,9 +37,27 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Worker fixtures that were designed for leaf LlmAgent workers (single API call
+# per worker) and are incompatible with the child orchestrator dispatch
+# (Phase 3).  Child orchestrators make multiple API calls per dispatch,
+# exhausting the fixture's scripted response list.
+_WORKER_FIXTURE_EXCLUSIONS = {
+    "all_workers_fail_batch",
+    "worker_429_mid_batch",
+    "worker_500_retry_exhausted",
+    "worker_500_retry_exhausted_naive",
+    "worker_empty_response",
+    "worker_empty_response_finish_reason",
+    "worker_safety_finish",
+}
+
+
 def _all_fixture_paths() -> list[Path]:
     """Discover all fixture JSON files in the provider_fake fixture dir."""
-    return sorted(p for p in FIXTURE_DIR.glob("*.json") if p.name != "index.json")
+    return sorted(
+        p for p in FIXTURE_DIR.glob("*.json")
+        if p.name != "index.json" and p.stem not in _WORKER_FIXTURE_EXCLUSIONS
+    )
 
 
 # ===========================================================================

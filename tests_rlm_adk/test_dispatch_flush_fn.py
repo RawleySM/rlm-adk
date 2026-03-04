@@ -5,9 +5,11 @@ Verifies:
 2. flush_fn returns accumulated state (dispatch counts, latencies)
 3. flush_fn resets accumulators after call
 4. Dispatch works without event_queue (events consumed and discarded)
+
+Updated for Phase 3: child orchestrator dispatch (no more WorkerPool internals).
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -25,9 +27,22 @@ def _make_invocation_context(invocation_id: str = "test") -> MagicMock:
     return ctx
 
 
-def _patch_worker_run(worker, run_fn):
-    """Patch run_async on a Pydantic LlmAgent using object.__setattr__."""
-    object.__setattr__(worker, "run_async", run_fn)
+def _make_mock_child(answer: str, output_key: str = "reasoning_output@d1"):
+    """Create a mock child orchestrator that writes answer to session state."""
+    child = MagicMock()
+    child.persistent = False
+    child.repl = None
+    reasoning = MagicMock()
+    reasoning.output_key = output_key
+    child.reasoning_agent = reasoning
+
+    async def mock_run_async(ctx):
+        ctx.session.state[output_key] = answer
+        return
+        yield
+
+    child.run_async = mock_run_async
+    return child
 
 
 # ── Tests ────────────────────────────────────────────────────────────────
@@ -59,52 +74,36 @@ class TestFlushFn:
     async def test_flush_fn_returns_accumulated_state(self):
         """After a dispatch, flush_fn should return accumulated counts."""
         pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def mock_run(_ctx):
-            worker._result = "done"  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            return
-            yield  # make it an async generator
-
-        _patch_worker_run(worker, mock_run)
-        pool._pools["test-model"].put_nowait(worker)
-
         ctx = _make_invocation_context()
-        llm_query_async, _, flush_fn = create_dispatch_closures(pool, ctx)
 
-        await llm_query_async("test prompt")
+        child = _make_mock_child("done")
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("test prompt")
 
         delta = flush_fn()
         assert isinstance(delta, dict)
         assert "worker_dispatch_count" in delta
         assert delta["worker_dispatch_count"] >= 1
-        assert "obs:worker_total_dispatches" in delta
-        assert "obs:worker_dispatch_latency_ms" in delta
+        assert "obs:child_dispatch_count" in delta
+        assert "obs:child_dispatch_latency_ms" in delta
 
     @pytest.mark.asyncio
     async def test_flush_fn_resets_accumulators(self):
         """After flush_fn is called, accumulators should be reset to zero."""
         pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def mock_run(_ctx):
-            worker._result = "done"  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            return
-            yield
-
-        _patch_worker_run(worker, mock_run)
-        pool._pools["test-model"].put_nowait(worker)
-
         ctx = _make_invocation_context()
-        llm_query_async, _, flush_fn = create_dispatch_closures(pool, ctx)
 
-        await llm_query_async("test prompt")
+        child = _make_mock_child("done")
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("test prompt")
 
         # First flush: should have counts
         delta1 = flush_fn()
@@ -113,30 +112,21 @@ class TestFlushFn:
         # Second flush: should be reset
         delta2 = flush_fn()
         assert delta2["worker_dispatch_count"] == 0
-        assert delta2["obs:worker_total_dispatches"] == 0
-        assert delta2["obs:worker_dispatch_latency_ms"] == []
+        assert delta2["obs:child_dispatch_count"] == 0
+        assert delta2["obs:child_dispatch_latency_ms"] == []
 
     @pytest.mark.asyncio
     async def test_dispatch_without_event_queue_works(self):
-        """Dispatch with event_queue=None should work (events consumed and discarded)."""
+        """Dispatch should work (events consumed by child orchestrator)."""
         pool = WorkerPool(default_model="test-model", pool_size=1)
-        pool.ensure_initialized()
-
-        worker = pool._pools["test-model"].get_nowait()
-
-        async def mock_run(_ctx):
-            worker._result = "result text"  # type: ignore[attr-defined]
-            worker._result_ready = True  # type: ignore[attr-defined]
-            return
-            yield
-
-        _patch_worker_run(worker, mock_run)
-        pool._pools["test-model"].put_nowait(worker)
-
         ctx = _make_invocation_context()
-        # No event_queue -- should default to None
-        llm_query_async, _, flush_fn = create_dispatch_closures(pool, ctx)
 
-        result = await llm_query_async("test prompt")
+        child = _make_mock_child("result text")
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            result = await llm_query_async("test prompt")
+
         assert str(result) == "result text"
-

@@ -22,7 +22,7 @@ from google.genai.types import FunctionDeclaration, Schema, Type
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
 from rlm_adk.repl.trace import REPLTrace
-from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, WORKER_DISPATCH_COUNT
+from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, WORKER_DISPATCH_COUNT, depth_key
 
 _CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
 
@@ -42,6 +42,7 @@ class REPLTool(BaseTool):
         max_calls: int = 60,
         trace_holder: Optional[list] = None,
         flush_fn: Optional[Callable[[], dict]] = None,
+        depth: int = 0,
     ):
         super().__init__(
             name="execute_code",
@@ -56,6 +57,7 @@ class REPLTool(BaseTool):
         self._call_count = 0
         self.trace_holder = trace_holder
         self._flush_fn = flush_fn
+        self._depth = depth
 
     def _get_declaration(self) -> FunctionDeclaration:
         return FunctionDeclaration(
@@ -80,7 +82,7 @@ class REPLTool(BaseTool):
 
         self._call_count += 1
         # Track iteration count in session state for observability
-        tool_context.state[ITERATION_COUNT] = self._call_count
+        tool_context.state[depth_key(ITERATION_COUNT, self._depth)] = self._call_count
         if self._call_count > self._max_calls:
             return {
                 "stdout": "",
@@ -127,7 +129,7 @@ class REPLTool(BaseTool):
                     tool_context.state[k] = v
                 total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
             # Write LAST_REPL_RESULT even on cancellation for observability
-            tool_context.state[LAST_REPL_RESULT] = {
+            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = {
                 "code_blocks": 1,
                 "has_errors": True,
                 "has_output": False,
@@ -151,7 +153,7 @@ class REPLTool(BaseTool):
                     tool_context.state[k] = v
                 total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
             # Write LAST_REPL_RESULT even on exception for observability
-            tool_context.state[LAST_REPL_RESULT] = {
+            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = {
                 "code_blocks": 1,
                 "has_errors": True,
                 "has_output": False,
@@ -182,7 +184,7 @@ class REPLTool(BaseTool):
         }
         if trace is not None:
             last_repl["trace_summary"] = trace.summary()
-        tool_context.state[LAST_REPL_RESULT] = last_repl
+        tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = last_repl
 
         # Extract JSON-serializable variables from REPL locals.
         # We attempt json.dumps to catch nested non-serializable objects

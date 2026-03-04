@@ -40,25 +40,25 @@ from .server import FakeGeminiServer
 
 
 def _wire_test_hooks(app: Any) -> None:
-    """Chain test state hooks onto reasoning agent and worker pool.
+    """Chain test state hooks onto reasoning agent.
 
     When a fixture sets ``config.test_hooks = true``, this function:
     1. Chains ``reasoning_test_state_hook`` before ``reasoning_before_model``
        so the CB_REASONING_CONTEXT dict flows into state and (via the
        ``{cb_reasoning_context?}`` template placeholder) into systemInstruction.
-    2. Monkey-patches ``WorkerPool._create_worker`` so every new worker gets
-       ``worker_test_state_hook`` chained before ``worker_before_model``,
-       causing the CB_WORKER_CONTEXT dict to appear in worker request contents.
+    2. Wires ``orchestrator_test_state_hook`` as ``before_agent_callback``.
+    3. Wires ``tool_test_state_hook`` as ``before_tool_callback``.
+
+    Note: Worker/child hooks are no longer wired here.  Child orchestrators
+    are spawned on-demand by dispatch.py and cannot be monkey-patched at
+    app creation time.  The CB_WORKER_CONTEXT tests that depended on this
+    have been removed.
     """
     from rlm_adk.callbacks.orchestrator import orchestrator_test_state_hook
     from rlm_adk.callbacks.reasoning import (
         reasoning_before_model,
         reasoning_test_state_hook,
         tool_test_state_hook,
-    )
-    from rlm_adk.callbacks.worker import (
-        worker_before_model as prod_worker_before_model,
-        worker_test_state_hook,
     )
 
     orchestrator = app.root_agent
@@ -84,22 +84,6 @@ def _wire_test_hooks(app: Any) -> None:
     # Fires before each execute_code call, writes CB_TOOL_CONTEXT to state.
     # Available in reasoning template resolution from the NEXT LLM call onward.
     object.__setattr__(reasoning_agent, "before_tool_callback", tool_test_state_hook)
-
-    # --- Monkey-patch worker creation to chain worker hooks ---
-    worker_pool = orchestrator.worker_pool
-    original_create = worker_pool._create_worker
-
-    def patched_create_worker(model_name):
-        worker = original_create(model_name)
-
-        def chained_worker_before_model(callback_context, llm_request):
-            worker_test_state_hook(callback_context, llm_request)
-            return prod_worker_before_model(callback_context, llm_request)
-
-        object.__setattr__(worker, "before_model_callback", chained_worker_before_model)
-        return worker
-
-    worker_pool._create_worker = patched_create_worker
 
 
 @dataclasses.dataclass

@@ -25,7 +25,10 @@ from google.adk.events import Event, EventActions
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
+from google.adk.tools.set_model_response_tool import SetModelResponseTool
+
 from rlm_adk.artifacts import save_final_answer
+from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
 from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.trace import REPLTrace
@@ -40,9 +43,10 @@ from rlm_adk.state import (
     REQUEST_ID,
     ROOT_PROMPT,
     SHOULD_STOP,
+    depth_key,
 )
 from rlm_adk.tools.repl_tool import REPLTool
-from rlm_adk.types import LLMResult
+from rlm_adk.types import LLMResult, ReasoningOutput
 from rlm_adk.utils.parsing import find_final_answer
 
 logger = logging.getLogger(__name__)
@@ -95,6 +99,8 @@ class RLMOrchestratorAgent(BaseAgent):
     persistent: bool = False
     worker_pool: Any = None
     repl: Any = None
+    depth: int = 0
+    output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -130,6 +136,7 @@ class RLMOrchestratorAgent(BaseAgent):
                 self.worker_pool, ctx,
                 call_log_sink=repl._pending_llm_calls,
                 trace_sink=trace_holder if trace_level > 0 else None,
+                depth=self.depth,
             )
             repl.set_async_llm_query_fns(llm_query_async, llm_query_batched_async)
 
@@ -155,25 +162,35 @@ class RLMOrchestratorAgent(BaseAgent):
             max_calls=max_iterations,
             flush_fn=flush_fn,
             trace_holder=trace_holder if trace_level > 0 else None,
+            depth=self.depth,
         )
 
         # Wire reasoning_agent at runtime with tools.
         # Uses object.__setattr__ because LlmAgent is a Pydantic model.
-        # Note: output_schema=ReasoningOutput is NOT set here because ADK's
-        # __maybe_save_output_to_state validates the raw text response against
-        # the schema, which fails when the model responds with plain text
-        # instead of a set_model_response tool call.  The orchestrator reads
-        # the final answer from the output_key ("reasoning_output") which ADK
-        # populates with the raw text of the final response.
-        object.__setattr__(self.reasoning_agent, 'tools', [repl_tool])
+        # Note: output_schema=ReasoningOutput is NOT set on LlmAgent because
+        # ADK's __maybe_save_output_to_state validates raw text responses
+        # against the schema (fails for plain text).  Instead we add
+        # SetModelResponseTool as a tool so the model can choose either
+        # execute_code or set_model_response.  BUG-13 patch (process-global
+        # in worker_retry.py) handles retry suppression.
+        schema = self.output_schema or ReasoningOutput
+        set_model_response_tool = SetModelResponseTool(schema)
+        object.__setattr__(self.reasoning_agent, 'tools', [repl_tool, set_model_response_tool])
+        # Tag depth for telemetry (read by reasoning callbacks)
+        object.__setattr__(self.reasoning_agent, '_rlm_depth', self.depth)
         # Ensure ADK manages tool call/response history
         object.__setattr__(self.reasoning_agent, 'include_contents', 'default')
+
+        # Wire structured output retry callbacks for set_model_response
+        after_tool_cb, on_tool_error_cb = make_worker_tool_callbacks(max_retries=2)
+        object.__setattr__(self.reasoning_agent, 'after_tool_callback', after_tool_cb)
+        object.__setattr__(self.reasoning_agent, 'on_tool_error_callback', on_tool_error_cb)
 
         try:
             # Build initial state delta.
             initial_state: dict[str, Any] = {
-                CURRENT_DEPTH: 1,
-                ITERATION_COUNT: 0,
+                CURRENT_DEPTH: self.depth,
+                depth_key(ITERATION_COUNT, self.depth): 0,
                 REQUEST_ID: str(uuid.uuid4()),
             }
             if self.root_prompt:
@@ -231,8 +248,8 @@ class RLMOrchestratorAgent(BaseAgent):
                             invocation_id=ctx.invocation_id,
                             author=self.name,
                             actions=EventActions(state_delta={
-                                FINAL_ANSWER: error_msg,
-                                SHOULD_STOP: True,
+                                depth_key(FINAL_ANSWER, self.depth): error_msg,
+                                depth_key(SHOULD_STOP, self.depth): True,
                             }),
                         )
                         raise
@@ -252,7 +269,8 @@ class RLMOrchestratorAgent(BaseAgent):
             # ADK's output_key stores the raw text of the final model response.
             # When output_schema is set, it's a JSON dict (ReasoningOutput).
             # When output_schema is NOT set, it's plain text.
-            raw = ctx.session.state.get("reasoning_output", "")
+            _output_key = self.reasoning_agent.output_key or "reasoning_output"
+            raw = ctx.session.state.get(_output_key, "")
             final_answer = ""
             if isinstance(raw, dict):
                 # Already parsed (output_schema was set)
@@ -287,8 +305,8 @@ class RLMOrchestratorAgent(BaseAgent):
                     invocation_id=ctx.invocation_id,
                     author=self.name,
                     actions=EventActions(state_delta={
-                        FINAL_ANSWER: final_answer,
-                        SHOULD_STOP: True,
+                        depth_key(FINAL_ANSWER, self.depth): final_answer,
+                        depth_key(SHOULD_STOP, self.depth): True,
                     }),
                 )
                 # Yield final content event
@@ -314,8 +332,8 @@ class RLMOrchestratorAgent(BaseAgent):
                     invocation_id=ctx.invocation_id,
                     author=self.name,
                     actions=EventActions(state_delta={
-                        FINAL_ANSWER: exhausted_msg,
-                        SHOULD_STOP: True,
+                        depth_key(FINAL_ANSWER, self.depth): exhausted_msg,
+                        depth_key(SHOULD_STOP, self.depth): True,
                     }),
                 )
                 yield Event(
@@ -330,5 +348,7 @@ class RLMOrchestratorAgent(BaseAgent):
         finally:
             # Clean up reasoning_agent wiring
             object.__setattr__(self.reasoning_agent, 'tools', [])
+            object.__setattr__(self.reasoning_agent, 'after_tool_callback', None)
+            object.__setattr__(self.reasoning_agent, 'on_tool_error_callback', None)
             if not self.persistent:
                 repl.cleanup()

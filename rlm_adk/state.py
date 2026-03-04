@@ -86,6 +86,18 @@ OBS_WORKER_POOL_EXHAUSTION_COUNT = "obs:worker_pool_exhaustion_count"
 # Structured Output Observability (written by dispatch closures)
 OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 
+# Child Dispatch Observability Keys (session-scoped)
+OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
+OBS_CHILD_SUMMARY_PREFIX = "obs:child_summary@"
+OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
+OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
+OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
+
+
+def child_obs_key(depth: int, fanout_idx: int) -> str:
+    """Return fanout-suffixed obs key: obs:child_summary@d{depth}f{fanout_idx}."""
+    return f"obs:child_summary@d{depth}f{fanout_idx}"
+
 # API/Messaging Keys
 REQUEST_ID = "request_id"
 IDEMPOTENCY_KEY = "idempotency_key"

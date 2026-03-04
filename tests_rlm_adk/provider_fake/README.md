@@ -194,6 +194,7 @@ tests_rlm_adk/
 | `multi_turn_repl_session`      | 3+         | 0       | Multi-turn REPL without workers           |
 | `exec_sandbox_codegen`         | 2          | 0       | REPL code generation + execution          |
 | `skill_helper`                 | 2          | 1       | Skill helper dispatch                     |
+| `request_body_comprehensive`   | 3          | 2       | Request body data-flow gaps (G1-G9), callback state hooks, skill frontmatter |
 
 ## Contract Runner API
 
@@ -298,9 +299,31 @@ Responses use the Gemini API wire format (camelCase). Minimum viable response:
 Code blocks in reasoning responses must use the exact `` ```repl `` fence format.
 `FINAL(...)` must appear at the start of a line.
 
+### `request_body_comprehensive` Details
+
+Dedicated test file: `test_request_body_comprehensive.py`. Verifies 9 data-flow gaps
+that prior fixtures did not cover:
+
+| Gap | Description                                          |
+|-----|------------------------------------------------------|
+| G1  | Dict-typed state key in dynamic instruction          |
+| G2  | Variable persistence across REPL iterations          |
+| G3  | Prior worker result chaining                         |
+| G4  | Multiple data sources combined in single worker prompt |
+| G5  | Data loaded from REPL globals                        |
+| G6  | `functionResponse` variables dict fidelity           |
+| G7  | Worker `systemInstruction` content                   |
+| G8  | Worker `generationConfig`                            |
+| G9  | Dynamic instruction re-injection across iterations   |
+
+Also tests callback state hooks (orchestrator `before_agent`/`after_agent`,
+reasoning `after_model`, tool `before_tool`/`after_tool`) and skill frontmatter
+injection into the system prompt.
+
 ## Related Docs
 
 - [Design Spec](design-spec.md) — architectural decisions, dual-layer approach
 - [Fixture Strategy](fixture-strategy.md) — matching strategy, schema details
 - [Gemini Contract Summary](gemini-contract-summary.md) — wire format reference
 - [Dashboard README](../../rlm_adk/dashboard/README.md) — dashboard data sources and launch
+- [Fixture Index](../../tests_rlm_adk/fixtures/provider_fake/index.json) — comprehensive fixture-to-test mapping index with FMEA failure mode coverage tracking, fixture-test cross-references, and coverage statistics

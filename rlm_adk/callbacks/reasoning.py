@@ -122,8 +122,14 @@ def reasoning_before_model(
     callback_context.state[REASONING_SYSTEM_CHARS] = system_chars
     callback_context.state[REASONING_CONTENT_COUNT] = content_count
     callback_context.state[REASONING_HISTORY_MSG_COUNT] = content_count
+    # Read depth tag set by orchestrator (default 0)
+    agent = getattr(callback_context, '_invocation_context', None)
+    agent_obj = getattr(agent, 'agent', None) if agent else None
+    _depth = getattr(agent_obj, '_rlm_depth', 0)
+
     callback_context.state[CONTEXT_WINDOW_SNAPSHOT] = {
         "agent_type": "reasoning",
+        "depth": _depth,
         "content_count": content_count,
         "prompt_chars": total_prompt_chars,
         "system_chars": system_chars,
