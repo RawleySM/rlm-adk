@@ -43,6 +43,7 @@ class REPLTool(BaseTool):
         trace_holder: Optional[list] = None,
         flush_fn: Optional[Callable[[], dict]] = None,
         depth: int = 0,
+        summarization_threshold: int = 5000,
     ):
         super().__init__(
             name="execute_code",
@@ -58,6 +59,7 @@ class REPLTool(BaseTool):
         self.trace_holder = trace_holder
         self._flush_fn = flush_fn
         self._depth = depth
+        self._summarization_threshold = summarization_threshold
 
     def _get_declaration(self) -> FunctionDeclaration:
         return FunctionDeclaration(
@@ -185,6 +187,11 @@ class REPLTool(BaseTool):
         if trace is not None:
             last_repl["trace_summary"] = trace.summary()
         tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = last_repl
+
+        # Skip ADK's post-tool summarization call for large outputs to save tokens
+        output_len = len(result.stdout) + len(result.stderr)
+        if output_len >= self._summarization_threshold:
+            tool_context.actions.skip_summarization = True
 
         # Extract JSON-serializable variables from REPL locals.
         # We attempt json.dumps to catch nested non-serializable objects

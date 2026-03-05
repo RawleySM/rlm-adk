@@ -40,6 +40,7 @@ from rlm_adk.state import (
     OBS_WORKER_TOTAL_BATCH_DISPATCHES,
     OBS_WORKER_TOTAL_DISPATCHES,
     WORKER_DISPATCH_COUNT,
+    child_obs_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ def create_dispatch_closures(
     _acc_child_batch_dispatches = 0
     _acc_child_latencies: list[float] = []
     _acc_child_error_counts: dict[str, int] = {}
+    _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
 
     async def _run_child(
@@ -120,6 +122,8 @@ def create_dispatch_closures(
 
         target_model = model or dispatch_config.other_model
         child_start = time.perf_counter()
+        elapsed_ms = 0.0
+        _child_result: LLMResult | None = None
 
         from rlm_adk.agent import create_child_orchestrator
 
@@ -158,9 +162,9 @@ def create_dispatch_closures(
             elapsed_ms = (time.perf_counter() - child_start) * 1000
 
             if answer:
-                return LLMResult(answer, error=False, model=target_model)
+                _child_result = LLMResult(answer, error=False, model=target_model)
             else:
-                return LLMResult(
+                _child_result = LLMResult(
                     "[Child orchestrator produced no answer]",
                     error=True,
                     error_category="NO_RESULT",
@@ -169,14 +173,23 @@ def create_dispatch_closures(
             elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error("Child dispatch error at depth %d: %s", depth + 1, e)
             cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
-            return LLMResult(f"Error: {e}", error=True, error_category=cat)
+            _child_result = LLMResult(f"Error: {e}", error=True, error_category=cat)
         finally:
+            # Write per-child observability summary
+            _acc_child_summaries[child_obs_key(depth + 1, fanout_idx)] = {
+                "model": target_model,
+                "elapsed_ms": round(elapsed_ms, 2),
+                "error": _child_result.error if isinstance(_child_result, LLMResult) else True,
+                "error_category": _child_result.error_category if isinstance(_child_result, LLMResult) else None,
+            }
             # Clean up child's REPL
             if hasattr(child, "repl") and child.repl is not None and not child.persistent:
                 try:
                     child.repl.cleanup()
                 except Exception:
                     pass
+
+        return _child_result
 
     async def llm_query_async(
         prompt: str,
@@ -315,11 +328,14 @@ def create_dispatch_closures(
             delta[OBS_CHILD_ERROR_COUNTS] = dict(_acc_child_error_counts)
         if _acc_structured_output_failures > 0:
             delta[OBS_STRUCTURED_OUTPUT_FAILURES] = _acc_structured_output_failures
+        # Merge per-child summaries into delta
+        delta.update(_acc_child_summaries)
         # Reset accumulators
         _acc_child_dispatches = 0
         _acc_child_batch_dispatches = 0
         _acc_child_latencies.clear()
         _acc_child_error_counts.clear()
+        _acc_child_summaries.clear()
         _acc_structured_output_failures = 0
         return delta
 
