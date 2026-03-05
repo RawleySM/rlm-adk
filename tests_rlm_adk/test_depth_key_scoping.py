@@ -5,7 +5,7 @@ from rlm_adk.state import (
     LAST_REPL_RESULT, SHOULD_STOP,
 )
 # Import some global keys that should NOT be in DEPTH_SCOPED_KEYS
-from rlm_adk.state import OBS_TOTAL_INPUT_TOKENS, WORKER_DISPATCH_COUNT, CACHE_HIT_COUNT
+from rlm_adk.state import OBS_TOTAL_INPUT_TOKENS, OBS_CHILD_DISPATCH_COUNT, CACHE_HIT_COUNT
 
 
 class TestDepthKeyFunction:
@@ -20,7 +20,7 @@ class TestDepthKeyFunction:
             assert depth_key(key, 0) == key
 
     def test_global_keys_not_in_scoped_set(self):
-        for key in [OBS_TOTAL_INPUT_TOKENS, WORKER_DISPATCH_COUNT, CACHE_HIT_COUNT]:
+        for key in [OBS_TOTAL_INPUT_TOKENS, OBS_CHILD_DISPATCH_COUNT, CACHE_HIT_COUNT]:
             assert key not in DEPTH_SCOPED_KEYS
 
 

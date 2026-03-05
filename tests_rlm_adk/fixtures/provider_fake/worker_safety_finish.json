@@ -105,10 +105,10 @@
     "total_model_calls": 3
   },
   "expected_state": {
-    "worker_dispatch_count": {
+    "obs:child_dispatch_count": {
       "$gte": 1
     },
-    "obs:worker_error_counts": {
+    "obs:child_error_counts": {
       "$not_none": true,
       "$has_key": "SAFETY"
     },

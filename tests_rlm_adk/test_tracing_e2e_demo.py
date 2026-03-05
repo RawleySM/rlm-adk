@@ -33,7 +33,6 @@ from rlm_adk.state import (
     ITERATION_COUNT,
     LAST_REPL_RESULT,
     OBS_FINISH_SAFETY_COUNT,
-    OBS_WORKER_TIMEOUT_COUNT,
 )
 from tests_rlm_adk.provider_fake.fixtures import ScenarioRouter
 from tests_rlm_adk.provider_fake.server import FakeGeminiServer
@@ -76,7 +75,6 @@ async def run_demo():
         app = create_rlm_app(
             model="gemini-fake",
             thinking_budget=0,
-            debug=True,           # DebugLoggingPlugin
             langfuse=False,
             sqlite_tracing=False,  # skip sqlite for demo
         )
@@ -177,7 +175,6 @@ async def run_demo():
 
         # 6. Observability state keys
         print(f"\nOBS_FINISH_SAFETY_COUNT={state.get(OBS_FINISH_SAFETY_COUNT, 0)}")
-        print(f"OBS_WORKER_TIMEOUT_COUNT={state.get(OBS_WORKER_TIMEOUT_COUNT, 0)}")
 
         # 7. Check for finish_reason in obs breakdown
         obs_keys = [k for k in state if k.startswith("obs:")]

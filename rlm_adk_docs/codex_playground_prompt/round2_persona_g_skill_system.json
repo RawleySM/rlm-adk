@@ -1,0 +1,168 @@
+{
+  "round": 2,
+  "persona": {
+    "id": "G",
+    "name": "Skill-System Designer"
+  },
+  "selected_task": "Autonomous Literature-to-Prototype Research Swarm",
+  "variant_id": "round2_persona_g_skill_system_v1",
+  "focus": "instruction_skill_codesign",
+  "prompt_text": "You are the Layer-0 Mission Controller for an Autonomous Literature-to-Prototype Research Swarm. Keep the parent plan smooth while recursively delegating granular unknowns. Use execute_code for all active work and call set_model_response exactly once at completion.",
+  "mutation_protocol": {
+    "static_instruction": {
+      "goal": "Mutate stable orchestration policy without breaking runtime contracts.",
+      "rules": [
+        "Preserve execute_code/set_model_response semantics and REPL capability statements.",
+        "Do not introduce mandatory template placeholders into static instruction.",
+        "Use additive sections for delegation policy, anti-hang-up clauses, and completion gates.",
+        "Preserve parent-vs-child prompt split to keep child prompts compact."
+      ]
+    },
+    "dynamic_instruction": {
+      "goal": "Mutate runtime state projection safely.",
+      "required_slots": [
+        "{repo_url?}",
+        "{root_prompt?}",
+        "{test_context?}"
+      ],
+      "optional_new_slots": [
+        "{literature_scope?}",
+        "{target_prototype_form?}",
+        "{evaluation_rubric?}",
+        "{unknown_budget?}",
+        "{timebox_minutes?}"
+      ],
+      "rules": [
+        "All added slots must remain optional using '?'.",
+        "Dynamic instruction should stay short and state-oriented.",
+        "Missing dynamic fields must never block execution."
+      ]
+    },
+    "initial_skill_functions_and_docs": {
+      "goal": "Mutate helper behavior/docs while preserving compatibility and testability.",
+      "api_invariants": [
+        "probe_repo(source, calculate_tokens=True)",
+        "pack_repo(source, calculate_tokens=True)",
+        "shard_repo(source, max_bytes_per_shard=..., calculate_tokens=True)"
+      ],
+      "doc_invariants": [
+        "Use ```repl fences for examples.",
+        "Keep at least 3 REPL examples.",
+        "Examples must include bare-name calls to probe_repo/pack_repo/shard_repo.",
+        "All examples must be valid Python."
+      ],
+      "rules": [
+        "Prefer additive wrappers or metadata over breaking signature changes.",
+        "If helper behavior changes, update docs/examples and migration notes in the same mutation.",
+        "Keep helpers injectable in repl.globals with zero imports."
+      ]
+    }
+  },
+  "layer0_smoothness_contract": {
+    "plan_shape": [
+      "Phase 1: framing and acceptance rubric",
+      "Phase 2: literature map and shard strategy",
+      "Phase 3: batched extraction and contradiction checks",
+      "Phase 4: prototype synthesis",
+      "Phase 5: validation and packaging"
+    ],
+    "unknown_model": "Track unknowns as UNKNOWN[id, blocking, confidence, owner_layer] and delegate high-blocking unknowns recursively.",
+    "delegation_rule": "Layer-0 orchestrates and merges; lower layers perform detailed analysis.",
+    "dispatch_preference": {
+      "parallel": "llm_query_batched for independent shards",
+      "serial": "llm_query for dependent chains"
+    }
+  },
+  "set_model_response_schema": {
+    "tool": "set_model_response",
+    "arguments": {
+      "final_answer": {
+        "type": "string",
+        "required": true,
+        "description": "Complete final answer. Empty string is invalid."
+      },
+      "reasoning_summary": {
+        "type": "string",
+        "required": false,
+        "default": "",
+        "description": "Compact trace of execution strategy and outcomes."
+      }
+    },
+    "final_answer_expected_sections": [
+      "Executive synthesis",
+      "Evidence ledger (claims to citations)",
+      "Prototype design (components and interfaces)",
+      "Implementation sketch or pseudocode",
+      "Risks and unresolved unknowns",
+      "Next experiments"
+    ]
+  },
+  "anti_hangup_playbook": [
+    {
+      "trigger": "Branch explosion",
+      "action": "Keep top 5 unknowns by blocking x uncertainty x impact; defer others."
+    },
+    {
+      "trigger": "No progress after 2 iterations",
+      "action": "Force synthesis checkpoint with explicit assumptions and continue."
+    },
+    {
+      "trigger": "Repeated worker/schema failures",
+      "action": "Simplify subtask schema, bounded retries, then mark degraded path and proceed."
+    },
+    {
+      "trigger": "Evidence conflict loop",
+      "action": "Run one arbitration pass, then freeze unresolved conflicts and continue synthesis."
+    },
+    {
+      "trigger": "Depth or budget pressure",
+      "action": "Stop new branch spawning and converge with best-supported evidence."
+    }
+  ],
+  "completion_criteria": [
+    "All five layer-0 phases are executed.",
+    "No unresolved blocking unknown remains at parent layer.",
+    "Core claims have explicit evidence references.",
+    "Prototype specification is actionable (interfaces, contracts, evaluation).",
+    "At least one validation path is defined.",
+    "Risks and unresolved items are explicit with confidence.",
+    "Exactly one valid set_model_response call is emitted at the end."
+  ],
+  "grounding_notes": [
+    {
+      "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/utils/prompts.py",
+      "evidence": [
+        "Static instruction is non-templated and defines execute_code/set_model_response workflow.",
+        "Dynamic instruction already uses optional slots {repo_url?}, {root_prompt?}, {test_context?}."
+      ]
+    },
+    {
+      "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/agent.py",
+      "evidence": [
+        "create_reasoning_agent appends build_skill_instruction_block() when include_repomix=True.",
+        "Child orchestrators use a condensed static instruction and can disable repomix injection."
+      ]
+    },
+    {
+      "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/repomix_skill.py",
+      "evidence": [
+        "REPOMIX_SKILL frontmatter+instructions define discoverability and usage docs.",
+        "build_skill_instruction_block returns XML discovery block plus markdown instructions."
+      ]
+    },
+    {
+      "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/repomix_helpers.py",
+      "evidence": [
+        "Helper API surface is probe_repo, pack_repo, shard_repo.",
+        "Helpers support local path and remote URL modes and return typed result dataclasses."
+      ]
+    },
+    {
+      "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/README.md",
+      "evidence": [
+        "Skill docs are test-enforced for ```repl fencing, helper coverage, and Python parseability.",
+        "Runtime globals and prompt instruction surfaces are both required for skill usability."
+      ]
+    }
+  ]
+}

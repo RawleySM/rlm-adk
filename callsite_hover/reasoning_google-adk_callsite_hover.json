@@ -26,7 +26,7 @@
         },
         {
           "context": "param:llm_request",
-          "line": 165
+          "line": 171
         }
       ],
       "hover": {
@@ -42,11 +42,11 @@
         },
         {
           "context": "param:callback_context",
-          "line": 138
+          "line": 144
         },
         {
           "context": "param:callback_context",
-          "line": 165
+          "line": 171
         }
       ],
       "hover": {
@@ -62,15 +62,15 @@
         },
         {
           "context": "param:llm_response",
-          "line": 138
+          "line": 144
         },
         {
           "context": "return",
-          "line": 139
+          "line": 145
         },
         {
           "context": "return",
-          "line": 166
+          "line": 172
         }
       ],
       "hover": {

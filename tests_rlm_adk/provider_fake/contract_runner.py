@@ -185,7 +185,6 @@ async def _make_runner_and_session(
         "model": os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
         "thinking_budget": router.config.get("thinking_budget", 0),
         "repl": repl,
-        "debug": False,
         "langfuse": False,
         "sqlite_tracing": False,
     }
@@ -283,7 +282,7 @@ async def run_fixture_contract_with_plugins(
     - ``ObservabilityPlugin`` (always on)
     - ``SqliteTracingPlugin`` pointing to *traces_db_path*
     - ``REPLTracingPlugin`` (when *repl_trace_level* > 0)
-    - ``DebugLoggingPlugin`` disabled (noisy in CI)
+    - ``ObservabilityPlugin`` verbose mode disabled (noisy in CI)
     - ``LangfuseTracingPlugin`` disabled (requires external service)
 
     Args:
@@ -329,7 +328,6 @@ async def run_fixture_contract_with_plugins(
             plugins=plugins,
             artifact_service=artifact_service,
             session_service=session_service,
-            debug=False,
             langfuse=False,
             sqlite_tracing=False,
         )

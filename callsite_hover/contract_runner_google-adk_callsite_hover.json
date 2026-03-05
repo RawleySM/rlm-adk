@@ -14,11 +14,11 @@
       "instances": [
         {
           "name": "session_service",
-          "line": 217
+          "line": 200
         },
         {
           "name": "session_service",
-          "line": 338
+          "line": 321
         }
       ],
       "hover": {
@@ -30,7 +30,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 218
+          "line": 201
         }
       ],
       "hover": {
@@ -42,7 +42,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 337
+          "line": 320
         }
       ],
       "hover": {
@@ -56,7 +56,7 @@
       "usages": [
         {
           "context": "variable:plugins",
-          "line": 331
+          "line": 314
         }
       ],
       "hover": {

@@ -343,7 +343,6 @@ class TestFlushFnIncludesChildMetrics:
             await llm_query("test")
 
         delta = flush_fn()
-        assert delta["worker_dispatch_count"] == 1
         assert delta["obs:child_dispatch_count"] == 1
         assert len(delta["obs:child_dispatch_latency_ms"]) == 1
         assert delta["obs:child_dispatch_latency_ms"][0] > 0
@@ -362,10 +361,9 @@ class TestFlushFnIncludesChildMetrics:
             await llm_query("test")
 
         delta1 = flush_fn()
-        assert delta1["worker_dispatch_count"] == 1
+        assert delta1["obs:child_dispatch_count"] == 1
 
         delta2 = flush_fn()
-        assert delta2["worker_dispatch_count"] == 0
         assert delta2["obs:child_dispatch_count"] == 0
         assert delta2["obs:child_dispatch_latency_ms"] == []
 
@@ -405,7 +403,7 @@ class TestFlushFnIncludesChildMetrics:
             await llm_batched(["p1", "p2"])
 
         delta = flush_fn()
-        assert delta["worker_dispatch_count"] == 2
+        assert delta["obs:child_dispatch_count"] == 2
         assert delta.get("obs:child_total_batch_dispatches", 0) == 1
 
 

@@ -54,41 +54,20 @@ REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
 REASONING_CONTENT_COUNT = "reasoning_content_count"
 REASONING_INPUT_TOKENS = "reasoning_input_tokens"
 REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
-# Worker accounting keys (session-scoped, cumulative across invocations).
-# Values are aggregated from worker objects in the dispatch closure.
-WORKER_PROMPT_CHARS = "worker_prompt_chars"
-WORKER_CONTENT_COUNT = "worker_content_count"
-WORKER_INPUT_TOKENS = "worker_input_tokens"
-WORKER_OUTPUT_TOKENS = "worker_output_tokens"
 CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
 
-# Worker Dispatch Lifecycle Keys (session-scoped, cumulative)
-WORKER_DISPATCH_COUNT = "worker_dispatch_count"
-
-# Worker Dispatch Timing Keys (session-scoped, cumulative)
-OBS_WORKER_DISPATCH_LATENCY_MS = "obs:worker_dispatch_latency_ms"
-OBS_WORKER_TOTAL_DISPATCHES = "obs:worker_total_dispatches"
-OBS_WORKER_TOTAL_BATCH_DISPATCHES = "obs:worker_total_batch_dispatches"
 
 # Finish Reason Tracking (written by ObservabilityPlugin)
 OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
 OBS_FINISH_RECITATION_COUNT = "obs:finish_recitation_count"
 OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
 
-# Worker Error Classification (written by dispatch closures)
-OBS_WORKER_TIMEOUT_COUNT = "obs:worker_timeout_count"
-OBS_WORKER_RATE_LIMIT_COUNT = "obs:worker_rate_limit_count"
-OBS_WORKER_ERROR_COUNTS = "obs:worker_error_counts"  # dict[category, count]
-
-# Worker Pool Observability (written by WorkerPool.acquire)
-OBS_WORKER_POOL_EXHAUSTION_COUNT = "obs:worker_pool_exhaustion_count"
 
 # Structured Output Observability (written by dispatch closures)
 OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 
 # Child Dispatch Observability Keys (session-scoped)
 OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
-OBS_CHILD_SUMMARY_PREFIX = "obs:child_summary@"
 OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
 OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
 OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
@@ -118,10 +97,7 @@ ARTIFACT_LAST_SAVED_VERSION = "artifact_last_saved_version"
 
 # Artifact Observability Keys (session-scoped)
 OBS_ARTIFACT_SAVES = "obs:artifact_saves"
-OBS_ARTIFACT_LOADS = "obs:artifact_loads"
-OBS_ARTIFACT_DELETES = "obs:artifact_deletes"
 OBS_ARTIFACT_BYTES_SAVED = "obs:artifact_bytes_saved"
-OBS_ARTIFACT_SAVE_LATENCY_MS = "obs:artifact_save_latency_ms"
 
 # Artifact Configuration Keys (app-scoped)
 APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"

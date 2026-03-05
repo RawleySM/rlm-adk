@@ -20,12 +20,16 @@ from google.genai import types
 
 from rlm_adk.state import (
     CONTEXT_WINDOW_SNAPSHOT,
+    FINAL_ANSWER,
     INVOCATION_START_TIME,
     ITERATION_COUNT,
+    LAST_REPL_RESULT,
     OBS_ARTIFACT_BYTES_SAVED,
     OBS_ARTIFACT_SAVES,
     OBS_CHILD_DISPATCH_COUNT,
+    OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
+    OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     OBS_FINISH_MAX_TOKENS_COUNT,
     OBS_FINISH_RECITATION_COUNT,
     OBS_FINISH_SAFETY_COUNT,
@@ -39,7 +43,6 @@ from rlm_adk.state import (
     REASONING_SYSTEM_CHARS,
     REQUEST_ID,
     USER_LAST_SUCCESSFUL_CALL_ID,
-    WORKER_PROMPT_CHARS,
     obs_model_usage_key,
 )
 
@@ -53,8 +56,9 @@ class ObservabilityPlugin(BasePlugin):
     Logging errors are caught and suppressed.
     """
 
-    def __init__(self, *, name: str = "observability"):
+    def __init__(self, *, name: str = "observability", verbose: bool = False):
         super().__init__(name=name)
+        self._verbose = verbose
 
     async def before_agent_callback(
         self,
@@ -86,12 +90,14 @@ class ObservabilityPlugin(BasePlugin):
         OBS_FINISH_SAFETY_COUNT,
         OBS_FINISH_RECITATION_COUNT,
         OBS_FINISH_MAX_TOKENS_COUNT,
+        CONTEXT_WINDOW_SNAPSHOT,
     )
 
     # Prefixes for dynamic keys generated in after_model_callback
     _EPHEMERAL_DYNAMIC_PREFIXES: tuple[str, ...] = (
         "obs:finish_",
         "obs:model_usage:",
+        "obs:child_summary@",
     )
 
     async def after_agent_callback(
@@ -222,11 +228,6 @@ class ObservabilityPlugin(BasePlugin):
                     REASONING_SYSTEM_CHARS, 0
                 )
 
-            worker_prompt_chars = state.get(WORKER_PROMPT_CHARS)
-            if worker_prompt_chars is not None:
-                breakdown_entry["agent_type"] = "worker"
-                breakdown_entry["prompt_chars"] = worker_prompt_chars
-
             if context_snapshot:
                 breakdown_entry["context_snapshot"] = context_snapshot
 
@@ -324,12 +325,23 @@ class ObservabilityPlugin(BasePlugin):
             artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
             child_dispatches = state.get(OBS_CHILD_DISPATCH_COUNT, 0)
             child_errors = state.get(OBS_CHILD_ERROR_COUNTS, {})
+            batch_dispatches = state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES, 0)
+            latencies = state.get(OBS_CHILD_DISPATCH_LATENCY_MS, [])
+            final_answer = state.get(FINAL_ANSWER, "")
+            answer_len = len(final_answer) if final_answer else 0
+
+            # Extract total_llm_calls from LAST_REPL_RESULT if present
+            repl_result = state.get(LAST_REPL_RESULT)
+            total_llm_calls = None
+            if isinstance(repl_result, dict):
+                total_llm_calls = repl_result.get("total_llm_calls")
 
             log_msg = (
                 "[%s] Run completed: calls=%d (reasoning=%d, worker=%d), "
-                "input_tokens=%d, output_tokens=%d, time=%.2fs"
+                "input_tokens=%d, output_tokens=%d, time=%.2fs, "
+                "answer_len=%d"
             )
-            log_args = [
+            log_args: list = [
                 request_id,
                 state.get(OBS_TOTAL_CALLS, 0),
                 reasoning_calls,
@@ -337,6 +349,7 @@ class ObservabilityPlugin(BasePlugin):
                 state.get(OBS_TOTAL_INPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_EXECUTION_TIME, 0),
+                answer_len,
             ]
 
             if child_dispatches > 0:
@@ -346,10 +359,32 @@ class ObservabilityPlugin(BasePlugin):
                     log_msg += ", child_errors=%s"
                     log_args.append(child_errors)
 
+            if batch_dispatches > 0:
+                log_msg += ", batch_dispatches=%d"
+                log_args.append(batch_dispatches)
+
+            if latencies:
+                lat_min = min(latencies)
+                lat_max = max(latencies)
+                lat_mean = sum(latencies) / len(latencies)
+                log_msg += ", dispatch_latency(min=%.1f, max=%.1f, mean=%.1f)"
+                log_args.extend([lat_min, lat_max, lat_mean])
+
             if artifact_saves > 0:
                 log_msg += ", artifact_saves=%d, artifact_bytes=%d"
                 log_args.extend([artifact_saves, artifact_bytes])
 
+            if total_llm_calls is not None:
+                log_msg += ", total_llm_calls=%d"
+                log_args.append(total_llm_calls)
+
             logger.info(log_msg, *log_args)
+
+            # Verbose mode: also print to stdout (replaces DebugLoggingPlugin)
+            if self._verbose:
+                print(
+                    "[RLM] " + (log_msg % tuple(log_args)),
+                    flush=True,
+                )
         except Exception as e:
             logger.debug("Observability after_run error: %s", e)

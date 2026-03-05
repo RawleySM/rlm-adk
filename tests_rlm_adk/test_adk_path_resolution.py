@@ -76,21 +76,11 @@ class TestDefaultSessionServicePath:
 class TestPluginPathsResolveAbsolute:
     """Plugins created by _default_plugins() use absolute paths."""
 
-    def test_debug_plugin_output_path_absolute(self, monkeypatch, tmp_path):
-        monkeypatch.chdir(tmp_path)
-        from rlm_adk.agent import _default_plugins
-
-        plugins = _default_plugins(debug=True, sqlite_tracing=False)
-        debug_plugin = [
-            p for p in plugins if type(p).__name__ == "DebugLoggingPlugin"
-        ][0]
-        assert Path(debug_plugin._output_path).is_absolute()
-
     def test_sqlite_tracing_plugin_path_absolute(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         from rlm_adk.agent import _default_plugins
 
-        plugins = _default_plugins(debug=False, sqlite_tracing=True)
+        plugins = _default_plugins(sqlite_tracing=True)
         sqlite_plugin = [
             p for p in plugins if type(p).__name__ == "SqliteTracingPlugin"
         ][0]

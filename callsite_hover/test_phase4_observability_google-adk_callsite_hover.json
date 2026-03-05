@@ -1,0 +1,23 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_phase4_observability.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "LlmRequest"
+  ],
+  "call_sites": [
+    {
+      "symbol": "LlmRequest",
+      "instances": [
+        {
+          "name": null,
+          "line": 33
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass LlmRequest(\n    *,\n    model: str | None = None,\n    contents: list[Content] = list,\n    config: GenerateContentConfig = types.GenerateContentConfig,\n    live_connect_config: LiveConnectConfig = types.LiveConnectConfig,\n    tools_dict: dict[str, BaseTool] = dict,\n    cache_config: Any | None = None,\n    cache_metadata: CacheMetadata | None = None,\n    cacheable_contents_token_count: int | None = None,\n    previous_interaction_id: str | None = None\n)\n```\n---\nLLM request class that allows passing in tools, output schema and system\n\ninstructions to the model.\n\nAttributes:  \n&nbsp;&nbsp;model: The model name.  \n&nbsp;&nbsp;contents: The contents to send to the model.  \n&nbsp;&nbsp;config: Additional config for the generate content request.  \n&nbsp;&nbsp;tools\\_dict: The tools dictionary.  \n&nbsp;&nbsp;cache\\_config: Context cache configuration for this request.  \n&nbsp;&nbsp;cache\\_metadata: Cache metadata from previous requests, used for cache management."
+      }
+    }
+  ],
+  "type_annotations": []
+}

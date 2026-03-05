@@ -133,8 +133,8 @@
     "total_model_calls": 4
   },
   "expected_state": {
-    "worker_dispatch_count": 2,
-    "obs:worker_error_counts": {
+    "obs:child_dispatch_count": 2,
+    "obs:child_error_counts": {
       "$not_none": true,
       "$has_key": "SAFETY"
     },

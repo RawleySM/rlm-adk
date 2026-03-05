@@ -1,0 +1,165 @@
+{
+  "persona": "Persona B: Experimental Scientist (Ablation-first)",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Counterexample-Guided Program Synthesis Ladder",
+      "loop": "L0 choose synthesis family -> L1 generate candidates -> L2 generate counterexamples -> L3+ local patch/retest",
+      "layer0_turn_budget": "14-18",
+      "depth_profile": {
+        "L1": "35%",
+        "L2": "40%",
+        "L3_plus": "25%"
+      },
+      "fold_points": "batch candidate generation + counterexample generation; single root-cause/patch arbitration",
+      "unknown_mapping": "Hidden compositional rules and edge semantics; recursion isolates failing subfunctions and repairs locally",
+      "depth_per_layer0_turn": 10
+    },
+    {
+      "id": 2,
+      "title": "Retrieval Pipeline Ablation Under Distribution Shift",
+      "loop": "L0 pick shift scenario -> L1 ablate retriever/reranker/chunking -> L2 stratify errors -> L3+ synthesize routing policy",
+      "layer0_turn_budget": "12-16",
+      "depth_profile": {
+        "L1": "40%",
+        "L2": "35%",
+        "L3_plus": "25%"
+      },
+      "fold_points": "batched ablation eval across slices; single causal hypothesis update",
+      "unknown_mapping": "Nonlinear interactions among retrieval depth, chunking, and intent; recursion discovers latent sub-regimes",
+      "depth_per_layer0_turn": 9
+    },
+    {
+      "id": 3,
+      "title": "Tool-Policy Induction From Failure Traces",
+      "loop": "L0 sample traces -> L1 classify failures -> L2 induce policy patches -> L3+ replay and mine new hard cases",
+      "layer0_turn_budget": "11-15",
+      "depth_profile": {
+        "L1": "30%",
+        "L2": "45%",
+        "L3_plus": "25%"
+      },
+      "fold_points": "batched failure tagging + replay scoring; single patch synthesis/arbitration",
+      "unknown_mapping": "Sparse latent policy violations triggered by context combinations; recursion expands rare-mode coverage",
+      "depth_per_layer0_turn": 9
+    },
+    {
+      "id": 4,
+      "title": "Multi-Model Arbitration Frontier Search",
+      "loop": "L0 set cost-latency-quality target -> L1 evaluate model pool -> L2 learn gates -> L3+ refine by failure cluster",
+      "layer0_turn_budget": "10-14",
+      "depth_profile": {
+        "L1": "45%",
+        "L2": "35%",
+        "L3_plus": "20%"
+      },
+      "fold_points": "batched per-slice model scoring; single gate-rule synthesis",
+      "unknown_mapping": "Complexity manifolds differ across models; recursion learns piecewise routing",
+      "depth_per_layer0_turn": 8
+    },
+    {
+      "id": 5,
+      "title": "Adversarial Prompt Mutation Tournament",
+      "loop": "L0 choose seeds -> L1 mutate prompt families -> L2 score exploitability/robustness -> L3+ evolve strongest attacks/defenses",
+      "layer0_turn_budget": "12-17",
+      "depth_profile": {
+        "L1": "30%",
+        "L2": "40%",
+        "L3_plus": "30%"
+      },
+      "fold_points": "batched mutation generation/tournament scoring; single mutation-operator selection",
+      "unknown_mapping": "Discontinuous jailbreak thresholds; recursion performs neighborhood search around breakpoints",
+      "depth_per_layer0_turn": 9
+    },
+    {
+      "id": 6,
+      "title": "Agent Memory Compression Fidelity Sweep",
+      "loop": "L0 choose compression bands -> L1 compress via multiple schemes -> L2 run regressions/drift checks -> L3+ targeted rehydration",
+      "layer0_turn_budget": "9-13",
+      "depth_profile": {
+        "L1": "50%",
+        "L2": "35%",
+        "L3_plus": "15%"
+      },
+      "fold_points": "batched downstream regressions; single drift-cause diagnosis",
+      "unknown_mapping": "Critical facts are unevenly distributed; recursion identifies high-impact omissions",
+      "depth_per_layer0_turn": 7
+    },
+    {
+      "id": 7,
+      "title": "Recursive Failure Taxonomy Discovery",
+      "loop": "L0 ingest logs -> L1 coarse clustering -> L2 causal splits -> L3+ per-leaf remediation tests",
+      "layer0_turn_budget": "10-15",
+      "depth_profile": {
+        "L1": "25%",
+        "L2": "45%",
+        "L3_plus": "30%"
+      },
+      "fold_points": "batched labeling/summarization; single split-criterion decisions",
+      "unknown_mapping": "Failure classes are overlapping and latent; recursion refines taxonomy until interventions separate",
+      "depth_per_layer0_turn": 8
+    },
+    {
+      "id": 8,
+      "title": "Latency-Quality Pareto Auto-Tuning Loop",
+      "loop": "L0 set SLA bands -> L1 sweep params -> L2 fit Pareto front -> L3+ micro-ablations near knees",
+      "layer0_turn_budget": "9-12",
+      "depth_profile": {
+        "L1": "55%",
+        "L2": "30%",
+        "L3_plus": "15%"
+      },
+      "fold_points": "batched parameter sweeps; single knee-point hypothesis update",
+      "unknown_mapping": "Quality is non-monotonic under coupled knobs; recursion narrows around frontier discontinuities",
+      "depth_per_layer0_turn": 7
+    },
+    {
+      "id": 9,
+      "title": "Hierarchical Curriculum Search for Hard-Case Lift",
+      "loop": "L0 map baseline competencies -> L1 build difficulty buckets -> L2 test bucket sequences -> L3+ regenerate bucket boundaries",
+      "layer0_turn_budget": "13-18",
+      "depth_profile": {
+        "L1": "30%",
+        "L2": "35%",
+        "L3_plus": "35%"
+      },
+      "fold_points": "batched curriculum permutation scoring; single re-bucketing rule updates",
+      "unknown_mapping": "Difficulty depends on latent prereqs, not a total order; recursion rebuilds hierarchy from residuals",
+      "depth_per_layer0_turn": 8
+    },
+    {
+      "id": 10,
+      "title": "Self-Healing Plan Executor With Branch-and-Bound Retries",
+      "loop": "L0 run plan -> L1 detect failed step -> L2 branch retry strategies -> L3+ prune retry tree by posterior success",
+      "layer0_turn_budget": "10-14",
+      "depth_profile": {
+        "L1": "35%",
+        "L2": "40%",
+        "L3_plus": "25%"
+      },
+      "fold_points": "batched retry-branch replay scoring; single pruning-policy calibration",
+      "unknown_mapping": "Recoverability depends on hidden state/tool interactions; recursion explores while preserving guardrails",
+      "depth_per_layer0_turn": 9
+    }
+  ],
+  "top_3": [
+    {
+      "rank": 1,
+      "id": 1,
+      "title": "Counterexample-Guided Program Synthesis Ladder",
+      "score": 10
+    },
+    {
+      "rank": 2,
+      "id": 2,
+      "title": "Retrieval Pipeline Ablation Under Distribution Shift",
+      "score": 9
+    },
+    {
+      "rank": 3,
+      "id": 5,
+      "title": "Adversarial Prompt Mutation Tournament",
+      "score": 9
+    }
+  ]
+}

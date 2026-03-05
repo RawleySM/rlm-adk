@@ -105,7 +105,7 @@
     "total_model_calls": 3
   },
   "expected_state": {
-    "worker_dispatch_count": 1,
+    "obs:child_dispatch_count": 1,
     "last_repl_result": {
       "$not_none": true
     },

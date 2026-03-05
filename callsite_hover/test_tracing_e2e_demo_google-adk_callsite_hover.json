@@ -13,7 +13,7 @@
       "instances": [
         {
           "name": "session_service",
-          "line": 89
+          "line": 88
         }
       ],
       "hover": {
@@ -25,7 +25,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 90
+          "line": 89
         }
       ],
       "hover": {
@@ -37,7 +37,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 91
+          "line": 90
         }
       ],
       "hover": {

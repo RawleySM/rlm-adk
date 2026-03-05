@@ -1,7 +1,8 @@
-"""Tests for Rec 4: SqliteTracingPlugin.
+"""Tests for SqliteTracingPlugin (3-table schema).
 
-Tests that the SqliteTracingPlugin correctly captures span-like telemetry data
-from ADK callbacks and writes them to a local SQLite database.
+Tests that the SqliteTracingPlugin correctly captures structured telemetry
+from ADK callbacks and writes them to a local SQLite database with tables:
+traces (enriched), telemetry, session_state_events, and spans (legacy).
 """
 
 import json
@@ -49,7 +50,7 @@ class TestSchemaCreation:
     """Test 1: Database schema creation on plugin instantiation."""
 
     def test_schema_creation(self, db_path, plugin):
-        """Instantiating SqliteTracingPlugin creates both traces and spans tables."""
+        """Instantiating SqliteTracingPlugin creates all expected tables."""
         conn = sqlite3.connect(db_path)
         tables = [
             row[0]
@@ -58,7 +59,9 @@ class TestSchemaCreation:
             ).fetchall()
         ]
         assert "traces" in tables
-        assert "spans" in tables
+        assert "spans" in tables  # Legacy, kept for backward compat
+        assert "telemetry" in tables
+        assert "session_state_events" in tables
         conn.close()
 
     def test_wal_mode_enabled(self, db_path, plugin):
@@ -68,49 +71,41 @@ class TestSchemaCreation:
         assert mode == "wal"
         conn.close()
 
-    def test_traces_table_columns(self, db_path, plugin):
-        """Traces table has all expected columns."""
+    def test_traces_table_has_enriched_columns(self, db_path, plugin):
+        """Traces table has original + enriched columns."""
         conn = sqlite3.connect(db_path)
         columns = [
             row[1]
             for row in conn.execute("PRAGMA table_info(traces)").fetchall()
         ]
-        expected = [
-            "trace_id",
-            "session_id",
-            "user_id",
-            "app_name",
-            "start_time",
-            "end_time",
-            "status",
-            "total_input_tokens",
-            "total_output_tokens",
-            "total_calls",
-            "iterations",
-            "final_answer_length",
-            "metadata",
-        ]
-        assert columns == expected
+        # Original columns still present
+        for col in ["trace_id", "session_id", "user_id", "app_name",
+                     "start_time", "end_time", "status", "total_input_tokens",
+                     "total_output_tokens", "total_calls", "iterations",
+                     "final_answer_length", "metadata"]:
+            assert col in columns
+        # Enriched columns present
+        for col in ["request_id", "repo_url", "root_prompt_preview",
+                     "total_execution_time_s", "child_dispatch_count",
+                     "child_error_counts", "structured_output_failures",
+                     "finish_safety_count", "finish_recitation_count",
+                     "finish_max_tokens_count", "tool_invocation_summary",
+                     "artifact_saves", "artifact_bytes_saved",
+                     "per_iteration_breakdown", "model_usage_summary"]:
+            assert col in columns
         conn.close()
 
     def test_spans_table_columns(self, db_path, plugin):
-        """Spans table has all expected columns."""
+        """Legacy spans table has all expected columns."""
         conn = sqlite3.connect(db_path)
         columns = [
             row[1]
             for row in conn.execute("PRAGMA table_info(spans)").fetchall()
         ]
         expected = [
-            "span_id",
-            "trace_id",
-            "parent_span_id",
-            "operation_name",
-            "agent_name",
-            "start_time",
-            "end_time",
-            "status",
-            "attributes",
-            "events",
+            "span_id", "trace_id", "parent_span_id", "operation_name",
+            "agent_name", "start_time", "end_time", "status",
+            "attributes", "events",
         ]
         assert columns == expected
         conn.close()
@@ -128,18 +123,15 @@ class TestTraceLifecycle:
             invocation_context=mock_invocation_context
         )
         conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM traces").fetchall()
         assert len(rows) == 1
-        # Check status column (index 6 based on schema)
-        assert rows[0][6] == "running"
-        # Check session_id
-        assert rows[0][1] == "sess_1"
-        # Check user_id
-        assert rows[0][2] == "user_1"
-        # Check app_name
-        assert rows[0][3] == "test_app"
-        # Check start_time is set
-        assert rows[0][4] is not None
+        row = rows[0]
+        assert row["status"] == "running"
+        assert row["session_id"] == "sess_1"
+        assert row["user_id"] == "user_1"
+        assert row["app_name"] == "test_app"
+        assert row["start_time"] is not None
         conn.close()
 
     @pytest.mark.asyncio
@@ -150,7 +142,6 @@ class TestTraceLifecycle:
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
-        # Set some state values that after_run reads
         mock_invocation_context.session.state = {
             "obs:total_input_tokens": 500,
             "obs:total_output_tokens": 250,
@@ -162,28 +153,26 @@ class TestTraceLifecycle:
             invocation_context=mock_invocation_context
         )
         conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT status, end_time, total_input_tokens, total_output_tokens, "
-            "total_calls, iterations, final_answer_length FROM traces"
-        ).fetchone()
-        assert row[0] == "completed"
-        assert row[1] is not None  # end_time set
-        assert row[2] == 500  # total_input_tokens
-        assert row[3] == 250  # total_output_tokens
-        assert row[4] == 3  # total_calls
-        assert row[5] == 2  # iterations
-        assert row[6] == len("The answer is 42.")  # final_answer_length
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        assert row["status"] == "completed"
+        assert row["end_time"] is not None
+        assert row["total_input_tokens"] == 500
+        assert row["total_output_tokens"] == 250
+        assert row["total_calls"] == 3
+        assert row["iterations"] == 2
+        assert row["final_answer_length"] == len("The answer is 42.")
         conn.close()
 
 
-class TestAgentSpans:
-    """Tests 4-5: Agent span creation and closing."""
+class TestAgentCallbacks:
+    """Tests 4-5: Agent callback tracking (no longer writes spans)."""
 
     @pytest.mark.asyncio
-    async def test_before_agent_creates_span(
+    async def test_before_agent_pushes_name(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """before_agent_callback inserts a span with operation_name='agent'."""
+        """before_agent_callback pushes agent name onto context stack."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -192,20 +181,13 @@ class TestAgentSpans:
         await plugin.before_agent_callback(
             agent=agent, callback_context=mock_callback_context
         )
-        conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT operation_name, agent_name FROM spans"
-        ).fetchall()
-        assert len(rows) == 1
-        assert rows[0][0] == "agent"
-        assert rows[0][1] == "test_agent"
-        conn.close()
+        assert plugin._agent_span_stack == ["test_agent"]
 
     @pytest.mark.asyncio
-    async def test_after_agent_closes_span(
+    async def test_after_agent_pops_name(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """after_agent_callback sets end_time on the matching agent span."""
+        """after_agent_callback pops agent name from context stack."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -217,20 +199,17 @@ class TestAgentSpans:
         await plugin.after_agent_callback(
             agent=agent, callback_context=mock_callback_context
         )
-        conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT end_time FROM spans").fetchone()
-        assert row[0] is not None
-        conn.close()
+        assert plugin._agent_span_stack == []
 
 
-class TestModelSpans:
-    """Tests 6-8: Model span creation, closing, and error handling."""
+class TestModelTelemetry:
+    """Tests 6-8: Model telemetry creation, closing, and error handling."""
 
     @pytest.mark.asyncio
-    async def test_before_model_creates_span(
+    async def test_before_model_creates_telemetry(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """before_model_callback inserts a span with operation_name='model_call'."""
+        """before_model_callback inserts a telemetry row with event_type='model_call'."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -241,20 +220,18 @@ class TestModelSpans:
             callback_context=mock_callback_context, llm_request=llm_request
         )
         conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT operation_name, attributes FROM spans"
-        ).fetchall()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM telemetry").fetchall()
         assert len(rows) == 1
-        assert rows[0][0] == "model_call"
-        attrs = json.loads(rows[0][1])
-        assert attrs["model"] == "gemini-2.5-flash"
+        assert rows[0]["event_type"] == "model_call"
+        assert rows[0]["model"] == "gemini-2.5-flash"
         conn.close()
 
     @pytest.mark.asyncio
-    async def test_after_model_closes_span(
+    async def test_after_model_updates_telemetry(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """after_model_callback updates the model span with token counts and end_time."""
+        """after_model_callback updates telemetry row with token counts and end_time."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -270,22 +247,25 @@ class TestModelSpans:
         llm_response.usage_metadata.prompt_token_count = 100
         llm_response.usage_metadata.candidates_token_count = 50
         llm_response.error_code = None
+        llm_response.finish_reason = MagicMock()
+        llm_response.finish_reason.name = "STOP"
         await plugin.after_model_callback(
             callback_context=mock_callback_context, llm_response=llm_response
         )
         conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT end_time, attributes FROM spans").fetchone()
-        assert row[0] is not None
-        attrs = json.loads(row[1])
-        assert attrs["input_tokens"] == 100
-        assert attrs["output_tokens"] == 50
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["end_time"] is not None
+        assert row["input_tokens"] == 100
+        assert row["output_tokens"] == 50
+        assert row["duration_ms"] is not None
         conn.close()
 
     @pytest.mark.asyncio
-    async def test_model_error_marks_span_error(
+    async def test_model_error_marks_telemetry_error(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """on_model_error_callback sets status='error' on the model span."""
+        """on_model_error_callback sets status='error' on the telemetry row."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -302,22 +282,22 @@ class TestModelSpans:
             error=error,
         )
         conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT status, attributes FROM spans").fetchone()
-        assert row[0] == "error"
-        attrs = json.loads(row[1])
-        assert attrs["error_type"] == "RuntimeError"
-        assert "rate limit" in attrs["error_message"]
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["status"] == "error"
+        assert row["error_type"] == "RuntimeError"
+        assert "rate limit" in row["error_message"]
         conn.close()
 
 
-class TestToolSpans:
-    """Tests 9-10: Tool span creation and closing."""
+class TestToolTelemetry:
+    """Tests 9-10: Tool telemetry creation and closing."""
 
     @pytest.mark.asyncio
-    async def test_before_tool_creates_span(
+    async def test_before_tool_creates_telemetry(
         self, plugin, db_path, mock_invocation_context
     ):
-        """before_tool_callback inserts a span with operation_name='tool_call'."""
+        """before_tool_callback inserts a telemetry row with event_type='tool_call'."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -330,21 +310,19 @@ class TestToolSpans:
             tool_context=tool_context,
         )
         conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT operation_name, attributes FROM spans"
-        ).fetchall()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM telemetry").fetchall()
         assert len(rows) == 1
-        assert rows[0][0] == "tool_call"
-        attrs = json.loads(rows[0][1])
-        assert attrs["tool_name"] == "code_executor"
-        assert "code" in attrs["args_keys"]
+        assert rows[0]["event_type"] == "tool_call"
+        assert rows[0]["tool_name"] == "code_executor"
+        assert "code" in json.loads(rows[0]["tool_args_keys"])
         conn.close()
 
     @pytest.mark.asyncio
-    async def test_after_tool_closes_span(
+    async def test_after_tool_updates_telemetry(
         self, plugin, db_path, mock_invocation_context
     ):
-        """after_tool_callback updates the tool span with result preview."""
+        """after_tool_callback updates the telemetry row with result preview."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -364,128 +342,118 @@ class TestToolSpans:
             result=result,
         )
         conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT end_time, attributes FROM spans").fetchone()
-        assert row[0] is not None
-        attrs = json.loads(row[1])
-        assert "result_preview" in attrs
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["end_time"] is not None
+        assert row["result_preview"] is not None
+        assert "hi" in row["result_preview"]
+        assert row["duration_ms"] is not None
         conn.close()
 
 
 class TestEventCallback:
-    """Test 11: Event callback with artifact delta."""
+    """Test 11: Event callback with artifact delta and state delta."""
 
     @pytest.mark.asyncio
     async def test_on_event_artifact_delta(
         self, plugin, db_path, mock_invocation_context
     ):
-        """on_event_callback with artifact_delta creates an 'artifact_save' span."""
+        """on_event_callback with artifact_delta creates session_state_events rows."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
         event = MagicMock()
         event.actions.artifact_delta = {"output.txt": 0}
+        event.actions.state_delta = None
         event.author = "reasoning_agent"
         await plugin.on_event_callback(
             invocation_context=mock_invocation_context, event=event
         )
         conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT operation_name, agent_name, attributes FROM spans"
-        ).fetchall()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM session_state_events").fetchall()
         assert len(rows) == 1
-        assert rows[0][0] == "artifact_save"
-        assert rows[0][1] == "reasoning_agent"
-        attrs = json.loads(rows[0][2])
-        assert "artifact_delta" in attrs
-        assert attrs["artifact_delta"]["output.txt"] == 0
+        assert rows[0]["state_key"] == "artifact_output.txt"
+        assert rows[0]["event_author"] == "reasoning_agent"
         conn.close()
 
     @pytest.mark.asyncio
-    async def test_on_event_without_artifact_delta_no_span(
+    async def test_on_event_without_artifact_delta_no_sse(
         self, plugin, db_path, mock_invocation_context
     ):
-        """on_event_callback without artifact_delta does NOT create a span."""
+        """on_event_callback without artifact_delta or state_delta does NOT create rows."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
         event = MagicMock()
         event.actions.artifact_delta = None
+        event.actions.state_delta = None
         event.author = "reasoning_agent"
         await plugin.on_event_callback(
             invocation_context=mock_invocation_context, event=event
         )
         conn = sqlite3.connect(db_path)
-        rows = conn.execute("SELECT * FROM spans").fetchall()
+        rows = conn.execute("SELECT * FROM session_state_events").fetchall()
         assert len(rows) == 0
         conn.close()
 
 
-class TestParentTracking:
-    """Test 12: Agent span is parent of nested model/tool spans."""
+class TestAgentNameInTelemetry:
+    """Test 12: Agent name is captured in telemetry rows."""
 
     @pytest.mark.asyncio
-    async def test_span_parent_tracking(
+    async def test_model_telemetry_captures_agent_name(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """Model spans within an agent span have that agent's span_id as parent."""
+        """Model telemetry within an agent captures that agent's name."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
-        # Start agent span
         agent = MagicMock()
         agent.name = "reasoning_agent"
         await plugin.before_agent_callback(
             agent=agent, callback_context=mock_callback_context
         )
-        # Start model span within agent
         llm_request = MagicMock()
         llm_request.model = "gemini-2.5-flash"
         llm_request.contents = []
         await plugin.before_model_callback(
             callback_context=mock_callback_context, llm_request=llm_request
         )
-
         conn = sqlite3.connect(db_path)
-        # Get the agent span_id
-        agent_span = conn.execute(
-            "SELECT span_id FROM spans WHERE operation_name='agent'"
-        ).fetchone()
-        # Get the model span's parent_span_id
-        model_span = conn.execute(
-            "SELECT parent_span_id FROM spans WHERE operation_name='model_call'"
-        ).fetchone()
-        assert model_span[0] == agent_span[0]
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["agent_name"] == "reasoning_agent"
         conn.close()
 
     @pytest.mark.asyncio
-    async def test_nested_agent_parent_tracking(
+    async def test_nested_agent_captures_innermost_name(
         self, plugin, db_path, mock_invocation_context, mock_callback_context
     ):
-        """Nested agents produce correct parent-child span relationships."""
+        """Nested agents: telemetry captures the innermost agent name."""
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
-        # Outer agent
         outer_agent = MagicMock()
         outer_agent.name = "orchestrator"
         await plugin.before_agent_callback(
             agent=outer_agent, callback_context=mock_callback_context
         )
-        # Inner agent
         inner_agent = MagicMock()
         inner_agent.name = "worker"
         await plugin.before_agent_callback(
             agent=inner_agent, callback_context=mock_callback_context
         )
-
+        llm_request = MagicMock()
+        llm_request.model = "gemini-2.5-flash"
+        llm_request.contents = []
+        await plugin.before_model_callback(
+            callback_context=mock_callback_context, llm_request=llm_request
+        )
         conn = sqlite3.connect(db_path)
-        outer_span = conn.execute(
-            "SELECT span_id FROM spans WHERE agent_name='orchestrator'"
-        ).fetchone()
-        inner_span = conn.execute(
-            "SELECT parent_span_id FROM spans WHERE agent_name='worker'"
-        ).fetchone()
-        assert inner_span[0] == outer_span[0]
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["agent_name"] == "worker"
         conn.close()
 
 
@@ -499,9 +467,7 @@ class TestDirectoryCreation:
         nested_path = str(tmp_path / "deep" / "nested" / "dir" / "traces.db")
         plugin = SqliteTracingPlugin(db_path=nested_path)
         assert plugin._conn is not None
-        # Verify the directory was created
         import os
-
         assert os.path.isdir(str(tmp_path / "deep" / "nested" / "dir"))
 
 
@@ -547,6 +513,7 @@ class TestCallbackReturnValues:
         llm_response.model_version = "m"
         llm_response.usage_metadata = None
         llm_response.error_code = None
+        llm_response.finish_reason = None
         assert (
             await plugin.after_model_callback(
                 callback_context=mock_callback_context,
@@ -586,6 +553,7 @@ class TestCallbackReturnValues:
 
         event = MagicMock()
         event.actions.artifact_delta = None
+        event.actions.state_delta = None
         assert (
             await plugin.on_event_callback(
                 invocation_context=mock_invocation_context, event=event
@@ -605,10 +573,8 @@ class TestErrorResilience:
         from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
 
         plugin = SqliteTracingPlugin(db_path="/dev/null/impossible/path.db")
-        # _conn should be None due to init failure
         assert plugin._conn is None
 
-        # All callbacks should silently succeed even with broken DB
         await plugin.before_run_callback(
             invocation_context=mock_invocation_context
         )
@@ -631,6 +597,7 @@ class TestErrorResilience:
         llm_response.model_version = "m"
         llm_response.usage_metadata = None
         llm_response.error_code = None
+        llm_response.finish_reason = None
         await plugin.after_model_callback(
             callback_context=mock_callback_context, llm_response=llm_response
         )
@@ -662,7 +629,6 @@ class TestErrorResilience:
             invocation_context=mock_invocation_context
         )
         await plugin.close()
-        # These should silently no-op since conn is None
         agent = MagicMock()
         agent.name = "a"
         await plugin.before_agent_callback(

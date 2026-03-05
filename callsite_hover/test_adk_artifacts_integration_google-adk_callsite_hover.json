@@ -1,0 +1,23 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_adk_artifacts_integration.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "InMemoryArtifactService"
+  ],
+  "call_sites": [
+    {
+      "symbol": "InMemoryArtifactService",
+      "instances": [
+        {
+          "name": "service",
+          "line": 33
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass InMemoryArtifactService(\n    *,\n    artifacts: dict[str, list[_ArtifactEntry]] = dict\n)\n```\n---\nAn in-memory implementation of the artifact service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
+      }
+    }
+  ],
+  "type_annotations": []
+}

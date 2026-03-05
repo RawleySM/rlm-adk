@@ -35,11 +35,6 @@ from rlm_adk.state import (
     OBS_CHILD_ERROR_COUNTS,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     OBS_STRUCTURED_OUTPUT_FAILURES,
-    OBS_WORKER_DISPATCH_LATENCY_MS,
-    OBS_WORKER_ERROR_COUNTS,
-    OBS_WORKER_TOTAL_BATCH_DISPATCHES,
-    OBS_WORKER_TOTAL_DISPATCHES,
-    WORKER_DISPATCH_COUNT,
     child_obs_key,
 )
 
@@ -313,18 +308,12 @@ def create_dispatch_closures(
         """Return accumulated dispatch state and reset accumulators."""
         nonlocal _acc_child_dispatches, _acc_child_batch_dispatches, _acc_structured_output_failures
         delta: dict[str, Any] = {
-            # Keep WORKER_DISPATCH_COUNT for backward compat with REPLTool
-            WORKER_DISPATCH_COUNT: _acc_child_dispatches,
-            OBS_WORKER_TOTAL_DISPATCHES: _acc_child_dispatches,
             OBS_CHILD_DISPATCH_COUNT: _acc_child_dispatches,
-            OBS_WORKER_DISPATCH_LATENCY_MS: list(_acc_child_latencies),
             OBS_CHILD_DISPATCH_LATENCY_MS: list(_acc_child_latencies),
         }
         if _acc_child_batch_dispatches > 0:
-            delta[OBS_WORKER_TOTAL_BATCH_DISPATCHES] = _acc_child_batch_dispatches
             delta[OBS_CHILD_TOTAL_BATCH_DISPATCHES] = _acc_child_batch_dispatches
         if _acc_child_error_counts:
-            delta[OBS_WORKER_ERROR_COUNTS] = dict(_acc_child_error_counts)
             delta[OBS_CHILD_ERROR_COUNTS] = dict(_acc_child_error_counts)
         if _acc_structured_output_failures > 0:
             delta[OBS_STRUCTURED_OUTPUT_FAILURES] = _acc_structured_output_failures

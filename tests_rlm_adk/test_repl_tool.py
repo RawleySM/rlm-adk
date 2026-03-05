@@ -119,15 +119,15 @@ class TestREPLToolTelemetryFlush:
 
         def fake_flush():
             flush_calls.append(1)
-            return {"worker_dispatch_count": 5, "obs:worker_dispatch_latency_ms": [12.3]}
+            return {"obs:child_dispatch_count": 5, "obs:child_dispatch_latency_ms": [12.3]}
 
         tool = REPLTool(repl=repl, flush_fn=fake_flush)
         tc = _make_tool_context()
         await tool.run_async(args={"code": "x = 1"}, tool_context=tc)
         repl.cleanup()
         assert len(flush_calls) == 1
-        assert tc.state["worker_dispatch_count"] == 5
-        assert tc.state["obs:worker_dispatch_latency_ms"] == [12.3]
+        assert tc.state["obs:child_dispatch_count"] == 5
+        assert tc.state["obs:child_dispatch_latency_ms"] == [12.3]
 
     @pytest.mark.asyncio
     async def test_no_flush_fn_is_noop(self):

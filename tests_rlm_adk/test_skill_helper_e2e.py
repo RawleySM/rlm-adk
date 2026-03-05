@@ -104,7 +104,6 @@ async def _make_runner_and_session():
     app = create_rlm_app(
         model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
         thinking_budget=0,
-        debug=False,
         langfuse=False,
         sqlite_tracing=False,
     )

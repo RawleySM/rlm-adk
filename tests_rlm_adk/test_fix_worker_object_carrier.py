@@ -20,12 +20,6 @@ from rlm_adk.callbacks.worker import (
     worker_after_model,
     worker_on_model_error,
 )
-from rlm_adk.state import (
-    WORKER_CONTENT_COUNT,
-    WORKER_INPUT_TOKENS,
-    WORKER_OUTPUT_TOKENS,
-    WORKER_PROMPT_CHARS,
-)
 
 
 def _make_callback_context(state: dict | None = None, agent: MagicMock | None = None):
@@ -114,9 +108,10 @@ class TestWorkerAfterModelSetsAgentAttributes:
 class TestWorkerCallbacksNoListAppendAccounting:
     """List-append token accounting must be REMOVED from callbacks.
 
-    The callbacks should NOT write WORKER_PROMPT_CHARS, WORKER_CONTENT_COUNT,
-    WORKER_INPUT_TOKENS, or WORKER_OUTPUT_TOKENS to state. That accounting
+    The callbacks should NOT write worker_prompt_chars, worker_content_count,
+    worker_input_tokens, or worker_output_tokens to state. That accounting
     now happens in the dispatch closure by reading from worker objects.
+    (Constants removed from state.py in Phase 1 key dedup.)
     """
 
     def test_before_model_does_not_write_prompt_chars_to_state(self):
@@ -125,7 +120,7 @@ class TestWorkerCallbacksNoListAppendAccounting:
         ctx = _make_callback_context(state=state, agent=agent)
         request = _make_llm_request_with_content("test")
         worker_before_model(ctx, request)
-        assert WORKER_PROMPT_CHARS not in state
+        assert "worker_prompt_chars" not in state
 
     def test_before_model_does_not_write_content_count_to_state(self):
         state = {}
@@ -133,7 +128,7 @@ class TestWorkerCallbacksNoListAppendAccounting:
         ctx = _make_callback_context(state=state, agent=agent)
         request = _make_llm_request_with_content("test")
         worker_before_model(ctx, request)
-        assert WORKER_CONTENT_COUNT not in state
+        assert "worker_content_count" not in state
 
     def test_after_model_does_not_write_input_tokens_to_state(self):
         state = {}
@@ -141,7 +136,7 @@ class TestWorkerCallbacksNoListAppendAccounting:
         ctx = _make_callback_context(state=state, agent=agent)
         response = _make_llm_response_with_usage("hello", 100, 50)
         worker_after_model(ctx, response)
-        assert WORKER_INPUT_TOKENS not in state
+        assert "worker_input_tokens" not in state
 
     def test_after_model_does_not_write_output_tokens_to_state(self):
         state = {}
@@ -149,7 +144,7 @@ class TestWorkerCallbacksNoListAppendAccounting:
         ctx = _make_callback_context(state=state, agent=agent)
         response = _make_llm_response_with_usage("hello", 100, 50)
         worker_after_model(ctx, response)
-        assert WORKER_OUTPUT_TOKENS not in state
+        assert "worker_output_tokens" not in state
 
 
 class TestWorkerOnModelErrorCallback:

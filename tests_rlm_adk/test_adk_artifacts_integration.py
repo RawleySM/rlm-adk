@@ -3,7 +3,6 @@
 Tests covering:
 - FR-001: Runner factory accepts artifact_service parameter
 - FR-008: ObservabilityPlugin tracks artifact events
-- FR-009: DebugLoggingPlugin traces artifact operations
 - NFR-005: Backward compatibility
 """
 
@@ -12,7 +11,6 @@ from unittest.mock import MagicMock
 import pytest
 from google.adk.artifacts import InMemoryArtifactService
 
-from rlm_adk.plugins.debug_logging import DebugLoggingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.state import (
     OBS_ARTIFACT_SAVES,
@@ -143,59 +141,3 @@ class TestObservabilityArtifactTracking:
         assert state.get(OBS_ARTIFACT_SAVES) is None
 
 
-class TestDebugLoggingArtifactTracing:
-    """FR-009: DebugLoggingPlugin traces artifact operations."""
-
-    async def test_on_event_traces_artifact_delta(self, capsys):
-        """on_event_callback prints artifact info when artifact_delta present."""
-        plugin = DebugLoggingPlugin()
-        state = {}
-        ctx = _make_invocation_context(state)
-        event = _make_event_with_artifact_delta({"chart.png": 0})
-
-        await plugin.on_event_callback(invocation_context=ctx, event=event)
-
-        captured = capsys.readouterr()
-        assert "chart.png" in captured.out
-
-    async def test_on_event_traces_multiple_artifacts(self, capsys):
-        """Multiple artifacts in delta are all logged."""
-        plugin = DebugLoggingPlugin()
-        state = {}
-        ctx = _make_invocation_context(state)
-        event = _make_event_with_artifact_delta({"a.txt": 0, "b.txt": 1})
-
-        await plugin.on_event_callback(invocation_context=ctx, event=event)
-
-        captured = capsys.readouterr()
-        assert "a.txt" in captured.out
-        assert "b.txt" in captured.out
-
-    async def test_on_event_no_artifact_delta_no_artifact_log(self, capsys):
-        """Events without artifact_delta produce no artifact-specific output."""
-        plugin = DebugLoggingPlugin()
-        state = {}
-        ctx = _make_invocation_context(state)
-        event = _make_event_with_state_delta({"iteration_count": 1})
-
-        await plugin.on_event_callback(invocation_context=ctx, event=event)
-
-        captured = capsys.readouterr()
-        assert "artifact" not in captured.out.lower() or "artifact" not in captured.out
-
-    async def test_traces_include_artifact_entry(self):
-        """Internal traces list includes artifact delta information."""
-        plugin = DebugLoggingPlugin()
-        state = {}
-        ctx = _make_invocation_context(state)
-        event = _make_event_with_artifact_delta({"report.pdf": 0})
-
-        await plugin.on_event_callback(invocation_context=ctx, event=event)
-
-        # Check that traces capture artifact info
-        artifact_traces = [
-            t for t in plugin._traces
-            if t.get("artifact_delta")
-        ]
-        assert len(artifact_traces) >= 1
-        assert "report.pdf" in str(artifact_traces[0]["artifact_delta"])

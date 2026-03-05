@@ -21,13 +21,11 @@ from rlm_adk.state import (
     FINAL_ANSWER,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
+    OBS_CHILD_DISPATCH_COUNT,
     OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
     OBS_STRUCTURED_OUTPUT_FAILURES,
     OBS_TOTAL_CALLS,
-    OBS_WORKER_DISPATCH_LATENCY_MS,
-    OBS_WORKER_ERROR_COUNTS,
-    WORKER_DISPATCH_COUNT,
 )
 
 from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
@@ -183,9 +181,9 @@ class TestStructuredOutputBatchedK3:
         """Verify 3 workers dispatched and results aggregated correctly."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
         assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(WORKER_DISPATCH_COUNT, 0)
+        dispatch_count = result.final_state.get(OBS_CHILD_DISPATCH_COUNT, 0)
         assert dispatch_count == 3, (
-            f"Expected WORKER_DISPATCH_COUNT == 3, got {dispatch_count}"
+            f"Expected OBS_CHILD_DISPATCH_COUNT == 3, got {dispatch_count}"
         )
         fa = result.final_state.get(FINAL_ANSWER, "")
         assert "2 positive" in fa, f"Expected '2 positive' in final_answer: {fa!r}"
@@ -291,8 +289,8 @@ class TestWorker500ThenSuccess:
             f"re-persists ephemeral plugin state), got {total_calls}."
         )
         # Dispatch-level obs keys DO persist (written via flush_fn)
-        assert result.final_state.get(WORKER_DISPATCH_COUNT, 0) == 1, (
-            "WORKER_DISPATCH_COUNT should persist via flush_fn path"
+        assert result.final_state.get(OBS_CHILD_DISPATCH_COUNT, 0) == 1, (
+            "OBS_CHILD_DISPATCH_COUNT should persist via flush_fn path"
         )
 
     async def test_tool_result_has_llm_calls(self, tmp_path: Path):
@@ -601,7 +599,7 @@ class TestStructuredOutputBatchedK3WithRetry:
         # With child orchestrators, NO_RESULT errors are expected when the
         # child reasoning agent's output_key doesn't contain the answer.
         # This is acceptable — the important thing is no RATE_LIMIT/SERVER errors.
-        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS) or result.final_state.get(OBS_WORKER_ERROR_COUNTS)
+        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS)
         if error_counts:
             real_errors = {k: v for k, v in error_counts.items() if k != "NO_RESULT"}
             assert len(real_errors) == 0, (
@@ -704,7 +702,7 @@ class TestReplCancelledErrorInjection:
         )
 
     async def test_flush_fn_called_on_cancelled_error(self, tmp_path: Path, monkeypatch):
-        """WORKER_DISPATCH_COUNT must be in final state (proves flush_fn ran)."""
+        """OBS_CHILD_DISPATCH_COUNT must be in final state (proves flush_fn ran)."""
         import asyncio
         from rlm_adk.repl.local_repl import LocalREPL
 
@@ -717,9 +715,9 @@ class TestReplCancelledErrorInjection:
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_cancel)
 
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        wdc = result.final_state.get(WORKER_DISPATCH_COUNT)
+        wdc = result.final_state.get(OBS_CHILD_DISPATCH_COUNT)
         assert wdc is not None and wdc >= 1, (
-            f"Expected WORKER_DISPATCH_COUNT >= 1 after CancelledError "
+            f"Expected OBS_CHILD_DISPATCH_COUNT >= 1 after CancelledError "
             f"(proving flush_fn was called), got {wdc!r}"
         )
 
@@ -790,8 +788,7 @@ class TestWorkerMaxTokensTruncated:
     async def test_obs_finish_max_tokens_tracked(self, tmp_path: Path):
         """Verify MAX_TOKENS finish reason is handled with dispatch tracking.
 
-        Child dispatch latency is tracked via OBS_CHILD_DISPATCH_LATENCY_MS
-        (or the backward-compat OBS_WORKER_DISPATCH_LATENCY_MS).
+        Child dispatch latency is tracked via OBS_CHILD_DISPATCH_LATENCY_MS.
 
         With child orchestrators, NO_RESULT may appear in error counts when
         the child reasoning agent doesn't extract the answer via output_key.
@@ -802,8 +799,7 @@ class TestWorkerMaxTokensTruncated:
         # Check dispatch latency (child or worker key)
         dispatch_latency = (
             result.final_state.get(OBS_CHILD_DISPATCH_LATENCY_MS)
-            or result.final_state.get(OBS_WORKER_DISPATCH_LATENCY_MS)
-        )
+                   )
         assert dispatch_latency is not None and len(dispatch_latency) >= 1, (
             f"Expected dispatch latency with at least 1 entry, "
             f"got {dispatch_latency!r}. Dispatch tracking may be missing."
@@ -811,8 +807,7 @@ class TestWorkerMaxTokensTruncated:
         # Allow NO_RESULT but no real errors
         error_counts = (
             result.final_state.get(OBS_CHILD_ERROR_COUNTS)
-            or result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        )
+                   )
         if error_counts:
             real_errors = {k: v for k, v in error_counts.items() if k != "NO_RESULT"}
             assert len(real_errors) == 0, (
@@ -989,8 +984,7 @@ class TestStructuredOutputRetryExhaustion:
         assert result.contract.passed, result.contract.diagnostics()
         error_counts = (
             result.final_state.get(OBS_CHILD_ERROR_COUNTS)
-            or result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        )
+                   )
         if error_counts is not None:
             # Accept SCHEMA_VALIDATION_EXHAUSTED, NO_RESULT, or UNKNOWN
             # (child orchestrator dispatch classifies differently)
@@ -1034,7 +1028,7 @@ class TestReplExceptionFlushFn:
     FIXTURE = "repl_cancelled_during_async"
 
     async def test_flush_fn_called_on_exception(self, tmp_path: Path, monkeypatch):
-        """WORKER_DISPATCH_COUNT must appear in final state even when
+        """OBS_CHILD_DISPATCH_COUNT must appear in final state even when
         repl_tool.py's try block raises a generic Exception after
         dispatching workers."""
         from rlm_adk.repl.local_repl import LocalREPL
@@ -1051,9 +1045,9 @@ class TestReplExceptionFlushFn:
 
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
         # Contract may or may not pass (error changes output), skip contract check
-        wdc = result.final_state.get(WORKER_DISPATCH_COUNT)
+        wdc = result.final_state.get(OBS_CHILD_DISPATCH_COUNT)
         assert wdc is not None and wdc >= 1, (
-            f"Expected WORKER_DISPATCH_COUNT >= 1 in final state after "
+            f"Expected OBS_CHILD_DISPATCH_COUNT >= 1 in final state after "
             f"generic Exception, got {wdc!r}. "
             f"This means flush_fn was not called in the except Exception handler."
         )
@@ -1512,8 +1506,7 @@ class TestStructuredOutputRetryExhaustionPureValidation:
         sof = result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
         error_counts = (
             result.final_state.get(OBS_CHILD_ERROR_COUNTS)
-            or result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        )
+                   )
         # If the FM-16 detection path is reached, both counters should fire
         if error_counts and "SCHEMA_VALIDATION_EXHAUSTED" in error_counts:
             assert sof >= 1, (
@@ -1601,8 +1594,7 @@ class TestStructuredOutputBatchedK3MixedExhaust:
         assert result.contract.passed, result.contract.diagnostics()
         error_counts = (
             result.final_state.get(OBS_CHILD_ERROR_COUNTS)
-            or result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        )
+                   )
         if error_counts is not None:
             # Accept SCHEMA_VALIDATION_EXHAUSTED or NO_RESULT (child orchestrator)
             has_expected = (
@@ -1620,8 +1612,7 @@ class TestStructuredOutputBatchedK3MixedExhaust:
         sof = result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
         error_counts = (
             result.final_state.get(OBS_CHILD_ERROR_COUNTS)
-            or result.final_state.get(OBS_WORKER_ERROR_COUNTS)
-        )
+                   )
         if error_counts and "SCHEMA_VALIDATION_EXHAUSTED" in error_counts:
             assert sof >= 1, (
                 f"Expected OBS_STRUCTURED_OUTPUT_FAILURES >= 1, got {sof}"

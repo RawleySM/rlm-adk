@@ -76,7 +76,7 @@ class TraceReader:
     def __enter__(self) -> "TraceReader":
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *_exc: object) -> None:
         self.close()
 
     def execute(self, sql: str, params: Optional[list] = None) -> list[dict[str, Any]]:
@@ -90,6 +90,8 @@ class TraceReader:
         Returns:
             List of dicts, one per row, with column names as keys.
         """
+        if self._conn is None:
+            raise RuntimeError("TraceReader is closed")
         result = self._conn.execute(sql, params or [])
         columns = [desc[0] for desc in result.description]
         return [dict(zip(columns, row)) for row in result.fetchall()]
@@ -268,3 +270,352 @@ class TraceReader:
             except (json.JSONDecodeError, TypeError):
                 pass  # Leave as string if not valid JSON
         return rows
+
+    # ------------------------------------------------------------------
+    # Helper: table existence check (for graceful degradation)
+    # ------------------------------------------------------------------
+
+    def _has_table(self, table_name: str) -> bool:
+        """Check if a table exists in the attached SQLite schema."""
+        try:
+            rows = self.execute(
+                "SELECT COUNT(*) AS cnt FROM duckdb_tables() "
+                "WHERE database_name = 'sdb' AND table_name = $1",
+                [table_name],
+            )
+            return rows[0]["cnt"] > 0
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------
+    # traces table methods
+    # ------------------------------------------------------------------
+
+    def list_traces(
+        self,
+        limit: Optional[int] = None,
+        status: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """List traces ordered by start_time DESC.
+
+        Args:
+            limit: Optional maximum number of traces to return.
+            status: Optional status filter ('running', 'completed', etc.).
+
+        Returns:
+            List of trace dicts, or empty list if traces table is absent.
+        """
+        if not self._has_table("traces"):
+            return []
+
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if status:
+            conditions.append(f"status = ${len(params) + 1}")
+            params.append(status)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        limit_clause = f"LIMIT {limit}" if limit else ""
+
+        sql = f"""
+            SELECT * FROM sdb.traces
+            {where}
+            ORDER BY start_time DESC
+            {limit_clause}
+        """
+        return self.execute(sql, params)
+
+    def get_trace(self, trace_id: str) -> Optional[dict[str, Any]]:
+        """Return a single trace dict by trace_id, or None.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Trace dict or None if not found.
+        """
+        if not self._has_table("traces"):
+            return None
+
+        sql = "SELECT * FROM sdb.traces WHERE trace_id = $1"
+        rows = self.execute(sql, [trace_id])
+        return rows[0] if rows else None
+
+    def get_trace_summary(self, trace_id: str) -> Optional[dict[str, Any]]:
+        """Return key metrics for a trace.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Dict with keys: trace_id, status, total_input_tokens,
+            total_output_tokens, total_calls, iterations, duration_s,
+            child_dispatch_count, structured_output_failures.
+            Returns None if trace not found.
+        """
+        if not self._has_table("traces"):
+            return None
+
+        sql = """
+            SELECT
+                trace_id, status,
+                total_input_tokens, total_output_tokens,
+                total_calls, iterations,
+                CASE WHEN end_time IS NOT NULL AND start_time IS NOT NULL
+                     THEN end_time - start_time
+                     ELSE NULL
+                END AS duration_s,
+                child_dispatch_count,
+                structured_output_failures
+            FROM sdb.traces
+            WHERE trace_id = $1
+        """
+        rows = self.execute(sql, [trace_id])
+        return rows[0] if rows else None
+
+    # ------------------------------------------------------------------
+    # telemetry table methods
+    # ------------------------------------------------------------------
+
+    def get_telemetry(
+        self,
+        trace_id: str,
+        event_type: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return telemetry rows for a trace.
+
+        Args:
+            trace_id: The trace identifier.
+            event_type: Optional filter ('model_call' or 'tool_call').
+
+        Returns:
+            List of telemetry dicts ordered by start_time,
+            or empty list if telemetry table is absent.
+        """
+        if not self._has_table("telemetry"):
+            return []
+
+        conditions = ["trace_id = $1"]
+        params: list[Any] = [trace_id]
+
+        if event_type:
+            conditions.append(f"event_type = ${len(params) + 1}")
+            params.append(event_type)
+
+        where = " AND ".join(conditions)
+        sql = f"""
+            SELECT * FROM sdb.telemetry
+            WHERE {where}
+            ORDER BY start_time
+        """
+        return self.execute(sql, params)
+
+    def get_model_calls(self, trace_id: str) -> list[dict[str, Any]]:
+        """Shorthand for get_telemetry filtered to model_call.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            List of model_call telemetry dicts.
+        """
+        return self.get_telemetry(trace_id, event_type="model_call")
+
+    def get_tool_calls(self, trace_id: str) -> list[dict[str, Any]]:
+        """Shorthand for get_telemetry filtered to tool_call.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            List of tool_call telemetry dicts.
+        """
+        return self.get_telemetry(trace_id, event_type="tool_call")
+
+    def get_token_usage(self, trace_id: str) -> dict[str, Any]:
+        """Return token usage totals and per-model breakdown from telemetry.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Dict with keys: total_input_tokens, total_output_tokens, per_model.
+            per_model maps model name to {input_tokens, output_tokens, calls}.
+        """
+        if not self._has_table("telemetry"):
+            return {
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "per_model": {},
+            }
+
+        sql = """
+            SELECT
+                model,
+                SUM(COALESCE(input_tokens, 0)) AS input_tokens,
+                SUM(COALESCE(output_tokens, 0)) AS output_tokens,
+                COUNT(*) AS calls
+            FROM sdb.telemetry
+            WHERE trace_id = $1 AND event_type = 'model_call'
+            GROUP BY model
+        """
+        rows = self.execute(sql, [trace_id])
+
+        total_in = 0
+        total_out = 0
+        per_model: dict[str, dict[str, int]] = {}
+        for row in rows:
+            model = row["model"] or "unknown"
+            in_tok = row["input_tokens"]
+            out_tok = row["output_tokens"]
+            total_in += in_tok
+            total_out += out_tok
+            per_model[model] = {
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "calls": row["calls"],
+            }
+
+        return {
+            "total_input_tokens": total_in,
+            "total_output_tokens": total_out,
+            "per_model": per_model,
+        }
+
+    def get_iteration_timeline(self, trace_id: str) -> list[dict[str, Any]]:
+        """Return per-iteration timing and token counts from telemetry.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            List of dicts per iteration with keys: iteration,
+            total_input_tokens, total_output_tokens, model_calls,
+            tool_calls, total_duration_ms.
+        """
+        if not self._has_table("telemetry"):
+            return []
+
+        sql = """
+            SELECT
+                iteration,
+                SUM(CASE WHEN event_type = 'model_call'
+                         THEN COALESCE(input_tokens, 0) ELSE 0 END) AS total_input_tokens,
+                SUM(CASE WHEN event_type = 'model_call'
+                         THEN COALESCE(output_tokens, 0) ELSE 0 END) AS total_output_tokens,
+                SUM(CASE WHEN event_type = 'model_call' THEN 1 ELSE 0 END) AS model_calls,
+                SUM(CASE WHEN event_type = 'tool_call' THEN 1 ELSE 0 END) AS tool_calls,
+                SUM(COALESCE(duration_ms, 0)) AS total_duration_ms
+            FROM sdb.telemetry
+            WHERE trace_id = $1 AND iteration IS NOT NULL
+            GROUP BY iteration
+            ORDER BY iteration
+        """
+        return self.execute(sql, [trace_id])
+
+    # ------------------------------------------------------------------
+    # session_state_events table methods
+    # ------------------------------------------------------------------
+
+    def get_state_events(
+        self,
+        trace_id: str,
+        key_category: Optional[str] = None,
+        state_key: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return session state event rows for a trace.
+
+        Args:
+            trace_id: The trace identifier.
+            key_category: Optional filter by key_category.
+            state_key: Optional filter by exact state_key.
+
+        Returns:
+            List of state event dicts ordered by seq,
+            or empty list if session_state_events table is absent.
+        """
+        if not self._has_table("session_state_events"):
+            return []
+
+        conditions = ["trace_id = $1"]
+        params: list[Any] = [trace_id]
+
+        if key_category:
+            conditions.append(f"key_category = ${len(params) + 1}")
+            params.append(key_category)
+        if state_key:
+            conditions.append(f"state_key = ${len(params) + 1}")
+            params.append(state_key)
+
+        where = " AND ".join(conditions)
+        sql = f"""
+            SELECT * FROM sdb.session_state_events
+            WHERE {where}
+            ORDER BY seq
+        """
+        return self.execute(sql, params)
+
+    def get_state_key_history(
+        self,
+        trace_id: str,
+        state_key: str,
+    ) -> list[dict[str, Any]]:
+        """Return ordered value changes for a specific state key.
+
+        Args:
+            trace_id: The trace identifier.
+            state_key: The state key to track.
+
+        Returns:
+            List of state event dicts for that key, ordered by seq.
+        """
+        return self.get_state_events(trace_id, state_key=state_key)
+
+    def get_error_summary(self, trace_id: str) -> dict[str, Any]:
+        """Return error summary from telemetry and state events.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Dict with keys: telemetry_errors (count), error_types (list),
+            worker_error_counts (dict or None).
+        """
+        # Telemetry errors
+        telemetry_errors = 0
+        error_types: list[str] = []
+        if self._has_table("telemetry"):
+            sql = """
+                SELECT error_type, COUNT(*) AS cnt
+                FROM sdb.telemetry
+                WHERE trace_id = $1 AND status = 'error' AND error_type IS NOT NULL
+                GROUP BY error_type
+            """
+            rows = self.execute(sql, [trace_id])
+            for row in rows:
+                telemetry_errors += row["cnt"]
+                error_types.append(row["error_type"])
+
+        # Worker error counts from SSE
+        worker_error_counts: Optional[dict] = None
+        if self._has_table("session_state_events"):
+            sql = """
+                SELECT value_json
+                FROM sdb.session_state_events
+                WHERE trace_id = $1 AND state_key = 'obs:worker_error_counts'
+                ORDER BY seq DESC
+                LIMIT 1
+            """
+            rows = self.execute(sql, [trace_id])
+            if rows and rows[0]["value_json"]:
+                try:
+                    worker_error_counts = json.loads(rows[0]["value_json"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        return {
+            "telemetry_errors": telemetry_errors,
+            "error_types": error_types,
+            "worker_error_counts": worker_error_counts,
+        }

@@ -157,13 +157,13 @@
     "total_model_calls": 6
   },
   "expected_state": {
-    "worker_dispatch_count": 3,
-    "obs:worker_total_batch_dispatches": 1,
-    "obs:worker_dispatch_latency_ms": {
+    "obs:child_dispatch_count": 3,
+    "obs:child_total_batch_dispatches": 1,
+    "obs:child_dispatch_latency_ms": {
       "$type": "list",
       "$not_empty": true
     },
-    "obs:worker_error_counts": {
+    "obs:child_error_counts": {
       "$not_none": true,
       "$not_empty": true
     },

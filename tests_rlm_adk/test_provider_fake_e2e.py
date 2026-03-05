@@ -195,15 +195,15 @@ async def test_sqlite_traces_recorded_happy_path(tmp_path: Path):
         assert total_calls > 0, f"Expected total_calls > 0, got {total_calls}"
         assert input_tokens > 0, f"Expected total_input_tokens > 0, got {input_tokens}"
 
-        # Check spans table has model_call spans
-        model_spans = conn.execute(
-            "SELECT COUNT(*) FROM spans WHERE operation_name = 'model_call'"
+        # Check telemetry table has model_call rows
+        model_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type = 'model_call'"
         ).fetchone()[0]
-        assert model_spans > 0, "Expected at least one model_call span"
+        assert model_rows > 0, "Expected at least one model_call telemetry row"
 
         print(f"  trace: status={status}, calls={total_calls}, "
               f"in_tokens={input_tokens}, out_tokens={output_tokens}")
-        print(f"  model_call spans: {model_spans}")
+        print(f"  model_call telemetry rows: {model_rows}")
     finally:
         conn.close()
 
@@ -226,13 +226,13 @@ async def test_sqlite_traces_recorded_multi_iteration(tmp_path: Path):
         # 3 model calls: reasoning #1, worker #1, reasoning #2
         assert total_calls >= 3, f"Expected >= 3 total_calls, got {total_calls}"
 
-        # Should have at least 3 model_call spans
-        model_spans = conn.execute(
-            "SELECT COUNT(*) FROM spans WHERE operation_name = 'model_call'"
+        # Should have at least 3 model_call telemetry rows
+        model_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type = 'model_call'"
         ).fetchone()[0]
-        assert model_spans >= 3, f"Expected >= 3 model_call spans, got {model_spans}"
+        assert model_rows >= 3, f"Expected >= 3 model_call telemetry rows, got {model_rows}"
 
-        print(f"  trace: status={status}, calls={total_calls}, model_spans={model_spans}")
+        print(f"  trace: status={status}, calls={total_calls}, model_rows={model_rows}")
     finally:
         conn.close()
 

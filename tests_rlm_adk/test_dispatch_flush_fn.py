@@ -86,9 +86,8 @@ class TestFlushFn:
 
         delta = flush_fn()
         assert isinstance(delta, dict)
-        assert "worker_dispatch_count" in delta
-        assert delta["worker_dispatch_count"] >= 1
         assert "obs:child_dispatch_count" in delta
+        assert delta["obs:child_dispatch_count"] >= 1
         assert "obs:child_dispatch_latency_ms" in delta
 
     @pytest.mark.asyncio
@@ -107,11 +106,10 @@ class TestFlushFn:
 
         # First flush: should have counts
         delta1 = flush_fn()
-        assert delta1["worker_dispatch_count"] >= 1
+        assert delta1["obs:child_dispatch_count"] >= 1
 
         # Second flush: should be reset
         delta2 = flush_fn()
-        assert delta2["worker_dispatch_count"] == 0
         assert delta2["obs:child_dispatch_count"] == 0
         assert delta2["obs:child_dispatch_latency_ms"] == []
 

@@ -22,7 +22,7 @@ from google.genai.types import FunctionDeclaration, Schema, Type
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
 from rlm_adk.repl.trace import REPLTrace
-from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, WORKER_DISPATCH_COUNT, depth_key
+from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, OBS_CHILD_DISPATCH_COUNT, depth_key
 
 _CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
 
@@ -129,7 +129,7 @@ class REPLTool(BaseTool):
                 acc = self._flush_fn()
                 for k, v in acc.items():
                     tool_context.state[k] = v
-                total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
+                total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
             # Write LAST_REPL_RESULT even on cancellation for observability
             tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = {
                 "code_blocks": 1,
@@ -153,7 +153,7 @@ class REPLTool(BaseTool):
                 acc = self._flush_fn()
                 for k, v in acc.items():
                     tool_context.state[k] = v
-                total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
+                total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
             # Write LAST_REPL_RESULT even on exception for observability
             tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = {
                 "code_blocks": 1,
@@ -175,7 +175,7 @@ class REPLTool(BaseTool):
             acc = self._flush_fn()
             for k, v in acc.items():
                 tool_context.state[k] = v
-            total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
+            total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
 
         # Write LAST_REPL_RESULT summary for observability plugins
         last_repl: dict[str, Any] = {

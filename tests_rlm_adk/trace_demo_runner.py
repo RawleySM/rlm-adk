@@ -53,7 +53,7 @@ async def main():
     try:
         app = create_rlm_app(
             model="gemini-fake", thinking_budget=0,
-            debug=False, langfuse=False, sqlite_tracing=False,
+            langfuse=False, sqlite_tracing=False,
         )
         plugin_names = sorted(p.name for p in app.plugins)
         session_service = InMemorySessionService()

@@ -40,7 +40,6 @@ from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOpti
 from rlm_adk.callbacks.reasoning import reasoning_after_model, reasoning_before_model
 from rlm_adk.dispatch import WorkerPool
 from rlm_adk.orchestrator import RLMOrchestratorAgent
-from rlm_adk.plugins.debug_logging import DebugLoggingPlugin
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.utils.prompts import (
@@ -323,15 +322,14 @@ def create_child_orchestrator(
 
 def _default_plugins(
     *,
-    debug: bool = True,
     langfuse: bool = False,
     sqlite_tracing: bool = True,
 ) -> list[BasePlugin]:
     """Build the default plugin list.
 
     ObservabilityPlugin is always included (observe-only, zero overhead on the
-    happy path).  DebugLoggingPlugin is included by default.  Set *debug* to
-    ``False`` **and** leave ``RLM_ADK_DEBUG`` unset to disable it.
+    happy path).  When ``RLM_ADK_DEBUG=1`` is set, verbose mode is enabled
+    on ObservabilityPlugin (prints summary to stdout).
 
     LangfuseTracingPlugin is opt-in (default ``False``).  Enable via
     ``langfuse=True`` or ``RLM_ADK_LANGFUSE=1`` env var.
@@ -340,12 +338,8 @@ def _default_plugins(
     Disable via ``sqlite_tracing=False``.  If the plugin module is not yet
     available (Track B), it is silently skipped.
     """
-    plugins: list[BasePlugin] = [ObservabilityPlugin()]
     _debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
-    if debug or _debug_env:
-        plugins.append(DebugLoggingPlugin(
-            output_path=str(_project_root() / "rlm_adk_debug.yaml"),
-        ))
+    plugins: list[BasePlugin] = [ObservabilityPlugin(verbose=_debug_env)]
     _sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")
     if sqlite_tracing or _sqlite_env:
         try:
@@ -387,7 +381,6 @@ def create_rlm_app(
     dynamic_instruction: str = RLM_DYNAMIC_INSTRUCTION,
     repo_url: str | None = None,
     plugins: list[BasePlugin] | None = None,
-    debug: bool = True,
     thinking_budget: int = 1024,
     langfuse: bool = False,
     sqlite_tracing: bool = True,
@@ -395,9 +388,8 @@ def create_rlm_app(
     """Create the full RLM ADK App with plugins wired in.
 
     This is the recommended entry point for programmatic usage.  The returned
-    ``App`` carries the ``ObservabilityPlugin`` (always) and the
-    ``DebugLoggingPlugin`` (enabled by default).  Pass *plugins* to override
-    the default plugin list entirely.
+    ``App`` carries the ``ObservabilityPlugin`` (always).  Pass *plugins* to
+    override the default plugin list entirely.
 
     Args:
         model: The LLM model identifier.
@@ -410,8 +402,6 @@ def create_rlm_app(
         repo_url: Optional repository URL for context.
         plugins: Explicit plugin list.  When ``None`` (default), uses
             :func:`_default_plugins`.
-        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
-            via ``RLM_ADK_DEBUG`` env-var).
         thinking_budget: Token budget for the reasoning agent's built-in
             planner.  Set to ``0`` to disable.
         langfuse: Enable LangfuseTracingPlugin (default ``False``; also
@@ -431,7 +421,7 @@ def create_rlm_app(
         thinking_budget=thinking_budget,
     )
     resolved_plugins = plugins if plugins is not None else _default_plugins(
-        debug=debug, langfuse=langfuse, sqlite_tracing=sqlite_tracing,
+        langfuse=langfuse, sqlite_tracing=sqlite_tracing,
     )
     return App(
         name="rlm_adk",
@@ -450,7 +440,6 @@ def create_rlm_runner(
     dynamic_instruction: str = RLM_DYNAMIC_INSTRUCTION,
     repo_url: str | None = None,
     plugins: list[BasePlugin] | None = None,
-    debug: bool = True,
     thinking_budget: int = 1024,
     artifact_service: BaseArtifactService | None = None,
     session_service: BaseSessionService | None = None,
@@ -462,8 +451,7 @@ def create_rlm_runner(
     This is the recommended entry point for programmatic usage.  The returned
     ``Runner`` has:
 
-    - The ``App`` with ``ObservabilityPlugin`` (always) and
-      ``DebugLoggingPlugin`` (enabled by default).
+    - The ``App`` with ``ObservabilityPlugin`` (always).
     - A ``SqliteSessionService`` for persistent state (default), or the
       caller-provided session service.
     - A ``FileArtifactService`` for persistent artifact storage (default),
@@ -496,8 +484,6 @@ def create_rlm_runner(
         repo_url: Optional repository URL for context.
         plugins: Explicit plugin list.  When ``None`` (default), uses
             :func:`_default_plugins`.
-        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
-            via ``RLM_ADK_DEBUG`` env-var).
         thinking_budget: Token budget for the reasoning agent's built-in
             planner.  Set to ``0`` to disable.
         artifact_service: Optional artifact service to use.  When ``None``
@@ -520,7 +506,6 @@ def create_rlm_runner(
         dynamic_instruction=dynamic_instruction,
         repo_url=repo_url,
         plugins=plugins,
-        debug=debug,
         thinking_budget=thinking_budget,
         langfuse=langfuse,
         sqlite_tracing=sqlite_tracing,

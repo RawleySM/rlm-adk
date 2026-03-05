@@ -44,6 +44,7 @@ The content is organized as follows:
 <directory_structure>
 callbacks/
   __init__.py
+  orchestrator.py
   reasoning.py
   worker_retry.py
   worker.py
@@ -119,6 +120,32 @@ This section contains the contents of the repository's files.
 __all__ = [
 </file>
 
+<file path="callbacks/orchestrator.py">
+"""Orchestrator-level test callbacks.
+
+orchestrator_test_state_hook: Test-only before_agent_callback that writes a
+    guillemet-marked dict to callback_context.state under ``cb_orchestrator_context``.
+    Since before_agent_callback fires before the reasoning agent's first LLM
+    call, the dict is available for ADK template resolution on ALL reasoning
+    iterations (including call 0).
+"""
+⋮----
+"""Write a guillemet-marked dict to state for provider-fake verification.
+
+    Writes ``CB_ORCHESTRATOR_CONTEXT`` to ``callback_context.state`` containing
+    a structured dict with markers.  When the fixture's dynamic instruction
+    includes ``{cb_orchestrator_context?}``, ADK resolves the template and the
+    dict's ``str()`` repr flows into systemInstruction — verifiable in
+    captured request bodies.
+
+    Because ``before_agent_callback`` fires before the reasoning agent's
+    first ``before_model_callback``, the value is in state before the first
+    template resolution, so it appears in ALL reasoning calls (including call 0).
+    """
+⋮----
+return None  # Proceed with agent execution
+</file>
+
 <file path="callbacks/reasoning.py">
 """Reasoning Agent callbacks.
 
@@ -130,6 +157,11 @@ before_model_callback: Merges the ADK-resolved dynamic instruction into
 after_model_callback: Records per-invocation token accounting from
     usage_metadata.  The collapsed orchestrator reads the final answer
     from the output_key ("reasoning_output").
+
+reasoning_test_state_hook: Test-only before_model_callback that writes a
+    guillemet-marked dict to callback_context.state under the key
+    ``cb_reasoning_context``.  Compose with reasoning_before_model in
+    provider-fake fixtures to verify the state → systemInstruction path.
 """
 ⋮----
 def _extract_system_instruction_text(llm_request: LlmRequest) -> str
@@ -181,6 +213,11 @@ total_prompt_chars = sum(
 system_chars = len(system_instruction_text)
 content_count = len(contents)
 ⋮----
+# Read depth tag set by orchestrator (default 0)
+agent = getattr(callback_context, '_invocation_context', None)
+agent_obj = getattr(agent, 'agent', None) if agent else None
+_depth = getattr(agent_obj, '_rlm_depth', 0)
+⋮----
 """Record per-invocation token accounting from usage_metadata.
 
     The collapsed orchestrator reads the final answer from the output_key
@@ -190,6 +227,58 @@ content_count = len(contents)
 usage = llm_response.usage_metadata
 ⋮----
 # Return None -- observe only, don't alter the response
+⋮----
+# ---------------------------------------------------------------------------
+# Test-only hook: state dict → systemInstruction verification
+⋮----
+"""Write a guillemet-marked dict to state for provider-fake verification.
+
+    Writes ``CB_REASONING_CONTEXT`` to ``callback_context.state`` containing
+    a structured dict with markers.  When the fixture's dynamic instruction
+    includes ``{cb_reasoning_context?}``, ADK resolves the template and the
+    dict's ``str()`` repr flows into systemInstruction — verifiable in
+    captured request bodies.
+
+    Compose with the production callback by setting both as a chain::
+
+        # In contract_runner or test setup:
+        agent.before_model_callback = reasoning_test_state_hook
+        # Then call reasoning_before_model manually, or chain them.
+
+    Or use as a standalone before_model_callback for isolated testing.
+    """
+iteration = callback_context.state.get(ITERATION_COUNT, 0)
+context_dict = {
+⋮----
+# Patch the already-resolved template text in contents so the dict
+# appears on the FIRST iteration too (ADK resolves {cb_reasoning_context?}
+# before before_model_callback fires, so iter 0 would otherwise be empty).
+# reasoning_before_model runs next and extracts all content text into
+# systemInstruction, so this patch flows through automatically.
+dict_str = str(context_dict)
+placeholder = "Callback state: \n"
+⋮----
+# Test-only hook: tool state dict → systemInstruction verification
+⋮----
+"""Write a guillemet-marked dict to state before each REPL tool execution.
+
+    Writes ``CB_TOOL_CONTEXT`` to ``tool_context.state`` containing a
+    structured dict with markers.  When the fixture's dynamic instruction
+    includes ``{cb_tool_context?}``, ADK resolves the template on the *next*
+    reasoning LLM call and the dict's ``str()`` repr flows into
+    systemInstruction — verifiable in captured request bodies.
+
+    The dict is available starting from the reasoning call *after* the first
+    tool execution (call 2 in the comprehensive fixture, since call 0 has no
+    prior tool execution).
+
+    Wire on the reasoning agent as ``before_tool_callback``::
+
+        object.__setattr__(reasoning_agent, "before_tool_callback", tool_test_state_hook)
+    """
+tool_name = getattr(tool, "name", "unknown")
+⋮----
+return None  # Proceed with normal tool execution
 </file>
 
 <file path="callbacks/worker_retry.py">
@@ -327,6 +416,12 @@ worker_after_model: OBSERVE - Extracts text response, writes to worker's output_
 worker_on_model_error: ERROR ISOLATION - Handles LLM errors gracefully without
     crashing ParallelAgent. Writes error result onto agent object and returns
     an LlmResponse so the agent completes normally.
+
+worker_test_state_hook: Test-only before_model_callback that writes a
+    guillemet-marked dict to callback_context.state under ``cb_worker_context``
+    and appends its string repr to the pending prompt.  Compose with
+    worker_before_model in provider-fake fixtures to verify the
+    state-dict → worker request body path.
 """
 ⋮----
 logger = logging.getLogger(__name__)
@@ -412,6 +507,41 @@ agent._call_record = {  # type: ignore[attr-defined]
 error_msg = f"[Worker {agent.name} error: {type(error).__name__}: {error}]"
 ⋮----
 # Write error call record onto agent object for dispatch closure
+⋮----
+# ---------------------------------------------------------------------------
+# Test-only hook: state dict → worker request body verification
+⋮----
+"""Write a guillemet-marked dict to state and append it to the worker prompt.
+
+    Writes ``CB_WORKER_CONTEXT`` to ``callback_context.state`` containing a
+    structured dict with markers.  Also appends the dict's ``str()`` repr to
+    ``agent._pending_prompt`` so that when ``worker_before_model`` runs next
+    (or this is used standalone), the dict content appears in the worker's
+    ``llm_request.contents`` and thus in the captured request body.
+
+    **Must run before** ``worker_before_model`` in the callback chain so the
+    appended text is picked up when the prompt is injected into contents.
+
+    Usage in provider-fake fixtures::
+
+        # Chain: test hook appends to _pending_prompt, then production
+        # callback injects it into llm_request.contents.
+        def chained_worker_before_model(ctx, req):
+            worker_test_state_hook(ctx, req)
+            return worker_before_model(ctx, req)
+
+        # Wire onto worker:
+        worker.before_model_callback = chained_worker_before_model
+    """
+⋮----
+worker_name = getattr(agent, "name", "unknown")
+⋮----
+context_dict = {
+⋮----
+# Append to pending prompt so it flows into llm_request.contents
+pending = getattr(agent, "_pending_prompt", None) or ""
+suffix = "\n\nCallback context: " + str(context_dict)
+agent._pending_prompt = pending + suffix  # type: ignore[attr-defined]
 </file>
 
 <file path="dashboard/components/__init__.py">
@@ -2744,6 +2874,8 @@ worker_calls = sum(
 ⋮----
 artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
 artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
+child_dispatches = state.get(OBS_CHILD_DISPATCH_COUNT, 0)
+child_errors = state.get(OBS_CHILD_ERROR_COUNTS, {})
 ⋮----
 log_msg = (
 log_args = [
@@ -3916,6 +4048,15 @@ RLM_STATIC_INSTRUCTION = textwrap.dedent("""\
 # The ? suffix makes vars optional (no error if missing).
 ⋮----
 RLM_DYNAMIC_INSTRUCTION = textwrap.dedent("""\
+⋮----
+# CHILD STATIC INSTRUCTION (condensed — no repomix / repo processing docs)
+⋮----
+# Used by child orchestrators spawned at depth > 0.  Keeps tool descriptions,
+# REPL helpers, and general strategy guidance but drops the "Repository
+# Processing" section and all repomix-specific code examples.
+# ~1/3 the size of RLM_STATIC_INSTRUCTION.
+⋮----
+RLM_CHILD_STATIC_INSTRUCTION = textwrap.dedent("""\
 </file>
 
 <file path="__init__.py">
@@ -4038,7 +4179,7 @@ planner = None
 ⋮----
 planner = BuiltInPlanner(
 ⋮----
-# Append repomix skill instructions to static instruction
+# Append repomix skill instructions to static instruction (parent only)
 ⋮----
 static_instruction = static_instruction + "\n" + build_skill_instruction_block()
 ⋮----
@@ -4055,6 +4196,21 @@ reasoning = create_reasoning_agent(
 worker_pool = WorkerPool(default_model=model)
 ⋮----
 kwargs: dict[str, Any] = {
+⋮----
+"""Create a child orchestrator for recursive dispatch at *depth* > 0.
+
+    The child uses a condensed static instruction (no repomix/repo docs)
+    and depth-suffixed output keys to prevent state collisions.
+
+    Args:
+        model: The LLM model identifier.
+        depth: Nesting depth (must be > 0).
+        prompt: The sub-query for this child to solve.
+        worker_pool: Optional shared WorkerPool (created if None).
+        max_iterations: Max tool calls for the child reasoning agent.
+        thinking_budget: Token budget for built-in planner.
+        output_schema: Optional Pydantic schema for structured output.
+    """
 ⋮----
 """Build the default plugin list.
 
@@ -4394,173 +4550,100 @@ state = ctx.session.state
 </file>
 
 <file path="dispatch.py">
-"""Worker pool and dispatch mechanism for sub-LM calls.
+"""Child orchestrator dispatch mechanism for sub-LM calls.
 
-Replaces the TCP socket-based LMHandler with ADK LlmAgent workers
-dispatched via ParallelAgent.
+Replaces the leaf LlmAgent worker pool with recursive child
+RLMOrchestratorAgent instances.  Each sub-query spawns a child
+orchestrator (with its own REPL + SetModelResponseTool) at depth+1.
 
 Architecture:
-- WorkerPool: Pre-allocated asyncio.Queue of LlmAgent instances per model
-- llm_query_async: Acquire 1 worker, dispatch, return string
-- llm_query_batched_async: Acquire K workers, dispatch via ParallelAgent, return K strings
-- Model routing: model=None uses depth-based default; model="X" uses specific pool
+- DispatchConfig: Holds model configuration (replaces WorkerPool)
+- llm_query_async: Spawn 1 child orchestrator, return LLMResult
+- llm_query_batched_async: Spawn K children concurrently (semaphore-limited)
+- Depth limit: max_depth prevents infinite recursion
 
 State mutation discipline (AR-CRIT-001):
 - Local accumulators in the closure replace ctx.session.state reads.
 - flush_fn() snapshots accumulators into tool_context.state via REPLTool.
-- Worker results are read from agent objects (_result, _result_ready) not state.
+- Child results are read from child's output_key in session state.
 """
 ⋮----
 logger = logging.getLogger(__name__)
 ⋮----
-class WorkerPool
+class DispatchConfig
 ⋮----
-"""Manages pools of pre-allocated LlmAgent workers per model backend.
-
-    Each registered model has its own asyncio.Queue of LlmAgent instances.
-    Workers are configured per HIGH-3:
-    - include_contents='none'
-    - disallow_transfer_to_parent=True
-    - disallow_transfer_to_peers=True
-    """
-⋮----
-"""Initialize worker pools.
-
-        Args:
-            default_model: Model name for depth=0 (main backend)
-            other_model: Model name for depth=1 (sub-call backend)
-            pool_size: Number of workers per model pool
-        """
-⋮----
-def register_model(self, model_name: str, pool_size: int | None = None)
-⋮----
-"""Register a model and create its worker pool.
-
-        Args:
-            model_name: The model identifier (e.g. "gemini-2.5-flash")
-            pool_size: Override pool size for this model. Defaults to self.pool_size.
-        """
-size = pool_size or self.pool_size
-# Unbounded queue so that dynamically-created workers can be returned
-queue: asyncio.Queue[LlmAgent] = asyncio.Queue()
-⋮----
-worker = self._create_worker(model_name)
-⋮----
-def _create_worker(self, model_name: str) -> LlmAgent
-⋮----
-"""Create a single LlmAgent worker configured per HIGH-3.
-
-        Workers are isolated: they receive prompts only via
-        before_model_callback (include_contents='none') and cannot
-        transfer to parent or peer agents.
-
-        Each worker is initialized with result carrier attributes for
-        the dispatch closure to read after dispatch completes.
-        """
-⋮----
-worker_name = f"worker_{self._worker_counter}"
-⋮----
-worker = LlmAgent(
-# Slot for the dispatch closure to inject the prompt before dispatch.
-# The worker's before_model_callback reads this to build the LlmRequest.
-worker._pending_prompt = None  # type: ignore[attr-defined]
-⋮----
-# Result carrier attributes (written by after_model / on_model_error callbacks)
-worker._result = None  # type: ignore[attr-defined]
-worker._result_ready = False  # type: ignore[attr-defined]
-worker._result_error = False  # type: ignore[attr-defined]
-⋮----
-# Call record (written by after_model / on_model_error callbacks)
-worker._call_record = None  # type: ignore[attr-defined]
-⋮----
-async def acquire(self, model: str | None = None) -> LlmAgent
-⋮----
-"""Acquire a worker from the appropriate pool.
-
-        If the pool is empty, creates a new worker on demand to prevent
-        deadlocks when batch size exceeds pool capacity.
-
-        Args:
-            model: Model name. None uses the depth=1 default (other_model).
-
-        Returns:
-            An LlmAgent worker ready for prompt injection and dispatch.
-        """
-target_model = model or self.other_model
-⋮----
-# Auto-register on first use for dynamically-specified models
-⋮----
-# Pool exhausted — create a worker on demand to avoid deadlock
-⋮----
-async def release(self, worker: LlmAgent, model: str | None = None)
-⋮----
-"""Return a worker to its pool after dispatch completes.
-
-        Only returns the worker if the pool has not yet reached its
-        configured pool_size. On-demand workers created during pool
-        exhaustion are discarded to prevent unbounded pool growth.
-
-        Args:
-            worker: The LlmAgent to return.
-            model: The model pool to return it to. None uses the depth=1 default.
-        """
+"""Holds model configuration for child dispatch (replaces WorkerPool)."""
 ⋮----
 def ensure_initialized(self)
 ⋮----
-"""Ensure default and other model pools are created.
-
-        Called during App/orchestrator initialization to pre-allocate workers.
-        """
+"""No-op for backward compatibility."""
 ⋮----
-_WORKER_DISPATCH_TIMEOUT = float(os.getenv("RLM_WORKER_TIMEOUT", "180"))
-⋮----
-async def _consume_events(run_iter: Any) -> None
-⋮----
-"""Consume events from an agent's run_async iterator, discarding them."""
+# Backward-compatible alias so existing imports continue to work.
+WorkerPool = DispatchConfig
 ⋮----
 """Create llm_query_async, llm_query_batched_async, and flush_fn closures.
 
-    These closures capture the worker pool and invocation context,
+    These closures capture the dispatch config and invocation context,
     and are injected into the REPL namespace so that LM-generated code
-    can call sub-LM queries.
-
-    The closures are async functions. The AST rewriter transforms
-    llm_query(p) -> await llm_query_async(p) so that the REPL code
-    can call them natively from within async def _repl_exec().
+    can call sub-LM queries via child orchestrators.
 
     Args:
-        worker_pool: The pre-allocated worker pool
+        dispatch_config: Model configuration (DispatchConfig / WorkerPool alias)
         ctx: Current invocation context
         call_log_sink: Optional list to accumulate RLMChatCompletion records.
         trace_sink: Optional mutable list[REPLTrace | None] holder.
-            trace_sink[0] is the current REPLTrace for per-call recording.
+        depth: Current nesting depth (0 = root orchestrator).
+        max_depth: Maximum allowed depth.  Overridden by RLM_MAX_DEPTH env var.
 
     Returns:
         (llm_query_async, llm_query_batched_async, flush_fn) 3-tuple.
         flush_fn() returns a dict of accumulated state and resets accumulators.
     """
+max_depth = int(os.getenv("RLM_MAX_DEPTH", str(max_depth)))
+max_concurrent = int(os.getenv("RLM_MAX_CONCURRENT_CHILDREN", "3"))
+_child_semaphore = asyncio.Semaphore(max_concurrent)
 ⋮----
 # Local accumulators — replaces ctx.session.state reads (AR-CRIT-001)
-_acc_dispatch_count = 0
-_acc_batch_dispatches = 0
-_acc_latencies: list[float] = []
-_acc_error_counts: dict[str, int] = {}  # category -> count
+_acc_child_dispatches = 0
+_acc_child_batch_dispatches = 0
+_acc_child_latencies: list[float] = []
+_acc_child_error_counts: dict[str, int] = {}
 _acc_structured_output_failures = 0
 ⋮----
-"""Dispatch a single sub-LM query via worker pool.
+"""Spawn a child orchestrator for a single sub-query."""
+⋮----
+target_model = model or dispatch_config.other_model
+child_start = time.perf_counter()
+⋮----
+child = create_child_orchestrator(
+⋮----
+pass  # consume events
+⋮----
+# Read result from child's output_key
+_child_output_key = child.reasoning_agent.output_key or f"reasoning_output@d{depth + 1}"
+raw = ctx.session.state.get(_child_output_key, "")
+⋮----
+# Parse the result
+⋮----
+answer = raw.get("final_answer", str(raw))
+⋮----
+parsed = json.loads(raw)
+⋮----
+answer = parsed.get("final_answer", raw)
+⋮----
+answer = raw
+⋮----
+answer = str(raw)
+⋮----
+elapsed_ms = (time.perf_counter() - child_start) * 1000
+⋮----
+cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+⋮----
+# Clean up child's REPL
+⋮----
+"""Dispatch a single sub-LM query via child orchestrator.
 
-        This is the K=1 case: delegates to llm_query_batched_async.
-
-        Args:
-            prompt: The text prompt to send to the sub-LM.
-            model: Optional model name override. None uses depth-based default.
-            output_schema: Optional Pydantic model for structured output validation.
-                When provided, the worker uses SetModelResponseTool + ReflectAndRetry
-                for self-healing structured output.
-
-        Returns:
-            An LLMResult (str subclass) with metadata. If output_schema was provided,
-            result.parsed contains the validated dict.
+        Delegates to llm_query_batched_async for consistency.
         """
 current_trace = trace_sink[0] if trace_sink else None
 call_index = -1
@@ -4574,160 +4657,49 @@ results = await llm_query_batched_async(
 ⋮----
 elapsed_ms = (time.perf_counter() - call_start) * 1000
 ⋮----
-"""Dispatch K sub-LM queries via ParallelAgent, chunked by max_concurrent.
+"""Dispatch K sub-LM queries via child orchestrators, concurrently.
 
-        When K > max_concurrent, prompts are split into sequential batches
-        of at most max_concurrent, each batch dispatched in parallel.
-
-        State is tracked via local accumulators and flushed by flush_fn()
-        (AR-CRIT-001: no direct ctx.session.state writes).
-
-        Args:
-            prompts: List of text prompts to send concurrently.
-            model: Optional model name override. None uses depth-based default.
-            output_schema: Optional Pydantic model for structured output validation.
-
-        Returns:
-            List of LLMResult (str subclass) responses, in the same order as prompts.
+        Concurrency is limited by _child_semaphore (max_concurrent).
         """
 ⋮----
-max_concurrent = int(os.getenv("RLM_MAX_CONCURRENT_WORKERS", "4"))
 k = len(prompts)
 dispatch_start = time.perf_counter()
 ⋮----
-# Trace support: get current trace and set up data flow tracker
+# Trace support
 ⋮----
 _data_flow = DataFlowTracker() if current_trace is not None else None
-⋮----
-# Register prompts with data flow tracker for dependency detection
 ⋮----
 batch_start_index = current_trace._call_counter
 ⋮----
 batch_start_index = 0
 ⋮----
-# Update local accumulators (no ctx.session.state reads)
+# Update local accumulators
 ⋮----
-all_results: list[LLMResult] = []
+# Run all children concurrently (semaphore limits actual concurrency)
+tasks = [
+results = await asyncio.gather(*tasks)
+all_results = list(results)
 ⋮----
-# Split prompts into chunks of max_concurrent
-⋮----
-batch_prompts = prompts[batch_idx : batch_idx + max_concurrent]
-batch_num = batch_idx // max_concurrent + 1
-total_batches = (k + max_concurrent - 1) // max_concurrent
-⋮----
-workers: list[LlmAgent] = []
-⋮----
-# Acquire workers and inject prompts for this batch
-⋮----
-worker = await worker_pool.acquire(model)
-# Reset result carrier before dispatch
-worker._pending_prompt = prompt  # type: ignore[attr-defined]
-⋮----
-# Wire structured output when output_schema provided.
-⋮----
-worker.tools = [SetModelResponseTool(output_schema)]  # type: ignore[list-item]
-⋮----
-worker.after_tool_callback = after_cb  # type: ignore[assignment]
-worker.on_tool_error_callback = error_cb  # type: ignore[assignment]
-worker._structured_result = None  # type: ignore[attr-defined]
-⋮----
-workers[0]._result = f"[Worker {workers[0].name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
-workers[0]._result_ready = True  # type: ignore[attr-defined]
-workers[0]._result_error = True  # type: ignore[attr-defined]
-# BUG-D fix: write _call_record so error_category='TIMEOUT' propagates
-workers[0]._call_record = {  # type: ignore[attr-defined]
-⋮----
-"response": workers[0]._result,  # type: ignore[attr-defined]
-⋮----
-parallel = ParallelAgent(
-⋮----
-sub_agents=list(workers),  # type: ignore[arg-type]
-⋮----
-w._result = f"[Worker {w.name} timed out after {_WORKER_DISPATCH_TIMEOUT}s]"  # type: ignore[attr-defined]
-w._result_ready = True  # type: ignore[attr-defined]
-w._result_error = True  # type: ignore[attr-defined]
-⋮----
-w._call_record = {  # type: ignore[attr-defined]
-⋮----
-"response": w._result,  # type: ignore[attr-defined]
-⋮----
-# Read results from worker objects
-⋮----
-record = getattr(worker, "_call_record", {}) or {}
-if not worker._result_ready:  # type: ignore[attr-defined]
-⋮----
-worker.name, worker._result,  # type: ignore[attr-defined]
-⋮----
-cat = record.get("error_category", "UNKNOWN")
-⋮----
-worker._result,  # type: ignore[attr-defined]
-⋮----
-# Extract structured result if available
-structured = getattr(worker, "_structured_result", None)
-⋮----
-result_text = json.dumps(structured)
-⋮----
-result_text = worker._result  # type: ignore[attr-defined]
-# FM-16 fix: detect retry exhaustion for structured output
-⋮----
-# Accumulate call records into sink for REPLResult.llm_calls
-⋮----
-record = getattr(worker, "_call_record", None)
-⋮----
-model_name = record.get("model") or "unknown"
-raw_prompt = record["prompt"]
-⋮----
-prompt_val: str | dict = ""
-⋮----
-prompt_val = " | ".join(
-⋮----
-prompt_val = raw_prompt
-⋮----
-# Record batch-level trace entries and data flow edges
-⋮----
-batch_elapsed = (time.perf_counter() - dispatch_start) * 1000
-⋮----
-record = getattr(worker, "_call_record", None) or {}
-ci = batch_start_index + batch_idx + idx
-result_idx = batch_idx + idx
-⋮----
-# Register responses with data flow tracker
-⋮----
-# FM-20 fix: preserve results from workers that already completed
-existing = {i for i, w in enumerate(workers) if getattr(w, '_result_ready', False)}
-⋮----
-w = workers[idx]
-record = getattr(w, "_call_record", {}) or {}
-⋮----
-w._result, error=True,  # type: ignore[attr-defined]
-⋮----
-w._result, error=False,  # type: ignore[attr-defined]
-⋮----
-# Reset structured output wiring
-⋮----
-# Detach from ParallelAgent parent so the worker can be
-# re-used in a future batch (ADK sets parent_agent in
-# model_post_init and raises if already set).
-⋮----
-# Aggregate latency via local accumulator (no ctx.session.state reads)
+# Aggregate latency
 dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
+⋮----
+# Accumulate errors
+⋮----
+cat = r.error_category or "UNKNOWN"
+⋮----
+# Record trace entries
+⋮----
+batch_elapsed = dispatch_elapsed_ms
+⋮----
+ci = batch_start_index + idx
 ⋮----
 def flush_fn() -> dict
 ⋮----
-"""Return accumulated dispatch state and reset accumulators.
-
-        Returns a dict suitable for merging into session state or
-        passing to tool_context.state.  After the call, all accumulators
-        are reset to zero so the next flush returns only new deltas.
-        """
+"""Return accumulated dispatch state and reset accumulators."""
 ⋮----
 delta: dict[str, Any] = {
 ⋮----
-# Populate per-category error counts (previously dead state keys)
-⋮----
-# Pool exhaustion counter (read from pool object, not local accumulator)
-⋮----
-# Structured output failure counter
+# Keep WORKER_DISPATCH_COUNT for backward compat with REPLTool
 ⋮----
 # Reset accumulators
 </file>
@@ -4786,6 +4758,8 @@ repo_url: str | None = None
 persistent: bool = False
 worker_pool: Any = None
 repl: Any = None
+depth: int = 0
+output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
 ⋮----
 """Collapsed orchestrator -- delegates to reasoning_agent with REPLTool.
 
@@ -4821,14 +4795,20 @@ repl_tool = REPLTool(
 ⋮----
 # Wire reasoning_agent at runtime with tools.
 # Uses object.__setattr__ because LlmAgent is a Pydantic model.
-# Note: output_schema=ReasoningOutput is NOT set here because ADK's
-# __maybe_save_output_to_state validates the raw text response against
-# the schema, which fails when the model responds with plain text
-# instead of a set_model_response tool call.  The orchestrator reads
-# the final answer from the output_key ("reasoning_output") which ADK
-# populates with the raw text of the final response.
+# Note: output_schema=ReasoningOutput is NOT set on LlmAgent because
+# ADK's __maybe_save_output_to_state validates raw text responses
+# against the schema (fails for plain text).  Instead we add
+# SetModelResponseTool as a tool so the model can choose either
+# execute_code or set_model_response.  BUG-13 patch (process-global
+# in worker_retry.py) handles retry suppression.
+schema = self.output_schema or ReasoningOutput
+set_model_response_tool = SetModelResponseTool(schema)
+⋮----
+# Tag depth for telemetry (read by reasoning callbacks)
 ⋮----
 # Ensure ADK manages tool call/response history
+⋮----
+# Wire structured output retry callbacks for set_model_response
 ⋮----
 # Build initial state delta.
 initial_state: dict[str, Any] = {
@@ -4858,7 +4838,8 @@ delay = base_delay * (2 ** attempt)
 # ADK's output_key stores the raw text of the final model response.
 # When output_schema is set, it's a JSON dict (ReasoningOutput).
 # When output_schema is NOT set, it's plain text.
-raw = ctx.session.state.get("reasoning_output", "")
+_output_key = self.reasoning_agent.output_key or "reasoning_output"
+raw = ctx.session.state.get(_output_key, "")
 final_answer = ""
 ⋮----
 # Already parsed (output_schema was set)
@@ -4980,10 +4961,27 @@ OBS_WORKER_POOL_EXHAUSTION_COUNT = "obs:worker_pool_exhaustion_count"
 # Structured Output Observability (written by dispatch closures)
 OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 ⋮----
+# Child Dispatch Observability Keys (session-scoped)
+OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
+OBS_CHILD_SUMMARY_PREFIX = "obs:child_summary@"
+OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
+OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
+OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
+⋮----
+def child_obs_key(depth: int, fanout_idx: int) -> str
+⋮----
+"""Return fanout-suffixed obs key: obs:child_summary@d{depth}f{fanout_idx}."""
+⋮----
 # API/Messaging Keys
 REQUEST_ID = "request_id"
 IDEMPOTENCY_KEY = "idempotency_key"
 USER_LAST_SUCCESSFUL_CALL_ID = "user:last_successful_call_id"
+⋮----
+# Test Hook State Keys (session-scoped, written by test-only callbacks)
+CB_REASONING_CONTEXT = "cb_reasoning_context"
+CB_WORKER_CONTEXT = "cb_worker_context"
+CB_ORCHESTRATOR_CONTEXT = "cb_orchestrator_context"
+CB_TOOL_CONTEXT = "cb_tool_context"
 ⋮----
 # Artifact Tracking Keys (session-scoped)
 ARTIFACT_SAVE_COUNT = "artifact_save_count"

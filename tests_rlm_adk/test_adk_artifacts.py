@@ -66,16 +66,10 @@ class TestArtifactStateKeys:
         """Verify artifact observability key constants are importable."""
         from rlm_adk.state import (
             OBS_ARTIFACT_SAVES,
-            OBS_ARTIFACT_LOADS,
-            OBS_ARTIFACT_DELETES,
             OBS_ARTIFACT_BYTES_SAVED,
-            OBS_ARTIFACT_SAVE_LATENCY_MS,
         )
         assert OBS_ARTIFACT_SAVES == "obs:artifact_saves"
-        assert OBS_ARTIFACT_LOADS == "obs:artifact_loads"
-        assert OBS_ARTIFACT_DELETES == "obs:artifact_deletes"
         assert OBS_ARTIFACT_BYTES_SAVED == "obs:artifact_bytes_saved"
-        assert OBS_ARTIFACT_SAVE_LATENCY_MS == "obs:artifact_save_latency_ms"
 
     def test_artifact_config_key_defined(self):
         """Verify artifact configuration key is importable."""
@@ -105,17 +99,11 @@ class TestArtifactStateKeys:
         """Artifact observability keys follow obs: convention."""
         from rlm_adk.state import (
             OBS_ARTIFACT_SAVES,
-            OBS_ARTIFACT_LOADS,
-            OBS_ARTIFACT_DELETES,
             OBS_ARTIFACT_BYTES_SAVED,
-            OBS_ARTIFACT_SAVE_LATENCY_MS,
         )
         for key in [
             OBS_ARTIFACT_SAVES,
-            OBS_ARTIFACT_LOADS,
-            OBS_ARTIFACT_DELETES,
             OBS_ARTIFACT_BYTES_SAVED,
-            OBS_ARTIFACT_SAVE_LATENCY_MS,
         ]:
             assert key.startswith("obs:"), f"{key} should start with 'obs:'"
 
