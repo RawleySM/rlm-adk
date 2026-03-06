@@ -11,6 +11,9 @@ Keys use the `obs:` naming convention prefix (session-scoped, not a true ADK sco
 |                                                                  |
 |  reasoning_agent --> REPLTool.run_async()                        |
 |       |                    |                                     |
+|       |              writes OBS_REWRITE_COUNT,                   |
+|       |              OBS_REWRITE_TOTAL_MS (before exec)          |
+|       |                    |                                     |
 |       |              calls flush_fn()                            |
 |       |                    |                                     |
 |       |              +-----v------+                              |
@@ -19,6 +22,11 @@ Keys use the `obs:` naming convention prefix (session-scoped, not a true ADK sco
 |       |              |            |  _acc_child_error_counts      |
 |       |              |            |  _acc_child_batch_dispatches  |
 |       |              |            |  _acc_structured_output_fail  |
+|       |              |            |  _acc_child_summaries         |
+|       |              |            |    .prompt_preview (500ch)    |
+|       |              |            |    .result_preview (500ch)    |
+|       |              |            |    .error_message             |
+|       |              |            |  _bug13_stats (process-global)|
 |       |              +-----+------+                              |
 |       |                    | spawns                               |
 |       |              +-----v----------------------+              |
@@ -27,8 +35,9 @@ Keys use the `obs:` naming convention prefix (session-scoped, not a true ADK sco
 |       |              |  + own dispatch closures   |              |
 |       |              +----------------------------+              |
 |       |                                                          |
+|  Orchestrator retry loop --> OBS_REASONING_RETRY_COUNT (Event)   |
 |  ObservabilityPlugin <-- after_model (reasoning-level tokens)    |
-|  SqliteTracingPlugin <-- 3-table schema (traces/telemetry/SSE)   |
+|  SqliteTracingPlugin <-- 4-table schema (traces/telemetry/SSE/spans)|
 |  REPLTracingPlugin   <-- reads LAST_REPL_RESULT + ITERATION_COUNT|
 +-----------------------------------------------------------------+
 ```
@@ -87,12 +96,44 @@ Written by `dispatch.create_dispatch_closures` -> `flush_fn()` -> consumed by `R
 | `OBS_CHILD_TOTAL_BATCH_DISPATCHES` | `obs:child_total_batch_dispatches` | `int` | `_acc_child_batch_dispatches` | Count of batch dispatches (k>1) |
 | `OBS_CHILD_ERROR_COUNTS` | `obs:child_error_counts` | `dict[str,int]` | `_acc_child_error_counts` | Error category -> count |
 | `OBS_STRUCTURED_OUTPUT_FAILURES` | `obs:structured_output_failures` | `int` | `_acc_structured_output_failures` | Count of schema validation exhaustions |
+| `OBS_BUG13_SUPPRESS_COUNT` | `obs:bug13_suppress_count` | `int` | `_bug13_stats["suppress_count"]` | BUG-13 monkey-patch invocations (process-global counter, included when > 0) |
 
 ### Child Summary Keys (Fanout Tracking)
 
 | Function | State Key | Type | Writer | Description |
 |---|---|---|---|---|
 | `child_obs_key(depth, idx)` | `obs:child_summary@d{depth}f{idx}` | `dict` | dispatch closures | Per-child summary keyed by depth and fanout index |
+
+Each child summary dict contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `model` | `str` | Target model used for the child dispatch |
+| `elapsed_ms` | `float` | Wall-clock time for child orchestrator execution |
+| `error` | `bool` | Whether the child produced an error |
+| `error_category` | `str \| None` | Error category from `_classify_error` (e.g., `RATE_LIMIT`, `UNKNOWN`) |
+| `prompt_preview` | `str` | First 500 characters of the dispatch prompt |
+| `result_preview` | `str \| None` | First 500 characters of the child result (None if no result) |
+| `error_message` | `str \| None` | Exception message string (only set on exception path) |
+
+### AST Rewrite Instrumentation Keys (REPLTool)
+
+Written by `REPLTool.run_async()` to `tool_context.state` **before** code execution begins,
+so values survive execution errors (CancelledError, Exception).
+
+| Constant | State Key | Type | Writer | Description |
+|---|---|---|---|---|
+| `OBS_REWRITE_COUNT` | `obs:rewrite_count` | `int` | REPLTool | Cumulative count of AST rewrites (`llm_query()` -> `await llm_query_async()`) |
+| `OBS_REWRITE_TOTAL_MS` | `obs:rewrite_total_ms` | `float` | REPLTool | Cumulative wall-clock time spent in AST rewriting (ms, rounded to 3 decimals) |
+
+### Reasoning Retry Observability Keys (Orchestrator)
+
+Written by `RLMOrchestratorAgent.run_async_impl()` as an `Event(state_delta=...)` after
+the reasoning retry loop fires (transient LLM errors).
+
+| Constant | State Key | Type | Writer | Description |
+|---|---|---|---|---|
+| `OBS_REASONING_RETRY_COUNT` | `obs:reasoning_retry_count` | `int` | orchestrator (Event state_delta) | Current retry attempt number (0 = first try, 1+ = retries) |
 
 ### Artifact Observability Keys
 
@@ -183,6 +224,10 @@ The following constants were removed from `state.py` during the observability ha
 | `obs:structured_output_failures` | -- | R (after_run) | -- |
 | `obs:artifact_saves` | **W** (on_event) | -- | -- |
 | `obs:artifact_bytes_saved` | R (after_run) | -- | -- |
+| `obs:rewrite_count` | -- | -- | -- |
+| `obs:rewrite_total_ms` | -- | -- | -- |
+| `obs:reasoning_retry_count` | -- | -- | -- |
+| `obs:bug13_suppress_count` | -- | -- | -- |
 | `last_repl_result` | R (after_run) | -- | R |
 | `iteration_count` | R | R (before_model) | R |
 | `request_id` | R | R (after_run) | -- |
@@ -190,12 +235,14 @@ The following constants were removed from `state.py` during the observability ha
 
 **W** = writes, **R** = reads, **W/R** = writes and reads back
 
+**Non-plugin writers:** `obs:rewrite_count` and `obs:rewrite_total_ms` are written by `REPLTool.run_async()` to `tool_context.state` (not by any plugin). `obs:reasoning_retry_count` is written by the orchestrator via `EventActions(state_delta=...)`. `obs:bug13_suppress_count` is written by `flush_fn()` in dispatch closures (reads `_bug13_stats["suppress_count"]`).
+
 ### Plugin Status
 
 | Plugin | Status | Role |
 |---|---|---|
 | `ObservabilityPlugin` | **Active** (default-on) | Token/call/finish tracking, ephemeral re-persist, verbose mode summary |
-| `SqliteTracingPlugin` | **Active** (opt-in) | 3-table SQLite persistence (traces, telemetry, session_state_events) |
+| `SqliteTracingPlugin` | **Active** (opt-in) | 4-table SQLite persistence (traces, telemetry, session_state_events, spans [legacy]). Companion CLI: `python -m rlm_adk.eval.session_report` |
 | `REPLTracingPlugin` | **Active** (opt-in, `RLM_REPL_TRACE` env) | REPL execution profiling, trace artifacts |
 | `LangfuseTracingPlugin` | **Active** (opt-in) | OTel auto-instrumentation via `openinference-instrumentation-google-adk` |
 | `DebugLoggingPlugin` | **REMOVED** (Phase 3) | Absorbed by ObservabilityPlugin verbose mode |
@@ -247,7 +294,7 @@ values through the properly-wired `CallbackContext` so they appear in `final_sta
 
 ---
 
-## SQLite 3-Table Schema
+## SQLite 4-Table Schema
 
 ### `traces` table (one row per invocation)
 
@@ -280,6 +327,9 @@ values through the properly-wired `CallbackContext` so they appear in `final_sta
 | `artifact_bytes_saved` | INTEGER | `OBS_ARTIFACT_BYTES_SAVED` |
 | `per_iteration_breakdown` | TEXT (JSON) | `OBS_PER_ITERATION_TOKEN_BREAKDOWN` |
 | `model_usage_summary` | TEXT (JSON) | Aggregated `obs:model_usage:*` keys |
+| `config_json` | TEXT (JSON) | Run config snapshot (max_depth, max_iterations, env vars) captured at `before_run` |
+| `prompt_hash` | TEXT | SHA-256 hex digest of `root_prompt`, computed at `after_run` |
+| `max_depth_reached` | INTEGER | Deepest orchestrator depth observed in telemetry agent names (parsed from `_dN` suffix) |
 
 ### `telemetry` table (one row per model call or tool invocation)
 
@@ -291,15 +341,15 @@ values through the properly-wired `CallbackContext` so they appear in `final_sta
 | `agent_name` | TEXT | Name of the active agent |
 | `iteration` | INTEGER | Current iteration number |
 | `depth` | INTEGER | Orchestrator depth (default 0) |
-| `call_number` | INTEGER | Monotonic call counter |
+| `call_number` | INTEGER | Monotonic call counter (sourced from `OBS_TOTAL_CALLS` at `before_model`) |
 | `start_time` / `end_time` | REAL | Unix timestamps |
 | `duration_ms` | REAL | Wall-clock duration |
 | `model` | TEXT | Model name (model_call only) |
 | `input_tokens` / `output_tokens` | INTEGER | Token counts |
 | `finish_reason` | TEXT | LLM finish reason |
 | `num_contents` | INTEGER | Number of content parts in request |
-| `agent_type` | TEXT | 'reasoning' or NULL |
-| `prompt_chars` / `system_chars` | INTEGER | Prompt characterization |
+| `agent_type` | TEXT | 'reasoning' or NULL (sourced from `CONTEXT_WINDOW_SNAPSHOT`) |
+| `prompt_chars` / `system_chars` | INTEGER | Prompt/system instruction character counts (sourced from `CONTEXT_WINDOW_SNAPSHOT`) |
 | `tool_name` | TEXT | Tool name (tool_call only) |
 | `tool_args_keys` | TEXT (JSON) | List of argument keys |
 | `result_preview` | TEXT | str(result)[:500] |
@@ -328,7 +378,17 @@ values through the properly-wired `CallbackContext` so they appear in `final_sta
 | `value_text` | TEXT | For string values (truncated to 2000 chars) |
 | `value_json` | TEXT | For list/dict values (JSON) |
 
-The legacy `spans` table is retained for backward compatibility but no longer receives writes.
+### `spans` table (legacy -- retained, no new writes)
+
+The `spans` table is retained for backward compatibility but no longer receives writes.
+New telemetry data flows exclusively through the `telemetry` and `session_state_events` tables.
+
+### Schema Migration (`_migrate_schema()`)
+
+`SqliteTracingPlugin._migrate_schema()` runs at init after `CREATE TABLE IF NOT EXISTS`.
+It inspects each table via `PRAGMA table_info` and issues `ALTER TABLE ADD COLUMN` for any
+columns missing from existing databases. This provides forward-compatible schema evolution
+without requiring users to delete their `traces.db` file when new columns are added.
 
 ---
 
@@ -367,6 +427,24 @@ for each fixture scenario, confirming obs keys land in final session state.
 
 Validates that `flush_fn()` returns correct accumulator snapshots and resets state.
 
+### Rewrite Instrumentation Tests (`tests_rlm_adk/test_rewrite_instrumentation.py`)
+
+8 tests validating `OBS_REWRITE_COUNT`, `OBS_REWRITE_TOTAL_MS`, `OBS_REASONING_RETRY_COUNT`,
+and `OBS_BUG13_SUPPRESS_COUNT` state key definitions, REPLTool write behavior, and
+flush_fn inclusion of bug13 stats.
+
+### Session Report Tests (`tests_rlm_adk/test_session_report.py`)
+
+11 tests validating `session_report.build_session_report()` output sections (overview,
+layer_tree, performance, errors, repl_outcomes, state_timeline) against synthetic
+SQLite databases with known telemetry data.
+
+### Child Obs Summary Tests (`tests_rlm_adk/test_child_obs_summary.py`)
+
+13 tests validating `obs:child_summary@d{depth}f{idx}` key generation, dict field contents
+(model, elapsed_ms, error, error_category, prompt_preview, result_preview, error_message),
+and ObservabilityPlugin re-persist of `obs:child_summary@*` keys.
+
 ---
 
 ## Source Files
@@ -377,9 +455,10 @@ Validates that `flush_fn()` returns correct accumulator snapshots and resets sta
 | `rlm_adk/dispatch.py` | Accumulator closures, flush_fn, child orchestrator spawning |
 | `rlm_adk/tools/repl_tool.py` | Calls flush_fn(), writes results to tool_context.state |
 | `rlm_adk/plugins/observability.py` | Reasoning-level token/call/finish tracking, ephemeral re-persist, verbose summary |
-| `rlm_adk/plugins/sqlite_tracing.py` | 3-table schema: traces, telemetry, session_state_events |
+| `rlm_adk/plugins/sqlite_tracing.py` | 4-table schema: traces, telemetry, session_state_events, spans (legacy) |
 | `rlm_adk/plugins/repl_tracing.py` | Reads LAST_REPL_RESULT for REPL trace artifacts |
 | `rlm_adk/plugins/langfuse_tracing.py` | OTel auto-instrumentation (no callback overlap) |
 | `rlm_adk/callbacks/reasoning.py` | Writes REASONING_* prompt/token accounting keys |
 | `rlm_adk/callbacks/worker.py` | _classify_error for child orchestrator error categories |
 | `rlm_adk/callbacks/worker_retry.py` | Structured output retry + BUG-13 patch |
+| `rlm_adk/eval/session_report.py` | CLI tool: 6-section JSON report from trace_id (overview, layer_tree, performance, errors, repl_outcomes, state_timeline). Uses raw sqlite3, no duckdb dependency |
