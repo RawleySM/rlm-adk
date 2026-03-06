@@ -80,6 +80,7 @@ class TestTelemetryColumns:
             "finish_reason", "num_contents", "agent_type", "prompt_chars",
             "system_chars", "tool_name", "tool_args_keys", "result_preview",
             "repl_has_errors", "repl_has_output", "repl_llm_calls",
+            "repl_trace_summary",
             "status", "error_type", "error_message",
         ]
         assert columns == expected

@@ -137,6 +137,9 @@ class REPLTool(BaseTool):
             else:
                 result = self.repl.execute_code(code, trace=trace)
         except asyncio.CancelledError as exc:
+            # OG-04 fix: ensure end_time is set so trace summary is non-negative
+            if trace is not None and trace.start_time and not trace.end_time:
+                trace.end_time = time.perf_counter()
             # FM-13 fix: flush accumulators before returning so dispatch
             # counts from this iteration are not lost (accumulator drift).
             total_llm_calls = 0
@@ -151,6 +154,7 @@ class REPLTool(BaseTool):
                 "has_errors": True,
                 "has_output": False,
                 "total_llm_calls": total_llm_calls,
+                "stdout_preview": "",
                 "cancelled": True,
             }
             return {
@@ -161,6 +165,9 @@ class REPLTool(BaseTool):
                 "call_number": self._call_count,
             }
         except Exception as exc:
+            # OG-04 fix: ensure end_time is set so trace summary is non-negative
+            if trace is not None and trace.start_time and not trace.end_time:
+                trace.end_time = time.perf_counter()
             # FM-14 fix: flush accumulators before returning so dispatch
             # counts from this iteration are not lost (accumulator drift).
             total_llm_calls = 0
@@ -175,6 +182,7 @@ class REPLTool(BaseTool):
                 "has_errors": True,
                 "has_output": False,
                 "total_llm_calls": total_llm_calls,
+                "stdout_preview": "",
             }
             return {
                 "stdout": "",
@@ -198,6 +206,7 @@ class REPLTool(BaseTool):
             "has_errors": bool(result.stderr),
             "has_output": bool(result.stdout),
             "total_llm_calls": total_llm_calls,
+            "stdout_preview": result.stdout[:500],
         }
         if trace is not None:
             last_repl["trace_summary"] = trace.summary()

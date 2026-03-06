@@ -32,6 +32,7 @@ from rlm_adk.state import (
     CONTEXT_WINDOW_SNAPSHOT,
     FINAL_ANSWER,
     ITERATION_COUNT,
+    LAST_REPL_RESULT,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
@@ -75,6 +76,8 @@ def _categorize_key(key: str) -> str:
         return "obs_dispatch"
     if key in ("iteration_count", "should_stop", "final_answer", "policy_violation"):
         return "flow_control"
+    if key.startswith("repl_submitted_code"):
+        return "repl"
     if key.startswith("last_repl_result"):
         return "repl"
     if key.startswith("cache:"):
@@ -90,6 +93,7 @@ _CURATED_PREFIXES = (
     "obs:",
     "artifact_",
     "last_repl_result",
+    "repl_submitted_code",
 )
 
 _CURATED_EXACT = {
@@ -206,6 +210,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
     repl_has_errors     INTEGER,
     repl_has_output     INTEGER,
     repl_llm_calls      INTEGER,
+    repl_trace_summary  TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -361,6 +366,7 @@ class SqliteTracingPlugin(BasePlugin):
                 ("repl_has_errors", "INTEGER"),
                 ("repl_has_output", "INTEGER"),
                 ("repl_llm_calls", "INTEGER"),
+                ("repl_trace_summary", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -847,6 +853,14 @@ class SqliteTracingPlugin(BasePlugin):
                     update_kwargs["repl_has_errors"] = int(bool(result.get("has_errors", False)))
                     update_kwargs["repl_has_output"] = int(bool(result.get("output", "")))
                     update_kwargs["repl_llm_calls"] = result.get("total_llm_calls", 0)
+                    # Read trace_summary from state (written by REPLTool before this callback)
+                    state = getattr(tool_context, "state", None)
+                    if state is not None:
+                        repl_state = state.get(LAST_REPL_RESULT) if hasattr(state, "get") else None
+                        if isinstance(repl_state, dict):
+                            trace_summary = repl_state.get("trace_summary")
+                            if trace_summary is not None:
+                                update_kwargs["repl_trace_summary"] = json.dumps(trace_summary)
                 self._update_telemetry(telemetry_id, **update_kwargs)
         except Exception as e:
             logger.warning("SqliteTracingPlugin: after_tool failed: %s", e)
