@@ -89,7 +89,7 @@ class REPLTrace:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
         return {
-            "wall_time_ms": round((self.end_time - self.start_time) * 1000, 2) if self.start_time else 0,
+            "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
             "execution_mode": self.execution_mode,
             "llm_calls": self.llm_calls,
             "var_snapshots": self.var_snapshots,
@@ -101,7 +101,7 @@ class REPLTrace:
     def summary(self) -> dict[str, Any]:
         """Compact summary for LAST_REPL_RESULT enrichment."""
         return {
-            "wall_time_ms": round((self.end_time - self.start_time) * 1000, 2) if self.start_time else 0,
+            "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
             "llm_call_count": len(self.llm_calls),
             "failed_llm_calls": sum(1 for c in self.llm_calls if c.get("error")),
             "peak_memory_bytes": self.peak_memory_bytes,
