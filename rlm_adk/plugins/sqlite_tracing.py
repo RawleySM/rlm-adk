@@ -6,8 +6,10 @@ using a 3-table schema: traces (enriched), telemetry, session_state_events.
 No external dependencies beyond the Python standard library (sqlite3).
 """
 
+import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import time
@@ -27,6 +29,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
+    CONTEXT_WINDOW_SNAPSHOT,
     FINAL_ANSWER,
     ITERATION_COUNT,
     OBS_TOTAL_CALLS,
@@ -159,7 +162,10 @@ CREATE TABLE IF NOT EXISTS traces (
     artifact_saves          INTEGER,
     artifact_bytes_saved    INTEGER,
     per_iteration_breakdown TEXT,
-    model_usage_summary     TEXT
+    model_usage_summary     TEXT,
+    config_json             TEXT,
+    prompt_hash             TEXT,
+    max_depth_reached       INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS spans (
@@ -279,7 +285,21 @@ class SqliteTracingPlugin(BasePlugin):
         try:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self._db_path))
-            self._conn.executescript(_SCHEMA_SQL)
+            # Try full schema creation (works for fresh DBs).
+            # On existing DBs, CREATE TABLE IF NOT EXISTS is a no-op for
+            # tables that already exist, but CREATE INDEX may fail if
+            # referenced columns are missing. We catch and continue.
+            try:
+                self._conn.executescript(_SCHEMA_SQL)
+            except Exception:
+                pass
+            # Always run migration to add missing columns to existing tables.
+            self._migrate_schema()
+            # Re-run CREATE INDEX statements after migration has added columns.
+            try:
+                self._conn.executescript(_SCHEMA_SQL)
+            except Exception:
+                pass
             self._conn.execute("PRAGMA journal_mode = WAL")
             self._conn.execute("PRAGMA synchronous = NORMAL")
             self._conn.execute("PRAGMA busy_timeout = 5000")
@@ -287,6 +307,102 @@ class SqliteTracingPlugin(BasePlugin):
         except Exception as e:
             logger.warning("SqliteTracingPlugin: failed to initialize DB: %s", e)
             self._conn = None
+
+    def _migrate_schema(self) -> None:
+        """Add missing columns to existing tables.
+
+        CREATE TABLE IF NOT EXISTS is a no-op for tables that already exist
+        but have fewer columns than the current schema. This method inspects
+        existing columns via PRAGMA table_info and adds any missing ones.
+        """
+        if self._conn is None:
+            return
+
+        # Expected columns per table: (column_name, column_def)
+        _EXPECTED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+            "traces": [
+                ("request_id", "TEXT"),
+                ("repo_url", "TEXT"),
+                ("root_prompt_preview", "TEXT"),
+                ("total_execution_time_s", "REAL"),
+                ("child_dispatch_count", "INTEGER"),
+                ("child_error_counts", "TEXT"),
+                ("structured_output_failures", "INTEGER"),
+                ("finish_safety_count", "INTEGER"),
+                ("finish_recitation_count", "INTEGER"),
+                ("finish_max_tokens_count", "INTEGER"),
+                ("tool_invocation_summary", "TEXT"),
+                ("artifact_saves", "INTEGER"),
+                ("artifact_bytes_saved", "INTEGER"),
+                ("per_iteration_breakdown", "TEXT"),
+                ("model_usage_summary", "TEXT"),
+                ("config_json", "TEXT"),
+                ("prompt_hash", "TEXT"),
+                ("max_depth_reached", "INTEGER"),
+            ],
+            "telemetry": [
+                ("agent_name", "TEXT"),
+                ("iteration", "INTEGER"),
+                ("depth", "INTEGER DEFAULT 0"),
+                ("call_number", "INTEGER"),
+                ("end_time", "REAL"),
+                ("duration_ms", "REAL"),
+                ("model", "TEXT"),
+                ("input_tokens", "INTEGER"),
+                ("output_tokens", "INTEGER"),
+                ("finish_reason", "TEXT"),
+                ("num_contents", "INTEGER"),
+                ("agent_type", "TEXT"),
+                ("prompt_chars", "INTEGER"),
+                ("system_chars", "INTEGER"),
+                ("tool_name", "TEXT"),
+                ("tool_args_keys", "TEXT"),
+                ("result_preview", "TEXT"),
+                ("repl_has_errors", "INTEGER"),
+                ("repl_has_output", "INTEGER"),
+                ("repl_llm_calls", "INTEGER"),
+                ("status", "TEXT DEFAULT 'ok'"),
+                ("error_type", "TEXT"),
+                ("error_message", "TEXT"),
+            ],
+            "session_state_events": [
+                ("event_author", "TEXT"),
+                ("key_depth", "INTEGER DEFAULT 0"),
+                ("key_fanout", "INTEGER"),
+                ("value_type", "TEXT"),
+                ("value_int", "INTEGER"),
+                ("value_float", "REAL"),
+                ("value_text", "TEXT"),
+                ("value_json", "TEXT"),
+            ],
+            "spans": [
+                ("parent_span_id", "TEXT"),
+                ("operation_name", "TEXT"),
+                ("agent_name", "TEXT"),
+                ("start_time", "REAL"),
+                ("end_time", "REAL"),
+                ("status", "TEXT DEFAULT 'ok'"),
+                ("attributes", "TEXT"),
+                ("events", "TEXT"),
+            ],
+        }
+
+        try:
+            for table, expected_cols in _EXPECTED_COLUMNS.items():
+                existing = {
+                    row[1]
+                    for row in self._conn.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()
+                }
+                for col_name, col_def in expected_cols:
+                    if col_name not in existing:
+                        self._conn.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}"
+                        )
+            self._conn.commit()
+        except Exception as e:
+            logger.warning("SqliteTracingPlugin: schema migration failed: %s", e)
 
     def _new_id(self) -> str:
         """Generate a new unique ID."""
@@ -394,16 +510,34 @@ class SqliteTracingPlugin(BasePlugin):
             self._pending_tool_telemetry.clear()
             self._sse_seq = 0
             if self._conn is not None:
+                # Build config snapshot from state and env vars
+                state = invocation_context.session.state
+                config: dict[str, Any] = {}
+                if state.get("app:max_depth") is not None:
+                    config["max_depth"] = state["app:max_depth"]
+                if state.get("app:max_iterations") is not None:
+                    config["max_iterations"] = state["app:max_iterations"]
+                for env_key in (
+                    "RLM_MAX_DEPTH",
+                    "RLM_MAX_CONCURRENT_CHILDREN",
+                    "RLM_WORKER_TIMEOUT",
+                    "RLM_ADK_MODEL",
+                ):
+                    val = os.environ.get(env_key)
+                    if val is not None:
+                        config[f"env_{env_key}"] = val
+
                 self._conn.execute(
                     """INSERT INTO traces
-                       (trace_id, session_id, user_id, app_name, start_time)
-                       VALUES (?, ?, ?, ?, ?)""",
+                       (trace_id, session_id, user_id, app_name, start_time, config_json)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
                     (
                         self._trace_id,
                         invocation_context.session.id,
                         invocation_context.session.user_id,
                         invocation_context.app_name,
                         time.time(),
+                        json.dumps(config),
                     ),
                 )
                 self._conn.commit()
@@ -429,6 +563,25 @@ class SqliteTracingPlugin(BasePlugin):
 
                 root_prompt = state.get("root_prompt", "")
 
+                # Compute prompt hash
+                prompt_hash = None
+                if root_prompt:
+                    prompt_hash = hashlib.sha256(root_prompt.encode()).hexdigest()
+
+                # Compute max depth reached from telemetry agent_name patterns
+                max_depth_reached = 0
+                depth_re = re.compile(r'_d(\d+)')
+                rows = self._conn.execute(
+                    "SELECT DISTINCT agent_name FROM telemetry WHERE trace_id = ? AND agent_name IS NOT NULL",
+                    (self._trace_id,),
+                ).fetchall()
+                for (agent_name,) in rows:
+                    m = depth_re.search(agent_name)
+                    if m:
+                        d = int(m.group(1))
+                        if d > max_depth_reached:
+                            max_depth_reached = d
+
                 self._conn.execute(
                     """UPDATE traces SET
                        end_time = ?,
@@ -452,7 +605,9 @@ class SqliteTracingPlugin(BasePlugin):
                        artifact_saves = ?,
                        artifact_bytes_saved = ?,
                        per_iteration_breakdown = ?,
-                       model_usage_summary = ?
+                       model_usage_summary = ?,
+                       prompt_hash = ?,
+                       max_depth_reached = ?
                        WHERE trace_id = ?""",
                     (
                         time.time(),
@@ -476,6 +631,8 @@ class SqliteTracingPlugin(BasePlugin):
                         state.get("obs:artifact_bytes_saved"),
                         json.dumps(state.get("obs:per_iteration_token_breakdown")) if state.get("obs:per_iteration_token_breakdown") else None,
                         json.dumps(model_usage) if model_usage else None,
+                        prompt_hash,
+                        max_depth_reached,
                         self._trace_id,
                     ),
                 )
@@ -519,6 +676,18 @@ class SqliteTracingPlugin(BasePlugin):
             iteration = callback_context.state.get(ITERATION_COUNT, 0)
             agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
 
+            # Extract agent_type, prompt_chars, system_chars from context snapshot
+            context_snapshot = callback_context.state.get(CONTEXT_WINDOW_SNAPSHOT)
+            agent_type = None
+            prompt_chars = None
+            system_chars = None
+            if isinstance(context_snapshot, dict):
+                agent_type = context_snapshot.get("agent_type")
+                prompt_chars = context_snapshot.get("prompt_chars")
+                system_chars = context_snapshot.get("system_chars")
+
+            call_number = callback_context.state.get(OBS_TOTAL_CALLS)
+
             telemetry_id = self._new_id()
             start_time = time.time()
             self._insert_telemetry(
@@ -529,6 +698,10 @@ class SqliteTracingPlugin(BasePlugin):
                 num_contents=num_contents,
                 iteration=iteration,
                 agent_name=agent_name,
+                agent_type=agent_type,
+                prompt_chars=prompt_chars,
+                system_chars=system_chars,
+                call_number=call_number,
             )
             self._pending_model_telemetry[model] = (telemetry_id, start_time)
         except Exception as e:

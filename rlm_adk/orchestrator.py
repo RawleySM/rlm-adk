@@ -39,6 +39,7 @@ from rlm_adk.state import (
     DYN_ROOT_PROMPT,
     FINAL_ANSWER,
     ITERATION_COUNT,
+    OBS_REASONING_RETRY_COUNT,
     REPO_URL,
     REQUEST_ID,
     ROOT_PROMPT,
@@ -264,6 +265,16 @@ class RLMOrchestratorAgent(BaseAgent):
                         attempt + 1, exc, delay,
                     )
                     await asyncio.sleep(delay)
+
+            # Persist reasoning retry count if any retries occurred
+            if attempt > 0:
+                yield Event(
+                    invocation_id=ctx.invocation_id,
+                    author=self.name,
+                    actions=EventActions(state_delta={
+                        OBS_REASONING_RETRY_COUNT: attempt,
+                    }),
+                )
 
             # --- Extract final_answer from output_key ---
             # ADK's output_key stores the raw text of the final model response.

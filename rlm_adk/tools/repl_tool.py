@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Callable, Optional
 
 from google.adk.tools import BaseTool, ToolContext
@@ -22,7 +23,10 @@ from google.genai.types import FunctionDeclaration, Schema, Type
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
 from rlm_adk.repl.trace import REPLTrace
-from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, OBS_CHILD_DISPATCH_COUNT, depth_key
+from rlm_adk.state import (
+    ITERATION_COUNT, LAST_REPL_RESULT, OBS_CHILD_DISPATCH_COUNT,
+    OBS_REWRITE_COUNT, OBS_REWRITE_TOTAL_MS, depth_key,
+)
 
 _CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
 
@@ -60,6 +64,8 @@ class REPLTool(BaseTool):
         self._flush_fn = flush_fn
         self._depth = depth
         self._summarization_threshold = summarization_threshold
+        self._rewrite_count = 0
+        self._rewrite_total_ms = 0.0
 
     def _get_declaration(self) -> FunctionDeclaration:
         return FunctionDeclaration(
@@ -111,7 +117,16 @@ class REPLTool(BaseTool):
         try:
             if has_llm_calls(code):
                 llm_calls_made = True
+                _t0 = time.perf_counter()
                 tree = rewrite_for_async(code)
+                _rewrite_ms = (time.perf_counter() - _t0) * 1000
+                self._rewrite_count += 1
+                self._rewrite_total_ms += _rewrite_ms
+                # Write rewrite instrumentation early -- the count is known
+                # after the AST transform, before execution begins, so it
+                # survives execution errors (CancelledError / Exception).
+                tool_context.state[OBS_REWRITE_COUNT] = self._rewrite_count
+                tool_context.state[OBS_REWRITE_TOTAL_MS] = round(self._rewrite_total_ms, 3)
                 compiled = compile(tree, "<repl>", "exec")
                 # Merge globals and locals so _repl_exec sees variables from
                 # previous executions (imports, user-defined vars, etc.)

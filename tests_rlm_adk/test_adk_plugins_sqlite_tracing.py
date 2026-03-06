@@ -637,3 +637,524 @@ class TestErrorResilience:
         await plugin.after_run_callback(
             invocation_context=mock_invocation_context
         )
+
+
+class TestSchemaMigration:
+    """Test schema migration adds missing columns to existing tables."""
+
+    def test_migrate_adds_enriched_columns_to_old_schema(self, tmp_path):
+        """Opening a plugin against a DB with only base columns adds enriched columns."""
+        db_file = str(tmp_path / "old_traces.db")
+        # Create a DB with only the 13 base columns (simulates old schema)
+        conn = sqlite3.connect(db_file)
+        conn.executescript("""
+            CREATE TABLE traces (
+                trace_id                TEXT PRIMARY KEY,
+                session_id              TEXT NOT NULL,
+                user_id                 TEXT,
+                app_name                TEXT,
+                start_time              REAL NOT NULL,
+                end_time                REAL,
+                status                  TEXT DEFAULT 'running',
+                total_input_tokens      INTEGER DEFAULT 0,
+                total_output_tokens     INTEGER DEFAULT 0,
+                total_calls             INTEGER DEFAULT 0,
+                iterations              INTEGER DEFAULT 0,
+                final_answer_length     INTEGER,
+                metadata                TEXT
+            );
+            CREATE TABLE telemetry (
+                telemetry_id    TEXT PRIMARY KEY,
+                trace_id        TEXT NOT NULL,
+                event_type      TEXT NOT NULL,
+                start_time      REAL NOT NULL
+            );
+            CREATE TABLE session_state_events (
+                event_id        TEXT PRIMARY KEY,
+                trace_id        TEXT NOT NULL,
+                seq             INTEGER NOT NULL,
+                state_key       TEXT NOT NULL,
+                key_category    TEXT NOT NULL,
+                event_time      REAL NOT NULL
+            );
+            CREATE TABLE spans (
+                span_id         TEXT PRIMARY KEY,
+                trace_id        TEXT NOT NULL
+            );
+        """)
+        conn.commit()
+        conn.close()
+
+        from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
+        plugin = SqliteTracingPlugin(db_path=db_file)
+
+        # Verify enriched columns were added to traces
+        verify_conn = sqlite3.connect(db_file)
+        columns = [
+            row[1]
+            for row in verify_conn.execute("PRAGMA table_info(traces)").fetchall()
+        ]
+        for col in ["request_id", "repo_url", "root_prompt_preview",
+                     "total_execution_time_s", "child_dispatch_count",
+                     "child_error_counts", "structured_output_failures",
+                     "finish_safety_count", "finish_recitation_count",
+                     "finish_max_tokens_count", "tool_invocation_summary",
+                     "artifact_saves", "artifact_bytes_saved",
+                     "per_iteration_breakdown", "model_usage_summary"]:
+            assert col in columns, f"Missing enriched column: {col}"
+        verify_conn.close()
+
+    @pytest.mark.asyncio
+    async def test_after_run_succeeds_on_migrated_schema(self, tmp_path):
+        """after_run_callback successfully writes enriched columns after migration."""
+        db_file = str(tmp_path / "old_traces.db")
+        # Create old-schema DB
+        conn = sqlite3.connect(db_file)
+        conn.executescript("""
+            CREATE TABLE traces (
+                trace_id                TEXT PRIMARY KEY,
+                session_id              TEXT NOT NULL,
+                user_id                 TEXT,
+                app_name                TEXT,
+                start_time              REAL NOT NULL,
+                end_time                REAL,
+                status                  TEXT DEFAULT 'running',
+                total_input_tokens      INTEGER DEFAULT 0,
+                total_output_tokens     INTEGER DEFAULT 0,
+                total_calls             INTEGER DEFAULT 0,
+                iterations              INTEGER DEFAULT 0,
+                final_answer_length     INTEGER,
+                metadata                TEXT
+            );
+            CREATE TABLE telemetry (
+                telemetry_id TEXT PRIMARY KEY, trace_id TEXT, event_type TEXT, start_time REAL
+            );
+            CREATE TABLE session_state_events (
+                event_id TEXT PRIMARY KEY, trace_id TEXT, seq INTEGER, state_key TEXT,
+                key_category TEXT, event_time REAL
+            );
+            CREATE TABLE spans (span_id TEXT PRIMARY KEY, trace_id TEXT);
+        """)
+        conn.commit()
+        conn.close()
+
+        from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
+        plugin = SqliteTracingPlugin(db_path=db_file)
+
+        inv_ctx = MagicMock()
+        inv_ctx.session.id = "sess_1"
+        inv_ctx.session.user_id = "user_1"
+        inv_ctx.app_name = "test_app"
+        inv_ctx.session.state = {}
+
+        await plugin.before_run_callback(invocation_context=inv_ctx)
+
+        inv_ctx.session.state = {
+            "obs:total_input_tokens": 1000,
+            "obs:total_output_tokens": 500,
+            "obs:total_calls": 5,
+            "iteration_count": 3,
+            "final_answer": "done",
+            "request_id": "req-123",
+            "obs:total_execution_time": 12.5,
+            "obs:child_dispatch_count": 7,
+        }
+        await plugin.after_run_callback(invocation_context=inv_ctx)
+
+        verify_conn = sqlite3.connect(db_file)
+        verify_conn.row_factory = sqlite3.Row
+        row = verify_conn.execute("SELECT * FROM traces").fetchone()
+        assert row["status"] == "completed"
+        assert row["total_input_tokens"] == 1000
+        assert row["request_id"] == "req-123"
+        assert row["child_dispatch_count"] == 7
+        verify_conn.close()
+
+    def test_migrate_adds_missing_telemetry_columns(self, tmp_path):
+        """Migration adds missing columns to telemetry table too."""
+        db_file = str(tmp_path / "old_traces.db")
+        conn = sqlite3.connect(db_file)
+        conn.executescript("""
+            CREATE TABLE traces (
+                trace_id TEXT PRIMARY KEY, session_id TEXT, start_time REAL
+            );
+            CREATE TABLE telemetry (
+                telemetry_id TEXT PRIMARY KEY, trace_id TEXT, event_type TEXT, start_time REAL
+            );
+            CREATE TABLE session_state_events (
+                event_id TEXT PRIMARY KEY, trace_id TEXT, seq INTEGER, state_key TEXT,
+                key_category TEXT, event_time REAL
+            );
+            CREATE TABLE spans (span_id TEXT PRIMARY KEY, trace_id TEXT);
+        """)
+        conn.commit()
+        conn.close()
+
+        from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
+        plugin = SqliteTracingPlugin(db_path=db_file)
+
+        verify_conn = sqlite3.connect(db_file)
+        columns = [
+            row[1]
+            for row in verify_conn.execute("PRAGMA table_info(telemetry)").fetchall()
+        ]
+        for col in ["agent_name", "model", "input_tokens", "output_tokens",
+                     "agent_type", "prompt_chars", "system_chars", "call_number"]:
+            assert col in columns, f"Missing telemetry column: {col}"
+        verify_conn.close()
+
+
+class TestTelemetryColumnPopulation:
+    """Test that agent_type, prompt_chars, system_chars, call_number are populated."""
+
+    @pytest.mark.asyncio
+    async def test_agent_type_populated_from_context_snapshot(
+        self, plugin, db_path, mock_invocation_context, mock_callback_context
+    ):
+        """agent_type is populated from CONTEXT_WINDOW_SNAPSHOT in state."""
+        await plugin.before_run_callback(invocation_context=mock_invocation_context)
+
+        mock_callback_context.state = {
+            "iteration_count": 1,
+            "context_window_snapshot": {"agent_type": "reasoning", "prompt_chars": 500, "system_chars": 200},
+        }
+        llm_request = MagicMock()
+        llm_request.model = "gemini-2.5-flash"
+        llm_request.contents = [MagicMock()]
+        await plugin.before_model_callback(
+            callback_context=mock_callback_context, llm_request=llm_request
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["agent_type"] == "reasoning"
+        assert row["prompt_chars"] == 500
+        assert row["system_chars"] == 200
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_call_number_populated_from_obs_total_calls(
+        self, plugin, db_path, mock_invocation_context, mock_callback_context
+    ):
+        """call_number is populated from OBS_TOTAL_CALLS in state."""
+        await plugin.before_run_callback(invocation_context=mock_invocation_context)
+
+        mock_callback_context.state = {
+            "iteration_count": 0,
+            "obs:total_calls": 5,
+        }
+        llm_request = MagicMock()
+        llm_request.model = "gemini-2.5-flash"
+        llm_request.contents = []
+        await plugin.before_model_callback(
+            callback_context=mock_callback_context, llm_request=llm_request
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM telemetry").fetchone()
+        assert row["call_number"] == 5
+        conn.close()
+
+
+class TestConfigPersistence:
+    """Tests for config_json column in traces table."""
+
+    @pytest.mark.asyncio
+    async def test_config_json_column_exists(self, db_path, plugin):
+        """traces table has a config_json column."""
+        conn = sqlite3.connect(db_path)
+        columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(traces)").fetchall()
+        ]
+        assert "config_json" in columns
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_before_run_stores_config_from_state(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """before_run_callback stores config_json with max_depth and max_iterations from state."""
+        mock_invocation_context.session.state = {
+            "app:max_depth": 3,
+            "app:max_iterations": 10,
+        }
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        config = json.loads(row["config_json"])
+        assert config["max_depth"] == 3
+        assert config["max_iterations"] == 10
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_before_run_stores_config_from_env(
+        self, plugin, db_path, mock_invocation_context, monkeypatch
+    ):
+        """before_run_callback captures env vars in config_json."""
+        monkeypatch.setenv("RLM_MAX_DEPTH", "4")
+        monkeypatch.setenv("RLM_MAX_CONCURRENT_CHILDREN", "8")
+        monkeypatch.setenv("RLM_WORKER_TIMEOUT", "30")
+        monkeypatch.setenv("RLM_ADK_MODEL", "gemini-3-pro")
+        mock_invocation_context.session.state = {}
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        config = json.loads(row["config_json"])
+        assert config["env_RLM_MAX_DEPTH"] == "4"
+        assert config["env_RLM_MAX_CONCURRENT_CHILDREN"] == "8"
+        assert config["env_RLM_WORKER_TIMEOUT"] == "30"
+        assert config["env_RLM_ADK_MODEL"] == "gemini-3-pro"
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_config_json_none_when_no_config(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """config_json is still valid JSON even when no config keys are set."""
+        mock_invocation_context.session.state = {}
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        config = json.loads(row["config_json"])
+        assert isinstance(config, dict)
+        conn.close()
+
+
+class TestPromptHash:
+    """Tests for prompt_hash column in traces table."""
+
+    @pytest.mark.asyncio
+    async def test_prompt_hash_column_exists(self, db_path, plugin):
+        """traces table has a prompt_hash column."""
+        conn = sqlite3.connect(db_path)
+        columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(traces)").fetchall()
+        ]
+        assert "prompt_hash" in columns
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_after_run_stores_prompt_hash(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """after_run_callback computes sha256 of root_prompt and stores as prompt_hash."""
+        import hashlib
+
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        mock_invocation_context.session.state = {
+            "root_prompt": "Analyze this repository",
+            "final_answer": "done",
+        }
+        await plugin.after_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        expected_hash = hashlib.sha256("Analyze this repository".encode()).hexdigest()
+        assert row["prompt_hash"] == expected_hash
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_prompt_hash_null_when_no_prompt(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """prompt_hash is NULL when root_prompt is not in state."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        mock_invocation_context.session.state = {}
+        await plugin.after_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        assert row["prompt_hash"] is None
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_same_prompt_same_hash(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """Two runs with the same root_prompt produce the same prompt_hash."""
+        import hashlib
+
+        prompt = "Analyze this repo for bugs"
+
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        mock_invocation_context.session.state = {"root_prompt": prompt}
+        await plugin.after_run_callback(
+            invocation_context=mock_invocation_context
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT prompt_hash FROM traces").fetchone()
+        expected = hashlib.sha256(prompt.encode()).hexdigest()
+        assert row["prompt_hash"] == expected
+        conn.close()
+
+
+class TestMaxDepthReached:
+    """Tests for max_depth_reached column in traces table."""
+
+    @pytest.mark.asyncio
+    async def test_max_depth_reached_column_exists(self, db_path, plugin):
+        """traces table has a max_depth_reached column."""
+        conn = sqlite3.connect(db_path)
+        columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(traces)").fetchall()
+        ]
+        assert "max_depth_reached" in columns
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_max_depth_from_telemetry_agent_names(
+        self, plugin, db_path, mock_invocation_context, mock_callback_context
+    ):
+        """after_run computes max_depth_reached from telemetry agent_name patterns."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        # Simulate model calls at different depths via agent name stack
+        for agent_name in ["reasoning_agent", "child_reasoning_d1", "child_reasoning_d2"]:
+            plugin._agent_span_stack.clear()
+            plugin._agent_span_stack.append(agent_name)
+            llm_request = MagicMock()
+            llm_request.model = "gemini-2.5-flash"
+            llm_request.contents = []
+            await plugin.before_model_callback(
+                callback_context=mock_callback_context, llm_request=llm_request
+            )
+            llm_response = MagicMock()
+            llm_response.model_version = "gemini-2.5-flash"
+            llm_response.usage_metadata = None
+            llm_response.error_code = None
+            llm_response.finish_reason = None
+            await plugin.after_model_callback(
+                callback_context=mock_callback_context, llm_response=llm_response
+            )
+
+        mock_invocation_context.session.state = {}
+        await plugin.after_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        assert row["max_depth_reached"] == 2
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_max_depth_zero_when_no_children(
+        self, plugin, db_path, mock_invocation_context, mock_callback_context
+    ):
+        """max_depth_reached is 0 when only reasoning_agent (depth 0) ran."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        plugin._agent_span_stack.append("reasoning_agent")
+        llm_request = MagicMock()
+        llm_request.model = "gemini-2.5-flash"
+        llm_request.contents = []
+        await plugin.before_model_callback(
+            callback_context=mock_callback_context, llm_request=llm_request
+        )
+        llm_response = MagicMock()
+        llm_response.model_version = "gemini-2.5-flash"
+        llm_response.usage_metadata = None
+        llm_response.error_code = None
+        llm_response.finish_reason = None
+        await plugin.after_model_callback(
+            callback_context=mock_callback_context, llm_response=llm_response
+        )
+
+        mock_invocation_context.session.state = {}
+        await plugin.after_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        assert row["max_depth_reached"] == 0
+        conn.close()
+
+    @pytest.mark.asyncio
+    async def test_max_depth_null_when_no_telemetry(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """max_depth_reached is 0 when no telemetry rows exist."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        mock_invocation_context.session.state = {}
+        await plugin.after_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM traces").fetchone()
+        assert row["max_depth_reached"] == 0
+        conn.close()
+
+
+class TestMigrationNewColumns:
+    """Test that schema migration picks up the new columns."""
+
+    def test_migrate_adds_config_prompt_depth_columns(self, tmp_path):
+        """Migration adds config_json, prompt_hash, max_depth_reached to old schema."""
+        db_file = str(tmp_path / "old_traces.db")
+        conn = sqlite3.connect(db_file)
+        conn.executescript("""
+            CREATE TABLE traces (
+                trace_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                user_id TEXT, app_name TEXT, start_time REAL NOT NULL,
+                end_time REAL, status TEXT DEFAULT 'running',
+                total_input_tokens INTEGER DEFAULT 0,
+                total_output_tokens INTEGER DEFAULT 0,
+                total_calls INTEGER DEFAULT 0, iterations INTEGER DEFAULT 0,
+                final_answer_length INTEGER, metadata TEXT
+            );
+            CREATE TABLE telemetry (
+                telemetry_id TEXT PRIMARY KEY, trace_id TEXT, event_type TEXT, start_time REAL
+            );
+            CREATE TABLE session_state_events (
+                event_id TEXT PRIMARY KEY, trace_id TEXT, seq INTEGER,
+                state_key TEXT, key_category TEXT, event_time REAL
+            );
+            CREATE TABLE spans (span_id TEXT PRIMARY KEY, trace_id TEXT);
+        """)
+        conn.commit()
+        conn.close()
+
+        from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
+        plugin = SqliteTracingPlugin(db_path=db_file)
+
+        verify_conn = sqlite3.connect(db_file)
+        columns = [
+            row[1]
+            for row in verify_conn.execute("PRAGMA table_info(traces)").fetchall()
+        ]
+        assert "config_json" in columns
+        assert "prompt_hash" in columns
+        assert "max_depth_reached" in columns
+        verify_conn.close()

@@ -360,6 +360,16 @@ def _default_plugins(
         except ImportError:
             logger.debug("REPLTracingPlugin not available, skipping")
 
+    _cloud_env = os.getenv("RLM_ADK_CLOUD_OBS", "").lower() in ("1", "true", "yes")
+    if _cloud_env:
+        try:
+            from rlm_adk.plugins.google_cloud_tracing import GoogleCloudTracingPlugin
+            from rlm_adk.plugins.google_cloud_analytics import GoogleCloudAnalyticsPlugin
+            plugins.append(GoogleCloudTracingPlugin())
+            plugins.append(GoogleCloudAnalyticsPlugin())
+        except ImportError:
+            logger.debug("Google Cloud plugins not available, skipping")
+
     _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
     if _snapshot_env:
         from rlm_adk.plugins.context_snapshot import ContextWindowSnapshotPlugin

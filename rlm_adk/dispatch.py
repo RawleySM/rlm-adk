@@ -27,6 +27,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from pydantic import BaseModel
 
 from rlm_adk.callbacks.worker import _classify_error
+from rlm_adk.callbacks.worker_retry import _bug13_stats
 from rlm_adk.repl.trace import DataFlowTracker
 from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 from rlm_adk.state import (
@@ -34,6 +35,7 @@ from rlm_adk.state import (
     OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
+    OBS_BUG13_SUPPRESS_COUNT,
     OBS_STRUCTURED_OUTPUT_FAILURES,
     child_obs_key,
 )
@@ -119,6 +121,7 @@ def create_dispatch_closures(
         child_start = time.perf_counter()
         elapsed_ms = 0.0
         _child_result: LLMResult | None = None
+        _error_message: str | None = None
 
         from rlm_adk.agent import create_child_orchestrator
 
@@ -168,6 +171,7 @@ def create_dispatch_closures(
             elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error("Child dispatch error at depth %d: %s", depth + 1, e)
             cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+            _error_message = str(e)
             _child_result = LLMResult(f"Error: {e}", error=True, error_category=cat)
         finally:
             # Write per-child observability summary
@@ -176,6 +180,9 @@ def create_dispatch_closures(
                 "elapsed_ms": round(elapsed_ms, 2),
                 "error": _child_result.error if isinstance(_child_result, LLMResult) else True,
                 "error_category": _child_result.error_category if isinstance(_child_result, LLMResult) else None,
+                "prompt_preview": prompt[:500],
+                "result_preview": str(_child_result)[:500] if _child_result is not None else None,
+                "error_message": _error_message,
             }
             # Clean up child's REPL
             if hasattr(child, "repl") and child.repl is not None and not child.persistent:
@@ -317,6 +324,10 @@ def create_dispatch_closures(
             delta[OBS_CHILD_ERROR_COUNTS] = dict(_acc_child_error_counts)
         if _acc_structured_output_failures > 0:
             delta[OBS_STRUCTURED_OUTPUT_FAILURES] = _acc_structured_output_failures
+        # BUG-13 monkey-patch invocation count
+        bug13_count = _bug13_stats.get("suppress_count", 0)
+        if bug13_count > 0:
+            delta[OBS_BUG13_SUPPRESS_COUNT] = bug13_count
         # Merge per-child summaries into delta
         delta.update(_acc_child_summaries)
         # Reset accumulators

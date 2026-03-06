@@ -2,7 +2,7 @@
 
 Verifies that after _run_child completes (success or error), flush_fn() returns
 a dict containing child_obs_key(depth+1, fanout_idx) keys with at minimum:
-  {model, elapsed_ms, error, error_category}
+  {model, elapsed_ms, error, error_category, prompt_preview, result_preview}
 
 For batched calls, one key per fanout index must be present.
 """
@@ -206,6 +206,136 @@ class TestChildObsSummary:
         delta2 = flush_fn()
         leftover = [k for k in delta2 if "obs:child_summary@" in k]
         assert leftover == [], f"Second flush should have no child_summary keys, got: {leftover}"
+
+    @pytest.mark.asyncio
+    async def test_single_dispatch_summary_has_prompt_preview(self):
+        """Child summary must include prompt_preview truncated to 500 chars."""
+        pool = WorkerPool(default_model="my-model", pool_size=1)
+        ctx = _make_invocation_context()
+        child = _make_mock_child("the answer")
+
+        long_prompt = "x" * 700
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async(long_prompt)
+
+        delta = flush_fn()
+        summary = delta[child_obs_key(1, 0)]
+
+        assert "prompt_preview" in summary, "Summary missing 'prompt_preview'"
+        assert isinstance(summary["prompt_preview"], str)
+        assert len(summary["prompt_preview"]) <= 500, (
+            f"prompt_preview should be <= 500 chars, got {len(summary['prompt_preview'])}"
+        )
+        assert summary["prompt_preview"] == long_prompt[:500]
+
+    @pytest.mark.asyncio
+    async def test_single_dispatch_summary_has_result_preview(self):
+        """Child summary must include result_preview truncated to 500 chars."""
+        pool = WorkerPool(default_model="my-model", pool_size=1)
+        ctx = _make_invocation_context()
+        long_answer = "y" * 700
+        child = _make_mock_child(long_answer)
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("test prompt")
+
+        delta = flush_fn()
+        summary = delta[child_obs_key(1, 0)]
+
+        assert "result_preview" in summary, "Summary missing 'result_preview'"
+        assert isinstance(summary["result_preview"], str)
+        assert len(summary["result_preview"]) <= 500, (
+            f"result_preview should be <= 500 chars, got {len(summary['result_preview'])}"
+        )
+        assert summary["result_preview"] == long_answer[:500]
+
+    @pytest.mark.asyncio
+    async def test_short_prompt_not_truncated(self):
+        """Short prompts should be preserved in full."""
+        pool = WorkerPool(default_model="my-model", pool_size=1)
+        ctx = _make_invocation_context()
+        child = _make_mock_child("answer")
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("short prompt")
+
+        delta = flush_fn()
+        summary = delta[child_obs_key(1, 0)]
+        assert summary["prompt_preview"] == "short prompt"
+
+    @pytest.mark.asyncio
+    async def test_error_dispatch_has_error_detail_in_summary(self):
+        """When child raises, summary includes error_category and error_message."""
+        pool = WorkerPool(default_model="my-model", pool_size=1)
+        ctx = _make_invocation_context()
+        child = _make_failing_child()
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("test prompt")
+
+        delta = flush_fn()
+        summary = delta[child_obs_key(1, 0)]
+        assert summary["error"] is True
+        assert "error_message" in summary, "Summary missing 'error_message'"
+        assert "simulated child failure" in summary["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_success_dispatch_has_no_error_message(self):
+        """On success, error_message should be None."""
+        pool = WorkerPool(default_model="my-model", pool_size=1)
+        ctx = _make_invocation_context()
+        child = _make_mock_child("good answer")
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("test prompt")
+
+        delta = flush_fn()
+        summary = delta[child_obs_key(1, 0)]
+        assert summary["error_message"] is None
+
+    @pytest.mark.asyncio
+    async def test_batch_dispatch_summaries_have_previews(self):
+        """Batched dispatch: each fanout child summary has prompt_preview and result_preview."""
+        pool = WorkerPool(default_model="batch-model", pool_size=3)
+        ctx = _make_invocation_context()
+
+        prompts = ["prompt-0", "prompt-1", "prompt-2"]
+        children = [_make_mock_child(f"answer-{i}") for i in range(3)]
+        call_count = {"n": 0}
+
+        def side_effect(**kwargs):
+            c = children[call_count["n"]]
+            call_count["n"] += 1
+            return c
+
+        with patch("rlm_adk.agent.create_child_orchestrator", side_effect=side_effect):
+            _, llm_query_batched_async, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_batched_async(prompts)
+
+        delta = flush_fn()
+        for i in range(3):
+            summary = delta[child_obs_key(1, i)]
+            assert "prompt_preview" in summary, f"fanout {i} missing prompt_preview"
+            assert "result_preview" in summary, f"fanout {i} missing result_preview"
+            assert summary["prompt_preview"] == f"prompt-{i}"
+            assert summary["result_preview"] == f"answer-{i}"
 
     @pytest.mark.asyncio
     async def test_depth_limit_does_not_write_summary(self):

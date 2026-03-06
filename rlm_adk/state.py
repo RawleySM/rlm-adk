@@ -66,6 +66,16 @@ OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
 # Structured Output Observability (written by dispatch closures)
 OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 
+# AST Rewrite Instrumentation (written by REPLTool)
+OBS_REWRITE_COUNT = "obs:rewrite_count"
+OBS_REWRITE_TOTAL_MS = "obs:rewrite_total_ms"
+
+# Reasoning Retry Observability (written by orchestrator)
+OBS_REASONING_RETRY_COUNT = "obs:reasoning_retry_count"
+
+# BUG-13 Monkey-Patch Observability (written by flush_fn)
+OBS_BUG13_SUPPRESS_COUNT = "obs:bug13_suppress_count"
+
 # Child Dispatch Observability Keys (session-scoped)
 OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
 OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
