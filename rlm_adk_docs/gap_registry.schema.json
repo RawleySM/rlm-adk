@@ -1,0 +1,154 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Gap Registry",
+  "description": "Source of truth for observability gap tracking and accountability.",
+  "type": "object",
+  "required": ["meta", "gaps"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "object",
+      "required": ["mode", "total_gaps", "generated_from", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["report", "strict"],
+          "description": "report = exit 0 always; strict = exit 2 on pending gaps"
+        },
+        "total_gaps": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Must match actual entry count (prevents accidental deletion)"
+        },
+        "generated_from": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "gaps": {
+      "type": "object",
+      "patternProperties": {
+        "^(OG|OD)-\\d{2}$": {
+          "$ref": "#/definitions/gap_entry"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "definitions": {
+    "gap_entry": {
+      "type": "object",
+      "required": [
+        "id", "cluster", "title", "severity", "source_ids",
+        "source_doc", "disposition", "disposition_category",
+        "disposition_reason", "disposition_date", "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(OG|OD)-\\d{2}$"
+        },
+        "cluster": {
+          "type": "string",
+          "pattern": "^[A-Z]$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+        },
+        "source_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "source_doc": {
+          "type": "string",
+          "description": "File:line reference to the source document"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": ["pending", "closed", "dismissed", "deferred"]
+        },
+        "disposition_category": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "string",
+              "enum": [
+                "redundant_with_active",
+                "low_value_detail",
+                "perf_outside_scope",
+                "platform_maturity",
+                "by_design_privacy",
+                "by_design_architecture",
+                "superseded",
+                "out_of_scope"
+              ]
+            }
+          ]
+        },
+        "disposition_reason": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 50 }
+          ]
+        },
+        "disposition_date": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "format": "date" }
+          ]
+        },
+        "evidence": {
+          "type": "object",
+          "required": ["test_paths", "demo_path", "code_paths", "evidence_tier"],
+          "additionalProperties": false,
+          "properties": {
+            "test_paths": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "demo_path": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "string" }
+              ]
+            },
+            "code_paths": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "evidence_tier": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "string",
+                  "enum": ["demo_verified", "test_only", "code_review"]
+                }
+              ]
+            }
+          }
+        },
+        "unblock_condition": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" }
+          ]
+        }
+      }
+    }
+  }
+}
