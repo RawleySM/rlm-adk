@@ -99,6 +99,46 @@ def _match_value(
     return True, ""
 
 
+def _match_structure(
+    actual: Any,
+    spec: Any,
+    path: str = "value",
+) -> tuple[bool, str]:
+    """Recursively match *actual* against *spec*."""
+    if isinstance(spec, dict):
+        if all(isinstance(k, str) and k.startswith("$") for k in spec):
+            return _match_value(actual, spec)
+
+        if not isinstance(actual, dict):
+            return False, f"{path}: expected dict, got {type(actual).__name__}"
+
+        for key, child_spec in spec.items():
+            child_path = f"{path}.{key}"
+            if isinstance(child_spec, dict) and child_spec.get("$absent"):
+                if key in actual:
+                    return False, f"{child_path}: key should be absent"
+                continue
+            if key not in actual:
+                return False, f"{child_path}: key missing"
+            ok, detail = _match_structure(actual[key], child_spec, child_path)
+            if not ok:
+                return False, detail
+        return True, ""
+
+    if isinstance(spec, list):
+        if not isinstance(actual, list):
+            return False, f"{path}: expected list, got {type(actual).__name__}"
+        if len(actual) != len(spec):
+            return False, f"{path}: expected len {len(spec)}, got {len(actual)}"
+        for idx, (actual_item, spec_item) in enumerate(zip(actual, spec)):
+            ok, detail = _match_structure(actual_item, spec_item, f"{path}[{idx}]")
+            if not ok:
+                return False, detail
+        return True, ""
+
+    return _match_value(actual, spec)
+
+
 def _preview(body: dict[str, Any] | None, max_len: int = 200) -> str:
     """Extract first text content from a request/response body, truncated."""
     if not body:
@@ -181,6 +221,7 @@ class ScenarioRouter:
         self.config: dict[str, Any] = fixture.get("config", {})
         self.expected: dict[str, Any] = fixture.get("expected", {})
         self.expected_state: dict[str, Any] = fixture.get("expected_state", {})
+        self.expected_contract: dict[str, Any] = fixture.get("expected_contract", {})
 
         self._responses: list[dict[str, Any]] = fixture.get("responses", [])
         self._faults: dict[int, dict[str, Any]] = {
@@ -193,6 +234,7 @@ class ScenarioRouter:
         self._request_log: list[dict[str, Any]] = []
         self._captured_requests: list[dict[str, Any]] = []
         self._captured_metadata: list[dict[str, Any]] = []
+        self._fixture_exhausted_calls: list[int] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -219,6 +261,10 @@ class ScenarioRouter:
     @property
     def captured_metadata(self) -> list[dict[str, Any]]:
         return list(self._captured_metadata)
+
+    @property
+    def fixture_exhausted_calls(self) -> list[int]:
+        return list(self._fixture_exhausted_calls)
 
     def next_response(
         self,
@@ -287,6 +333,7 @@ class ScenarioRouter:
             # Normal sequential response
             if self._response_pointer >= len(self._responses):
                 # Ran out of scripted responses — return a safe fallback
+                self._fixture_exhausted_calls.append(idx)
                 logger.warning(
                     "Fixture %s: call #%d exhausted responses (pointer=%d, total=%d). "
                     "Returning empty-text fallback.",
@@ -321,6 +368,8 @@ class ScenarioRouter:
         final_state: dict[str, Any],
         fixture_path: str | Path,
         elapsed_s: float,
+        *,
+        events: list[Any] | None = None,
     ) -> ContractResult:
         """Compare actual run results against fixture ``expected`` values.
 
@@ -331,6 +380,8 @@ class ScenarioRouter:
         from rlm_adk.state import FINAL_ANSWER, ITERATION_COUNT
 
         checks: list[dict[str, Any]] = []
+        event_parts = _extract_event_parts(events or [])
+        tool_results = _extract_tool_results(event_parts)
 
         # final_answer
         if "final_answer" in self.expected:
@@ -389,6 +440,27 @@ class ScenarioRouter:
                 "detail": detail,
             })
 
+        checks.append({
+            "field": "fixture_exhausted_fallback",
+            "expected": False,
+            "actual": bool(self._fixture_exhausted_calls),
+            "ok": not self._fixture_exhausted_calls,
+            "detail": (
+                f"fallback used at call indices {self._fixture_exhausted_calls}"
+                if self._fixture_exhausted_calls else ""
+            ),
+        })
+
+        for check in _check_contract_invariants(
+            self.expected_contract,
+            final_state=final_state,
+            callers=[meta.get("caller", "unknown") for meta in self._captured_metadata],
+            captured_request_count=len(self._captured_requests),
+            event_parts=event_parts,
+            tool_results=tool_results,
+        ):
+            checks.append(check)
+
         passed = all(c["ok"] for c in checks)
         return ContractResult(
             fixture_path=str(fixture_path),
@@ -409,6 +481,271 @@ class ScenarioRouter:
             self._request_log.clear()
             self._captured_requests.clear()
             self._captured_metadata.clear()
+            self._fixture_exhausted_calls.clear()
+
+
+def _extract_event_parts(events: list[Any]) -> list[dict[str, Any]]:
+    """Normalize event content parts for declarative contract checks."""
+    normalized: list[dict[str, Any]] = []
+    for event_index, event in enumerate(events):
+        content = getattr(event, "content", None)
+        if content is None:
+            continue
+        role = getattr(content, "role", None)
+        for part_index, part in enumerate(getattr(content, "parts", []) or []):
+            function_call = getattr(part, "function_call", None)
+            if function_call is not None:
+                normalized.append({
+                    "event_index": event_index,
+                    "part_index": part_index,
+                    "role": role,
+                    "kind": "function_call",
+                    "name": getattr(function_call, "name", None),
+                    "args": getattr(function_call, "args", None),
+                })
+                continue
+
+            function_response = getattr(part, "function_response", None)
+            if function_response is not None:
+                normalized.append({
+                    "event_index": event_index,
+                    "part_index": part_index,
+                    "role": role,
+                    "kind": "function_response",
+                    "name": getattr(function_response, "name", None),
+                    "response": getattr(function_response, "response", None),
+                })
+                continue
+
+            text = getattr(part, "text", None)
+            if text:
+                normalized.append({
+                    "event_index": event_index,
+                    "part_index": part_index,
+                    "role": role,
+                    "kind": "text",
+                    "text": text,
+                })
+    return normalized
+
+
+def _extract_tool_results(event_parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract dict-backed tool results from normalized event parts."""
+    results: list[dict[str, Any]] = []
+    for part in event_parts:
+        if part.get("kind") != "function_response":
+            continue
+        response = part.get("response")
+        if not isinstance(response, dict):
+            continue
+        results.append({
+            "function_name": part.get("name"),
+            **copy.deepcopy(response),
+        })
+    return results
+
+
+def _find_matching_subsequence(
+    actual_items: list[dict[str, Any]],
+    expected_items: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    """Return whether *expected_items* appears contiguously in *actual_items*."""
+    if not expected_items:
+        return True, ""
+    if len(expected_items) > len(actual_items):
+        return False, (
+            f"expected subsequence len {len(expected_items)}, got only {len(actual_items)} items"
+        )
+    for start in range(len(actual_items) - len(expected_items) + 1):
+        all_ok = True
+        for offset, expected_item in enumerate(expected_items):
+            ok, _detail = _match_structure(
+                actual_items[start + offset],
+                expected_item,
+                path=f"event_parts[{start + offset}]",
+            )
+            if not ok:
+                all_ok = False
+                break
+        if all_ok:
+            return True, ""
+    return False, f"expected subsequence not found in {actual_items!r}"
+
+
+def _check_contract_invariants(
+    expected_contract: dict[str, Any] | None,
+    *,
+    final_state: dict[str, Any],
+    callers: list[str],
+    captured_request_count: int,
+    event_parts: list[dict[str, Any]],
+    tool_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Evaluate the fixture's richer declarative contract invariants."""
+    if not expected_contract:
+        return []
+
+    checks: list[dict[str, Any]] = []
+
+    callers_spec = expected_contract.get("callers")
+    if callers_spec is not None:
+        if isinstance(callers_spec, list):
+            ok, detail = _match_structure(callers, callers_spec, "callers")
+            checks.append({
+                "field": "contract:callers.sequence",
+                "expected": callers_spec,
+                "actual": callers,
+                "ok": ok,
+                "detail": detail,
+            })
+        elif isinstance(callers_spec, dict):
+            if "sequence" in callers_spec:
+                expected_sequence = callers_spec["sequence"]
+                ok, detail = _match_structure(callers, expected_sequence, "callers.sequence")
+                checks.append({
+                    "field": "contract:callers.sequence",
+                    "expected": expected_sequence,
+                    "actual": callers,
+                    "ok": ok,
+                    "detail": detail,
+                })
+            if "counts" in callers_spec:
+                actual_counts = {caller: callers.count(caller) for caller in sorted(set(callers))}
+                expected_counts = callers_spec["counts"]
+                ok, detail = _match_structure(actual_counts, expected_counts, "callers.counts")
+                checks.append({
+                    "field": "contract:callers.counts",
+                    "expected": expected_counts,
+                    "actual": actual_counts,
+                    "ok": ok,
+                    "detail": detail,
+                })
+            if "count" in callers_spec:
+                expected_count = callers_spec["count"]
+                actual_count = len(callers)
+                ok, detail = _match_value(actual_count, expected_count)
+                checks.append({
+                    "field": "contract:callers.count",
+                    "expected": expected_count,
+                    "actual": actual_count,
+                    "ok": ok,
+                    "detail": detail,
+                })
+
+    captured_requests_spec = expected_contract.get("captured_requests")
+    if captured_requests_spec is not None:
+        expected_count = (
+            captured_requests_spec["count"]
+            if isinstance(captured_requests_spec, dict) and "count" in captured_requests_spec
+            else captured_requests_spec
+        )
+        ok, detail = _match_value(captured_request_count, expected_count)
+        checks.append({
+            "field": "contract:captured_requests.count",
+            "expected": expected_count,
+            "actual": captured_request_count,
+            "ok": ok,
+            "detail": detail,
+        })
+
+    events_spec = expected_contract.get("events") or {}
+    if "part_counts" in events_spec:
+        actual_counts: dict[str, int] = {}
+        for part in event_parts:
+            key = (
+                f"{part['kind']}:{part['name']}"
+                if part.get("name") else part["kind"]
+            )
+            actual_counts[key] = actual_counts.get(key, 0) + 1
+        expected_counts = events_spec["part_counts"]
+        ok, detail = _match_structure(actual_counts, expected_counts, "events.part_counts")
+        checks.append({
+            "field": "contract:events.part_counts",
+            "expected": expected_counts,
+            "actual": actual_counts,
+            "ok": ok,
+            "detail": detail,
+        })
+    if "part_sequence" in events_spec:
+        expected_sequence = events_spec["part_sequence"]
+        ok, detail = _find_matching_subsequence(event_parts, expected_sequence)
+        checks.append({
+            "field": "contract:events.part_sequence",
+            "expected": expected_sequence,
+            "actual": event_parts,
+            "ok": ok,
+            "detail": detail,
+        })
+
+    tool_spec = expected_contract.get("tool_results") or {}
+    if "count" in tool_spec:
+        expected_count = tool_spec["count"]
+        actual_count = len(tool_results)
+        ok, detail = _match_value(actual_count, expected_count)
+        checks.append({
+            "field": "contract:tool_results.count",
+            "expected": expected_count,
+            "actual": actual_count,
+            "ok": ok,
+            "detail": detail,
+        })
+    for idx, expected_tool in enumerate(tool_spec.get("any", [])):
+        matched = False
+        detail = ""
+        for actual_tool in tool_results:
+            ok, detail = _match_structure(actual_tool, expected_tool, f"tool_results.any[{idx}]")
+            if ok:
+                matched = True
+                detail = ""
+                break
+        checks.append({
+            "field": f"contract:tool_results.any[{idx}]",
+            "expected": expected_tool,
+            "actual": tool_results,
+            "ok": matched,
+            "detail": detail if not matched else "",
+        })
+    if "stdout_contains" in tool_spec:
+        expected_needles = tool_spec["stdout_contains"]
+        if not isinstance(expected_needles, list):
+            expected_needles = [expected_needles]
+        actual_stdout = "\n".join(str(item.get("stdout", "")) for item in tool_results)
+        ok = all(needle in actual_stdout for needle in expected_needles)
+        checks.append({
+            "field": "contract:tool_results.stdout_contains",
+            "expected": expected_needles,
+            "actual": actual_stdout,
+            "ok": ok,
+            "detail": "" if ok else f"missing one of {expected_needles!r}",
+        })
+    if "stderr_contains" in tool_spec:
+        expected_needles = tool_spec["stderr_contains"]
+        if not isinstance(expected_needles, list):
+            expected_needles = [expected_needles]
+        actual_stderr = "\n".join(str(item.get("stderr", "")) for item in tool_results)
+        ok = all(needle in actual_stderr for needle in expected_needles)
+        checks.append({
+            "field": "contract:tool_results.stderr_contains",
+            "expected": expected_needles,
+            "actual": actual_stderr,
+            "ok": ok,
+            "detail": "" if ok else f"missing one of {expected_needles!r}",
+        })
+
+    observability_spec = expected_contract.get("observability") or {}
+    counters_spec = observability_spec.get("counters", observability_spec)
+    for key, spec in counters_spec.items():
+        actual = final_state.get(key)
+        ok, detail = _match_structure(actual, spec, f"observability.{key}")
+        checks.append({
+            "field": f"contract:observability:{key}",
+            "expected": spec,
+            "actual": actual,
+            "ok": ok,
+            "detail": detail,
+        })
+
+    return checks
 
 
 def _caller_to_model_name(caller: str) -> str:

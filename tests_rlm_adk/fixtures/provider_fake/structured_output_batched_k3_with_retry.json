@@ -215,6 +215,9 @@
   "expected_state": {
     "obs:child_dispatch_count": 3,
     "obs:child_total_batch_dispatches": 1,
+    "obs:child_error_counts": {
+      "$absent": true
+    },
     "last_repl_result": {
       "$not_none": true
     },

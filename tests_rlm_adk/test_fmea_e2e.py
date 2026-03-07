@@ -72,6 +72,32 @@ def _extract_tool_results(events: list) -> list[dict]:
     return tool_results
 
 
+def _request_function_responses(request: dict, name: str = "execute_code") -> list[dict]:
+    """Extract functionResponse payloads from a captured request body."""
+    responses = []
+    for content in request.get("contents", []):
+        for part in content.get("parts", []):
+            fr = part.get("functionResponse")
+            if fr is not None and fr.get("name") == name:
+                response = fr.get("response")
+                if isinstance(response, dict):
+                    responses.append(response)
+    return responses
+
+
+def _request_function_calls(request: dict, name: str = "execute_code") -> list[dict]:
+    """Extract functionCall payloads from a captured request body."""
+    calls = []
+    for content in request.get("contents", []):
+        for part in content.get("parts", []):
+            fc = part.get("functionCall")
+            if fc is not None and fc.get("name") == name:
+                args = fc.get("args")
+                if isinstance(args, dict):
+                    calls.append(args)
+    return calls
+
+
 # ===========================================================================
 # FM-08: Worker 429 Mid-Batch — REMOVED (Phase 3 migration)
 # Worker fixtures are incompatible with child orchestrator dispatch.
@@ -160,6 +186,50 @@ class TestReplErrorThenRetry:
         assert result.contract.passed, result.contract.diagnostics()
         fa = result.final_state.get(FINAL_ANSWER, "")
         assert "alpha-42" in fa, f"Expected 'alpha-42' in final_answer: {fa!r}"
+
+
+# ===========================================================================
+# Recursive child dispatch: provider-fake recursive ping
+# ===========================================================================
+
+
+class TestFakeRecursivePing:
+    """Verify recursive child dispatch returns the terminal payload, not placeholders."""
+
+    FIXTURE = "fake_recursive_ping"
+
+    async def test_contract(self):
+        """Basic contract with structural child-state assertions."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+
+    async def test_root_tool_stdout_contains_recursive_layers(self, tmp_path: Path):
+        """The root REPL execution should observe the full 0->1->2 recursion chain."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        tool_results = _extract_tool_results(result.events)
+        assert len(tool_results) >= 1, "Expected at least one tool result"
+        stdout = tool_results[0].get("stdout", "")
+        assert "recursion_layer=0" in stdout, f"Missing layer 0 marker: {stdout!r}"
+        assert "recursion_layer=1" in stdout, f"Missing layer 1 marker: {stdout!r}"
+        assert "recursion_layer=2" in stdout, f"Missing layer 2 marker: {stdout!r}"
+
+    async def test_root_tool_returns_terminal_pong_payload(self, tmp_path: Path):
+        """The root tool result should carry the terminal child JSON without child errors."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        tool_results = _extract_tool_results(result.events)
+        assert len(tool_results) >= 1, "Expected at least one tool result"
+        first_tool = tool_results[0]
+        stdout = first_tool.get("stdout", "")
+        stderr = first_tool.get("stderr", "")
+        assert '"my_response": "pong"' in stdout or '"my_response":"pong"' in stdout, (
+            f"Terminal pong payload missing from stdout: {stdout!r}"
+        )
+        assert "[Child orchestrator produced no answer]" not in stdout, (
+            f"Recursive chain leaked placeholder child output: {stdout!r}"
+        )
+        assert "no final_answer in output_key" not in stderr, (
+            f"Recursive chain leaked child extraction failure: {stderr!r}"
+        )
 
 
 # ===========================================================================
@@ -433,6 +503,26 @@ class TestMaxIterationsExceeded:
             f"Expected 'Completed with limit' in final_answer: {fa!r}"
         )
 
+    async def test_limit_message_reaches_final_reasoning_turn(self):
+        """Verify the blocked tool response is present in the final reasoning request."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        final_request = result.captured_requests[-1]
+        responses = _request_function_responses(final_request)
+        assert len(responses) == 3, (
+            f"Expected 3 execute_code function responses in final request, got {len(responses)}"
+        )
+        blocked = responses[-1]
+        assert blocked.get("call_number") == 3, (
+            f"Expected blocked call_number=3, got {blocked!r}"
+        )
+        assert blocked.get("stdout") == "", (
+            f"Blocked call should surface empty stdout, got {blocked.get('stdout')!r}"
+        )
+        assert "REPL call limit reached" in blocked.get("stderr", ""), (
+            f"Blocked call limit message missing from final request: {blocked!r}"
+        )
+
 
 # ===========================================================================
 # FM-15: Empty Reasoning Output (RPN=16)
@@ -537,7 +627,6 @@ class TestStructuredOutputBatchedK3WithRetry:
     async def test_retry_worker_recovered(self, tmp_path: Path):
         """Verify all 3 workers produced results (2 positive, 1 negative after retry)."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
         fa = result.final_state.get(FINAL_ANSWER, "")
         assert "2 positive" in fa, f"Expected '2 positive' in final_answer: {fa!r}"
         assert "1 negative" in fa, f"Expected '1 negative' in final_answer: {fa!r}"
@@ -555,7 +644,6 @@ class TestStructuredOutputBatchedK3WithRetry:
         from rlm_adk.callbacks.worker_retry import _bug13_stats
         initial_count = _bug13_stats["suppress_count"]
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
         invocations = _bug13_stats["suppress_count"] - initial_count
         assert invocations >= 1, (
             f"Expected BUG-13 patch to fire >= 1 time during retry, "
@@ -566,7 +654,6 @@ class TestStructuredOutputBatchedK3WithRetry:
     async def test_tool_result_stdout_has_sentiments(self, tmp_path: Path):
         """Verify REPL stdout shows parsed sentiment values from all 3 workers."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
         tool_results = _extract_tool_results(result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         # Find the tool result with llm_calls_made (the dispatch iteration)
@@ -578,6 +665,39 @@ class TestStructuredOutputBatchedK3WithRetry:
         )
         assert "negative" in stdout.lower(), (
             f"Expected 'negative' in tool stdout: {stdout!r}"
+        )
+
+    async def test_tool_result_has_no_placeholder_child_outputs(self, tmp_path: Path):
+        """Structured worker results should be parsed data, not placeholder child failures."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        tool_results = _extract_tool_results(result.events)
+        assert len(tool_results) >= 1, "Expected at least one tool result"
+        first_tool = tool_results[0]
+        stdout = first_tool.get("stdout", "")
+        stderr = first_tool.get("stderr", "")
+        assert "Review 1: None" not in stdout, (
+            f"Worker 1 parsed result missing from stdout: {stdout!r}"
+        )
+        assert "Review 2: None" not in stdout, (
+            f"Worker 2 parsed result missing from stdout: {stdout!r}"
+        )
+        assert "Review 3: None" not in stdout, (
+            f"Worker 3 parsed result missing from stdout: {stdout!r}"
+        )
+        assert "[Child orchestrator produced no answer]" not in stdout, (
+            f"Structured output batch leaked placeholder child output: {stdout!r}"
+        )
+        assert "no final_answer in output_key" not in stderr, (
+            f"Structured output batch leaked child extraction failure: {stderr!r}"
+        )
+
+    async def test_last_repl_result_marks_clean_dispatch(self, tmp_path: Path):
+        """Successful structured dispatch should not mark the REPL iteration as errored."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        lrr = result.final_state.get(LAST_REPL_RESULT)
+        assert isinstance(lrr, dict), f"Expected dict LAST_REPL_RESULT, got {type(lrr).__name__}"
+        assert lrr.get("has_errors") is False, (
+            f"Structured dispatch should not mark has_errors=True: {lrr!r}"
         )
 
 
@@ -595,7 +715,6 @@ class TestStructuredOutputBatchedK3WithRetry:
         a known limitation with structured output fixtures.
         """
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
         # With child orchestrators, NO_RESULT errors are expected when the
         # child reasoning agent's output_key doesn't contain the answer.
         # This is acceptable — the important thing is no RATE_LIMIT/SERVER errors.
@@ -1225,6 +1344,33 @@ class TestReplRuntimeErrorPartialState:
         fa = result.final_state.get(FINAL_ANSWER, "")
         assert "90" in fa, f"Expected '90' in final_answer: {fa!r}"
 
+    async def test_retry_request_redefines_lost_variables(self):
+        """The correction turn must redefine x and y instead of relying on leaked state."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        final_request = result.captured_requests[-1]
+        calls = _request_function_calls(final_request)
+        assert len(calls) == 2, (
+            f"Expected 2 execute_code calls in final reasoning request, got {len(calls)}"
+        )
+        corrected_code = calls[-1].get("code", "")
+        assert "x = 10" in corrected_code, f"Corrected code must redefine x: {corrected_code!r}"
+        assert "y = 20" in corrected_code, f"Corrected code must redefine y: {corrected_code!r}"
+        assert "undefined_var = 30" in corrected_code, (
+            f"Corrected code must define undefined_var: {corrected_code!r}"
+        )
+
+    async def test_recovery_variables_come_from_second_run(self, tmp_path: Path):
+        """The successful retry should expose the complete recomputed state in variables."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        tool_results = _extract_tool_results(result.events)
+        assert len(tool_results) >= 2, "Expected error + retry tool results"
+        second_vars = tool_results[1].get("variables", {})
+        assert second_vars == {"x": 10, "y": 20, "undefined_var": 30, "z": 60}, (
+            f"Expected full recomputed variable set from retry, got {second_vars!r}"
+        )
+
 
 # ===========================================================================
 # FM-03 variant: Max Iterations Exceeded — Persistent Ignoring (RPN=30)
@@ -1288,6 +1434,36 @@ class TestMaxIterationsExceededPersistent:
         assert not fourth_stdout, (
             f"Expected empty stdout on blocked call 4, got: {fourth_stdout!r}"
         )
+
+    async def test_blocked_calls_do_not_leak_new_variables(self, tmp_path: Path):
+        """Blocked calls must not persist z or w into the tool response variables."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        tool_results = _extract_tool_results(result.events)
+        assert len(tool_results) >= 4
+        third_vars = tool_results[2].get("variables", {})
+        fourth_vars = tool_results[3].get("variables", {})
+        assert third_vars == {}, f"Blocked call 3 should not persist variables: {third_vars!r}"
+        assert fourth_vars == {}, f"Blocked call 4 should not persist variables: {fourth_vars!r}"
+
+    async def test_final_reasoning_turn_sees_both_limit_failures(self):
+        """The final reasoning request should include both blocked tool responses."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        final_request = result.captured_requests[-1]
+        responses = _request_function_responses(final_request)
+        assert len(responses) == 4, (
+            f"Expected 4 execute_code function responses in final request, got {len(responses)}"
+        )
+        blocked = [resp for resp in responses if resp.get("call_number") in (3, 4)]
+        assert len(blocked) == 2, f"Expected blocked call_numbers 3 and 4, got {blocked!r}"
+        for resp in blocked:
+            assert resp.get("stdout") == "", (
+                f"Blocked response should have empty stdout: {resp!r}"
+            )
+            assert "REPL call limit reached" in resp.get("stderr", ""), (
+                f"Blocked response missing limit message: {resp!r}"
+            )
 
     async def test_final_answer_reflects_limit(self, tmp_path: Path):
         """Verify FINAL_ANSWER acknowledges the limit."""

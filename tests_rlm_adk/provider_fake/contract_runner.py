@@ -358,7 +358,12 @@ async def run_fixture_contract_with_plugins(
         )
         final_state = final_session.state if final_session else {}
 
-        contract = router.check_expectations(final_state, fixture_path, elapsed)
+        contract = router.check_expectations(
+            final_state,
+            fixture_path,
+            elapsed,
+            events=events,
+        )
 
         return PluginContractResult(
             contract=contract,
