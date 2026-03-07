@@ -184,5 +184,91 @@
     "obs:total_input_tokens": {"$gt": 0},
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "reasoning", "reasoning", "reasoning", "reasoning"],
+      "counts": {
+        "reasoning": 5
+      },
+      "count": 5
+    },
+    "captured_requests": {
+      "count": 5
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 4,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 2,
+          "stdout": {
+            "$contains": "y = 30"
+          },
+          "stderr": "",
+          "variables": {
+            "x": 10,
+            "y": 30
+          },
+          "llm_calls_made": false
+        },
+        {
+          "function_name": "execute_code",
+          "call_number": 3,
+          "stdout": "",
+          "stderr": {
+            "$contains": "REPL call limit reached"
+          },
+          "variables": {},
+          "llm_calls_made": false
+        },
+        {
+          "function_name": "execute_code",
+          "call_number": 4,
+          "stdout": "",
+          "stderr": {
+            "$contains": "REPL call limit reached"
+          },
+          "variables": {},
+          "llm_calls_made": false
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 4
+      },
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 0,
+        "stdout_preview": {
+          "$contains": "y = 30"
+        },
+        "trace_summary": {
+          "llm_call_count": 0,
+          "failed_llm_calls": 0
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 5
+      },
+      "obs:total_calls": 5
+    }
   }
 }

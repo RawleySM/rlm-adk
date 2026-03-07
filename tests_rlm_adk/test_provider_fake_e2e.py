@@ -65,6 +65,7 @@ def _all_fixture_paths() -> list[Path]:
 # ===========================================================================
 
 
+@pytest.mark.provider_fake_contract
 @pytest.mark.parametrize("fixture_path", _all_fixture_paths(), ids=lambda p: p.stem)
 async def test_fixture_contract(fixture_path: Path):
     """Validate any fixture through the real pipeline against its expected values.
@@ -76,6 +77,196 @@ async def test_fixture_contract(fixture_path: Path):
     if not result.passed:
         print(result.diagnostics())
     assert result.passed, f"Fixture contract failed: {fixture_path.name}\n{result.diagnostics()}"
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "required_fields"),
+    [
+        (
+            "fake_recursive_ping",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:last_repl_result",
+            },
+        ),
+        (
+            "structured_output_batched_k3_with_retry",
+            {
+                "contract:callers.sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "structured_output_batched_k3_multi_retry",
+            {
+                "contract:callers.sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "max_iterations_exceeded",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:tool_results.any[1]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "max_iterations_exceeded_persistent",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:tool_results.any[1]",
+                "contract:tool_results.any[2]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "worker_500_then_success",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_summary@d1f0",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "worker_500_retry_exhausted",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:child_summary@d1f0",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "worker_500_retry_exhausted_naive",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:child_summary@d1f0",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "worker_empty_response",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:child_summary@d1f1",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "worker_max_tokens_naive",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_summary@d1f0",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:finish_max_tokens_count",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "worker_safety_finish",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:child_summary@d1f0",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "structured_output_retry_exhaustion",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:structured_output_failures",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "structured_output_retry_exhaustion_pure_validation",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:structured_output_failures",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+        (
+            "structured_output_batched_k3_mixed_exhaust",
+            {
+                "contract:callers.sequence",
+                "contract:events.part_sequence",
+                "contract:tool_results.any[0]",
+                "contract:observability:obs:tool_invocation_summary",
+                "contract:observability:obs:child_error_counts",
+                "contract:observability:obs:structured_output_failures",
+                "contract:observability:last_repl_result",
+                "contract:observability:obs:per_iteration_token_breakdown",
+            },
+        ),
+    ],
+)
+async def test_priority_fixture_contracts_cover_runtime_and_observability(
+    fixture_name: str,
+    required_fields: set[str],
+):
+    """Priority fixtures should exercise both runtime-visible and obs-visible contracts."""
+    result = await run_fixture_contract(FIXTURE_DIR / f"{fixture_name}.json")
+    assert result.passed, result.diagnostics()
+    checked_fields = {check["field"] for check in result.checks}
+    missing = required_fields - checked_fields
+    assert not missing, (
+        f"Fixture {fixture_name} missing contract coverage for: {sorted(missing)}"
+    )
 
 
 # ===========================================================================
@@ -96,6 +287,7 @@ async def _run_with_plugins(
     )
 
 
+@pytest.mark.agent_challenge
 async def test_observability_state_happy_path(tmp_path: Path):
     """ObservabilityPlugin populates OBS_* counters (captured by SqliteTracingPlugin).
 
@@ -131,6 +323,7 @@ async def test_observability_state_happy_path(tmp_path: Path):
     assert state.get("reasoning_output_tokens", 0) > 0, "reasoning_output_tokens should be > 0"
 
 
+@pytest.mark.agent_challenge
 async def test_artifact_persistence_happy_path(tmp_path: Path):
     """InMemoryArtifactService stores final_answer.md artifact."""
     result = await _run_with_plugins("agent_challenge/happy_path_single_iteration", tmp_path)
@@ -155,6 +348,7 @@ async def test_artifact_persistence_happy_path(tmp_path: Path):
     print(f"  artifact_save_count={save_count}, artifact_keys={keys}")
 
 
+@pytest.mark.agent_challenge
 async def test_artifact_persistence_multi_iteration(tmp_path: Path):
     """InMemoryArtifactService stores code/output artifacts for worker fixtures."""
     result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
@@ -175,6 +369,7 @@ async def test_artifact_persistence_multi_iteration(tmp_path: Path):
 # ===========================================================================
 
 
+@pytest.mark.agent_challenge
 async def test_sqlite_traces_recorded_happy_path(tmp_path: Path):
     """SqliteTracingPlugin writes a completed trace row with token stats."""
     result = await _run_with_plugins("agent_challenge/happy_path_single_iteration", tmp_path)
@@ -208,6 +403,7 @@ async def test_sqlite_traces_recorded_happy_path(tmp_path: Path):
         conn.close()
 
 
+@pytest.mark.agent_challenge
 async def test_sqlite_traces_recorded_multi_iteration(tmp_path: Path):
     """SqliteTracingPlugin captures spans for multi-iteration worker runs."""
     result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
@@ -237,6 +433,7 @@ async def test_sqlite_traces_recorded_multi_iteration(tmp_path: Path):
         conn.close()
 
 
+@pytest.mark.agent_challenge
 async def test_repl_trace_in_events_multi_iteration(tmp_path: Path):
     """REPL execution results flow through function_response events.
 

@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_429_mid_batch",
-  "description": "FM-08 (RPN=96): Reasoning emits execute_code with llm_query_batched(K=3). The SECOND worker hits a 429 rate-limit fault on BOTH attempts (SDK HttpRetryOptions attempts=2), triggering on_model_error_callback. Workers 1 and 3 succeed. REPL code checks result.error on each result and reports successes/failures. Then reasoning returns FINAL. Call ordering: index 1=worker_a success, index 2=worker_b 429 #1, index 3=worker_c success (during retry delay), index 4=worker_b 429 #2 (retry exhausted).",
+  "description": "FM-08 (RPN=96): Root reasoning emits execute_code with llm_query_batched(K=3). The SECOND child hits repeated 429 rate-limit faults, then its child reasoning turn returns a handled failure summary while children 1 and 3 succeed. Parent REPL code must distinguish that handled child summary from true success, then root reasoning returns FINAL.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -22,7 +22,7 @@
                   "functionCall": {
                     "name": "execute_code",
                     "args": {
-                      "code": "prompts = [\"Analyze item A\", \"Analyze item B\", \"Analyze item C\"]\nresults = llm_query_batched(prompts)\nsuccesses = [r for r in results if not r.error]\nerrors = [r for r in results if r.error]\nprint(f\"Successes: {len(successes)}, Errors: {len(errors)}\")\nfor i, r in enumerate(results):\n    if r.error:\n        print(f\"  Result {i}: ERROR - {r.error_category}\")\n    else:\n        print(f\"  Result {i}: {str(r)[:50]}\")"
+                      "code": "prompts = [\"Analyze item A\", \"Analyze item B\", \"Analyze item C\"]\nresults = llm_query_batched(prompts)\nsuccess_count = 0\nerror_count = 0\nfor i, r in enumerate(results):\n    text = str(r)\n    handled_rate_limit = (not r.error) and (\"rate limit\" in text.lower() or \"1 failed\" in text.lower())\n    if r.error or handled_rate_limit:\n        error_count += 1\n        category = r.error_category or \"RATE_LIMIT_HANDLED\"\n        print(f\"  Result {i}: ERROR - {category}\")\n    else:\n        success_count += 1\n        print(f\"  Result {i}: {text[:50]}\")\nprint(f\"Successes: {success_count}, Errors: {error_count}\")"
                     }
                   }
                 }
@@ -71,7 +71,7 @@
     {
       "call_index": 3,
       "caller": "worker",
-      "note": "worker_c succeeds (indices 2 and 4 consumed by 429 fault injections for worker_b)",
+      "note": "worker_c succeeds while the second child is still retrying",
       "status": 200,
       "body": {
         "candidates": [
@@ -97,9 +97,37 @@
       }
     },
     {
-      "call_index": 5,
+      "call_index": 8,
       "caller": "reasoning",
-      "note": "Reasoning sees tool result with 2 successes and 1 error, returns FINAL",
+      "note": "Child B reasoning turn summarizes the repeated 429 failure into a handled final answer.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The child request failed after repeated rate limiting.\n\nFINAL(Worker error: rate limit retry exhausted)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 340,
+          "candidatesTokenCount": 24,
+          "totalTokenCount": 364
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 9,
+      "caller": "reasoning",
+      "note": "Root reasoning sees the parent REPL summary with 2 successes and 1 rate-limit error, then returns FINAL.",
       "status": 200,
       "body": {
         "candidates": [
@@ -149,22 +177,54 @@
           "status": "RESOURCE_EXHAUSTED"
         }
       }
+    },
+    {
+      "call_index": 5,
+      "fault_type": "http_error",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Resource has been exhausted (e.g. check quota).",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      }
+    },
+    {
+      "call_index": 6,
+      "fault_type": "http_error",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Resource has been exhausted (e.g. check quota).",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      }
+    },
+    {
+      "call_index": 7,
+      "fault_type": "http_error",
+      "status": 429,
+      "body": {
+        "error": {
+          "code": 429,
+          "message": "Resource has been exhausted (e.g. check quota).",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      }
     }
   ],
   "expected": {
     "final_answer": "Batch: 2 succeeded, 1 failed",
     "total_iterations": 1,
-    "total_model_calls": 6
+    "total_model_calls": 10
   },
   "expected_state": {
     "obs:child_dispatch_count": 3,
     "obs:child_total_batch_dispatches": 1,
     "obs:child_dispatch_latency_ms": {
       "$type": "list",
-      "$not_empty": true
-    },
-    "obs:child_error_counts": {
-      "$not_none": true,
       "$not_empty": true
     },
     "last_repl_result": {
@@ -174,5 +234,77 @@
     "obs:total_input_tokens": {"$gt": 0},
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "fault", "worker", "fault", "fault", "fault", "fault", "reasoning", "reasoning"],
+      "counts": {
+        "reasoning": 3,
+        "worker": 2,
+        "fault": 5
+      },
+      "count": 10
+    },
+    "captured_requests": {
+      "count": 10
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Successes: 2, Errors: 1"
+          },
+          "variables": {
+            "success_count": 2,
+            "error_count": 1
+          }
+        }
+      ],
+      "stdout_contains": [
+        "ERROR - RATE_LIMIT_HANDLED"
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "last_repl_result": {
+        "has_errors": true,
+        "has_output": true,
+        "total_llm_calls": 3,
+        "stdout_preview": {
+          "$contains": "Successes: 2, Errors: 1"
+        },
+        "trace_summary": {
+          "llm_call_count": 3,
+          "failed_llm_calls": 0
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$not_empty": true
+      },
+      "obs:total_calls": {
+        "$gt": 0
+      }
+    }
   }
 }

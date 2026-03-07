@@ -45,6 +45,12 @@ from rlm_adk.state import (
     REASONING_PARSED_OUTPUT,
     REASONING_RAW_OUTPUT,
     REASONING_SUMMARY,
+    REASONING_FINISH_REASON,
+    REASONING_INPUT_TOKENS,
+    REASONING_OUTPUT_TOKENS,
+    REASONING_THOUGHT_TEXT,
+    REASONING_THOUGHT_TOKENS,
+    REASONING_VISIBLE_OUTPUT_TEXT,
     REQUEST_ID,
     ROOT_PROMPT,
     SHOULD_STOP,
@@ -57,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 # Transient HTTP status codes that warrant a retry.
 _TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+_COMPLIANCE_FINISH_REASONS = frozenset({"SAFETY", "RECITATION"})
 
 
 def is_transient_error(exc: Exception) -> bool:
@@ -76,6 +83,106 @@ def is_transient_error(exc: Exception) -> bool:
     except ImportError:
         pass
     return False
+
+
+def _serialize_completion_payload(value: Any) -> str:
+    """Return a stable string form for structured child results."""
+    if isinstance(value, dict):
+        try:
+            return json.dumps(value, separators=(",", ":"), sort_keys=True)
+        except (TypeError, ValueError):
+            return str(value)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _infer_completion_error(
+    *,
+    final_answer: str,
+    finish_reason: str | None,
+    output_schema: Any,
+) -> tuple[str, str]:
+    """Classify a missing/errored reasoning completion."""
+    if finish_reason in _COMPLIANCE_FINISH_REASONS:
+        return (
+            finish_reason,
+            f"[RLM ERROR] Reasoning agent finished with {finish_reason} before producing a final answer.",
+        )
+    if finish_reason == "MAX_TOKENS":
+        return (
+            finish_reason,
+            "[RLM ERROR] Reasoning agent hit MAX_TOKENS before producing a final answer.",
+        )
+    if output_schema is not None:
+        schema_name = getattr(output_schema, "__name__", "structured output schema")
+        return (
+            "SCHEMA_VALIDATION_EXHAUSTED",
+            f"[RLM ERROR] Structured output validation exhausted before producing a valid {schema_name} result.",
+        )
+    if final_answer.startswith("[RLM ERROR]"):
+        return ("UNKNOWN", final_answer)
+    return (
+        "NO_RESULT",
+        "[RLM ERROR] Reasoning agent completed without producing a final answer.",
+    )
+
+
+def _collect_reasoning_completion(
+    *,
+    reasoning_agent: LlmAgent,
+    session_state: dict[str, Any],
+    depth: int,
+    output_schema: Any,
+) -> dict[str, Any]:
+    """Normalize the final reasoning payload for dispatch + finalization."""
+    output_key = reasoning_agent.output_key or "reasoning_output"
+    raw = session_state.get(output_key)
+    structured = getattr(reasoning_agent, "_structured_result", None)
+    visible_text = session_state.get(depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)) or ""
+    thought_text = session_state.get(depth_key(REASONING_THOUGHT_TEXT, depth)) or ""
+    finish_reason = session_state.get(depth_key(REASONING_FINISH_REASON, depth))
+
+    payload = parse_reasoning_output(raw)
+    source = "output_key"
+    if not payload.final_answer and payload.parsed_output is None and structured is not None:
+        payload = parse_reasoning_output(structured)
+        source = "structured_result"
+    elif not payload.final_answer and visible_text:
+        payload = parse_reasoning_output(visible_text)
+        source = "visible_output_text"
+
+    parsed_output = payload.parsed_output if isinstance(payload.parsed_output, dict) else None
+    result_text = payload.final_answer or _serialize_completion_payload(
+        parsed_output or payload.raw_output or visible_text
+    )
+    error = False
+    error_category = None
+
+    if not result_text or result_text.startswith("[RLM ERROR]"):
+        error = True
+        error_category, result_text = _infer_completion_error(
+            final_answer=result_text,
+            finish_reason=finish_reason,
+            output_schema=output_schema,
+        )
+
+    completion = {
+        "source": source,
+        "text": result_text,
+        "error": error,
+        "error_category": error_category,
+        "raw_output": payload.raw_output,
+        "parsed_output": parsed_output,
+        "reasoning_summary": payload.reasoning_summary,
+        "visible_output_text": visible_text or result_text,
+        "thought_text": thought_text,
+        "finish_reason": finish_reason,
+        "input_tokens": session_state.get(depth_key(REASONING_INPUT_TOKENS, depth), 0) or 0,
+        "output_tokens": session_state.get(depth_key(REASONING_OUTPUT_TOKENS, depth), 0) or 0,
+        "thoughts_tokens": session_state.get(depth_key(REASONING_THOUGHT_TOKENS, depth), 0) or 0,
+    }
+    return completion
 
 
 class RLMOrchestratorAgent(BaseAgent):
@@ -116,6 +223,9 @@ class RLMOrchestratorAgent(BaseAgent):
         _default_max_iter = int(os.getenv("RLM_MAX_ITERATIONS", "30"))
         max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
         trace_level = int(os.getenv("RLM_REPL_TRACE", "0"))
+        object.__setattr__(self.reasoning_agent, "_structured_result", None)
+        object.__setattr__(self.reasoning_agent, "_rlm_completion", None)
+        object.__setattr__(self, "_rlm_completion", None)
 
         # Initialize REPL environment (reuse persistent REPL if provided)
         if self.repl is not None:
@@ -287,21 +397,26 @@ class RLMOrchestratorAgent(BaseAgent):
             # ADK's output_key stores the raw text of the final model response.
             # When output_schema is set, it's a JSON dict (ReasoningOutput).
             # When output_schema is NOT set, it's plain text.
-            _output_key = self.reasoning_agent.output_key or "reasoning_output"
-            raw = ctx.session.state.get(_output_key, "")
-            reasoning_payload = parse_reasoning_output(raw)
-            final_answer = reasoning_payload.final_answer
+            completion = _collect_reasoning_completion(
+                reasoning_agent=self.reasoning_agent,
+                session_state=ctx.session.state,
+                depth=self.depth,
+                output_schema=self.output_schema,
+            )
+            object.__setattr__(self.reasoning_agent, "_rlm_completion", completion)
+            object.__setattr__(self, "_rlm_completion", completion)
+            final_answer = completion["text"]
 
             reasoning_state_delta: dict[str, Any] = {
-                depth_key(REASONING_RAW_OUTPUT, self.depth): reasoning_payload.raw_output,
+                depth_key(REASONING_RAW_OUTPUT, self.depth): completion["raw_output"],
             }
-            if reasoning_payload.parsed_output is not None:
+            if completion["parsed_output"] is not None:
                 reasoning_state_delta[depth_key(REASONING_PARSED_OUTPUT, self.depth)] = (
-                    reasoning_payload.parsed_output
+                    completion["parsed_output"]
                 )
-            if reasoning_payload.reasoning_summary:
+            if completion["reasoning_summary"]:
                 reasoning_state_delta[depth_key(REASONING_SUMMARY, self.depth)] = (
-                    reasoning_payload.reasoning_summary
+                    completion["reasoning_summary"]
                 )
             yield Event(
                 invocation_id=ctx.invocation_id,
@@ -309,7 +424,7 @@ class RLMOrchestratorAgent(BaseAgent):
                 actions=EventActions(state_delta=reasoning_state_delta),
             )
 
-            if final_answer:
+            if final_answer and not completion["error"]:
                 print(
                     f"[RLM] FINAL_ANSWER detected length={len(final_answer)}",
                     flush=True,
@@ -336,14 +451,8 @@ class RLMOrchestratorAgent(BaseAgent):
                     ),
                 )
             else:
-                # No final answer extracted -- reasoning agent may not have
-                # produced a valid ReasoningOutput
-                logger.warning(
-                    "Reasoning agent completed without a final_answer in output_key"
-                )
-                exhausted_msg = (
-                    "[RLM ERROR] Reasoning agent completed without producing "
-                    "a structured final answer. Check output_schema wiring."
+                exhausted_msg = final_answer or (
+                    "[RLM ERROR] Reasoning agent completed without producing a final answer."
                 )
                 yield Event(
                     invocation_id=ctx.invocation_id,

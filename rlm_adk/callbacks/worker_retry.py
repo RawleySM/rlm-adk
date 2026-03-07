@@ -38,6 +38,44 @@ _bug13_stats: dict[str, int] = {"suppress_count": 0}
 _SET_MODEL_RESPONSE_TOOL_NAME = "set_model_response"
 
 
+def _structured_obs(agent: Any) -> dict[str, Any]:
+    """Return the mutable structured-output telemetry dict for a child agent."""
+    obs = getattr(agent, "_structured_output_obs", None)
+    if isinstance(obs, dict):
+        return obs
+    obs = {"attempts": 0, "retry_count": 0, "events": []}
+    agent._structured_output_obs = obs  # type: ignore[attr-defined]
+    return obs
+
+
+def _record_structured_event(
+    agent: Any,
+    *,
+    outcome: str,
+    args: dict[str, Any],
+    tool_response: Any = None,
+    error: Exception | None = None,
+) -> dict[str, Any]:
+    """Append a structured-output attempt event to the agent-local telemetry."""
+    obs = _structured_obs(agent)
+    obs["attempts"] = int(obs.get("attempts", 0) or 0) + 1
+    event: dict[str, Any] = {
+        "attempt": obs["attempts"],
+        "outcome": outcome,
+        "args_keys": sorted(args.keys()),
+    }
+    if isinstance(tool_response, dict):
+        event["response_keys"] = sorted(tool_response.keys())
+    if error is not None:
+        event["error_type"] = type(error).__name__
+        event["error_message"] = str(error)
+    obs.setdefault("events", []).append(event)
+    if outcome == "retry_requested":
+        obs["retry_count"] = int(obs.get("retry_count", 0) or 0) + 1
+    obs["last_outcome"] = outcome
+    return obs
+
+
 class WorkerRetryPlugin(ReflectAndRetryToolPlugin):
     """Extends ReflectAndRetryToolPlugin for set_model_response validation.
 
@@ -106,21 +144,37 @@ def make_worker_tool_callbacks(
         The plugin's ``after_tool_callback`` expects ``tool_args=`` and
         ``result=``, so we translate between the two conventions here.
         """
-        # On set_model_response success, store validated dict on the agent
-        if tool.name == "set_model_response" and isinstance(tool_response, dict):
-            agent = tool_context._invocation_context.agent
-            agent._structured_result = tool_response  # type: ignore[attr-defined]
-            logger.debug(
-                "Captured structured result on %s: %s",
-                getattr(agent, "name", "?"),
-                list(tool_response.keys()),
-            )
-
         # Delegate to plugin for extract_error_from_result checks
-        return await plugin.after_tool_callback(
+        result = await plugin.after_tool_callback(
             tool=tool, tool_args=args,
             tool_context=tool_context, result=tool_response,
         )
+        if tool.name == _SET_MODEL_RESPONSE_TOOL_NAME:
+            agent = tool_context._invocation_context.agent
+            is_reflect_retry_payload = (
+                isinstance(tool_response, dict)
+                and tool_response.get("response_type") == REFLECT_AND_RETRY_RESPONSE_TYPE
+            )
+            if (
+                isinstance(tool_response, dict)
+                and not is_reflect_retry_payload
+                and result is None
+            ):
+                agent._structured_result = tool_response  # type: ignore[attr-defined]
+                logger.debug(
+                    "Captured structured result on %s: %s",
+                    getattr(agent, "name", "?"),
+                    list(tool_response.keys()),
+                )
+            if is_reflect_retry_payload:
+                return result
+            _record_structured_event(
+                agent,
+                outcome="retry_requested" if result is not None else "validated",
+                args=args,
+                tool_response=tool_response,
+            )
+        return result
 
     async def on_tool_error_cb(
         tool: BaseTool,
@@ -139,10 +193,27 @@ def make_worker_tool_callbacks(
         """
         if tool.name != _SET_MODEL_RESPONSE_TOOL_NAME:
             return None
-        return await plugin.on_tool_error_callback(
-            tool=tool, tool_args=args,
-            tool_context=tool_context, error=error,
+        agent = tool_context._invocation_context.agent
+        try:
+            result = await plugin.on_tool_error_callback(
+                tool=tool, tool_args=args,
+                tool_context=tool_context, error=error,
+            )
+        except Exception:
+            _record_structured_event(
+                agent,
+                outcome="exhausted",
+                args=args,
+                error=error,
+            )
+            raise
+        _record_structured_event(
+            agent,
+            outcome="retry_requested",
+            args=args,
+            error=error,
         )
+        return result
 
     return after_tool_cb, on_tool_error_cb
 

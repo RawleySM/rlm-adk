@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_500_retry_exhausted",
-  "description": "FM-09 (RPN=60): Single worker dispatch where ALL SDK HTTP retry attempts get 500. With HttpRetryOptions(attempts=2), the worker makes 2 HTTP attempts (initial + 1 retry), both faulted. After SDK retries exhaust, on_model_error_callback fires producing LLMResult(error=True, error_category='SERVER'). REPL code checks result.error and reports the failure. Reasoning returns FINAL acknowledging the error.",
+  "description": "FM-09 (RPN=60): Single child dispatch where ALL SDK HTTP retry attempts get 500. The default HttpRetryOptions(attempts=3) yields 3 HTTP attempts (initial + 2 retries), all faulted. After SDK retries exhaust, dispatch returns LLMResult(error=True, error_category='SERVER'). Parent REPL code checks result.error and reports the handled failure. Root reasoning then returns FINAL acknowledging the retry exhaustion.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -12,7 +12,7 @@
     {
       "call_index": 0,
       "caller": "reasoning",
-      "note": "Reasoning agent emits execute_code with llm_query. Code checks result.error to detect server failure.",
+      "note": "Root reasoning emits execute_code with llm_query. Parent REPL checks result.error to distinguish retry exhaustion from success.",
       "status": 200,
       "body": {
         "candidates": [
@@ -24,7 +24,7 @@
                   "functionCall": {
                     "name": "execute_code",
                     "args": {
-                      "code": "result = llm_query(\"Summarize the data\")\nif result.error:\n    print(f\"Worker error: {result}\")\nelse:\n    print(f\"Got: {result}\")"
+                      "code": "result = llm_query(\"Summarize the data\")\nif result.error:\n    print(f\"Worker error: server retry exhausted (category={result.error_category})\")\nelse:\n    print(f\"Got: {result}\")"
                     }
                   }
                 }
@@ -43,9 +43,9 @@
       }
     },
     {
-      "call_index": 3,
+      "call_index": 4,
       "caller": "reasoning",
-      "note": "Reasoning sees tool result with error output from REPL, returns FINAL reporting the server error.",
+      "note": "Root reasoning sees the handled error output from the REPL and returns FINAL.",
       "status": 200,
       "body": {
         "candidates": [
@@ -91,7 +91,19 @@
       "body": {
         "error": {
           "code": 500,
-          "message": "Internal server error (worker HTTP attempt 2 - retry exhausted)",
+          "message": "Internal server error (worker HTTP attempt 2)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 3,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker HTTP attempt 3 - retry exhausted)",
           "status": "INTERNAL"
         }
       }
@@ -100,13 +112,12 @@
   "expected": {
     "final_answer": "Worker error: server retry exhausted",
     "total_iterations": 1,
-    "total_model_calls": 4
+    "total_model_calls": 5
   },
   "expected_state": {
     "obs:child_dispatch_count": 1,
     "obs:child_error_counts": {
-      "$not_none": true,
-      "$not_empty": true
+      "$has_key": "SERVER"
     },
     "last_repl_result": {
       "$not_none": true
@@ -115,5 +126,91 @@
     "obs:total_input_tokens": {"$gt": 0},
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "fault", "fault", "fault", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "fault": 3
+      },
+      "count": 5
+    },
+    "captured_requests": {
+      "count": 5
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Worker error: server retry exhausted (category=SERVER)"
+          },
+          "variables": {
+            "result": {
+              "$contains": "500 INTERNAL"
+            }
+          }
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "obs:child_error_counts": {
+        "SERVER": 1
+      },
+      "obs:child_summary@d1f0": {
+        "error": true,
+        "error_category": "SERVER",
+        "finish_reason": null,
+        "prompt_preview": "Summarize the data",
+        "error_message": {
+          "$contains": "500 INTERNAL"
+        },
+        "result_preview": {
+          "$contains": "500 INTERNAL"
+        },
+        "final_answer": {
+          "$contains": "500 INTERNAL"
+        }
+      },
+      "last_repl_result": {
+        "has_output": true,
+        "total_llm_calls": 1,
+        "stdout_preview": {
+          "$contains": "Worker error: server retry exhausted"
+        },
+        "trace_summary": {
+          "llm_call_count": 1,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$not_empty": true
+      },
+      "obs:total_calls": {
+        "$gt": 0
+      }
+    }
   }
 }

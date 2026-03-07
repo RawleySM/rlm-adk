@@ -1,0 +1,333 @@
+{
+  "scenario_id": "fake_recursive_ping",
+  "description": "Provider-fake analogue of replay/recursive_ping.json. Root reasoning emits layer-0 execute_code, the depth-1 child emits its own execute_code and dispatches a depth-2 child, and the depth-2 child returns the terminal JSON payload {\"my_response\":\"pong\",\"your_response\":\"ping\"}. Layer 1 forwards that payload unchanged, and root finalizes with final_answer='pong'. Child layers finalize via set_model_response tool responses after execute_code because set_model_response is not a REPL global.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "initial_state": {
+      "app:max_depth": 3
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Root layer emits the layer-0 execute_code block that dispatches exactly one recursive llm_query to layer 1.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "import json\n\nprint(\"recursion_layer=0\")\n\nlayer1_prompt = \"\"\"\nIMPORTANT: You are recursion layer 1.\nIMPORTANT: Do one thing and one thing only: submit Python code to execute_code and nothing else.\nIMPORTANT: Do not add commentary.\nIMPORTANT: Your code must contain these four components in order:\n1. print(\\\"recursion_layer=1\\\")\n2. define layer2_prompt and call layer2_response = llm_query(layer2_prompt)\n3. print(layer2_response)\n4. store the forwarded child response for final return\nIMPORTANT: Layer 2 is terminal and must return JSON with keys my_response and your_response.\n\"\"\"\nlayer1_response = llm_query(layer1_prompt)\nprint(layer1_response)\nroot_payload = json.loads(layer1_response)\nroot_pong = root_payload[\"my_response\"]\nprint(root_pong)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 260,
+          "candidatesTokenCount": 180,
+          "totalTokenCount": 440
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Layer-1 child emits execute_code, prints its layer marker, and dispatches exactly one llm_query to layer 2.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(\"recursion_layer=1\")\n\nlayer2_prompt = \"\"\"\nIMPORTANT: You are recursion layer 2.\nIMPORTANT: Do one thing and one thing only: submit Python code to execute_code and nothing else.\nIMPORTANT: Do not recurse further.\nIMPORTANT: Your code must contain these four components in order:\n1. print(\\\"recursion_layer=2\\\")\n2. payload = {\\\"my_response\\\": \\\"pong\\\", \\\"your_response\\\": \\\"ping\\\"}\n3. print(payload)\n4. assign payload_json as compact JSON for the parent\nIMPORTANT: After code execution, return the payload unchanged to your parent.\n\"\"\"\nlayer2_response = llm_query(layer2_prompt)\nprint(layer2_response)\nforwarded_response = layer2_response"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 220,
+          "candidatesTokenCount": 170,
+          "totalTokenCount": 390
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Layer-2 child emits execute_code for the terminal payload and does not recurse.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "import json\n\nprint(\"recursion_layer=2\")\npayload = {\"my_response\": \"pong\", \"your_response\": \"ping\"}\nprint(payload)\npayload_json = json.dumps(payload, separators=(\",\", \":\"))"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 180,
+          "candidatesTokenCount": 70,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Layer-2 child finalizes with the terminal structured pong payload.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "{\"my_response\":\"pong\",\"your_response\":\"ping\"}",
+                      "reasoning_summary": "layer 2 terminal pong"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 24,
+          "totalTokenCount": 174
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Layer-1 child forwards the exact layer-2 payload unchanged.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "{\"my_response\":\"pong\",\"your_response\":\"ping\"}",
+                      "reasoning_summary": "layer 1 forwarded layer 2 response"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 170,
+          "candidatesTokenCount": 26,
+          "totalTokenCount": 196
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "reasoning",
+      "note": "Root reasoning finalizes to the user-facing pong after the recursive chain returns.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "pong",
+                      "reasoning_summary": "layer 0 received structured pong from the recursive child chain"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 320,
+          "candidatesTokenCount": 24,
+          "totalTokenCount": 344
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "pong",
+    "total_iterations": 1,
+    "total_model_calls": 6
+  },
+  "expected_state": {
+    "obs:child_dispatch_count": 1,
+    "obs:child_error_counts": {
+      "$absent": true
+    },
+    "reasoning_summary": "layer 0 received structured pong from the recursive child chain",
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    },
+    "obs:per_iteration_token_breakdown": {
+      "$type": "list",
+      "$not_empty": true
+    }
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "worker", "worker", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 4
+      },
+      "count": 6
+    },
+    "captured_requests": {
+      "count": 6
+    },
+    "events": {
+      "part_counts": {
+        "function_call:execute_code": 1,
+        "function_response:execute_code": 1,
+        "function_call:set_model_response": 1,
+        "function_response:set_model_response": 1,
+        "text": 3
+      },
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        },
+        {
+          "kind": "function_call",
+          "name": "set_model_response",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "set_model_response",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 2,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "{\"my_response\":\"pong\",\"your_response\":\"ping\"}"
+          },
+          "stderr": "",
+          "variables": {
+            "root_pong": "pong"
+          }
+        },
+        {
+          "function_name": "set_model_response",
+          "final_answer": "pong",
+          "reasoning_summary": "layer 0 received structured pong from the recursive child chain"
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 3,
+        "set_model_response": 3
+      },
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 1,
+        "stdout_preview": {
+          "$contains": "{\"my_response\":\"pong\",\"your_response\":\"ping\"}"
+        },
+        "trace_summary": {
+          "llm_call_count": 1,
+          "failed_llm_calls": 0
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 6
+      },
+      "obs:total_calls": 6
+    }
+  }
+}

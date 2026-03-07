@@ -185,5 +185,77 @@
     "obs:total_input_tokens": {"$gt": 0},
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "worker", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 3
+      },
+      "count": 5
+    },
+    "captured_requests": {
+      "count": 5
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Pure validation exhausted: SCHEMA_VALIDATION_EXHAUSTED"
+          },
+          "variables": {
+            "result": {
+              "$contains": "2 validation errors for AnalysisResult"
+            }
+          }
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1,
+        "set_model_response": 3
+      },
+      "obs:child_error_counts": {
+        "SCHEMA_VALIDATION_EXHAUSTED": 1
+      },
+      "obs:structured_output_failures": 1,
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 1,
+        "stdout_preview": {
+          "$contains": "Pure validation exhausted"
+        },
+        "trace_summary": {
+          "llm_call_count": 1,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 5
+      },
+      "obs:total_calls": 5
+    }
   }
 }

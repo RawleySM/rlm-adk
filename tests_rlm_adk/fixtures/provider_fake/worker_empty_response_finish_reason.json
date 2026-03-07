@@ -146,5 +146,86 @@
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
     "obs:finish_safety_count": {"$gt": 0}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 2
+      },
+      "count": 4
+    },
+    "captured_requests": {
+      "count": 4
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Summary: 1 valid, 1 blocked by finish_reason"
+          },
+          "variables": {
+            "blocked": 1,
+            "fr": "SAFETY"
+          }
+        }
+      ],
+      "stdout_contains": [
+        "Result 1: BLOCKED (finish_reason=SAFETY)"
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "obs:child_error_counts": {
+        "SAFETY": 1
+      },
+      "obs:child_summary@d1f1": {
+        "error": true,
+        "error_category": "SAFETY",
+        "finish_reason": "SAFETY",
+        "raw_output_preview": "",
+        "final_answer": {
+          "$contains": "[RLM ERROR]"
+        }
+      },
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 2,
+        "stdout_preview": {
+          "$contains": "blocked by finish_reason"
+        },
+        "trace_summary": {
+          "llm_call_count": 2,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 4
+      },
+      "obs:total_calls": 4
+    }
   }
 }

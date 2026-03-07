@@ -39,7 +39,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "[RLM ERROR] Reasoning agent completed without producing a structured final answer. Check output_schema wiring.",
+    "final_answer": "[RLM ERROR] Reasoning agent finished with SAFETY before producing a final answer.",
     "total_iterations": 0,
     "total_model_calls": 1
   },

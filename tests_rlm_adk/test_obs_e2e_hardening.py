@@ -9,6 +9,7 @@ on obs keys that were previously written but never e2e-verified.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,22 @@ async def _run(fixture_name: str, tmp_path: Path) -> PluginContractResult:
         traces_db_path=traces_db,
         repl_trace_level=1,
     )
+
+
+def _write_fixture(tmp_path: Path, fixture_name: str, updates: dict) -> Path:
+    fixture = json.loads((FIXTURE_DIR / f"{fixture_name}.json").read_text())
+    fixture.update(updates)
+    path = tmp_path / f"{fixture_name.replace('/', '_')}.json"
+    path.write_text(json.dumps(fixture, indent=2))
+    return path
+
+
+def _child_summary_for_prompt(final_state: dict[str, object], prompt: str) -> dict[str, object]:
+    for key, value in final_state.items():
+        if key.startswith("obs:child_summary@") and isinstance(value, dict):
+            if value.get("prompt_preview") == prompt:
+                return value
+    raise AssertionError(f"No child summary found for prompt {prompt!r}")
 
 
 # ===========================================================================
@@ -319,6 +336,152 @@ class TestObsChildDispatchCount:
         assert batch >= 1, (
             f"Expected OBS_CHILD_TOTAL_BATCH_DISPATCHES >= 1, got {batch}"
         )
+
+
+class TestObsChildSummaryContract:
+    """Verify evaluator-facing child summaries expose hidden child behavior."""
+
+    async def test_hidden_child_output_survives_when_parent_repl_does_not_print(self, tmp_path: Path):
+        fixture_path = _write_fixture(
+            tmp_path,
+            "worker_500_then_success",
+            {
+                "responses": [
+                    {
+                        "call_index": 0,
+                        "caller": "reasoning",
+                        "status": 200,
+                        "body": {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "role": "model",
+                                        "parts": [
+                                            {
+                                                "functionCall": {
+                                                    "name": "execute_code",
+                                                    "args": {
+                                                        "code": "result = llm_query(\"What is the status?\")\n_ = str(result)"
+                                                    },
+                                                }
+                                            }
+                                        ],
+                                    },
+                                    "finishReason": "STOP",
+                                    "index": 0,
+                                }
+                            ],
+                            "usageMetadata": {
+                                "promptTokenCount": 200,
+                                "candidatesTokenCount": 40,
+                                "totalTokenCount": 240,
+                            },
+                            "modelVersion": "gemini-fake",
+                        },
+                    },
+                    {
+                        "call_index": 2,
+                        "caller": "worker",
+                        "status": 200,
+                        "body": {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "role": "model",
+                                        "parts": [{"text": "Server recovered answer"}],
+                                    },
+                                    "finishReason": "STOP",
+                                    "index": 0,
+                                }
+                            ],
+                            "usageMetadata": {
+                                "promptTokenCount": 10,
+                                "candidatesTokenCount": 5,
+                                "totalTokenCount": 15,
+                            },
+                            "modelVersion": "gemini-fake",
+                        },
+                    },
+                    {
+                        "call_index": 3,
+                        "caller": "reasoning",
+                        "status": 200,
+                        "body": {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "role": "model",
+                                        "parts": [
+                                            {
+                                                "text": "Hidden child output was recovered.\n\nFINAL(Server recovered answer)"
+                                            }
+                                        ],
+                                    },
+                                    "finishReason": "STOP",
+                                    "index": 0,
+                                }
+                            ],
+                            "usageMetadata": {
+                                "promptTokenCount": 300,
+                                "candidatesTokenCount": 25,
+                                "totalTokenCount": 325,
+                            },
+                            "modelVersion": "gemini-fake",
+                        },
+                    },
+                ],
+            },
+        )
+        result = await run_fixture_contract_with_plugins(
+            fixture_path,
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state["obs:child_summary@d1f0"]
+        assert summary["result_preview"] == "Server recovered answer"
+        assert summary["visible_output_preview"] == "Server recovered answer"
+        assert summary["final_answer"] == "Server recovered answer"
+
+    async def test_structured_output_retry_recovery_is_persisted_per_child(self, tmp_path: Path):
+        result = await _run("structured_output_batched_k3_with_retry", tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = _child_summary_for_prompt(
+            result.final_state,
+            "Review: Terrible quality",
+        )
+        assert summary["structured_output"]["expected"] is True
+        assert summary["structured_output"]["schema_name"] == "SentimentResult"
+        assert summary["structured_output"]["attempts"] == 2
+        assert summary["structured_output"]["retry_count"] == 1
+        assert summary["structured_output"]["outcome"] == "retry_recovered"
+        assert summary["structured_output"]["validated_result"] == {
+            "sentiment": "negative",
+            "confidence": 0.82,
+        }
+        assert [event["outcome"] for event in summary["structured_output"]["events"]] == [
+            "retry_requested",
+            "validated",
+        ]
+
+    async def test_structured_output_exhaustion_is_persisted_per_child(self, tmp_path: Path):
+        result = await _run("structured_output_batched_k3_mixed_exhaust", tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = _child_summary_for_prompt(
+            result.final_state,
+            "Review: Terrible quality",
+        )
+        assert summary["error"] is True
+        assert summary["error_category"] == "SCHEMA_VALIDATION_EXHAUSTED"
+        assert summary["structured_output"]["attempts"] == 3
+        assert summary["structured_output"]["retry_count"] == 2
+        assert summary["structured_output"]["outcome"] == "retry_exhausted"
+        assert summary["structured_output"]["validated_result"] is None
+        assert [event["outcome"] for event in summary["structured_output"]["events"]] == [
+            "retry_requested",
+            "retry_requested",
+            "exhausted",
+        ]
 
 
 # ===========================================================================

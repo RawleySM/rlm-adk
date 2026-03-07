@@ -149,6 +149,7 @@ class TestTraceLifecycle:
             "obs:total_calls": 3,
             "iteration_count": 2,
             "final_answer": "The answer is 42.",
+            "obs:child_total_batch_dispatches": 1,
         }
         await plugin.after_run_callback(
             invocation_context=mock_invocation_context
@@ -163,6 +164,7 @@ class TestTraceLifecycle:
         assert row["total_calls"] == 3
         assert row["iterations"] == 2
         assert row["final_answer_length"] == len("The answer is 42.")
+        assert row["child_total_batch_dispatches"] == 1
         conn.close()
 
 
@@ -552,6 +554,54 @@ class TestEventCallback:
         assert len(rows) == 0
         conn.close()
 
+    @pytest.mark.asyncio
+    async def test_on_event_persists_child_summary_contract_for_sql_queries(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """obs:child_summary payloads retain depth/fanout and structured-output fields."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        event = MagicMock()
+        event.actions.artifact_delta = None
+        event.actions.state_delta = {
+            "obs:child_summary@d1f2": {
+                "model": "gemini-2.5-flash",
+                "error": True,
+                "error_category": "SCHEMA_VALIDATION_EXHAUSTED",
+                "structured_output": {
+                    "expected": True,
+                    "schema_name": "SentimentResult",
+                    "attempts": 3,
+                    "retry_count": 2,
+                    "outcome": "retry_exhausted",
+                    "validated_result": None,
+                },
+            }
+        }
+        event.author = "orchestrator"
+        await plugin.on_event_callback(
+            invocation_context=mock_invocation_context, event=event
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT state_key, key_depth, key_fanout, value_json
+            FROM session_state_events
+            WHERE state_key = 'obs:child_summary'
+            """
+        ).fetchone()
+        conn.close()
+
+        payload = json.loads(row["value_json"])
+        assert row["state_key"] == "obs:child_summary"
+        assert row["key_depth"] == 1
+        assert row["key_fanout"] == 2
+        assert payload["error_category"] == "SCHEMA_VALIDATION_EXHAUSTED"
+        assert payload["structured_output"]["outcome"] == "retry_exhausted"
+        assert payload["structured_output"]["attempts"] == 3
+
 
 class TestAgentNameInTelemetry:
     """Test 12: Agent name is captured in telemetry rows."""
@@ -851,7 +901,8 @@ class TestSchemaMigration:
         ]
         for col in ["request_id", "repo_url", "root_prompt_preview",
                      "total_execution_time_s", "child_dispatch_count",
-                     "child_error_counts", "structured_output_failures",
+                     "child_total_batch_dispatches", "child_error_counts",
+                     "structured_output_failures",
                      "finish_safety_count", "finish_recitation_count",
                      "finish_max_tokens_count", "tool_invocation_summary",
                      "artifact_saves", "artifact_bytes_saved",
@@ -913,6 +964,7 @@ class TestSchemaMigration:
             "request_id": "req-123",
             "obs:total_execution_time": 12.5,
             "obs:child_dispatch_count": 7,
+            "obs:child_total_batch_dispatches": 2,
         }
         await plugin.after_run_callback(invocation_context=inv_ctx)
 
@@ -923,6 +975,7 @@ class TestSchemaMigration:
         assert row["total_input_tokens"] == 1000
         assert row["request_id"] == "req-123"
         assert row["child_dispatch_count"] == 7
+        assert row["child_total_batch_dispatches"] == 2
         verify_conn.close()
 
     def test_migrate_adds_missing_telemetry_columns(self, tmp_path):
@@ -954,7 +1007,9 @@ class TestSchemaMigration:
             for row in verify_conn.execute("PRAGMA table_info(telemetry)").fetchall()
         ]
         for col in ["agent_name", "model", "input_tokens", "output_tokens",
-                     "agent_type", "prompt_chars", "system_chars", "call_number"]:
+                     "thought_tokens", "agent_type", "prompt_chars",
+                     "system_chars", "call_number", "repl_stdout_len",
+                     "repl_stderr_len"]:
             assert col in columns, f"Missing telemetry column: {col}"
         verify_conn.close()
 

@@ -41,8 +41,8 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 # ---------------------------------------------------------------------------
 
 _STRUCTURED_FIXTURES = [
-    "agent_challenge/structured_output_happy_path",
-    "agent_challenge/structured_output_batched_k1",
+    pytest.param("agent_challenge/structured_output_happy_path", marks=pytest.mark.agent_challenge),
+    pytest.param("agent_challenge/structured_output_batched_k1", marks=pytest.mark.agent_challenge),
     "structured_output_retry_empty",
     "structured_output_retry_validation",
 ]
@@ -90,6 +90,7 @@ async def test_structured_output_contract(fixture_name: str):
 # ===========================================================================
 
 
+@pytest.mark.agent_challenge
 async def test_happy_path_final_answer():
     """llm_query + output_schema: worker responds with valid functionCall."""
     result = await run_fixture_contract(
@@ -101,6 +102,7 @@ async def test_happy_path_final_answer():
     assert fa_check["actual"] == "Market trending up with strong momentum"
 
 
+@pytest.mark.agent_challenge
 async def test_happy_path_with_plugins(tmp_path: Path):
     """Plugin pipeline works correctly with structured output workers."""
     result = await _run_with_plugins("agent_challenge/structured_output_happy_path", tmp_path)
@@ -140,6 +142,7 @@ async def test_happy_path_with_plugins(tmp_path: Path):
 # ===========================================================================
 
 
+@pytest.mark.agent_challenge
 async def test_batched_k1_final_answer():
     """llm_query_batched K=1 + output_schema: exercises batched code path."""
     result = await run_fixture_contract(

@@ -43,9 +43,9 @@
       }
     },
     {
-      "call_index": 3,
+      "call_index": 4,
       "caller": "reasoning",
-      "note": "Reasoning sees tool result with the error string printed as the 'answer'. Returns FINAL with the error string, unaware it is an error.",
+      "note": "Reasoning sees the tool result with the worker error string printed as the 'answer'. Returns FINAL with the raw error string, demonstrating silent error consumption.",
       "status": 200,
       "body": {
         "candidates": [
@@ -54,7 +54,7 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "The worker returned the following summary of the data.\n\nFINAL(Naive error consumed)"
+                  "text": "The worker returned the following summary of the data.\n\nFINAL(Error: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal server error (worker HTTP attempt 3 - retry exhausted)', 'status': 'INTERNAL'}})"
                 }
               ]
             },
@@ -91,22 +91,33 @@
       "body": {
         "error": {
           "code": 500,
-          "message": "Internal server error (worker HTTP attempt 2 - retry exhausted)",
+          "message": "Internal server error (worker HTTP attempt 2)",
+          "status": "INTERNAL"
+        }
+      }
+    },
+    {
+      "call_index": 3,
+      "fault_type": "http_error",
+      "status": 500,
+      "body": {
+        "error": {
+          "code": 500,
+          "message": "Internal server error (worker HTTP attempt 3 - retry exhausted)",
           "status": "INTERNAL"
         }
       }
     }
   ],
   "expected": {
-    "final_answer": "Naive error consumed",
+    "final_answer": "Error: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal server error (worker HTTP attempt 3 - retry exhausted)', 'status': 'INTERNAL'}}",
     "total_iterations": 1,
-    "total_model_calls": 4
+    "total_model_calls": 5
   },
   "expected_state": {
     "obs:child_dispatch_count": 1,
     "obs:child_error_counts": {
-      "$not_none": true,
-      "$not_empty": true
+      "$has_key": "SERVER"
     },
     "last_repl_result": {
       "$not_none": true
@@ -115,5 +126,94 @@
     "obs:total_input_tokens": {"$gt": 0},
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "fault", "fault", "fault", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "fault": 3
+      },
+      "count": 5
+    },
+    "captured_requests": {
+      "count": 5
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Answer: Error: 500 INTERNAL"
+          },
+          "variables": {
+            "answer": {
+              "$contains": "500 INTERNAL"
+            },
+            "result": {
+              "$contains": "500 INTERNAL"
+            }
+          }
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "obs:child_error_counts": {
+        "SERVER": 1
+      },
+      "obs:child_summary@d1f0": {
+        "error": true,
+        "error_category": "SERVER",
+        "finish_reason": null,
+        "prompt_preview": "Summarize the data",
+        "error_message": {
+          "$contains": "500 INTERNAL"
+        },
+        "result_preview": {
+          "$contains": "500 INTERNAL"
+        },
+        "final_answer": {
+          "$contains": "500 INTERNAL"
+        }
+      },
+      "last_repl_result": {
+        "has_output": true,
+        "total_llm_calls": 1,
+        "stdout_preview": {
+          "$contains": "Answer: Error: 500 INTERNAL"
+        },
+        "trace_summary": {
+          "llm_call_count": 1,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$not_empty": true
+      },
+      "obs:total_calls": {
+        "$gt": 0
+      }
+    }
   }
 }

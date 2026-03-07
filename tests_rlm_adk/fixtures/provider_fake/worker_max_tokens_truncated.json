@@ -114,5 +114,84 @@
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
     "obs:finish_max_tokens_count": {"$gt": 0}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 1
+      },
+      "count": 3
+    },
+    "captured_requests": {
+      "count": 3
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Truncated response detected"
+          },
+          "stderr": "",
+          "variables": {
+            "text": {
+              "$contains": "market is trending upward"
+            }
+          }
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "obs:child_summary@d1f0": {
+        "error": false,
+        "error_category": null,
+        "finish_reason": "MAX_TOKENS",
+        "prompt_preview": "Provide a detailed market analysis",
+        "final_answer": {
+          "$contains": "market is trending upward"
+        }
+      },
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 1,
+        "stdout_preview": {
+          "$contains": "Truncated response detected"
+        },
+        "trace_summary": {
+          "llm_call_count": 1,
+          "failed_llm_calls": 0
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$not_empty": true
+      },
+      "obs:total_calls": {
+        "$gt": 0
+      }
+    }
   }
 }

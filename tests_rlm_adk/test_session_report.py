@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS traces (
     root_prompt_preview     TEXT,
     total_execution_time_s  REAL,
     child_dispatch_count    INTEGER,
+    child_total_batch_dispatches INTEGER,
     child_error_counts      TEXT,
     structured_output_failures INTEGER,
     finish_safety_count     INTEGER,
@@ -147,6 +148,7 @@ def _create_test_db(*, include_telemetry: bool = True, include_sse: bool = True,
         iterations INTEGER DEFAULT 0, final_answer_length INTEGER,
         metadata TEXT, request_id TEXT, repo_url TEXT, root_prompt_preview TEXT,
         total_execution_time_s REAL, child_dispatch_count INTEGER,
+        child_total_batch_dispatches INTEGER,
         child_error_counts TEXT, structured_output_failures INTEGER,
         finish_safety_count INTEGER, finish_recitation_count INTEGER,
         finish_max_tokens_count INTEGER, tool_invocation_summary TEXT,
@@ -159,6 +161,15 @@ def _create_test_db(*, include_telemetry: bool = True, include_sse: bool = True,
         """INSERT INTO traces (trace_id, session_id, app_name, start_time, end_time, status, iterations)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (trace_id, "sess-1", "test_app", now - 10.0, now, "completed", 3),
+    )
+    conn.execute(
+        """UPDATE traces
+           SET child_dispatch_count = 2,
+               child_total_batch_dispatches = 1,
+               child_error_counts = ?,
+               structured_output_failures = 1
+           WHERE trace_id = ?""",
+        (json.dumps({"SCHEMA_VALIDATION_EXHAUSTED": 1}), trace_id),
     )
 
     if include_telemetry:
@@ -225,6 +236,79 @@ def _create_test_db(*, include_telemetry: bool = True, include_sse: bool = True,
                VALUES (?, ?, 0, 'reasoning_agent', ?, 'iteration_count', 'flow_control', 0, 'int', 3)""",
             (_new_id(), trace_id, now - 8),
         )
+        conn.execute(
+            """INSERT INTO session_state_events
+               (event_id, trace_id, seq, event_author, event_time,
+                state_key, key_category, key_depth, key_fanout, value_type, value_json)
+               VALUES (?, ?, 1, 'orchestrator', ?, 'obs:child_summary', 'obs_dispatch', 1, 0, 'dict', ?)""",
+            (
+                _new_id(),
+                trace_id,
+                now - 7,
+                json.dumps(
+                    {
+                        "model": "gemini-3-pro",
+                        "elapsed_ms": 812.4,
+                        "error": False,
+                        "error_category": None,
+                        "prompt_preview": "Summarize child 0",
+                        "result_preview": "child 0 ok",
+                        "final_answer": "child 0 ok",
+                        "structured_output": {
+                            "expected": True,
+                            "schema_name": "SentimentResult",
+                            "attempts": 2,
+                            "retry_count": 1,
+                            "outcome": "retry_recovered",
+                            "validated_result": {"summary": "ok", "confidence": 0.8},
+                        },
+                        "nested_dispatch": {
+                            "count": 0,
+                            "batch_dispatches": 0,
+                            "error_counts": {},
+                            "structured_output_failures": 0,
+                        },
+                    }
+                ),
+            ),
+        )
+        conn.execute(
+            """INSERT INTO session_state_events
+               (event_id, trace_id, seq, event_author, event_time,
+                state_key, key_category, key_depth, key_fanout, value_type, value_json)
+               VALUES (?, ?, 2, 'orchestrator', ?, 'obs:child_summary', 'obs_dispatch', 1, 1, 'dict', ?)""",
+            (
+                _new_id(),
+                trace_id,
+                now - 6,
+                json.dumps(
+                    {
+                        "model": "gemini-3-pro",
+                        "elapsed_ms": 1104.0,
+                        "error": True,
+                        "error_category": "SCHEMA_VALIDATION_EXHAUSTED",
+                        "error_message": "schema validation exhausted after retries",
+                        "prompt_preview": "Summarize child 1",
+                        "result_preview": "child 1 failed",
+                        "final_answer": None,
+                        "structured_output": {
+                            "expected": True,
+                            "schema_name": "SentimentResult",
+                            "attempts": 3,
+                            "retry_count": 2,
+                            "outcome": "retry_exhausted",
+                            "validated_result": None,
+                        },
+                        "nested_dispatch": {
+                            "count": 0,
+                            "batch_dispatches": 0,
+                            "error_counts": {},
+                            "structured_output_failures": 0,
+                        },
+                    }
+                ),
+            ),
+        )
 
     if include_spans:
         conn.execute("""CREATE TABLE IF NOT EXISTS spans (
@@ -254,6 +338,7 @@ class TestFullReport:
             assert "performance" in report
             assert "errors" in report
             assert "repl_outcomes" in report
+            assert "child_outcomes" in report
             assert "state_timeline" in report
             # No error key in overview
             assert "error" not in report["overview"]
@@ -372,6 +457,7 @@ class TestDepthUnknownNaming:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
+
     def test_performance_uses_depth_unknown(self):
         """Performance latency_by_layer should use 'depth_unknown' not 'depth_-1'."""
         db_path, trace_id, conn = _create_test_db()
@@ -394,5 +480,46 @@ class TestDepthUnknownNaming:
             report = build_session_report(trace_id, db_path)
             by_depth = report["repl_outcomes"]["by_depth"]
             assert "depth_-1" not in by_depth
+        finally:
+            Path(db_path).unlink(missing_ok=True)
+
+
+class TestChildOutcomes:
+    """Child summary and structured-output outcomes should be evaluator-queryable."""
+
+    def test_child_outcomes_surface_trace_and_sse_contract(self):
+        db_path, trace_id, conn = _create_test_db()
+        conn.close()
+        try:
+            report = build_session_report(trace_id, db_path)
+            child = report["child_outcomes"]
+            assert child["child_dispatch_count"] == 2
+            assert child["child_total_batch_dispatches"] == 1
+            assert child["child_error_counts"] == {"SCHEMA_VALIDATION_EXHAUSTED": 1}
+            assert child["structured_output_failures"] == 1
+            assert child["structured_output_outcomes"] == {
+                "retry_exhausted": 1,
+                "retry_recovered": 1,
+            }
+            assert child["children_with_errors"] == 1
+            assert child["total_summaries"] == 2
+        finally:
+            Path(db_path).unlink(missing_ok=True)
+
+    def test_child_outcomes_include_per_child_structured_output_details(self):
+        db_path, trace_id, conn = _create_test_db()
+        conn.close()
+        try:
+            report = build_session_report(trace_id, db_path)
+            summaries = report["child_outcomes"]["summaries"]
+            assert [(item["depth"], item["fanout"]) for item in summaries] == [(1, 0), (1, 1)]
+            assert summaries[0]["structured_output"]["outcome"] == "retry_recovered"
+            assert summaries[0]["structured_output"]["validated_result"] == {
+                "summary": "ok",
+                "confidence": 0.8,
+            }
+            assert summaries[1]["error"] is True
+            assert summaries[1]["error_category"] == "SCHEMA_VALIDATION_EXHAUSTED"
+            assert summaries[1]["structured_output"]["outcome"] == "retry_exhausted"
         finally:
             Path(db_path).unlink(missing_ok=True)

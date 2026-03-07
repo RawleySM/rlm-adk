@@ -71,6 +71,78 @@ def _make_mock_child_with_schema(answer_dict: dict, output_key: str = "reasoning
     return child
 
 
+def _make_structured_result_only_child(
+    payload: dict,
+    *,
+    output_key: str = "reasoning_output@d1",
+):
+    """Create a mock child that only exposes normalized completion metadata."""
+    child = MagicMock()
+    child.persistent = False
+    child.repl = None
+
+    reasoning = MagicMock()
+    reasoning.output_key = output_key
+    reasoning._structured_result = dict(payload)
+    child.reasoning_agent = reasoning
+    child._rlm_completion = {
+        "text": "",
+        "error": False,
+        "error_category": None,
+        "parsed_output": dict(payload),
+        "raw_output": dict(payload),
+        "visible_output_text": "",
+        "thought_text": "",
+        "finish_reason": "STOP",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "thoughts_tokens": 0,
+    }
+
+    async def mock_run_async(ctx):
+        return
+        yield
+
+    child.run_async = mock_run_async
+    return child
+
+
+def _make_error_completion_child(
+    text: str,
+    *,
+    error_category: str,
+    output_key: str = "reasoning_output@d1",
+):
+    """Create a mock child that only exposes an explicit error completion."""
+    child = MagicMock()
+    child.persistent = False
+    child.repl = None
+
+    reasoning = MagicMock()
+    reasoning.output_key = output_key
+    child.reasoning_agent = reasoning
+    child._rlm_completion = {
+        "text": text,
+        "error": True,
+        "error_category": error_category,
+        "parsed_output": None,
+        "raw_output": None,
+        "visible_output_text": text,
+        "thought_text": "",
+        "finish_reason": None,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "thoughts_tokens": 0,
+    }
+
+    async def mock_run_async(ctx):
+        return
+        yield
+
+    child.run_async = mock_run_async
+    return child
+
+
 def _make_error_child(error: Exception, output_key: str = "reasoning_output@d1"):
     """Create a mock child that raises during run_async."""
     child = MagicMock()
@@ -324,6 +396,57 @@ class TestChildWithOutputSchema:
             await llm_query("test", output_schema=MySchema)
 
         assert captured_kwargs.get("output_schema") is MySchema
+
+    @pytest.mark.asyncio
+    async def test_structured_result_falls_back_to_completion_payload(self):
+        from pydantic import BaseModel
+
+        class SentimentSchema(BaseModel):
+            sentiment: str
+            confidence: float
+
+        config = DispatchConfig(default_model="test-model")
+        ctx = _make_ctx()
+        child = _make_structured_result_only_child(
+            {"sentiment": "positive", "confidence": 0.95}
+        )
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query, _, _ = create_dispatch_closures(
+                config, ctx, depth=0, max_depth=3,
+            )
+            result = await llm_query("classify", output_schema=SentimentSchema)
+
+        assert result.error is False
+        assert result.parsed == {"sentiment": "positive", "confidence": 0.95}
+        assert "positive" in str(result)
+
+    @pytest.mark.asyncio
+    async def test_error_completion_surfaces_without_no_result_fallback(self):
+        from pydantic import BaseModel
+
+        class AnalysisSchema(BaseModel):
+            summary: str
+
+        config = DispatchConfig(default_model="test-model")
+        ctx = _make_ctx()
+        child = _make_error_completion_child(
+            "[RLM ERROR] Structured output validation exhausted before producing a valid AnalysisSchema result.",
+            error_category="SCHEMA_VALIDATION_EXHAUSTED",
+        )
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query, _, flush_fn = create_dispatch_closures(
+                config, ctx, depth=0, max_depth=3,
+            )
+            result = await llm_query("analyze", output_schema=AnalysisSchema)
+
+        assert result.error is True
+        assert result.error_category == "SCHEMA_VALIDATION_EXHAUSTED"
+        assert "validation exhausted" in str(result).lower()
+        delta = flush_fn()
+        assert delta["obs:child_error_counts"]["SCHEMA_VALIDATION_EXHAUSTED"] == 1
+        assert delta["obs:structured_output_failures"] == 1
 
 
 class TestFlushFnIncludesChildMetrics:

@@ -13,6 +13,7 @@ model calls via function calling. The tool:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from typing import Any, Callable, Optional
@@ -25,7 +26,10 @@ from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
 from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
     ITERATION_COUNT, LAST_REPL_RESULT, OBS_CHILD_DISPATCH_COUNT,
-    OBS_REWRITE_COUNT, OBS_REWRITE_TOTAL_MS, depth_key,
+    OBS_REWRITE_COUNT, OBS_REWRITE_TOTAL_MS,
+    REPL_SUBMITTED_CODE, REPL_SUBMITTED_CODE_CHARS,
+    REPL_SUBMITTED_CODE_HASH, REPL_SUBMITTED_CODE_PREVIEW,
+    depth_key,
 )
 
 _CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
@@ -88,6 +92,13 @@ class REPLTool(BaseTool):
     ) -> dict:
         code = args["code"]
 
+        # OG-03 fix: persist submitted code for observability
+        code_hash = hashlib.sha256(code.encode()).hexdigest()
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE, self._depth)] = code
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE_CHARS, self._depth)] = len(code)
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE_HASH, self._depth)] = code_hash
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE_PREVIEW, self._depth)] = code[:500]
+
         self._call_count += 1
         # Track iteration count in session state for observability
         tool_context.state[depth_key(ITERATION_COUNT, self._depth)] = self._call_count
@@ -106,7 +117,11 @@ class REPLTool(BaseTool):
         # closures and LocalREPL can record timing/LLM-call data.
         trace: REPLTrace | None = None
         if self.trace_holder is not None:
-            trace = REPLTrace()
+            trace = REPLTrace(
+                submitted_code_chars=len(code),
+                submitted_code_hash=code_hash,
+                submitted_code_preview=code[:500],
+            )
             # Orchestrator passes [None]; set [0] so dispatch closures see
             # the live trace.  Empty lists (e.g. from tests) get an append.
             if self.trace_holder:
@@ -207,6 +222,8 @@ class REPLTool(BaseTool):
             "has_output": bool(result.stdout),
             "total_llm_calls": total_llm_calls,
             "stdout_preview": result.stdout[:500],
+            "submitted_code_chars": len(code),
+            "submitted_code_hash": code_hash,
         }
         if trace is not None:
             last_repl["trace_summary"] = trace.summary()

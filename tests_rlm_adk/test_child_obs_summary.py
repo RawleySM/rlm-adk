@@ -10,9 +10,21 @@ For batched calls, one key per fanout index must be present.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.adk.events import Event, EventActions
 
 from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
-from rlm_adk.state import child_obs_key
+from rlm_adk.state import (
+    OBS_REASONING_RETRY_COUNT,
+    OBS_REASONING_RETRY_DELAY_MS,
+    REASONING_FINISH_REASON,
+    REASONING_PARSED_OUTPUT,
+    REASONING_RAW_OUTPUT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_THOUGHT_TOKENS,
+    REASONING_VISIBLE_OUTPUT_TEXT,
+    child_obs_key,
+    depth_key,
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -38,6 +50,52 @@ def _make_mock_child(answer: str, output_key: str = "reasoning_output@d1"):
         ctx.session.state[output_key] = answer
         return
         yield  # make it an async generator
+
+    child.run_async = mock_run_async
+    return child
+
+
+def _make_mock_child_with_obs(
+    answer: str,
+    *,
+    depth: int = 1,
+    output_key: str | None = None,
+    structured_obs: dict | None = None,
+    structured_result: dict | None = None,
+):
+    """Create a child orchestrator that emits child-local state deltas."""
+    output_key = output_key or f"reasoning_output@d{depth}"
+    child = MagicMock()
+    child.persistent = False
+    child.repl = None
+    reasoning = MagicMock()
+    reasoning.output_key = output_key
+    if structured_obs is not None:
+        reasoning._structured_output_obs = structured_obs
+    if structured_result is not None:
+        reasoning._structured_result = structured_result
+    child.reasoning_agent = reasoning
+
+    async def mock_run_async(ctx):
+        ctx.session.state[output_key] = answer
+        yield Event(
+            invocation_id="test-inv",
+            author=f"child_orchestrator_d{depth}",
+            actions=EventActions(state_delta={
+                output_key: answer,
+                depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth): answer,
+                depth_key(REASONING_THOUGHT_TEXT, depth): "hidden child chain",
+                depth_key(REASONING_THOUGHT_TOKENS, depth): 4,
+                depth_key(REASONING_FINISH_REASON, depth): "STOP",
+                depth_key(REASONING_RAW_OUTPUT, depth): {"raw": answer},
+                depth_key(REASONING_PARSED_OUTPUT, depth): {
+                    "final_answer": answer,
+                    "reasoning_summary": "child summary",
+                },
+                OBS_REASONING_RETRY_COUNT: 1,
+                OBS_REASONING_RETRY_DELAY_MS: 250,
+            }),
+        )
 
     child.run_async = mock_run_async
     return child
@@ -336,6 +394,75 @@ class TestChildObsSummary:
             assert "result_preview" in summary, f"fanout {i} missing result_preview"
             assert summary["prompt_preview"] == f"prompt-{i}"
             assert summary["result_preview"] == f"answer-{i}"
+
+    @pytest.mark.asyncio
+    async def test_summary_persists_hidden_child_outputs_and_retry_state(self):
+        """Child summary should persist hidden output details even if parent never prints them."""
+        pool = WorkerPool(default_model="my-model", pool_size=1)
+        ctx = _make_invocation_context()
+        child = _make_mock_child_with_obs("hidden answer")
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("silent prompt")
+
+        summary = flush_fn()[child_obs_key(1, 0)]
+        assert summary["final_answer"] == "hidden answer"
+        assert summary["visible_output_preview"] == "hidden answer"
+        assert summary["thought_preview"] == "hidden child chain"
+        assert summary["raw_output_preview"] == '{"raw": "hidden answer"}'
+        assert summary["parsed_output"] == {
+            "final_answer": "hidden answer",
+            "reasoning_summary": "child summary",
+        }
+        assert summary["reasoning_retry"] == {
+            "count": 1,
+            "delay_ms": 250,
+            "used": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_summary_persists_structured_output_compliance(self):
+        """Structured-output children should record retry/compliance outcome in summary."""
+        pool = WorkerPool(default_model="schema-model", pool_size=1)
+        ctx = _make_invocation_context()
+        child = _make_mock_child_with_obs(
+            "negative",
+            structured_obs={
+                "attempts": 2,
+                "retry_count": 1,
+                "events": [
+                    {"attempt": 1, "outcome": "retry_requested", "args_keys": ["confidence", "sentiment"]},
+                    {"attempt": 2, "outcome": "validated", "args_keys": ["confidence", "sentiment"]},
+                ],
+            },
+            structured_result={"sentiment": "negative", "confidence": 0.82},
+        )
+
+        class SentimentResult:  # simple stand-in for schema name assertions
+            __name__ = "SentimentResult"
+
+        with patch("rlm_adk.agent.create_child_orchestrator", return_value=child):
+            llm_query_async, _, flush_fn = create_dispatch_closures(
+                pool, ctx, depth=0, max_depth=3,
+            )
+            await llm_query_async("schema prompt", output_schema=SentimentResult)
+
+        summary = flush_fn()[child_obs_key(1, 0)]
+        assert summary["structured_output"] == {
+            "expected": True,
+            "schema_name": "SentimentResult",
+            "attempts": 2,
+            "retry_count": 1,
+            "outcome": "retry_recovered",
+            "validated_result": {"sentiment": "negative", "confidence": 0.82},
+            "events": [
+                {"attempt": 1, "outcome": "retry_requested", "args_keys": ["confidence", "sentiment"]},
+                {"attempt": 2, "outcome": "validated", "args_keys": ["confidence", "sentiment"]},
+            ],
+        }
 
     @pytest.mark.asyncio
     async def test_depth_limit_does_not_write_summary(self):

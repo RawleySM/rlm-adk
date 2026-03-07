@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_safety_finish",
-  "description": "FM-25 (RPN=75): Single worker dispatch where the worker response has finishReason SAFETY with empty content (safety filter block). REPL code detects the empty result from llm_query and reports it via FINAL. Note: This is a worker-level SAFETY response (FM-25), not a reasoning-level SAFETY (FM-24). FM-24 would require the reasoning agent's own model call to return finishReason=SAFETY.",
+  "description": "FM-25 (RPN=75): Single child dispatch where the child response has finishReason SAFETY with empty raw output (safety-filter block). Parent REPL code must inspect finish_reason/raw_output rather than str(result), because the child surfaces an [RLM ERROR] wrapper string. Root reasoning then reports the block via FINAL.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -24,7 +24,7 @@
                   "functionCall": {
                     "name": "execute_code",
                     "args": {
-                      "code": "result = llm_query(\"Generate content\")\nif not str(result).strip():\n    print(\"Worker returned empty (safety filtered)\")\nelse:\n    print(f\"Got: {result}\")"
+                      "code": "result = llm_query(\"Generate content\")\nfinish_reason = getattr(result, 'finish_reason', None)\nraw_text = getattr(result, 'raw_output', '') or ''\nif finish_reason == 'SAFETY' and not str(raw_text).strip():\n    print(f\"Worker returned empty (safety filtered, finish_reason={finish_reason})\")\nelse:\n    print(f\"Got: {result}\")"
                     }
                   }
                 }
@@ -120,5 +120,79 @@
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
     "obs:finish_safety_count": {"$gt": 0}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 1
+      },
+      "count": 3
+    },
+    "captured_requests": {
+      "count": 3
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Worker returned empty (safety filtered, finish_reason=SAFETY)"
+          }
+        }
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "obs:child_error_counts": {
+        "SAFETY": 1
+      },
+      "obs:child_summary@d1f0": {
+        "error": true,
+        "error_category": "SAFETY",
+        "finish_reason": "SAFETY",
+        "raw_output_preview": "",
+        "final_answer": {
+          "$contains": "[RLM ERROR]"
+        }
+      },
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 1,
+        "stdout_preview": {
+          "$contains": "safety filtered"
+        },
+        "trace_summary": {
+          "llm_call_count": 1,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 3
+      },
+      "obs:total_calls": 3
+    }
   }
 }

@@ -255,5 +255,79 @@
     "obs:total_input_tokens": {"$gt": 0},
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "worker", "worker", "worker", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 5
+      },
+      "count": 7
+    },
+    "captured_requests": {
+      "count": 7
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Results: 2 succeeded, 1 failed"
+          },
+          "variables": {
+            "succeeded": 2,
+            "failed": 1
+          }
+        }
+      ],
+      "stdout_contains": [
+        "FAILED (SCHEMA_VALIDATION_EXHAUSTED)"
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1,
+        "set_model_response": 5
+      },
+      "obs:child_error_counts": {
+        "SCHEMA_VALIDATION_EXHAUSTED": 1
+      },
+      "obs:structured_output_failures": 1,
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 3,
+        "stdout_preview": {
+          "$contains": "Results: 2 succeeded, 1 failed"
+        },
+        "trace_summary": {
+          "llm_call_count": 3,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 7
+      },
+      "obs:total_calls": 7
+    }
   }
 }

@@ -183,6 +183,104 @@
     "total_iterations": 2,
     "total_model_calls": 5
   },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "reasoning", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 3,
+        "worker": 2
+      },
+      "count": 5
+    },
+    "captured_requests": {
+      "count": 5
+    },
+    "events": {
+      "part_counts": {
+        "function_call:execute_code": 2,
+        "function_response:execute_code": 2,
+        "text": {
+          "$gte": 3
+        }
+      },
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        },
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 2,
+      "stdout_contains": [
+        "WORKER_RESPONSE_1_START",
+        "WORKER_RESPONSE_2_START"
+      ],
+      "any": [
+        {
+          "function_name": "execute_code",
+          "llm_calls_made": true,
+          "call_number": 1,
+          "variables": {
+            "repo_xml": {
+              "$contains": "\u00abREPO_XML_START\u00bb"
+            },
+            "metadata": {
+              "source": "unit_test",
+              "version": "1.0.0"
+            },
+            "combined_prompt": {
+              "$contains": "\u00abCOMBINED_PROMPT_START\u00bb"
+            },
+            "result": {
+              "$contains": "\u00abWORKER_RESPONSE_1_START\u00bb"
+            }
+          }
+        },
+        {
+          "function_name": "execute_code",
+          "llm_calls_made": true,
+          "call_number": 2,
+          "variables": {
+            "prior_analysis": {
+              "$contains": "\u00abWORKER_RESPONSE_1_START\u00bb"
+            },
+            "synthesis_prompt": {
+              "$contains": "\u00abCHAINED_PROMPT_START\u00bb"
+            },
+            "final_result": {
+              "$contains": "\u00abWORKER_RESPONSE_2_START\u00bb"
+            }
+          }
+        }
+      ]
+    },
+    "observability": {
+      "counters": {
+        "obs:child_dispatch_count": 1,
+        "obs:tool_invocation_summary": {
+          "execute_code": 2
+        },
+        "obs:total_calls": 5
+      }
+    }
+  },
   "expected_state": {
     "obs:child_dispatch_count": 1,
     "last_repl_result": {

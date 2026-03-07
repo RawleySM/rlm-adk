@@ -24,7 +24,9 @@ from rlm_adk.state import (
     OBS_CHILD_DISPATCH_COUNT,
     OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
+    OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_STRUCTURED_OUTPUT_FAILURES,
+    OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
 )
 
@@ -194,7 +196,7 @@ class TestReplErrorThenRetry:
 
 
 class TestFakeRecursivePing:
-    """Verify recursive child dispatch returns the terminal payload, not placeholders."""
+    """Verify recursive dispatch returns the terminal payload and clean obs state."""
 
     FIXTURE = "fake_recursive_ping"
 
@@ -203,32 +205,49 @@ class TestFakeRecursivePing:
         result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
         assert result.passed, result.diagnostics()
 
-    async def test_root_tool_stdout_contains_recursive_layers(self, tmp_path: Path):
-        """The root REPL execution should observe the full 0->1->2 recursion chain."""
+    async def test_root_tool_surfaces_terminal_child_payload(self, tmp_path: Path):
+        """The root tool result should include the forwarded terminal child payload."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
         tool_results = _extract_tool_results(result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         stdout = tool_results[0].get("stdout", "")
         assert "recursion_layer=0" in stdout, f"Missing layer 0 marker: {stdout!r}"
-        assert "recursion_layer=1" in stdout, f"Missing layer 1 marker: {stdout!r}"
-        assert "recursion_layer=2" in stdout, f"Missing layer 2 marker: {stdout!r}"
-
-    async def test_root_tool_returns_terminal_pong_payload(self, tmp_path: Path):
-        """The root tool result should carry the terminal child JSON without child errors."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        tool_results = _extract_tool_results(result.events)
-        assert len(tool_results) >= 1, "Expected at least one tool result"
-        first_tool = tool_results[0]
-        stdout = first_tool.get("stdout", "")
-        stderr = first_tool.get("stderr", "")
-        assert '"my_response": "pong"' in stdout or '"my_response":"pong"' in stdout, (
-            f"Terminal pong payload missing from stdout: {stdout!r}"
+        assert "{\"my_response\":\"pong\",\"your_response\":\"ping\"}" in stdout, (
+            f"Expected terminal pong payload in root stdout: {stdout!r}"
         )
         assert "[Child orchestrator produced no answer]" not in stdout, (
-            f"Recursive chain leaked placeholder child output: {stdout!r}"
+            f"Root stdout should not fall back to placeholder child output: {stdout!r}"
         )
-        assert "no final_answer in output_key" not in stderr, (
-            f"Recursive chain leaked child extraction failure: {stderr!r}"
+
+    async def test_final_reasoning_turn_records_terminal_payload_before_returning_pong(self, tmp_path: Path):
+        """The final reasoning turn should receive the terminal payload without child errors."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        responses = _request_function_responses(result.contract.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True in final request response, got {response!r}"
+        )
+        assert "{\"my_response\":\"pong\",\"your_response\":\"ping\"}" in response.get("stdout", ""), (
+            f"Terminal child payload missing from final request response: {response!r}"
+        )
+        assert response.get("stderr") == "", (
+            f"Expected empty stderr in final request response: {response!r}"
+        )
+        assert result.final_state.get(FINAL_ANSWER) == "pong"
+        assert OBS_CHILD_ERROR_COUNTS not in result.final_state, (
+            f"Expected no child error counts in final state, got {result.final_state!r}"
+        )
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("execute_code") == 3, (
+            f"Expected execute_code summary count == 3, got {summary!r}"
+        )
+        assert summary.get("set_model_response") == 3, (
+            f"Expected set_model_response summary count == 3, got {summary!r}"
         )
 
 
@@ -378,6 +397,183 @@ class TestWorker500ThenSuccess:
             f"No tool result had llm_calls_made=True: {tool_results}"
         )
 
+    async def test_parent_reasoning_turn_sees_recovered_worker_result(self):
+        """The final reasoning turn should receive the recovered child result, not a placeholder."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True in final request response, got {response!r}"
+        )
+        assert "Server recovered answer" in response.get("stdout", ""), (
+            f"Recovered worker answer missing from final request response: {response!r}"
+        )
+        assert response.get("stderr") == "", (
+            f"Expected empty stderr after worker recovery, got {response!r}"
+        )
+        assert response.get("variables", {}).get("result") == "Server recovered answer", (
+            f"Expected recovered result variable in final request response, got {response!r}"
+        )
+
+    async def test_observability_retains_recovered_child_summary(self, tmp_path: Path):
+        """State should record a clean child summary after SDK retry recovery."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        assert OBS_CHILD_ERROR_COUNTS not in result.final_state, (
+            f"Expected no child error counts after recovery, got {result.final_state!r}"
+        )
+        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert summary.get("error") is False, (
+            f"Recovered child summary should not be marked as error, got {summary!r}"
+        )
+        assert summary.get("error_category") is None, (
+            f"Recovered child summary should not have an error category, got {summary!r}"
+        )
+        assert summary.get("result_preview") == "Server recovered answer", (
+            f"Expected recovered result_preview in child summary, got {summary!r}"
+        )
+        assert summary.get("final_answer") == "Server recovered answer", (
+            f"Expected recovered final_answer in child summary, got {summary!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        trace_summary = last_repl_result.get("trace_summary", {})
+        assert last_repl_result.get("has_errors") is False, (
+            f"Expected handled REPL result after recovery, got {last_repl_result!r}"
+        )
+        assert trace_summary.get("failed_llm_calls") == 0, (
+            f"Expected zero failed llm calls after recovery, got {trace_summary!r}"
+        )
+
+
+class TestWorker500RetryExhausted:
+    """Verify exhausted worker retries surface a structured error to parent + state."""
+
+    FIXTURE = "worker_500_retry_exhausted"
+
+    async def test_contract(self):
+        """Basic contract for handled retry exhaustion."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+
+    async def test_parent_reasoning_turn_sees_exhausted_worker_error(self):
+        """The final reasoning turn must receive the structured exhausted-child error result."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for exhausted worker dispatch, got {response!r}"
+        )
+        assert "Worker error: server retry exhausted (category=SERVER)" in response.get("stdout", ""), (
+            f"Expected handled exhaustion message in stdout, got {response!r}"
+        )
+        result_var = response.get("variables", {}).get("result", "")
+        assert "500 INTERNAL" in result_var, (
+            f"Expected exhausted child error string in variables.result, got {response!r}"
+        )
+
+    async def test_observability_retains_exhausted_child_error(self, tmp_path: Path):
+        """State should expose the exhausted worker category and result preview."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        assert error_counts.get("SERVER") == 1, (
+            f"Expected SERVER child error count == 1, got {error_counts!r}"
+        )
+        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert summary.get("error") is True, (
+            f"Expected exhausted child summary error=True, got {summary!r}"
+        )
+        assert summary.get("error_category") == "SERVER", (
+            f"Expected SERVER child summary category, got {summary!r}"
+        )
+        assert "500 INTERNAL" in summary.get("error_message", ""), (
+            f"Expected error_message to preserve worker 500 details, got {summary!r}"
+        )
+        assert "500 INTERNAL" in summary.get("final_answer", ""), (
+            f"Expected final_answer to preserve worker 500 details, got {summary!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        trace_summary = last_repl_result.get("trace_summary", {})
+        assert "Worker error: server retry exhausted" in last_repl_result.get("stdout_preview", ""), (
+            f"Expected REPL snapshot stdout_preview to preserve handled exhaustion output, got {last_repl_result!r}"
+        )
+        assert trace_summary.get("failed_llm_calls") == 1, (
+            f"Expected one failed llm call for exhausted worker retry, got {trace_summary!r}"
+        )
+
+
+class TestWorker500RetryExhaustedNaive:
+    """Verify naive error consumption still leaves an observable exhausted child error."""
+
+    FIXTURE = "worker_500_retry_exhausted_naive"
+
+    async def test_contract(self):
+        """Basic contract for naive retry exhaustion."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+
+    async def test_parent_reasoning_turn_receives_error_string_consumed_as_answer(self):
+        """The final reasoning turn should receive the raw child error string via the tool result."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for naive exhausted worker dispatch, got {response!r}"
+        )
+        assert "Answer: Error: 500 INTERNAL" in response.get("stdout", ""), (
+            f"Expected raw child error string in stdout, got {response!r}"
+        )
+        variables = response.get("variables", {})
+        assert "500 INTERNAL" in variables.get("result", ""), (
+            f"Expected raw error string in variables.result, got {response!r}"
+        )
+        assert "500 INTERNAL" in variables.get("answer", ""), (
+            f"Expected raw error string in variables.answer, got {response!r}"
+        )
+
+    async def test_observability_marks_child_error_even_when_parent_consumes_it(self, tmp_path: Path):
+        """State should still expose SERVER exhaustion even when FINAL_ANSWER is the raw error string."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        final_answer = result.final_state.get(FINAL_ANSWER, "")
+        assert "500 INTERNAL" in final_answer, (
+            f"Expected FINAL_ANSWER to be the consumed worker error string, got {final_answer!r}"
+        )
+        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        assert error_counts.get("SERVER") == 1, (
+            f"Expected SERVER child error count == 1, got {error_counts!r}"
+        )
+        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert summary.get("error") is True, (
+            f"Expected child summary error=True despite naive consumption, got {summary!r}"
+        )
+        assert summary.get("error_category") == "SERVER", (
+            f"Expected child summary category SERVER, got {summary!r}"
+        )
+        assert "500 INTERNAL" in summary.get("final_answer", ""), (
+            f"Expected child summary final_answer to preserve worker error, got {summary!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        trace_summary = last_repl_result.get("trace_summary", {})
+        assert "Answer: Error: 500 INTERNAL" in last_repl_result.get("stdout_preview", ""), (
+            f"Expected stdout_preview to expose the consumed error string, got {last_repl_result!r}"
+        )
+        assert trace_summary.get("failed_llm_calls") == 1, (
+            f"Expected one failed llm call for naive exhausted worker retry, got {trace_summary!r}"
+        )
+
 
 # ===========================================================================
 # FM-19: All Workers Fail — REMOVED (Phase 3 migration)
@@ -523,6 +719,23 @@ class TestMaxIterationsExceeded:
             f"Blocked call limit message missing from final request: {blocked!r}"
         )
 
+    async def test_observability_counts_blocked_call_even_with_minimal_stdout(self, tmp_path: Path):
+        """Evaluator-facing state should still show the blocked attempt."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("execute_code") == 3, (
+            f"Expected execute_code count 3 in observability summary, got {summary!r}"
+        )
+        breakdown = result.final_state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN)
+        assert isinstance(breakdown, list) and len(breakdown) == 4, (
+            f"Expected 4 model-call breakdown entries, got {breakdown!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        assert last_repl_result.get("stdout_preview", "").startswith("y = 30"), (
+            f"Expected last_repl_result to preserve the last executed stdout, got {last_repl_result!r}"
+        )
+
 
 # ===========================================================================
 # FM-15: Empty Reasoning Output (RPN=16)
@@ -547,8 +760,8 @@ class TestEmptyReasoningOutput:
         assert fa.startswith("[RLM ERROR]"), (
             f"Expected FINAL_ANSWER to start with '[RLM ERROR]', got: {fa!r}"
         )
-        assert "output_schema" in fa, (
-            f"Expected 'output_schema' in error message: {fa!r}"
+        assert "completed without producing a final answer" in fa, (
+            f"Expected plain empty-completion message, got: {fa!r}"
         )
 
     async def test_single_repl_iteration(self, tmp_path: Path):
@@ -615,7 +828,7 @@ class TestReplRuntimeError:
 
 
 class TestStructuredOutputBatchedK3WithRetry:
-    """Verify BUG-13 suppression under concurrent K>1 structured output."""
+    """Verify parent and evaluator both observe successful structured batch recovery."""
 
     FIXTURE = "structured_output_batched_k3_with_retry"
 
@@ -651,80 +864,100 @@ class TestStructuredOutputBatchedK3WithRetry:
             f"The patch may not be active for this fixture's retry path."
         )
 
-    async def test_tool_result_stdout_has_sentiments(self, tmp_path: Path):
-        """Verify REPL stdout shows parsed sentiment values from all 3 workers."""
+    async def test_final_reasoning_turn_sees_successful_batch_output(self, tmp_path: Path):
+        """The final reasoning request should receive the recovered batch aggregate."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        tool_results = _extract_tool_results(result.events)
-        assert len(tool_results) >= 1, "Expected at least one tool result"
-        # Find the tool result with llm_calls_made (the dispatch iteration)
-        llm_results = [tr for tr in tool_results if tr.get("llm_calls_made")]
-        assert len(llm_results) >= 1, "No tool result had llm_calls_made=True"
-        stdout = llm_results[0].get("stdout", "")
-        assert "positive" in stdout.lower(), (
-            f"Expected 'positive' in tool stdout: {stdout!r}"
+        assert result.contract.passed, result.contract.diagnostics()
+        responses = _request_function_responses(result.contract.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
         )
-        assert "negative" in stdout.lower(), (
-            f"Expected 'negative' in tool stdout: {stdout!r}"
+        response = responses[0]
+        stdout = response.get("stdout", "")
+        variables = response.get("variables", {})
+        assert "Results: 2 positive, 1 negative" in stdout, (
+            f"Expected recovered aggregate in final request stdout: {stdout!r}"
         )
+        assert "confidence" in stdout and "sentiment" in stdout, (
+            f"Expected structured worker payloads in final request stdout: {stdout!r}"
+        )
+        assert variables.get("positive") == 2, (
+            f"Expected two positive results in final request variables: {variables!r}"
+        )
+        assert variables.get("negative") == 1, (
+            f"Expected one negative result in final request variables: {variables!r}"
+        )
+        assert result.final_state.get(FINAL_ANSWER) == (
+            "3 sentiments: 2 positive, 1 negative with retry"
+        )
+        assert "2 positive" in result.final_state.get(FINAL_ANSWER, "")
+        assert "1 negative" in result.final_state.get(FINAL_ANSWER, "")
 
-    async def test_tool_result_has_no_placeholder_child_outputs(self, tmp_path: Path):
-        """Structured worker results should be parsed data, not placeholder child failures."""
+    async def test_tool_result_surfaces_recovered_structured_outputs(self, tmp_path: Path):
+        """The evaluator-visible tool result should contain recovered structured outputs."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
         tool_results = _extract_tool_results(result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_tool = tool_results[0]
         stdout = first_tool.get("stdout", "")
         stderr = first_tool.get("stderr", "")
-        assert "Review 1: None" not in stdout, (
-            f"Worker 1 parsed result missing from stdout: {stdout!r}"
+        assert "Results: 2 positive, 1 negative" in stdout, (
+            f"Expected recovered batch summary in stdout: {stdout!r}"
         )
-        assert "Review 2: None" not in stdout, (
-            f"Worker 2 parsed result missing from stdout: {stdout!r}"
+        assert "confidence" in stdout and "sentiment" in stdout, (
+            f"Expected structured payloads in stdout: {stdout!r}"
         )
-        assert "Review 3: None" not in stdout, (
-            f"Worker 3 parsed result missing from stdout: {stdout!r}"
+        assert stderr == "", (
+            f"Expected empty stderr on recovered batch dispatch, got {stderr!r}"
         )
-        assert "[Child orchestrator produced no answer]" not in stdout, (
-            f"Structured output batch leaked placeholder child output: {stdout!r}"
+        variables = first_tool.get("variables", {})
+        assert variables.get("positive") == 2, (
+            f"Expected positive count == 2 in tool variables, got {variables!r}"
         )
-        assert "no final_answer in output_key" not in stderr, (
-            f"Structured output batch leaked child extraction failure: {stderr!r}"
+        assert variables.get("negative") == 1, (
+            f"Expected negative count == 1 in tool variables, got {variables!r}"
         )
 
-    async def test_last_repl_result_marks_clean_dispatch(self, tmp_path: Path):
-        """Successful structured dispatch should not mark the REPL iteration as errored."""
+    async def test_last_repl_result_records_clean_dispatch(self, tmp_path: Path):
+        """LAST_REPL_RESULT should retain the recovered batch preview and clean trace counts."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
         lrr = result.final_state.get(LAST_REPL_RESULT)
         assert isinstance(lrr, dict), f"Expected dict LAST_REPL_RESULT, got {type(lrr).__name__}"
         assert lrr.get("has_errors") is False, (
-            f"Structured dispatch should not mark has_errors=True: {lrr!r}"
+            f"Expected LAST_REPL_RESULT.has_errors=False, got {lrr!r}"
+        )
+        assert lrr.get("has_output") is True, (
+            f"Expected LAST_REPL_RESULT.has_output=True, got {lrr!r}"
+        )
+        assert lrr.get("total_llm_calls") == 3, (
+            f"Expected LAST_REPL_RESULT.total_llm_calls == 3, got {lrr!r}"
+        )
+        assert "Results: 2 positive, 1 negative" in lrr.get("stdout_preview", ""), (
+            f"Expected recovered preview in LAST_REPL_RESULT: {lrr!r}"
+        )
+        trace_summary = lrr.get("trace_summary", {})
+        assert trace_summary.get("llm_call_count") == 3, (
+            f"Expected trace_summary.llm_call_count == 3, got {trace_summary!r}"
+        )
+        assert trace_summary.get("failed_llm_calls") == 0, (
+            f"Expected trace_summary.failed_llm_calls == 0, got {trace_summary!r}"
         )
 
-
-    async def test_obs_error_counts_absent(self, tmp_path: Path):
-        """Verify OBS_CHILD_ERROR_COUNTS is empty/absent since retry succeeds.
-
-        The retry worker eventually returns valid structured output, so no
-        error should be recorded in error counts. The reflect-and-retry loop
-        is internal to the child and does not propagate errors to the dispatch
-        accumulator when it ultimately succeeds.
-
-        Note: With child orchestrators, NO_RESULT may appear if the child's
-        reasoning agent does not extract the answer.  We check both old and
-        new obs keys and allow NO_RESULT since child answer extraction is
-        a known limitation with structured output fixtures.
-        """
+    async def test_observability_records_clean_child_dispatch_summary(self, tmp_path: Path):
+        """No child errors should persist once the structured retry recovers."""
         result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        # With child orchestrators, NO_RESULT errors are expected when the
-        # child reasoning agent's output_key doesn't contain the answer.
-        # This is acceptable — the important thing is no RATE_LIMIT/SERVER errors.
-        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS)
-        if error_counts:
-            real_errors = {k: v for k, v in error_counts.items() if k != "NO_RESULT"}
-            assert len(real_errors) == 0, (
-                f"Expected no real errors (RATE_LIMIT/SERVER/etc) in error counts, "
-                f"got {error_counts!r}"
-            )
+        assert OBS_CHILD_ERROR_COUNTS not in result.final_state, (
+            f"Expected no child error counts after recovery, got {result.final_state!r}"
+        )
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("execute_code") == 1, (
+            f"Expected execute_code summary count == 1, got {summary!r}"
+        )
+        assert summary.get("set_model_response") == 4, (
+            f"Expected set_model_response summary count == 4, got {summary!r}"
+        )
 
 
 # ===========================================================================
@@ -1118,6 +1351,45 @@ class TestStructuredOutputRetryExhaustion:
                 f"error_counts is absent: {repl_result!r}"
             )
 
+    async def test_parent_reasoning_turn_sees_exhausted_tool_result(self):
+        """The parent reasoning turn must receive the exhausted child error payload."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for exhausted structured dispatch, got {response!r}"
+        )
+        assert "Schema validation exhausted" in response.get("stdout", ""), (
+            f"Expected exhaustion message in parent-facing stdout, got {response!r}"
+        )
+
+    async def test_observability_records_retry_attempts_and_exhaustion(self, tmp_path: Path):
+        """State should expose retries and the exhausted outcome even if stdout is terse."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("set_model_response") == 3, (
+            f"Expected three structured-output attempts in tool summary, got {summary!r}"
+        )
+        assert summary.get("execute_code") == 1, (
+            f"Expected one parent execute_code call in tool summary, got {summary!r}"
+        )
+        assert result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
+            f"Expected one structured-output exhaustion, got {result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        trace_summary = last_repl_result.get("trace_summary", {})
+        assert last_repl_result.get("has_errors") is False, (
+            f"Expected handled parent REPL result with has_errors=False, got {last_repl_result!r}"
+        )
+        assert trace_summary.get("failed_llm_calls") == 1, (
+            f"Expected one failed llm call in trace summary, got {trace_summary!r}"
+        )
+
 
 # ===========================================================================
 # FM-14: REPL Generic Exception After Dispatch (flush_fn / LAST_REPL_RESULT)
@@ -1474,6 +1746,23 @@ class TestMaxIterationsExceededPersistent:
             f"Expected 'limit' in final_answer: {fa!r}"
         )
 
+    async def test_observability_counts_both_blocked_calls_even_with_minimal_stdout(self, tmp_path: Path):
+        """Blocked retries should still be visible in state when stdout stays empty."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("execute_code") == 4, (
+            f"Expected execute_code count 4 in observability summary, got {summary!r}"
+        )
+        breakdown = result.final_state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN)
+        assert isinstance(breakdown, list) and len(breakdown) == 5, (
+            f"Expected 5 model-call breakdown entries, got {breakdown!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        assert last_repl_result.get("stdout_preview", "").startswith("y = 30"), (
+            f"Expected last_repl_result to remain anchored to the last executed call, got {last_repl_result!r}"
+        )
+
 
 # ===========================================================================
 # FM-15/24: Empty Reasoning Output with SAFETY Finish (RPN=16/48)
@@ -1484,8 +1773,8 @@ class TestEmptyReasoningOutputSafety:
     """Verify orchestrator error handling for empty reasoning output with SAFETY finish.
 
     Variant of FM-15 where the final model response has finishReason=SAFETY
-    instead of STOP.  The orchestrator should handle this identically to the
-    STOP case — the defining behavior is the empty text, not the finish reason.
+    instead of STOP. The orchestrator should preserve the finish reason in the
+    final error message instead of collapsing to the plain STOP variant.
     """
 
     FIXTURE = "empty_reasoning_output_safety"
@@ -1503,6 +1792,9 @@ class TestEmptyReasoningOutputSafety:
         assert fa.startswith("[RLM ERROR]"), (
             f"Expected FINAL_ANSWER to start with '[RLM ERROR]', got: {fa!r}"
         )
+        assert "finished with SAFETY before producing a final answer" in fa, (
+            f"Expected SAFETY-specific empty-completion message, got: {fa!r}"
+        )
 
     async def test_single_repl_iteration(self, tmp_path: Path):
         """Verify only 1 REPL call was made before SAFETY-blocked output."""
@@ -1511,23 +1803,20 @@ class TestEmptyReasoningOutputSafety:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_same_error_as_stop_variant(self, tmp_path: Path):
-        """Verify SAFETY variant produces same error as STOP variant (FM-15).
-
-        Both should produce the identical [RLM ERROR] message, confirming
-        the orchestrator does not distinguish between finish reasons when
-        the text is empty.
-        """
+    async def test_error_differs_from_stop_variant(self, tmp_path: Path):
+        """Verify SAFETY variant preserves finish reason instead of collapsing to STOP."""
         result_safety = await _run_with_plugins(self.FIXTURE, tmp_path)
         result_stop = await _run_with_plugins("empty_reasoning_output", tmp_path)
         assert result_safety.contract.passed, result_safety.contract.diagnostics()
         assert result_stop.contract.passed, result_stop.contract.diagnostics()
         fa_safety = result_safety.final_state.get(FINAL_ANSWER, "")
         fa_stop = result_stop.final_state.get(FINAL_ANSWER, "")
-        assert fa_safety == fa_stop, (
-            f"SAFETY and STOP variants should produce same error. "
+        assert fa_safety != fa_stop, (
+            f"SAFETY and STOP variants should now differ. "
             f"SAFETY: {fa_safety!r}, STOP: {fa_stop!r}"
         )
+        assert "SAFETY" in fa_safety, f"Expected SAFETY marker in {fa_safety!r}"
+        assert "SAFETY" not in fa_stop, f"Did not expect SAFETY marker in {fa_stop!r}"
 
 
 # ===========================================================================
@@ -1558,6 +1847,9 @@ class TestReasoningSafetyFinish:
         assert fa.startswith("[RLM ERROR]"), (
             f"Expected FINAL_ANSWER to start with '[RLM ERROR]', got: {fa!r}"
         )
+        assert "finished with SAFETY before producing a final answer" in fa, (
+            f"Expected SAFETY-specific reasoning-blocked message, got: {fa!r}"
+        )
 
     async def test_zero_repl_iterations(self, tmp_path: Path):
         """Verify no REPL calls were made (SAFETY blocked on first turn)."""
@@ -1580,8 +1872,171 @@ class TestReasoningSafetyFinish:
 
 # ===========================================================================
 # FM-09 residual risk: Worker 500 Retry Exhausted Naive — REMOVED (Phase 3 migration)
-# FM-25 residual risk: Worker MAX_TOKENS Naive — REMOVED (Phase 3 migration)
 # ===========================================================================
+
+
+# ===========================================================================
+# FM-25: Worker SAFETY / Empty / Naive MAX_TOKENS finish_reason handling
+# ===========================================================================
+
+
+class TestWorkerSafetyFinish:
+    """Verify blocked child outputs stay visible to parent and observability state."""
+
+    FIXTURE = "worker_safety_finish"
+
+    async def test_contract(self):
+        """Basic contract."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+
+    async def test_parent_reasoning_turn_sees_safety_finish_tool_response(self):
+        """The final reasoning turn should receive the blocked child marker."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for blocked child dispatch, got {response!r}"
+        )
+        assert "finish_reason=SAFETY" in response.get("stdout", ""), (
+            f"Expected SAFETY finish marker in parent-facing stdout, got {response!r}"
+        )
+        assert response.get("stderr") == "", (
+            f"Expected empty stderr for handled SAFETY finish, got {response!r}"
+        )
+
+    async def test_observability_preserves_safety_finish_reason_and_empty_output(self, tmp_path: Path):
+        """State should keep the blocked child summary even when parent handles it cleanly."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert summary.get("error") is True, (
+            f"Expected blocked child summary to be marked errored, got {summary!r}"
+        )
+        assert summary.get("error_category") == "SAFETY", (
+            f"Expected SAFETY child error category, got {summary!r}"
+        )
+        assert summary.get("finish_reason") == "SAFETY", (
+            f"Expected finish_reason=SAFETY in child summary, got {summary!r}"
+        )
+        assert summary.get("raw_output_preview") == "", (
+            f"Expected empty raw_output_preview for SAFETY block, got {summary!r}"
+        )
+        trace_summary = result.final_state.get(LAST_REPL_RESULT, {}).get("trace_summary", {})
+        assert trace_summary.get("failed_llm_calls") == 1, (
+            f"Expected one failed llm call recorded for SAFETY block, got {trace_summary!r}"
+        )
+
+
+class TestWorkerEmptyResponse:
+    """Verify batched parent code does not lose the blocked-empty child outcome."""
+
+    FIXTURE = "worker_empty_response"
+
+    async def test_contract(self):
+        """Basic contract."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+
+    async def test_parent_reasoning_turn_sees_valid_and_blocked_children(self):
+        """The final reasoning turn should receive both the valid and blocked child results."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        stdout = response.get("stdout", "")
+        assert "Result 0: valid" in stdout, (
+            f"Expected valid child marker in parent-facing stdout, got {response!r}"
+        )
+        assert "Result 1: empty (finish_reason=SAFETY, raw_len=0)" in stdout, (
+            f"Expected blocked-empty child marker in parent-facing stdout, got {response!r}"
+        )
+        assert "Valid: 1, Empty: 1" in stdout, (
+            f"Expected final batch summary in parent-facing stdout, got {response!r}"
+        )
+
+    async def test_observability_preserves_blocked_child_summary(self, tmp_path: Path):
+        """State should keep a per-child blocked summary instead of only the aggregate count."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        assert result.final_state.get(OBS_CHILD_DISPATCH_COUNT) == 2, (
+            f"Expected two child dispatches, got {result.final_state.get(OBS_CHILD_DISPATCH_COUNT)!r}"
+        )
+        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        assert error_counts.get("SAFETY") == 1, (
+            f"Expected one SAFETY child error, got {error_counts!r}"
+        )
+        blocked = result.final_state.get("obs:child_summary@d1f1", {})
+        assert blocked.get("finish_reason") == "SAFETY", (
+            f"Expected finish_reason=SAFETY for blocked child summary, got {blocked!r}"
+        )
+        assert blocked.get("raw_output_preview") == "", (
+            f"Expected empty raw_output_preview for blocked child, got {blocked!r}"
+        )
+        assert blocked.get("error") is True, (
+            f"Expected blocked child summary to be marked errored, got {blocked!r}"
+        )
+        assert "RLM ERROR" in blocked.get("final_answer", ""), (
+            f"Expected blocked child summary final_answer to preserve wrapper, got {blocked!r}"
+        )
+
+
+class TestWorkerMaxTokensNaive:
+    """Verify truncation remains visible even when the parent consumes it naively."""
+
+    FIXTURE = "worker_max_tokens_naive"
+
+    async def test_contract(self):
+        """Basic contract."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+
+    async def test_parent_reasoning_turn_receives_truncated_child_output(self):
+        """The final reasoning turn should receive the truncated child text verbatim."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        stdout = response.get("stdout", "")
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for truncated child dispatch, got {response!r}"
+        )
+        assert "Analysis: The market shows strong growth in Q1" in stdout, (
+            f"Expected truncated child text in parent-facing stdout, got {response!r}"
+        )
+        assert stdout.rstrip().endswith("and"), (
+            f"Expected truncated stdout to end mid-sentence, got {stdout!r}"
+        )
+
+    async def test_observability_preserves_max_tokens_finish_reason(self, tmp_path: Path):
+        """State should expose MAX_TOKENS even when the parent reports a normal final answer."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert summary.get("error") is False, (
+            f"Expected truncated child summary to remain non-error, got {summary!r}"
+        )
+        assert summary.get("finish_reason") == "MAX_TOKENS", (
+            f"Expected finish_reason=MAX_TOKENS in child summary, got {summary!r}"
+        )
+        assert summary.get("raw_output_preview", "").endswith("and"), (
+            f"Expected raw_output_preview to retain truncated suffix, got {summary!r}"
+        )
+        assert result.final_state.get(LAST_REPL_RESULT, {}).get("trace_summary", {}).get(
+            "failed_llm_calls"
+        ) == 0, (
+            f"Expected no failed llm calls for graceful truncation, got {result.final_state.get(LAST_REPL_RESULT)!r}"
+        )
 
 
 # ===========================================================================
@@ -1634,12 +2089,6 @@ class TestWorkerAuthError401:
         )
 
 
-# ===========================================================================
-# [3.3] FM-25: Worker Empty Response finish_reason — REMOVED (Phase 3 migration)
-# ===========================================================================
-
-
-# ===========================================================================
 # [11.3] FM-16: Structured Output Retry Exhaustion -- Pure Validation (RPN=50)
 # ===========================================================================
 
@@ -1688,6 +2137,41 @@ class TestStructuredOutputRetryExhaustionPureValidation:
             assert sof >= 1, (
                 f"Expected OBS_STRUCTURED_OUTPUT_FAILURES >= 1, got {sof}"
             )
+
+    async def test_parent_reasoning_turn_sees_pure_validation_exhaustion(self):
+        """Parent reasoning should receive the exhausted pure-validation response."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for pure-validation exhaustion, got {response!r}"
+        )
+        assert "Pure validation exhausted: SCHEMA_VALIDATION_EXHAUSTED" in response.get("stdout", ""), (
+            f"Expected pure-validation exhaustion message in stdout, got {response!r}"
+        )
+
+    async def test_observability_records_pure_validation_retries_and_exhaustion(self, tmp_path: Path):
+        """State should expose all retry attempts for the pure-validation path."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("set_model_response") == 3, (
+            f"Expected three pure-validation attempts in tool summary, got {summary!r}"
+        )
+        assert result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
+            f"Expected one structured-output exhaustion, got {result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
+        )
+        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        assert error_counts.get("SCHEMA_VALIDATION_EXHAUSTED") == 1, (
+            f"Expected SCHEMA_VALIDATION_EXHAUSTED == 1, got {error_counts!r}"
+        )
+        assert result.final_state.get(LAST_REPL_RESULT, {}).get("has_errors") is False, (
+            f"Expected parent REPL result to stay handled/clean, got {result.final_state.get(LAST_REPL_RESULT)!r}"
+        )
 
 
 # ===========================================================================
@@ -1801,6 +2285,52 @@ class TestStructuredOutputBatchedK3MixedExhaust:
         iter_count = result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
+    async def test_parent_reasoning_turn_sees_partial_batch_failure(self):
+        """Parent reasoning should receive both batch summary and exhaustion signal."""
+        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
+        assert result.passed, result.diagnostics()
+        responses = _request_function_responses(result.captured_requests[-1])
+        assert len(responses) == 1, (
+            f"Expected one execute_code response in final request, got {responses!r}"
+        )
+        response = responses[0]
+        assert response.get("llm_calls_made") is True, (
+            f"Expected llm_calls_made=True for mixed batch exhaustion, got {response!r}"
+        )
+        stdout = response.get("stdout", "")
+        assert "Results: 2 succeeded, 1 failed" in stdout, (
+            f"Expected mixed batch summary in stdout, got {response!r}"
+        )
+        assert "FAILED (SCHEMA_VALIDATION_EXHAUSTED)" in stdout, (
+            f"Expected exhausted worker marker in stdout, got {response!r}"
+        )
+
+    async def test_observability_records_batch_retry_attempts_and_exhaustion(self, tmp_path: Path):
+        """State should capture both retry volume and the exhausted worker."""
+        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        assert result.contract.passed, result.contract.diagnostics()
+        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert summary.get("set_model_response") == 5, (
+            f"Expected five set_model_response calls across the batch, got {summary!r}"
+        )
+        assert result.final_state.get(OBS_CHILD_DISPATCH_COUNT) == 3, (
+            f"Expected three child dispatches, got {result.final_state.get(OBS_CHILD_DISPATCH_COUNT)!r}"
+        )
+        assert result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
+            f"Expected one structured-output exhaustion, got {result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
+        )
+        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        trace_summary = last_repl_result.get("trace_summary", {})
+        assert last_repl_result.get("has_errors") is False, (
+            f"Expected parent REPL result to stay handled/clean, got {last_repl_result!r}"
+        )
+        assert last_repl_result.get("total_llm_calls") == 3, (
+            f"Expected three child llm calls recorded in last_repl_result, got {last_repl_result!r}"
+        )
+        assert trace_summary.get("failed_llm_calls") == 1, (
+            f"Expected one failed child llm call in trace summary, got {trace_summary!r}"
+        )
+
 
 # ===========================================================================
 # [21.1] FM-11: Pool Exhaustion — REMOVED (Phase 3 migration, no pool)
@@ -1815,39 +2345,39 @@ class TestStructuredOutputBatchedK3MixedExhaust:
 class TestClassifyErrorParseError:
     """Verify _classify_error returns PARSE_ERROR for JSON-related exceptions."""
 
-    def test_json_decode_error(self):
+    async def test_json_decode_error(self):
         """JSONDecodeError should classify as PARSE_ERROR."""
         import json
         from rlm_adk.callbacks.worker import _classify_error
         error = json.JSONDecodeError("Expecting value", "", 0)
         assert _classify_error(error) == "PARSE_ERROR"
 
-    def test_value_error_with_json(self):
+    async def test_value_error_with_json(self):
         """ValueError with 'json' in message should classify as PARSE_ERROR."""
         from rlm_adk.callbacks.worker import _classify_error
         error = ValueError("Invalid JSON response from API")
         assert _classify_error(error) == "PARSE_ERROR"
 
-    def test_generic_error_with_malformed(self):
+    async def test_generic_error_with_malformed(self):
         """Error with 'malformed' in message should classify as PARSE_ERROR."""
         from rlm_adk.callbacks.worker import _classify_error
         error = RuntimeError("Malformed response body from server")
         assert _classify_error(error) == "PARSE_ERROR"
 
-    def test_value_error_without_json(self):
+    async def test_value_error_without_json(self):
         """ValueError without JSON keywords should classify as UNKNOWN."""
         from rlm_adk.callbacks.worker import _classify_error
         error = ValueError("Invalid argument")
         assert _classify_error(error) == "UNKNOWN"
 
-    def test_timeout_still_works(self):
+    async def test_timeout_still_works(self):
         """TimeoutError should still classify as TIMEOUT (not PARSE_ERROR)."""
         import asyncio
         from rlm_adk.callbacks.worker import _classify_error
         error = asyncio.TimeoutError()
         assert _classify_error(error) == "TIMEOUT"
 
-    def test_rate_limit_still_works(self):
+    async def test_rate_limit_still_works(self):
         """Error with code=429 should still classify as RATE_LIMIT."""
         from rlm_adk.callbacks.worker import _classify_error
         error = Exception("rate limited")

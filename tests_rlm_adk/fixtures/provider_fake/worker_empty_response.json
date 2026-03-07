@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_empty_response",
-  "description": "FM-25 (RPN=75): K=2 batch dispatch. Worker 1 returns valid text. Worker 2 returns empty text with SAFETY finishReason, simulating a content safety filter suppressing the response. REPL code detects and handles the empty result by checking string length. Then reasoning returns FINAL.",
+  "description": "FM-25 (RPN=75): K=2 child batch dispatch. Child 1 returns valid text. Child 2 finishes with SAFETY and empty raw output, simulating a content safety filter suppressing the response. Parent REPL code distinguishes the blocked-empty case via finish_reason plus raw_output instead of trusting str(result). Root reasoning then returns FINAL.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -23,7 +23,7 @@
                   "functionCall": {
                     "name": "execute_code",
                     "args": {
-                      "code": "results = llm_query_batched([\"Analyze market A\", \"Analyze market B\"])\nvalid = [r for r in results if str(r).strip()]\nempty = [r for r in results if not str(r).strip()]\nprint(f\"Valid: {len(valid)}, Empty: {len(empty)}\")\nfor i, r in enumerate(results):\n    status = \"valid\" if str(r).strip() else \"empty\"\n    print(f\"  Result {i}: {status} (len={len(str(r))})\")"
+                      "code": "results = llm_query_batched([\"Analyze market A\", \"Analyze market B\"])\nvalid = []\nempty = []\nfor i, r in enumerate(results):\n    finish_reason = getattr(r, 'finish_reason', None)\n    raw_text = getattr(r, 'raw_output', '') or ''\n    if finish_reason == 'SAFETY' and not str(raw_text).strip():\n        empty.append(r)\n        print(f\"  Result {i}: empty (finish_reason={finish_reason}, raw_len={len(str(raw_text))})\")\n    else:\n        valid.append(r)\n        print(f\"  Result {i}: valid (len={len(str(r))})\")\nprint(f\"Valid: {len(valid)}, Empty: {len(empty)}\")"
                     }
                   }
                 }
@@ -135,7 +135,6 @@
   "expected_state": {
     "obs:child_dispatch_count": 2,
     "obs:child_error_counts": {
-      "$not_none": true,
       "$has_key": "SAFETY"
     },
     "last_repl_result": {
@@ -146,5 +145,82 @@
     "obs:total_output_tokens": {"$gt": 0},
     "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
     "obs:finish_safety_count": {"$gt": 0}
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 2
+      },
+      "count": 4
+    },
+    "captured_requests": {
+      "count": 4
+    },
+    "events": {
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "any": [
+        {
+          "function_name": "execute_code",
+          "call_number": 1,
+          "llm_calls_made": true,
+          "stdout": {
+            "$contains": "Valid: 1, Empty: 1"
+          }
+        }
+      ],
+      "stdout_contains": [
+        "Result 1: empty (finish_reason=SAFETY, raw_len=0)"
+      ]
+    },
+    "observability": {
+      "obs:tool_invocation_summary": {
+        "execute_code": 1
+      },
+      "obs:child_error_counts": {
+        "SAFETY": 1
+      },
+      "obs:child_summary@d1f1": {
+        "error": true,
+        "error_category": "SAFETY",
+        "finish_reason": "SAFETY",
+        "raw_output_preview": "",
+        "final_answer": {
+          "$contains": "[RLM ERROR]"
+        }
+      },
+      "last_repl_result": {
+        "has_errors": false,
+        "has_output": true,
+        "total_llm_calls": 2,
+        "stdout_preview": {
+          "$contains": "Valid: 1, Empty: 1"
+        },
+        "trace_summary": {
+          "llm_call_count": 2,
+          "failed_llm_calls": 1
+        }
+      },
+      "obs:per_iteration_token_breakdown": {
+        "$type": "list",
+        "$len_eq": 4
+      },
+      "obs:total_calls": 4
+    }
   }
 }

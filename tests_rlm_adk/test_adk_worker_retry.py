@@ -164,6 +164,16 @@ class TestMakeWorkerToolCallbacks:
         await after_cb(tool, {"title": "Test", "score": 0.9}, tool_context, result)
 
         assert agent._structured_result == {"title": "Test", "score": 0.9}
+        assert agent._structured_output_obs["attempts"] == 1
+        assert agent._structured_output_obs["retry_count"] == 0
+        assert agent._structured_output_obs["events"] == [
+            {
+                "attempt": 1,
+                "outcome": "validated",
+                "args_keys": ["score", "title"],
+                "response_keys": ["score", "title"],
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_after_cb_ignores_non_set_model_response(self):
@@ -191,7 +201,9 @@ class TestMakeWorkerToolCallbacks:
         _, error_cb = make_worker_tool_callbacks(max_retries=2)
         tool = MagicMock()
         tool.name = "set_model_response"
+        agent = MagicMock()
         tool_context = MagicMock()
+        tool_context._invocation_context.agent = agent
         tool_context.invocation_id = "inv-1"
         error = ValueError("bad schema")
 
@@ -199,6 +211,10 @@ class TestMakeWorkerToolCallbacks:
 
         assert guidance is not None
         assert "reflection_guidance" in guidance
+        assert agent._structured_output_obs["attempts"] == 1
+        assert agent._structured_output_obs["retry_count"] == 1
+        assert agent._structured_output_obs["events"][0]["outcome"] == "retry_requested"
+        assert agent._structured_output_obs["events"][0]["error_type"] == "ValueError"
 
     @pytest.mark.asyncio
     async def test_error_cb_raises_after_max_retries(self):
@@ -208,7 +224,9 @@ class TestMakeWorkerToolCallbacks:
         _, error_cb = make_worker_tool_callbacks(max_retries=1)
         tool = MagicMock()
         tool.name = "set_model_response"
+        agent = MagicMock()
         tool_context = MagicMock()
+        tool_context._invocation_context.agent = agent
         tool_context.invocation_id = "inv-1"
         error = ValueError("bad schema")
 
@@ -219,6 +237,9 @@ class TestMakeWorkerToolCallbacks:
         # Second attempt: should raise
         with pytest.raises(ValueError, match="bad schema"):
             await error_cb(tool, {}, tool_context, error)
+        assert agent._structured_output_obs["attempts"] == 2
+        assert agent._structured_output_obs["retry_count"] == 1
+        assert agent._structured_output_obs["events"][-1]["outcome"] == "exhausted"
 
 
 # ── Cycle 7: BUG-13 patch wrapper suppresses retry responses (FM-21) ────

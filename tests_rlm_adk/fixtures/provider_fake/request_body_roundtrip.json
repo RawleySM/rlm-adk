@@ -107,6 +107,76 @@
     "total_iterations": 1,
     "total_model_calls": 3
   },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 1
+      },
+      "count": 3
+    },
+    "captured_requests": {
+      "count": 3
+    },
+    "events": {
+      "part_counts": {
+        "function_call:execute_code": 1,
+        "function_response:execute_code": 1,
+        "text": {
+          "$gte": 2
+        }
+      },
+      "part_sequence": [
+        {
+          "kind": "function_call",
+          "name": "execute_code",
+          "role": "model"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code",
+          "role": "user"
+        }
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "stdout_contains": [
+        "WORKER_RESPONSE_START",
+        "STDOUT_SENTINEL_START"
+      ],
+      "any": [
+        {
+          "function_name": "execute_code",
+          "llm_calls_made": true,
+          "variables": {
+            "artifact": {
+              "\u00abARTIFACT_START\u00bb": true,
+              "repo_name": "test-repo",
+              "metadata": {
+                "token_estimate": 42,
+                "shard_index": 0
+              },
+              "\u00abARTIFACT_END\u00bb": true
+            },
+            "result": {
+              "$contains": "\u00abWORKER_RESPONSE_START\u00bb"
+            }
+          }
+        }
+      ]
+    },
+    "observability": {
+      "counters": {
+        "obs:child_dispatch_count": 1,
+        "obs:tool_invocation_summary": {
+          "execute_code": 1
+        },
+        "obs:total_calls": 3
+      }
+    }
+  },
   "expected_state": {
     "obs:child_dispatch_count": 1,
     "last_repl_result": {

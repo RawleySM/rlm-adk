@@ -29,6 +29,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
+    OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     CONTEXT_WINDOW_SNAPSHOT,
     FINAL_ANSWER,
     ITERATION_COUNT,
@@ -157,6 +158,7 @@ CREATE TABLE IF NOT EXISTS traces (
     root_prompt_preview     TEXT,
     total_execution_time_s  REAL,
     child_dispatch_count    INTEGER,
+    child_total_batch_dispatches INTEGER,
     child_error_counts      TEXT,
     structured_output_failures INTEGER,
     finish_safety_count     INTEGER,
@@ -199,6 +201,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
     model           TEXT,
     input_tokens    INTEGER,
     output_tokens   INTEGER,
+    thought_tokens  INTEGER,
     finish_reason   TEXT,
     num_contents    INTEGER,
     agent_type      TEXT,
@@ -210,6 +213,8 @@ CREATE TABLE IF NOT EXISTS telemetry (
     repl_has_errors     INTEGER,
     repl_has_output     INTEGER,
     repl_llm_calls      INTEGER,
+    repl_stdout_len     INTEGER,
+    repl_stderr_len     INTEGER,
     repl_trace_summary  TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
@@ -275,10 +280,9 @@ class SqliteTracingPlugin(BasePlugin):
         self._db_path = Path(db_path)
         self._conn: Optional[sqlite3.Connection] = None
         self._trace_id: Optional[str] = None
-        # Pending telemetry: model_key -> (telemetry_id, start_time)
-        self._pending_model_telemetry: dict[str, tuple[str, float]] = {}
-        # Pending telemetry: tool_name -> (telemetry_id, start_time)
-        self._pending_tool_telemetry: dict[str, tuple[str, float]] = {}
+        # Pending telemetry: callback/tool context id -> (telemetry_id, start_time)
+        self._pending_model_telemetry: dict[int, tuple[str, float]] = {}
+        self._pending_tool_telemetry: dict[int, tuple[str, float]] = {}
         # Monotonic counter for session_state_events per trace
         self._sse_seq: int = 0
         # Legacy: kept for backward compat in agent span tracking
@@ -331,6 +335,7 @@ class SqliteTracingPlugin(BasePlugin):
                 ("root_prompt_preview", "TEXT"),
                 ("total_execution_time_s", "REAL"),
                 ("child_dispatch_count", "INTEGER"),
+                ("child_total_batch_dispatches", "INTEGER"),
                 ("child_error_counts", "TEXT"),
                 ("structured_output_failures", "INTEGER"),
                 ("finish_safety_count", "INTEGER"),
@@ -355,6 +360,7 @@ class SqliteTracingPlugin(BasePlugin):
                 ("model", "TEXT"),
                 ("input_tokens", "INTEGER"),
                 ("output_tokens", "INTEGER"),
+                ("thought_tokens", "INTEGER"),
                 ("finish_reason", "TEXT"),
                 ("num_contents", "INTEGER"),
                 ("agent_type", "TEXT"),
@@ -366,6 +372,8 @@ class SqliteTracingPlugin(BasePlugin):
                 ("repl_has_errors", "INTEGER"),
                 ("repl_has_output", "INTEGER"),
                 ("repl_llm_calls", "INTEGER"),
+                ("repl_stdout_len", "INTEGER"),
+                ("repl_stderr_len", "INTEGER"),
                 ("repl_trace_summary", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
@@ -413,6 +421,51 @@ class SqliteTracingPlugin(BasePlugin):
     def _new_id(self) -> str:
         """Generate a new unique ID."""
         return uuid.uuid4().hex
+
+    @staticmethod
+    def _pending_key(obj: Any) -> int:
+        """Return a stable in-process key for pairing before/after callbacks."""
+        return id(obj)
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        """Best-effort integer coercion for callback payloads and mocks."""
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _resolve_repl_state(
+        state: Any,
+        *,
+        tool_depth: int | None,
+    ) -> dict[str, Any] | None:
+        """Select the best-matching last_repl_result payload from tool state."""
+        if not hasattr(state, "items"):
+            return None
+
+        exact_match: dict[str, Any] | None = None
+        fallback: dict[str, Any] | None = None
+        for raw_key, value in state.items():
+            if not isinstance(value, dict):
+                continue
+            base_key, depth, _ = _parse_key(raw_key)
+            if base_key != LAST_REPL_RESULT:
+                continue
+            if raw_key == LAST_REPL_RESULT:
+                exact_match = value
+            if tool_depth is not None and depth == tool_depth:
+                return value
+            if fallback is None:
+                fallback = value
+        return exact_match or fallback
 
     # ---- Telemetry write helpers ----
 
@@ -602,6 +655,7 @@ class SqliteTracingPlugin(BasePlugin):
                        root_prompt_preview = ?,
                        total_execution_time_s = ?,
                        child_dispatch_count = ?,
+                       child_total_batch_dispatches = ?,
                        child_error_counts = ?,
                        structured_output_failures = ?,
                        finish_safety_count = ?,
@@ -627,6 +681,7 @@ class SqliteTracingPlugin(BasePlugin):
                         root_prompt[:500] if root_prompt else None,
                         state.get("obs:total_execution_time"),
                         state.get("obs:child_dispatch_count"),
+                        state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES),
                         json.dumps(state.get("obs:child_error_counts")) if state.get("obs:child_error_counts") else None,
                         state.get("obs:structured_output_failures"),
                         state.get("obs:finish_safety_count"),
@@ -709,7 +764,10 @@ class SqliteTracingPlugin(BasePlugin):
                 system_chars=system_chars,
                 call_number=call_number,
             )
-            self._pending_model_telemetry[model] = (telemetry_id, start_time)
+            self._pending_model_telemetry[self._pending_key(callback_context)] = (
+                telemetry_id,
+                start_time,
+            )
         except Exception as e:
             logger.warning("SqliteTracingPlugin: before_model failed: %s", e)
         return None
@@ -719,18 +777,26 @@ class SqliteTracingPlugin(BasePlugin):
     ) -> Optional[LlmResponse]:
         """Update telemetry row with tokens, finish_reason, duration."""
         try:
-            model = llm_response.model_version or "unknown"
-            pending = self._pending_model_telemetry.pop(model, None)
-            if pending is None:
-                pending = self._pending_model_telemetry.pop("unknown", None)
+            pending = self._pending_model_telemetry.pop(
+                self._pending_key(callback_context),
+                None,
+            )
             if pending is None and self._pending_model_telemetry:
                 _, pending = self._pending_model_telemetry.popitem()
 
             tokens_in = 0
             tokens_out = 0
+            thought_tokens = 0
             if llm_response.usage_metadata:
-                tokens_in = getattr(llm_response.usage_metadata, "prompt_token_count", 0) or 0
-                tokens_out = getattr(llm_response.usage_metadata, "candidates_token_count", 0) or 0
+                tokens_in = self._coerce_int(
+                    getattr(llm_response.usage_metadata, "prompt_token_count", 0),
+                )
+                tokens_out = self._coerce_int(
+                    getattr(llm_response.usage_metadata, "candidates_token_count", 0),
+                )
+                thought_tokens = self._coerce_int(
+                    getattr(llm_response.usage_metadata, "thoughts_token_count", 0),
+                )
 
             finish_reason = None
             if llm_response.finish_reason:
@@ -746,6 +812,7 @@ class SqliteTracingPlugin(BasePlugin):
                     "duration_ms": duration_ms,
                     "input_tokens": tokens_in,
                     "output_tokens": tokens_out,
+                    "thought_tokens": thought_tokens,
                     "finish_reason": finish_reason,
                 }
                 if llm_response.error_code:
@@ -762,8 +829,10 @@ class SqliteTracingPlugin(BasePlugin):
                     end_time,
                     end_time=end_time,
                     duration_ms=0,
+                    model=llm_response.model_version or "unknown",
                     input_tokens=tokens_in,
                     output_tokens=tokens_out,
+                    thought_tokens=thought_tokens,
                     finish_reason=finish_reason,
                     status="error" if llm_response.error_code else "ok",
                 )
@@ -780,8 +849,10 @@ class SqliteTracingPlugin(BasePlugin):
     ) -> Optional[LlmResponse]:
         """Mark the pending model telemetry row as an error."""
         try:
-            model = llm_request.model or "unknown"
-            pending = self._pending_model_telemetry.pop(model, None)
+            pending = self._pending_model_telemetry.pop(
+                self._pending_key(callback_context),
+                None,
+            )
             if pending is None and self._pending_model_telemetry:
                 _, pending = self._pending_model_telemetry.popitem()
             if pending:
@@ -822,7 +893,10 @@ class SqliteTracingPlugin(BasePlugin):
                 tool_args_keys=json.dumps(list(tool_args.keys())),
                 agent_name=agent_name,
             )
-            self._pending_tool_telemetry[tool_name] = (telemetry_id, start_time)
+            self._pending_tool_telemetry[self._pending_key(tool_context)] = (
+                telemetry_id,
+                start_time,
+            )
         except Exception as e:
             logger.warning("SqliteTracingPlugin: before_tool failed: %s", e)
         return None
@@ -838,7 +912,10 @@ class SqliteTracingPlugin(BasePlugin):
         """Update the tool telemetry row with result preview and duration."""
         try:
             tool_name = getattr(tool, "name", str(tool))
-            pending = self._pending_tool_telemetry.pop(tool_name, None)
+            pending = self._pending_tool_telemetry.pop(
+                self._pending_key(tool_context),
+                None,
+            )
             if pending:
                 telemetry_id, start_time = pending
                 end_time = time.time()
@@ -850,17 +927,43 @@ class SqliteTracingPlugin(BasePlugin):
                 }
                 # REPL enrichment
                 if tool_name == "execute_code" and isinstance(result, dict):
-                    update_kwargs["repl_has_errors"] = int(bool(result.get("has_errors", False)))
-                    update_kwargs["repl_has_output"] = int(bool(result.get("output", "")))
-                    update_kwargs["repl_llm_calls"] = result.get("total_llm_calls", 0)
-                    # Read trace_summary from state (written by REPLTool before this callback)
                     state = getattr(tool_context, "state", None)
-                    if state is not None:
-                        repl_state = state.get(LAST_REPL_RESULT) if hasattr(state, "get") else None
-                        if isinstance(repl_state, dict):
-                            trace_summary = repl_state.get("trace_summary")
-                            if trace_summary is not None:
-                                update_kwargs["repl_trace_summary"] = json.dumps(trace_summary)
+                    repl_state = self._resolve_repl_state(
+                        state,
+                        tool_depth=getattr(tool, "_depth", None),
+                    )
+                    stdout = result.get("stdout")
+                    stderr = result.get("stderr")
+                    if repl_state is not None:
+                        update_kwargs["repl_has_errors"] = int(
+                            bool(repl_state.get("has_errors", False))
+                        )
+                        update_kwargs["repl_has_output"] = int(
+                            bool(repl_state.get("has_output", False))
+                        )
+                        update_kwargs["repl_llm_calls"] = repl_state.get(
+                            "total_llm_calls",
+                            0,
+                        )
+                        trace_summary = repl_state.get("trace_summary")
+                        if trace_summary is not None:
+                            update_kwargs["repl_trace_summary"] = json.dumps(trace_summary)
+                    else:
+                        update_kwargs["repl_has_errors"] = int(
+                            bool(result.get("has_errors") or stderr)
+                        )
+                        update_kwargs["repl_has_output"] = int(
+                            bool(result.get("has_output") or stdout or result.get("output"))
+                        )
+                        update_kwargs["repl_llm_calls"] = result.get(
+                            "total_llm_calls",
+                            1 if result.get("llm_calls_made") else 0,
+                        )
+                    update_kwargs["repl_llm_calls"] = self._coerce_int(
+                        update_kwargs["repl_llm_calls"],
+                    )
+                    update_kwargs["repl_stdout_len"] = len(stdout or "")
+                    update_kwargs["repl_stderr_len"] = len(stderr or "")
                 self._update_telemetry(telemetry_id, **update_kwargs)
         except Exception as e:
             logger.warning("SqliteTracingPlugin: after_tool failed: %s", e)

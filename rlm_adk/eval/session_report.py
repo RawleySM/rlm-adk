@@ -77,6 +77,20 @@ def _query_one(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> Option
     return rows[0] if rows else None
 
 
+def _parse_json_value(value: Any, default: Any) -> Any:
+    """Parse JSON text into a Python value, returning default on failure."""
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return default
+    return default
+
+
 def _has_table(conn: sqlite3.Connection, table_name: str) -> bool:
     """Check if a table exists."""
     row = _query_one(
@@ -466,6 +480,111 @@ def _build_state_timeline(conn: sqlite3.Connection, trace_id: str) -> dict[str, 
     }
 
 
+def _normalize_child_summary(
+    row: dict[str, Any],
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Flatten a persisted obs:child_summary payload for evaluator consumption."""
+    structured_output = summary.get("structured_output", {})
+    if not isinstance(structured_output, dict):
+        structured_output = {}
+
+    nested_dispatch = summary.get("nested_dispatch", {})
+    if not isinstance(nested_dispatch, dict):
+        nested_dispatch = {}
+
+    return {
+        "depth": row["key_depth"],
+        "fanout": row["key_fanout"],
+        "seq": row["seq"],
+        "author": row["event_author"],
+        "model": summary.get("model"),
+        "elapsed_ms": summary.get("elapsed_ms"),
+        "error": summary.get("error"),
+        "error_category": summary.get("error_category"),
+        "error_message": _trunc(summary.get("error_message")),
+        "prompt_preview": _trunc(summary.get("prompt_preview")),
+        "result_preview": _trunc(summary.get("result_preview")),
+        "final_answer": _trunc(summary.get("final_answer")),
+        "structured_output": {
+            "expected": structured_output.get("expected", False),
+            "schema_name": structured_output.get("schema_name"),
+            "attempts": structured_output.get("attempts", 0),
+            "retry_count": structured_output.get("retry_count", 0),
+            "outcome": structured_output.get("outcome"),
+            "validated_result": structured_output.get("validated_result"),
+        },
+        "nested_dispatch": {
+            "count": nested_dispatch.get("count", 0),
+            "batch_dispatches": nested_dispatch.get("batch_dispatches", 0),
+            "error_counts": nested_dispatch.get("error_counts", {}),
+            "structured_output_failures": nested_dispatch.get(
+                "structured_output_failures",
+                0,
+            ),
+        },
+    }
+
+
+def _build_child_outcomes(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]:
+    """Build evaluator-facing child summary/error/structured-output outcomes."""
+    trace = _query_one(conn, "SELECT * FROM traces WHERE trace_id = ?", (trace_id,)) or {}
+    child_error_counts = _parse_json_value(trace.get("child_error_counts"), {})
+    if not isinstance(child_error_counts, dict):
+        child_error_counts = {}
+
+    latest_summaries: dict[tuple[int, int | None], dict[str, Any]] = {}
+    if _has_table(conn, "session_state_events"):
+        rows = _query(
+            conn,
+            """SELECT seq, event_author, event_time, key_depth, key_fanout,
+                      value_type, value_json, value_text
+               FROM session_state_events
+               WHERE trace_id = ? AND state_key = 'obs:child_summary'
+               ORDER BY seq""",
+            (trace_id,),
+        )
+        for row in rows:
+            summary = None
+            if row["value_type"] == "dict" and row["value_json"]:
+                summary = _parse_json_value(row["value_json"], None)
+            elif row["value_type"] == "str" and row["value_text"]:
+                summary = _parse_json_value(row["value_text"], None)
+            if not isinstance(summary, dict):
+                continue
+            latest_summaries[(row["key_depth"], row["key_fanout"])] = _normalize_child_summary(
+                row,
+                summary,
+            )
+
+    summaries = sorted(
+        latest_summaries.values(),
+        key=lambda item: (item["depth"], item["fanout"] if item["fanout"] is not None else -1),
+    )
+
+    structured_output_outcomes: dict[str, int] = {}
+    child_error_categories: dict[str, int] = {}
+    for summary in summaries:
+        outcome = summary["structured_output"].get("outcome")
+        if outcome:
+            structured_output_outcomes[outcome] = structured_output_outcomes.get(outcome, 0) + 1
+        error_category = summary.get("error_category")
+        if error_category:
+            child_error_categories[error_category] = child_error_categories.get(error_category, 0) + 1
+
+    return {
+        "child_dispatch_count": trace.get("child_dispatch_count", 0) or 0,
+        "child_total_batch_dispatches": trace.get("child_total_batch_dispatches", 0) or 0,
+        "child_error_counts": child_error_counts,
+        "structured_output_failures": trace.get("structured_output_failures", 0) or 0,
+        "structured_output_outcomes": structured_output_outcomes,
+        "child_error_categories": child_error_categories,
+        "total_summaries": len(summaries),
+        "children_with_errors": sum(1 for summary in summaries if summary.get("error")),
+        "summaries": summaries,
+    }
+
+
 # ---- Main report builder ----
 
 def build_session_report(trace_id: str, db_path: str = ".adk/traces.db") -> dict[str, Any]:
@@ -499,6 +618,7 @@ def build_session_report(trace_id: str, db_path: str = ".adk/traces.db") -> dict
         report["performance"] = _build_performance(conn, trace_id)
         report["errors"] = _build_errors(conn, trace_id)
         report["repl_outcomes"] = _build_repl_outcomes(conn, trace_id)
+        report["child_outcomes"] = _build_child_outcomes(conn, trace_id)
 
         if _has_table(conn, "session_state_events"):
             report["state_timeline"] = _build_state_timeline(conn, trace_id)

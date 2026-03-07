@@ -24,7 +24,7 @@ from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
 from tests_rlm_adk.provider_fake.fixtures import ScenarioRouter
 from tests_rlm_adk.provider_fake.server import FakeGeminiServer
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
+pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake, pytest.mark.agent_challenge]
 
 SKILL_FIXTURE = FIXTURE_DIR / "agent_challenge" / "skill_helper.json"
 EXPECTED_FINAL = (

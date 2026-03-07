@@ -35,6 +35,8 @@ from rlm_adk.state import (
     OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
+    OBS_REASONING_RETRY_COUNT,
+    OBS_REASONING_RETRY_DELAY_MS,
     OBS_STRUCTURED_OUTPUT_FAILURES,
     REASONING_INPUT_TOKENS,
     REASONING_FINISH_REASON,
@@ -50,6 +52,32 @@ from rlm_adk.state import (
 from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 
 logger = logging.getLogger(__name__)
+_CHILD_PREVIEW_LIMIT = 500
+
+
+def _truncate_text(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None:
+    """Return a bounded text preview for evaluator-facing state."""
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    return text[:limit]
+
+
+def _preview_payload(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None:
+    """Return a bounded preview for arbitrary payloads."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value[:limit]
+    try:
+        return json.dumps(value, sort_keys=True)[:limit]
+    except (TypeError, ValueError):
+        return str(value)[:limit]
+
+
+def _safe_int(value: Any) -> int:
+    """Best-effort integer coercion for telemetry fields."""
+    return value if isinstance(value, int) else 0
 
 
 class DispatchConfig:
@@ -112,9 +140,17 @@ def create_dispatch_closures(
     _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
 
-    def _child_obs_value(state: dict[str, Any], key: str, child_depth: int) -> Any:
-        """Read a child-scoped observability key if present."""
-        return state.get(depth_key(key, child_depth))
+    def _child_obs_value(
+        child_state: dict[str, Any],
+        shared_state: dict[str, Any],
+        key: str,
+        child_depth: int,
+    ) -> Any:
+        """Read a child-scoped observability key, preferring child-local deltas."""
+        scoped_key = depth_key(key, child_depth)
+        if scoped_key in child_state:
+            return child_state.get(scoped_key)
+        return shared_state.get(scoped_key)
 
     def _build_call_log(
         prompt: str,
@@ -149,6 +185,124 @@ def create_dispatch_closures(
             )
         )
 
+    def _serialize_child_payload(value: Any) -> str:
+        """Return a stable text form for child structured results."""
+        if isinstance(value, dict):
+            try:
+                return json.dumps(value, separators=(",", ":"), sort_keys=True)
+            except (TypeError, ValueError):
+                return str(value)
+        if value is None:
+            return ""
+        return str(value)
+
+    def _read_child_completion(
+        child: Any,
+        child_depth: int,
+        child_state: dict[str, Any],
+        shared_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Collect the child's normalized completion payload."""
+        agent = getattr(child, "reasoning_agent", None)
+        completion = getattr(child, "_rlm_completion", None) or getattr(
+            agent, "_rlm_completion", None
+        )
+        normalized = dict(completion) if isinstance(completion, dict) else {}
+
+        parsed_payload = normalized.get("parsed_output")
+        if not isinstance(parsed_payload, dict):
+            parsed_payload = None
+
+        raw_payload = normalized.get("raw_output")
+        text = str(normalized.get("text", "") or "")
+        error = bool(normalized.get("error", False))
+        error_category = normalized.get("error_category")
+        parsed_from_state = _child_obs_value(
+            child_state, shared_state, REASONING_PARSED_OUTPUT, child_depth
+        )
+        if isinstance(parsed_from_state, dict):
+            parsed_payload = dict(parsed_from_state)
+        raw_from_state = _child_obs_value(
+            child_state, shared_state, REASONING_RAW_OUTPUT, child_depth
+        )
+        if raw_from_state is not None:
+            raw_payload = raw_from_state
+
+        output_key = getattr(agent, "output_key", None) or f"reasoning_output@d{child_depth}"
+        raw = child_state.get(output_key, shared_state.get(output_key))
+        if raw_payload is None and raw is not None:
+            raw_payload = raw
+
+        if not text and raw is not None:
+            if isinstance(raw, dict):
+                parsed_payload = dict(raw)
+                text = str(raw.get("final_answer", "") or "") or _serialize_child_payload(raw)
+            elif isinstance(raw, str):
+                try:
+                    decoded = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    decoded = None
+                if isinstance(decoded, dict):
+                    parsed_payload = decoded
+                    text = str(decoded.get("final_answer", "") or "") or _serialize_child_payload(decoded)
+                else:
+                    text = raw
+            else:
+                text = str(raw)
+
+        structured = getattr(agent, "_structured_result", None)
+        if not text and isinstance(structured, dict):
+            parsed_payload = dict(structured)
+            raw_payload = structured
+            text = str(structured.get("final_answer", "") or "") or _serialize_child_payload(structured)
+
+        if text.startswith("[RLM ERROR]"):
+            error = True
+            error_category = error_category or "UNKNOWN"
+
+        def _read(key: str) -> Any:
+            return _child_obs_value(child_state, shared_state, key, child_depth)
+
+        return {
+            "text": text,
+            "error": error,
+            "error_category": error_category,
+            "parsed_output": parsed_payload,
+            "raw_output": raw_payload,
+            "reasoning_summary": normalized.get("reasoning_summary"),
+            "visible_output_text": (
+                _read(REASONING_VISIBLE_OUTPUT_TEXT)
+                or normalized.get("visible_output_text")
+            ),
+            "thought_text": (
+                _read(REASONING_THOUGHT_TEXT)
+                or normalized.get("thought_text")
+            ),
+            "finish_reason": _read(REASONING_FINISH_REASON) or normalized.get("finish_reason"),
+            "input_tokens": _read(REASONING_INPUT_TOKENS) or normalized.get("input_tokens"),
+            "output_tokens": _read(REASONING_OUTPUT_TOKENS) or normalized.get("output_tokens"),
+            "thoughts_tokens": (
+                _read(REASONING_THOUGHT_TOKENS)
+                or normalized.get("thoughts_tokens")
+            ),
+            "reasoning_retry_count": _safe_int(
+                child_state.get(OBS_REASONING_RETRY_COUNT, 0)
+            ),
+            "reasoning_retry_delay_ms": _safe_int(
+                child_state.get(OBS_REASONING_RETRY_DELAY_MS, 0)
+            ),
+            "nested_child_dispatch_count": _safe_int(
+                child_state.get(OBS_CHILD_DISPATCH_COUNT, 0)
+            ),
+            "nested_child_batch_dispatches": _safe_int(
+                child_state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES, 0)
+            ),
+            "nested_child_error_counts": child_state.get(OBS_CHILD_ERROR_COUNTS),
+            "nested_structured_output_failures": _safe_int(
+                child_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
+            ),
+        }
+
     async def _run_child(
         prompt: str,
         model: str | None,
@@ -156,6 +310,7 @@ def create_dispatch_closures(
         fanout_idx: int,
     ) -> LLMResult:
         """Spawn a child orchestrator for a single sub-query."""
+        nonlocal _acc_structured_output_failures
         target_model = model or dispatch_config.other_model
         if depth + 1 >= max_depth:
             result = LLMResult(
@@ -172,6 +327,10 @@ def create_dispatch_closures(
         _child_result: LLMResult | None = None
         _error_message: str | None = None
         _call_logged = False
+        completion: dict[str, Any] = {}
+        _child_state: dict[str, Any] = {}
+        session = getattr(ctx, "session", None)
+        shared_state = getattr(session, "state", {})
 
         from rlm_adk.agent import create_child_orchestrator
 
@@ -186,58 +345,36 @@ def create_dispatch_closures(
         try:
             async with _child_semaphore:
                 async for _event in child.run_async(ctx):
-                    pass  # consume events
+                    actions = getattr(_event, "actions", None)
+                    state_delta = getattr(actions, "state_delta", None)
+                    if isinstance(state_delta, dict):
+                        _child_state.update(state_delta)
 
-            # Read result from child's output_key
-            _child_output_key = child.reasoning_agent.output_key or f"reasoning_output@d{depth + 1}"
-            raw = ctx.session.state.get(_child_output_key, "")
-
-            # Parse the result
-            if isinstance(raw, dict):
-                answer = raw.get("final_answer", str(raw))
-            elif isinstance(raw, str):
-                try:
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, dict):
-                        answer = parsed.get("final_answer", raw)
-                    else:
-                        answer = raw
-                except (json.JSONDecodeError, ValueError):
-                    answer = raw
-            else:
-                answer = str(raw)
+            child_depth = depth + 1
+            completion = _read_child_completion(
+                child, child_depth, _child_state, shared_state
+            )
+            answer = completion["text"]
 
             elapsed_ms = (time.perf_counter() - child_start) * 1000
 
             if answer:
-                child_depth = depth + 1
-                input_tokens = _child_obs_value(
-                    ctx.session.state, REASONING_INPUT_TOKENS, child_depth
-                ) or 0
-                output_tokens = _child_obs_value(
-                    ctx.session.state, REASONING_OUTPUT_TOKENS, child_depth
-                ) or 0
-                thought_tokens = _child_obs_value(
-                    ctx.session.state, REASONING_THOUGHT_TOKENS, child_depth
-                ) or 0
-                finish_reason = _child_obs_value(
-                    ctx.session.state, REASONING_FINISH_REASON, child_depth
-                )
-                visible_text = _child_obs_value(
-                    ctx.session.state, REASONING_VISIBLE_OUTPUT_TEXT, child_depth
-                ) or answer
-                thought_text = _child_obs_value(
-                    ctx.session.state, REASONING_THOUGHT_TEXT, child_depth
-                ) or ""
-                parsed_payload = _child_obs_value(
-                    ctx.session.state, REASONING_PARSED_OUTPUT, child_depth
-                )
-                raw_payload = _child_obs_value(
-                    ctx.session.state, REASONING_RAW_OUTPUT, child_depth
-                )
+                input_tokens = completion.get("input_tokens") or 0
+                output_tokens = completion.get("output_tokens") or 0
+                thought_tokens = completion.get("thoughts_tokens") or 0
+                finish_reason = completion.get("finish_reason")
+                visible_text = completion.get("visible_output_text") or answer
+                thought_text = completion.get("thought_text") or ""
+                parsed_payload = completion.get("parsed_output")
+                raw_payload = completion.get("raw_output")
+                is_error = bool(completion.get("error"))
+                error_category = completion.get("error_category")
+                if is_error and error_category == "SCHEMA_VALIDATION_EXHAUSTED":
+                    _acc_structured_output_failures += 1
                 _child_result = LLMResult(
                     answer,
-                    error=False,
+                    error=is_error,
+                    error_category=error_category if is_error else None,
                     model=target_model,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
@@ -249,18 +386,33 @@ def create_dispatch_closures(
                     parsed=parsed_payload if isinstance(parsed_payload, dict) else None,
                     wall_time_ms=round(elapsed_ms, 2),
                 )
+                _error_message = answer if is_error else None
             else:
+                if output_schema is not None:
+                    _acc_structured_output_failures += 1
+                error_text = (
+                    "[Child structured output validation exhausted before producing a result]"
+                    if output_schema is not None
+                    else "[Child orchestrator produced no answer]"
+                )
                 _child_result = LLMResult(
-                    "[Child orchestrator produced no answer]",
+                    error_text,
                     error=True,
-                    error_category="NO_RESULT",
+                    error_category=(
+                        "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else "NO_RESULT"
+                    ),
                     model=target_model,
                     wall_time_ms=round(elapsed_ms, 2),
                 )
+                _error_message = error_text
         except Exception as e:
             elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error("Child dispatch error at depth %d: %s", depth + 1, e)
-            cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+            cat = "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else (
+                _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+            )
+            if cat == "SCHEMA_VALIDATION_EXHAUSTED":
+                _acc_structured_output_failures += 1
             _error_message = str(e)
             _child_result = LLMResult(
                 f"Error: {e}",
@@ -273,9 +425,61 @@ def create_dispatch_closures(
             if _child_result is not None and not _call_logged:
                 _build_call_log(prompt, _child_result, elapsed_ms)
                 _call_logged = True
+            child_depth = depth + 1
+            child_reasoning = getattr(child, "reasoning_agent", None)
+            structured_obs = getattr(child_reasoning, "_structured_output_obs", {})
+            structured_result = getattr(child_reasoning, "_structured_result", None)
+            structured_attempts = _safe_int(
+                structured_obs.get("attempts") if isinstance(structured_obs, dict) else 0
+            )
+            structured_retries = _safe_int(
+                structured_obs.get("retry_count") if isinstance(structured_obs, dict) else 0
+            )
+            structured_events = (
+                list(structured_obs.get("events", []))
+                if isinstance(structured_obs, dict)
+                else []
+            )
+            parsed_output = (
+                getattr(_child_result, "parsed", None)
+                if isinstance(_child_result, LLMResult)
+                else None
+            )
+            if (
+                not isinstance(parsed_output, dict)
+                and isinstance(structured_result, dict)
+            ):
+                parsed_output = dict(structured_result)
+            validated_structured_result = (
+                dict(structured_result)
+                if isinstance(structured_result, dict)
+                else (
+                    dict(parsed_output)
+                    if isinstance(parsed_output, dict)
+                    else None
+                )
+            )
+            if output_schema is None:
+                structured_outcome = "not_applicable"
+            elif (
+                isinstance(_child_result, LLMResult)
+                and _child_result.error
+                and structured_attempts > 0
+            ):
+                structured_outcome = "retry_exhausted"
+            elif isinstance(parsed_output, dict):
+                structured_outcome = (
+                    "retry_recovered" if structured_retries > 0 else "validated"
+                )
+            elif structured_attempts > 0:
+                structured_outcome = "incomplete"
+            else:
+                structured_outcome = "missing"
             # Write per-child observability summary
             _acc_child_summaries[child_obs_key(depth + 1, fanout_idx)] = {
                 "model": target_model,
+                "depth": child_depth,
+                "fanout_idx": fanout_idx,
                 "elapsed_ms": round(elapsed_ms, 2),
                 "error": _child_result.error if isinstance(_child_result, LLMResult) else True,
                 "error_category": _child_result.error_category if isinstance(_child_result, LLMResult) else None,
@@ -286,6 +490,56 @@ def create_dispatch_closures(
                 "thought_tokens": getattr(_child_result, "thoughts_tokens", 0) if _child_result is not None else 0,
                 "finish_reason": getattr(_child_result, "finish_reason", None) if _child_result is not None else None,
                 "error_message": _error_message,
+                "final_answer": _truncate_text(_child_result),
+                "visible_output_preview": _truncate_text(
+                    getattr(_child_result, "visible_text", None),
+                ),
+                "thought_preview": _truncate_text(
+                    getattr(_child_result, "thought_text", None),
+                ),
+                "raw_output_preview": _preview_payload(
+                    getattr(_child_result, "raw_output", None),
+                ),
+                "parsed_output": (
+                    parsed_output
+                    if isinstance(parsed_output, dict)
+                    and not (isinstance(_child_result, LLMResult) and _child_result.error)
+                    else None
+                ),
+                "reasoning_summary": completion.get("reasoning_summary"),
+                "reasoning_retry": {
+                    "count": completion.get("reasoning_retry_count", 0),
+                    "delay_ms": completion.get("reasoning_retry_delay_ms", 0),
+                    "used": bool(completion.get("reasoning_retry_count", 0)),
+                },
+                "nested_dispatch": {
+                    "count": completion.get("nested_child_dispatch_count", 0),
+                    "batch_dispatches": completion.get("nested_child_batch_dispatches", 0),
+                    "error_counts": (
+                        dict(completion.get("nested_child_error_counts", {}))
+                        if isinstance(completion.get("nested_child_error_counts"), dict)
+                        else {}
+                    ),
+                    "structured_output_failures": completion.get(
+                        "nested_structured_output_failures", 0
+                    ),
+                },
+                "structured_output": {
+                    "expected": output_schema is not None,
+                    "schema_name": getattr(output_schema, "__name__", None),
+                    "attempts": structured_attempts,
+                    "retry_count": structured_retries,
+                    "outcome": structured_outcome,
+                    "validated_result": (
+                        validated_structured_result
+                        if (
+                            isinstance(validated_structured_result, dict)
+                            and not (isinstance(_child_result, LLMResult) and _child_result.error)
+                        )
+                        else None
+                    ),
+                    "events": structured_events,
+                },
             }
             # Clean up child's REPL
             if hasattr(child, "repl") and child.repl is not None and not child.persistent:
