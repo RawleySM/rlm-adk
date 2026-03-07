@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -236,11 +237,15 @@ async def run_fixture_contract(
     fixture_path: Path,
     prompt: str = "test prompt",
 ) -> ContractResult:
-    """Execute a fixture through the real pipeline and check expectations.
+    """Execute a fixture through the plugin-enabled production pipeline.
 
-    Lifecycle: load fixture -> start FakeGeminiServer -> set env vars ->
-    create app + Runner -> run_async to completion -> check_expectations ->
-    teardown server + restore env vars.
+    Default provider-fake contract runs should exercise the same observability
+    stack as real runs, so this wrapper delegates to
+    :func:`run_fixture_contract_with_plugins` with:
+
+    - ``ObservabilityPlugin`` enabled
+    - ``SqliteTracingPlugin`` writing to a temporary SQLite DB
+    - ``REPLTracingPlugin`` enabled via ``repl_trace_level=2``
 
     Args:
         fixture_path: Path to the fixture JSON file.
@@ -249,30 +254,21 @@ async def run_fixture_contract(
     Returns:
         A :class:`ContractResult` with pass/fail status and diagnostics.
     """
-    router = ScenarioRouter.from_file(fixture_path)
-    server = FakeGeminiServer(router=router, host="127.0.0.1", port=0)
-
-    saved = _save_env()
-    try:
-        base_url = await server.start()
-        _set_env(base_url, router)
-
-        t0 = time.monotonic()
-        runner, session = await _make_runner_and_session(router)
-        final_state = await _run_to_completion(runner, session, prompt)
-        elapsed = time.monotonic() - t0
-
-        return router.check_expectations(final_state, fixture_path, elapsed)
-    finally:
-        await server.stop()
-        _restore_env(saved)
+    with tempfile.TemporaryDirectory(prefix="provider-fake-obs-") as tmpdir:
+        plugin_result = await run_fixture_contract_with_plugins(
+            fixture_path,
+            prompt=prompt,
+            traces_db_path=str(Path(tmpdir) / "traces.db"),
+            repl_trace_level=2,
+        )
+    return plugin_result.contract
 
 
 async def run_fixture_contract_with_plugins(
     fixture_path: Path,
     prompt: str = "test prompt",
     traces_db_path: str | None = None,
-    repl_trace_level: int = 1,
+    repl_trace_level: int = 2,
 ) -> PluginContractResult:
     """Execute a fixture through the full plugin-enabled pipeline.
 

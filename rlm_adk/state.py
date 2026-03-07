@@ -20,6 +20,13 @@ POLICY_VIOLATION = "policy_violation"
 MESSAGE_HISTORY = "message_history"
 LAST_REPL_RESULT = "last_repl_result"
 FINAL_ANSWER = "final_answer"
+REASONING_SUMMARY = "reasoning_summary"
+REASONING_FINISH_REASON = "reasoning_finish_reason"
+REASONING_VISIBLE_OUTPUT_TEXT = "reasoning_visible_output_text"
+REASONING_THOUGHT_TEXT = "reasoning_thought_text"
+REASONING_THOUGHT_TOKENS = "reasoning_thought_tokens"
+REASONING_RAW_OUTPUT = "reasoning_raw_output"
+REASONING_PARSED_OUTPUT = "reasoning_parsed_output"
 
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
@@ -69,9 +76,12 @@ OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 # AST Rewrite Instrumentation (written by REPLTool)
 OBS_REWRITE_COUNT = "obs:rewrite_count"
 OBS_REWRITE_TOTAL_MS = "obs:rewrite_total_ms"
+OBS_REWRITE_FAILURE_COUNT = "obs:rewrite_failure_count"
+OBS_REWRITE_FAILURE_CATEGORIES = "obs:rewrite_failure_categories"
 
 # Reasoning Retry Observability (written by orchestrator)
 OBS_REASONING_RETRY_COUNT = "obs:reasoning_retry_count"
+OBS_REASONING_RETRY_DELAY_MS = "obs:reasoning_retry_delay_ms"
 
 # BUG-13 Monkey-Patch Observability (written by flush_fn)
 OBS_BUG13_SUPPRESS_COUNT = "obs:bug13_suppress_count"
@@ -81,6 +91,12 @@ OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
 OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
 OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
 OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
+
+# REPL Submitted-Code Observability Keys
+REPL_SUBMITTED_CODE = "repl_submitted_code"
+REPL_SUBMITTED_CODE_PREVIEW = "repl_submitted_code_preview"
+REPL_SUBMITTED_CODE_HASH = "repl_submitted_code_hash"
+REPL_SUBMITTED_CODE_CHARS = "repl_submitted_code_chars"
 
 
 def child_obs_key(depth: int, fanout_idx: int) -> str:
@@ -121,6 +137,18 @@ MIGRATION_ERROR = "migration:error"
 DEPTH_SCOPED_KEYS: set[str] = {
     MESSAGE_HISTORY, ITERATION_COUNT,
     FINAL_ANSWER, LAST_REPL_RESULT, SHOULD_STOP,
+    REASONING_INPUT_TOKENS, REASONING_OUTPUT_TOKENS,
+    REASONING_SUMMARY,
+    REASONING_FINISH_REASON,
+    REASONING_VISIBLE_OUTPUT_TEXT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_THOUGHT_TOKENS,
+    REASONING_RAW_OUTPUT,
+    REASONING_PARSED_OUTPUT,
+    REPL_SUBMITTED_CODE,
+    REPL_SUBMITTED_CODE_PREVIEW,
+    REPL_SUBMITTED_CODE_HASH,
+    REPL_SUBMITTED_CODE_CHARS,
 }
 # NOTE: Only iteration-local keys that need independent state per depth
 # level are included. Global observability keys are excluded.

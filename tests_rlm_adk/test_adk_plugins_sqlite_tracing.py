@@ -87,7 +87,8 @@ class TestSchemaCreation:
         # Enriched columns present
         for col in ["request_id", "repo_url", "root_prompt_preview",
                      "total_execution_time_s", "child_dispatch_count",
-                     "child_error_counts", "structured_output_failures",
+                     "child_error_counts", "child_total_batch_dispatches",
+                     "structured_output_failures",
                      "finish_safety_count", "finish_recitation_count",
                      "finish_max_tokens_count", "tool_invocation_summary",
                      "artifact_saves", "artifact_bytes_saved",
@@ -289,6 +290,83 @@ class TestModelTelemetry:
         assert "rate limit" in row["error_message"]
         conn.close()
 
+    @pytest.mark.asyncio
+    async def test_same_model_calls_pair_by_callback_context_not_model_name(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """Out-of-order same-model completions should update the correct rows."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        first_ctx = MagicMock()
+        first_ctx.state = {}
+        first_ctx._invocation_context = MagicMock()
+        second_ctx = MagicMock()
+        second_ctx.state = {}
+        second_ctx._invocation_context = MagicMock()
+
+        llm_request = MagicMock()
+        llm_request.model = "gemini-2.5-flash"
+        llm_request.contents = []
+
+        await plugin.before_model_callback(
+            callback_context=first_ctx,
+            llm_request=llm_request,
+        )
+        await plugin.before_model_callback(
+            callback_context=second_ctx,
+            llm_request=llm_request,
+        )
+
+        second_response = MagicMock()
+        second_response.model_version = "gemini-2.5-flash"
+        second_response.usage_metadata = MagicMock()
+        second_response.usage_metadata.prompt_token_count = 200
+        second_response.usage_metadata.candidates_token_count = 100
+        second_response.usage_metadata.thoughts_token_count = 20
+        second_response.error_code = None
+        second_response.finish_reason = MagicMock()
+        second_response.finish_reason.name = "STOP"
+
+        first_response = MagicMock()
+        first_response.model_version = "gemini-2.5-flash"
+        first_response.usage_metadata = MagicMock()
+        first_response.usage_metadata.prompt_token_count = 100
+        first_response.usage_metadata.candidates_token_count = 50
+        first_response.usage_metadata.thoughts_token_count = 10
+        first_response.error_code = None
+        first_response.finish_reason = MagicMock()
+        first_response.finish_reason.name = "STOP"
+
+        await plugin.after_model_callback(
+            callback_context=second_ctx,
+            llm_response=second_response,
+        )
+        await plugin.after_model_callback(
+            callback_context=first_ctx,
+            llm_response=first_response,
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT input_tokens, output_tokens, thought_tokens
+            FROM telemetry
+            WHERE event_type = 'model_call'
+            ORDER BY rowid
+            """
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 2
+        assert rows[0]["input_tokens"] == 100
+        assert rows[0]["output_tokens"] == 50
+        assert rows[0]["thought_tokens"] == 10
+        assert rows[1]["input_tokens"] == 200
+        assert rows[1]["output_tokens"] == 100
+        assert rows[1]["thought_tokens"] == 20
+
 
 class TestToolTelemetry:
     """Tests 9-10: Tool telemetry creation and closing."""
@@ -349,6 +427,83 @@ class TestToolTelemetry:
         assert "hi" in row["result_preview"]
         assert row["duration_ms"] is not None
         conn.close()
+
+    @pytest.mark.asyncio
+    async def test_same_tool_calls_pair_by_tool_context_not_tool_name(
+        self, plugin, db_path, mock_invocation_context
+    ):
+        """Out-of-order same-tool completions should update the correct rows."""
+        await plugin.before_run_callback(
+            invocation_context=mock_invocation_context
+        )
+        tool = MagicMock()
+        tool.name = "execute_code"
+        tool._depth = 0
+        first_tool_context = MagicMock()
+        first_tool_context.state = {
+            "last_repl_result": {
+                "has_errors": False,
+                "has_output": True,
+                "total_llm_calls": 1,
+            }
+        }
+        second_tool_context = MagicMock()
+        second_tool_context.state = {
+            "last_repl_result": {
+                "has_errors": True,
+                "has_output": False,
+                "total_llm_calls": 2,
+            }
+        }
+
+        await plugin.before_tool_callback(
+            tool=tool,
+            tool_args={"code": "print('first')"},
+            tool_context=first_tool_context,
+        )
+        await plugin.before_tool_callback(
+            tool=tool,
+            tool_args={"code": "print('second')"},
+            tool_context=second_tool_context,
+        )
+
+        await plugin.after_tool_callback(
+            tool=tool,
+            tool_args={"code": "print('second')"},
+            tool_context=second_tool_context,
+            result={"stdout": "", "stderr": "boom", "llm_calls_made": True},
+        )
+        await plugin.after_tool_callback(
+            tool=tool,
+            tool_args={"code": "print('first')"},
+            tool_context=first_tool_context,
+            result={"stdout": "ok\n", "stderr": "", "llm_calls_made": False},
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT repl_has_errors, repl_has_output, repl_llm_calls,
+                   repl_stdout_len, repl_stderr_len
+            FROM telemetry
+            WHERE event_type = 'tool_call'
+            ORDER BY rowid
+            """
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 2
+        assert rows[0]["repl_has_errors"] == 0
+        assert rows[0]["repl_has_output"] == 1
+        assert rows[0]["repl_llm_calls"] == 1
+        assert rows[0]["repl_stdout_len"] == 3
+        assert rows[0]["repl_stderr_len"] == 0
+        assert rows[1]["repl_has_errors"] == 1
+        assert rows[1]["repl_has_output"] == 0
+        assert rows[1]["repl_llm_calls"] == 2
+        assert rows[1]["repl_stdout_len"] == 0
+        assert rows[1]["repl_stderr_len"] == 4
 
 
 class TestEventCallback:

@@ -8,6 +8,7 @@ Enabled via RLM_REPL_TRACE > 0 env var.
 
 import json
 import logging
+import re
 from typing import Any, Optional
 
 from google.adk.agents.invocation_context import InvocationContext
@@ -18,6 +19,7 @@ from google.genai import types
 from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT
 
 logger = logging.getLogger(__name__)
+_DEPTH_SUFFIX_RE = re.compile(r"@d(\d+)$")
 
 
 class REPLTracingPlugin(BasePlugin):
@@ -25,7 +27,14 @@ class REPLTracingPlugin(BasePlugin):
 
     def __init__(self, name: str = "repl_tracing"):
         super().__init__(name=name)
-        self._traces_by_iteration: dict[int, Any] = {}
+        self._traces_by_iteration: dict[str, Any] = {}
+
+    @staticmethod
+    def _parse_depth(raw_key: str) -> int:
+        match = _DEPTH_SUFFIX_RE.search(raw_key)
+        if match:
+            return int(match.group(1))
+        return 0
 
     async def on_event_callback(
         self,
@@ -36,12 +45,25 @@ class REPLTracingPlugin(BasePlugin):
         """Capture LAST_REPL_RESULT events that contain trace data."""
         try:
             sd = getattr(getattr(event, "actions", None), "state_delta", None) or {}
-            repl_result = sd.get(LAST_REPL_RESULT)
-            if repl_result and isinstance(repl_result, dict):
+            for raw_key, repl_result in sd.items():
+                if not raw_key.startswith(LAST_REPL_RESULT):
+                    continue
+                if not repl_result or not isinstance(repl_result, dict):
+                    continue
                 trace_summary = repl_result.get("trace_summary")
-                if trace_summary:
-                    iteration = sd.get(ITERATION_COUNT, 0)
-                    self._traces_by_iteration[iteration] = trace_summary
+                if not trace_summary:
+                    continue
+
+                depth = self._parse_depth(raw_key)
+                iteration_key = ITERATION_COUNT if depth == 0 else f"{ITERATION_COUNT}@d{depth}"
+                iteration = sd.get(iteration_key, 0)
+                trace_key = f"d{depth}:i{iteration}"
+                self._traces_by_iteration[trace_key] = {
+                    "depth": depth,
+                    "iteration": iteration,
+                    "state_key": raw_key,
+                    "trace_summary": trace_summary,
+                }
         except Exception:
             pass
         return None

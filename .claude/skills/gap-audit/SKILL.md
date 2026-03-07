@@ -8,6 +8,26 @@ user_invocable: true
 
 Manages the observability gap registry at `rlm_adk_docs/gap_registry.json`. Every gap must have an explicit disposition — no silent skipping.
 
+## Step 0: Activate the Gap Guard (MANDATORY FIRST STEP)
+
+Before any other action, flip `GAP_AUDIT_ACTIVE` from `"0"` to `"1"` in `.claude/settings.local.json`:
+
+```json
+{
+  "env": {
+    "GAP_AUDIT_ACTIVE": "1"
+  }
+}
+```
+
+This env var controls the Stop hook at `.claude/skills/gap-audit/scripts/gap_guard.py`:
+- `"0"` (default) — Stop hook passes through unconditionally. Sub-agents and casual sessions are never blocked.
+- `"1"` — Stop hook enforces the registry. In `strict` mode, pending gaps block the stop event with a delegation prompt.
+
+**Why**: The guard should only enforce when a gap-audit session is actively underway. Without this gate, every sub-agent and unrelated session would be blocked by strict mode.
+
+**Note on agent teams**: The `Stop` hook fires only for the main/team-leader agent. Sub-agents use `TeammateIdle` and `TaskCompleted` events instead. The `GAP_AUDIT_ACTIVE` gate provides an additional layer — ensuring the guard only fires when explicitly requested via this skill.
+
 ## Usage
 
 Parse the user's argument to determine the mode:
@@ -22,7 +42,7 @@ Parse the user's argument to determine the mode:
 Read `rlm_adk_docs/gap_registry.json` and print a progress table grouped by disposition:
 
 ```
-Gap Registry Status (mode: report)
+Gap Registry Status (mode: report | phase: greenfield development)
 Progress: 28/61 resolved (46%)
 
 PENDING (33):
@@ -123,10 +143,27 @@ Like dismiss but lighter:
    ```
 6. Run `.claude/skills/gap-audit/scripts/gap_guard.py --check-only` to validate.
 
+## Strict Mode Delegation Protocol
+
+When the Stop hook fires with `GAP_AUDIT_ACTIVE=1` and the registry is in `strict` mode with pending gaps, the hook emits a **delegation prompt** on stderr instead of silently blocking. The team leader should:
+
+1. **Read the delegation prompt** from the hook's stderr output. It contains a sub-agent assessment task tailored to the current `project_phase` and pending gap list.
+2. **Spawn a sub-agent** with the delegation prompt. The prompt is impartial — it considers:
+   - The current project phase (e.g., "greenfield development") and what observability level is appropriate
+   - Each gap's severity relative to the phase
+   - Whether deferral creates compounding technical debt
+   - The simplest honest path for each gap (close, defer, or dismiss)
+3. **Apply the sub-agent's recommendations** using `/gap-audit close|dismiss|defer <gap-id>` for each gap.
+4. **Re-run** `.claude/skills/gap-audit/scripts/gap_guard.py --check-only` to confirm the registry validates cleanly.
+
+This prevents the team leader from self-adjudicating gaps — an independent sub-agent makes the triage call.
+
 ## Important Notes
 
 - The registry is the **source of truth**. Do not edit `observability_gaps.md` or `observability_gaps_deferred.md` for disposition changes.
 - The Stop hook (`.claude/skills/gap-audit/scripts/gap_guard.py`) runs automatically when Claude Code stops. In `report` mode it reports progress; in `strict` mode it blocks if gaps remain pending.
+- `GAP_AUDIT_ACTIVE` defaults to `"0"` in `.claude/settings.local.json`. The skill's first step flips it to `"1"`. Reset it to `"0"` when the audit session is complete.
 - To switch modes, edit `meta.mode` in `gap_registry.json` (`"report"` or `"strict"`).
+- `meta.project_phase` informs the delegation prompt's triage logic. Update it as the project evolves.
 - Gap IDs follow the pattern `OG-NN` (active) or `OD-NN` (deferred).
 - Schema is at `rlm_adk_docs/gap_registry.schema.json`.

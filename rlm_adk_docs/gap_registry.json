@@ -2,677 +2,82 @@
   "$schema": "./gap_registry.schema.json",
   "meta": {
     "mode": "report",
-    "total_gaps": 61,
-    "generated_from": "observability_gaps.md + observability_gaps_deferred.md",
-    "version": 1
+    "total_gaps": 32,
+    "generated_from": "observability_gaps.md + observability_gaps_deferred.md (consolidated v3)",
+    "version": 3,
+    "project_phase": "greenfield development"
   },
   "gaps": {
     "OG-01": {
       "id": "OG-01",
       "cluster": "A",
-      "title": "Child dispatch prompt text",
+      "title": "stdout not persisted under REPL state key",
       "severity": "CRITICAL",
-      "source_ids": [
-        "DEBUG-3.4",
-        "DEBUG-6.1",
-        "CODE-4",
-        "REPL-2"
-      ],
-      "source_doc": "observability_gaps.md:23",
-      "disposition": "pending",
+      "source_ids": ["CODE-1", "REPL-2"],
+      "source_doc": "issues/bug-stdout-not-persisted-under-repl-state-key.md",
+      "disposition": "closed",
       "disposition_category": null,
       "disposition_reason": null,
-      "disposition_date": null,
+      "disposition_date": "2026-03-06",
       "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
+        "test_paths": ["tests_rlm_adk/test_og01_stdout_preview.py"],
+        "demo_path": "demo_showboat/demo_og_closures.md",
+        "code_paths": ["rlm_adk/tools/repl_tool.py"],
+        "evidence_tier": "demo_verified"
       }
     },
     "OG-02": {
       "id": "OG-02",
       "cluster": "A",
-      "title": "Child dispatch response text",
+      "title": "REPL trace summary missing from tool telemetry",
       "severity": "CRITICAL",
-      "source_ids": [
-        "DEBUG-6.2",
-        "CODE-5",
-        "REPL-3"
-      ],
-      "source_doc": "observability_gaps.md:24",
-      "disposition": "pending",
+      "source_ids": ["DEBUG-6.2", "CODE-5"],
+      "source_doc": "issues/bug-repl-trace-summary-missing-from-tool-telemetry.md",
+      "disposition": "closed",
       "disposition_category": null,
       "disposition_reason": null,
-      "disposition_date": null,
+      "disposition_date": "2026-03-06",
       "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
+        "test_paths": ["tests_rlm_adk/test_og02_trace_summary_telemetry.py"],
+        "demo_path": "demo_showboat/demo_og_closures.md",
+        "code_paths": ["rlm_adk/plugins/sqlite_tracing.py"],
+        "evidence_tier": "demo_verified"
       }
     },
     "OG-03": {
       "id": "OG-03",
       "cluster": "A",
-      "title": "Pre-rewrite and post-rewrite source code",
+      "title": "REPL submitted code missing from session state events",
       "severity": "CRITICAL",
-      "source_ids": [
-        "DEBUG-8.1",
-        "DEBUG-8.2",
-        "CODE-6"
-      ],
-      "source_doc": "observability_gaps.md:25",
-      "disposition": "pending",
+      "source_ids": ["DEBUG-8.1", "CODE-6"],
+      "source_doc": "issues/bug-repl-submitted-code-missing-from-session-state-events.md",
+      "disposition": "closed",
       "disposition_category": null,
       "disposition_reason": null,
-      "disposition_date": null,
+      "disposition_date": "2026-03-06",
       "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
+        "test_paths": ["tests_rlm_adk/test_og03_submitted_code_sse.py"],
+        "demo_path": "demo_showboat/demo_og_closures.md",
+        "code_paths": ["rlm_adk/plugins/sqlite_tracing.py"],
+        "evidence_tier": "demo_verified"
       }
     },
     "OG-04": {
       "id": "OG-04",
       "cluster": "A",
-      "title": "Generated code string per execute_code",
+      "title": "Negative REPL wall time on failed runs",
       "severity": "CRITICAL",
-      "source_ids": [
-        "CODE-1"
-      ],
-      "source_doc": "observability_gaps.md:26",
-      "disposition": "pending",
+      "source_ids": ["CODE-1", "REPL-6"],
+      "source_doc": "issues/bug-negative-repl-wall-time-on-failed-runs.md",
+      "disposition": "closed",
       "disposition_category": null,
       "disposition_reason": null,
-      "disposition_date": null,
+      "disposition_date": "2026-03-06",
       "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-05": {
-      "id": "OG-05",
-      "cluster": "B",
-      "title": "Parent-child trace linkage",
-      "severity": "HIGH",
-      "source_ids": [
-        "DEBUG-1.2",
-        "DOC-4.1"
-      ],
-      "source_doc": "observability_gaps.md:37",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-06": {
-      "id": "OG-06",
-      "cluster": "C",
-      "title": "Per-child error detail in batches",
-      "severity": "HIGH",
-      "source_ids": [
-        "DEBUG-3.2"
-      ],
-      "source_doc": "observability_gaps.md:45",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-07": {
-      "id": "OG-07",
-      "cluster": "C",
-      "title": "REPLResult.llm_calls always empty",
-      "severity": "HIGH",
-      "source_ids": [
-        "REPL-1"
-      ],
-      "source_doc": "observability_gaps.md:46",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-08": {
-      "id": "OG-08",
-      "cluster": "C",
-      "title": "Token counts written but never read",
-      "severity": "HIGH",
-      "source_ids": [
-        "REPL-4"
-      ],
-      "source_doc": "observability_gaps.md:47",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-09": {
-      "id": "OG-09",
-      "cluster": "D",
-      "title": "HTTP retry count inside genai SDK",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "DEBUG-5.1"
-      ],
-      "source_doc": "observability_gaps.md:55",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-10": {
-      "id": "OG-10",
-      "cluster": "D",
-      "title": "Rate-limit backoff duration",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-2d"
-      ],
-      "source_doc": "observability_gaps.md:56",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-11": {
-      "id": "OG-11",
-      "cluster": "D",
-      "title": "Rate limit temporal pattern",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-5b/c"
-      ],
-      "source_doc": "observability_gaps.md:57",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-12": {
-      "id": "OG-12",
-      "cluster": "E",
-      "title": "Semaphore wait time",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-2e"
-      ],
-      "source_doc": "observability_gaps.md:65",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-13": {
-      "id": "OG-13",
-      "cluster": "E",
-      "title": "Effective parallelism",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-3a"
-      ],
-      "source_doc": "observability_gaps.md:66",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-14": {
-      "id": "OG-14",
-      "cluster": "F",
-      "title": "Child orchestrator creation overhead",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-8a"
-      ],
-      "source_doc": "observability_gaps.md:74",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-15": {
-      "id": "OG-15",
-      "cluster": "F",
-      "title": "Child cleanup overhead",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-8c"
-      ],
-      "source_doc": "observability_gaps.md:75",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-16": {
-      "id": "OG-16",
-      "cluster": "G",
-      "title": "Variable state evolution",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "CODE-3"
-      ],
-      "source_doc": "observability_gaps.md:83",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-17": {
-      "id": "OG-17",
-      "cluster": "G",
-      "title": "Code retry patterns",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "CODE-7"
-      ],
-      "source_doc": "observability_gaps.md:84",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-18": {
-      "id": "OG-18",
-      "cluster": "G",
-      "title": "REPL error classification",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "CODE-8"
-      ],
-      "source_doc": "observability_gaps.md:85",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-19": {
-      "id": "OG-19",
-      "cluster": "G",
-      "title": "format_execution_result() drops variable values",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "REPL-5"
-      ],
-      "source_doc": "observability_gaps.md:86",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-20": {
-      "id": "OG-20",
-      "cluster": "G",
-      "title": "REPLResult.execution_time populated but never read",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "REPL-6"
-      ],
-      "source_doc": "observability_gaps.md:87",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-21": {
-      "id": "OG-21",
-      "cluster": "G",
-      "title": "Error-recovery turns",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-9c"
-      ],
-      "source_doc": "observability_gaps.md:88",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-22": {
-      "id": "OG-22",
-      "cluster": "H",
-      "title": "Rewrite failure count",
-      "severity": "LOW",
-      "source_ids": [
-        "DEBUG-8.4"
-      ],
-      "source_doc": "observability_gaps.md:96",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-23": {
-      "id": "OG-23",
-      "cluster": "I",
-      "title": "Run ordinal within session",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-1.1d"
-      ],
-      "source_doc": "observability_gaps.md:107",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-24": {
-      "id": "OG-24",
-      "cluster": "I",
-      "title": "Total batch dispatches not in traces enrichment",
-      "severity": "MEDIUM",
-      "source_ids": [
-        "DOC-1.2i"
-      ],
-      "source_doc": "observability_gaps.md:108",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-25": {
-      "id": "OG-25",
-      "cluster": "I",
-      "title": "Policy violation key not captured in traces",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-1.3d"
-      ],
-      "source_doc": "observability_gaps.md:109",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-26": {
-      "id": "OG-26",
-      "cluster": "I",
-      "title": "No normalized iteration table",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-2.3"
-      ],
-      "source_doc": "observability_gaps.md:110",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-27": {
-      "id": "OG-27",
-      "cluster": "I",
-      "title": "No cost estimation metadata",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-5.2"
-      ],
-      "source_doc": "observability_gaps.md:111",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-28": {
-      "id": "OG-28",
-      "cluster": "I",
-      "title": "System instruction not stored",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-6.1b"
-      ],
-      "source_doc": "observability_gaps.md:112",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-29": {
-      "id": "OG-29",
-      "cluster": "I",
-      "title": "No artifact content hashing",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-7.1"
-      ],
-      "source_doc": "observability_gaps.md:113",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-30": {
-      "id": "OG-30",
-      "cluster": "I",
-      "title": "No baseline infrastructure",
-      "severity": "LOW",
-      "source_ids": [
-        "DOC-3.2"
-      ],
-      "source_doc": "observability_gaps.md:114",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-31": {
-      "id": "OG-31",
-      "cluster": "J",
-      "title": "Parallel dispatch race condition visibility",
-      "severity": "LOW",
-      "source_ids": [
-        "DEBUG-4.3"
-      ],
-      "source_doc": "observability_gaps.md:122",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-32": {
-      "id": "OG-32",
-      "cluster": "J",
-      "title": "Exception vs error-value distinction",
-      "severity": "LOW",
-      "source_ids": [
-        "DEBUG-7.3"
-      ],
-      "source_doc": "observability_gaps.md:123",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
-      }
-    },
-    "OG-33": {
-      "id": "OG-33",
-      "cluster": "J",
-      "title": "Time breakdown / critical path / time-to-first-output",
-      "severity": "LOW",
-      "source_ids": [
-        "PERF-10b/c/d"
-      ],
-      "source_doc": "observability_gaps.md:124",
-      "disposition": "pending",
-      "disposition_category": null,
-      "disposition_reason": null,
-      "disposition_date": null,
-      "evidence": {
-        "test_paths": [],
-        "demo_path": null,
-        "code_paths": [],
-        "evidence_tier": null
+        "test_paths": ["tests_rlm_adk/test_og04_negative_wall_time.py"],
+        "demo_path": "demo_showboat/demo_og_closures.md",
+        "code_paths": ["rlm_adk/tools/repl_tool.py", "rlm_adk/repl/trace.py"],
+        "evidence_tier": "demo_verified"
       }
     },
     "OD-01": {
@@ -680,12 +85,7 @@
       "cluster": "A",
       "title": "Child dispatch prompt text (deferred duplicate)",
       "severity": "CRITICAL",
-      "source_ids": [
-        "DEBUG-3.4",
-        "DEBUG-6.1",
-        "CODE-4",
-        "REPL-2"
-      ],
+      "source_ids": ["DEBUG-3.4", "DEBUG-6.1", "CODE-4", "REPL-2"],
       "source_doc": "observability_gaps_deferred.md:7",
       "disposition": "deferred",
       "disposition_category": "redundant_with_active",
@@ -703,11 +103,7 @@
       "cluster": "A",
       "title": "Child dispatch response text (deferred duplicate)",
       "severity": "CRITICAL",
-      "source_ids": [
-        "DEBUG-6.2",
-        "CODE-5",
-        "REPL-3"
-      ],
+      "source_ids": ["DEBUG-6.2", "CODE-5", "REPL-3"],
       "source_doc": "observability_gaps_deferred.md:12",
       "disposition": "deferred",
       "disposition_category": "redundant_with_active",
@@ -725,9 +121,7 @@
       "cluster": "C",
       "title": "REPLResult.llm_calls always empty (deferred duplicate)",
       "severity": "HIGH",
-      "source_ids": [
-        "REPL-1"
-      ],
+      "source_ids": ["REPL-1"],
       "source_doc": "observability_gaps_deferred.md:17",
       "disposition": "deferred",
       "disposition_category": "redundant_with_active",
@@ -745,9 +139,7 @@
       "cluster": "A",
       "title": "Generated code string per execute_code (deferred duplicate)",
       "severity": "CRITICAL",
-      "source_ids": [
-        "CODE-1"
-      ],
+      "source_ids": ["CODE-1"],
       "source_doc": "observability_gaps_deferred.md:22",
       "disposition": "deferred",
       "disposition_category": "redundant_with_active",
@@ -765,9 +157,7 @@
       "cluster": "A",
       "title": "Post-rewrite AST source persistence",
       "severity": "LOW",
-      "source_ids": [
-        "DEBUG-8.2"
-      ],
+      "source_ids": ["DEBUG-8.2"],
       "source_doc": "observability_gaps_deferred.md:30",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -785,9 +175,7 @@
       "cluster": "C",
       "title": "Per-child error detail map",
       "severity": "HIGH",
-      "source_ids": [
-        "DEBUG-3.2"
-      ],
+      "source_ids": ["DEBUG-3.2"],
       "source_doc": "observability_gaps_deferred.md:36",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -805,10 +193,7 @@
       "cluster": "B",
       "title": "Parent-child parent_trace_id / dispatch_tree",
       "severity": "HIGH",
-      "source_ids": [
-        "DEBUG-1.2",
-        "DOC-4.1"
-      ],
+      "source_ids": ["DEBUG-1.2", "DOC-4.1"],
       "source_doc": "observability_gaps_deferred.md:43",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -826,9 +211,7 @@
       "cluster": "I",
       "title": "Policy violation on top-level trace row",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-1.3d"
-      ],
+      "source_ids": ["DOC-1.3d"],
       "source_doc": "observability_gaps_deferred.md:49",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -846,9 +229,7 @@
       "cluster": "D",
       "title": "SDK-internal retry timing details",
       "severity": "MEDIUM",
-      "source_ids": [
-        "DEBUG-5.1"
-      ],
+      "source_ids": ["DEBUG-5.1"],
       "source_doc": "observability_gaps_deferred.md:58",
       "disposition": "deferred",
       "disposition_category": "perf_outside_scope",
@@ -866,10 +247,7 @@
       "cluster": "E",
       "title": "Semaphore wait time and effective parallelism",
       "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-2e",
-        "PERF-3a"
-      ],
+      "source_ids": ["PERF-2e", "PERF-3a"],
       "source_doc": "observability_gaps_deferred.md:63",
       "disposition": "deferred",
       "disposition_category": "perf_outside_scope",
@@ -887,10 +265,7 @@
       "cluster": "F",
       "title": "Child orchestrator creation and cleanup overhead",
       "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-8a",
-        "PERF-8c"
-      ],
+      "source_ids": ["PERF-8a", "PERF-8c"],
       "source_doc": "observability_gaps_deferred.md:68",
       "disposition": "deferred",
       "disposition_category": "perf_outside_scope",
@@ -908,9 +283,7 @@
       "cluster": "J",
       "title": "Critical path and wall-clock decomposition",
       "severity": "LOW",
-      "source_ids": [
-        "PERF-10b/c/d"
-      ],
+      "source_ids": ["PERF-10b/c/d"],
       "source_doc": "observability_gaps_deferred.md:73",
       "disposition": "deferred",
       "disposition_category": "perf_outside_scope",
@@ -928,9 +301,7 @@
       "cluster": "I",
       "title": "child_total_batch_dispatches as dispatch-volume telemetry",
       "severity": "MEDIUM",
-      "source_ids": [
-        "DOC-1.2i"
-      ],
+      "source_ids": ["DOC-1.2i"],
       "source_doc": "observability_gaps_deferred.md:78",
       "disposition": "deferred",
       "disposition_category": "perf_outside_scope",
@@ -948,9 +319,7 @@
       "cluster": "G",
       "title": "Variable state evolution / namespace diffs",
       "severity": "MEDIUM",
-      "source_ids": [
-        "CODE-3"
-      ],
+      "source_ids": ["CODE-3"],
       "source_doc": "observability_gaps_deferred.md:86",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -968,9 +337,7 @@
       "cluster": "G",
       "title": "Code retry patterns",
       "severity": "MEDIUM",
-      "source_ids": [
-        "CODE-7"
-      ],
+      "source_ids": ["CODE-7"],
       "source_doc": "observability_gaps_deferred.md:91",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -988,9 +355,7 @@
       "cluster": "G",
       "title": "REPL error classification by exception type",
       "severity": "MEDIUM",
-      "source_ids": [
-        "CODE-8"
-      ],
+      "source_ids": ["CODE-8"],
       "source_doc": "observability_gaps_deferred.md:96",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -1008,9 +373,7 @@
       "cluster": "G",
       "title": "Error-recovery turns",
       "severity": "MEDIUM",
-      "source_ids": [
-        "PERF-9c"
-      ],
+      "source_ids": ["PERF-9c"],
       "source_doc": "observability_gaps_deferred.md:101",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -1028,9 +391,7 @@
       "cluster": "G",
       "title": "format_execution_result() variable values",
       "severity": "MEDIUM",
-      "source_ids": [
-        "REPL-5"
-      ],
+      "source_ids": ["REPL-5"],
       "source_doc": "observability_gaps_deferred.md:106",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -1048,9 +409,7 @@
       "cluster": "G",
       "title": "REPLResult.execution_time consumption",
       "severity": "MEDIUM",
-      "source_ids": [
-        "REPL-6"
-      ],
+      "source_ids": ["REPL-6"],
       "source_doc": "observability_gaps_deferred.md:111",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -1068,9 +427,7 @@
       "cluster": "I",
       "title": "Run ordinal within session",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-1.1d"
-      ],
+      "source_ids": ["DOC-1.1d"],
       "source_doc": "observability_gaps_deferred.md:119",
       "disposition": "deferred",
       "disposition_category": "platform_maturity",
@@ -1088,9 +445,7 @@
       "cluster": "I",
       "title": "No normalized iteration table",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-2.3"
-      ],
+      "source_ids": ["DOC-2.3"],
       "source_doc": "observability_gaps_deferred.md:124",
       "disposition": "deferred",
       "disposition_category": "platform_maturity",
@@ -1108,9 +463,7 @@
       "cluster": "I",
       "title": "No cost estimation metadata",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-5.2"
-      ],
+      "source_ids": ["DOC-5.2"],
       "source_doc": "observability_gaps_deferred.md:129",
       "disposition": "deferred",
       "disposition_category": "platform_maturity",
@@ -1128,9 +481,7 @@
       "cluster": "I",
       "title": "System instruction not stored",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-6.1b"
-      ],
+      "source_ids": ["DOC-6.1b"],
       "source_doc": "observability_gaps_deferred.md:134",
       "disposition": "deferred",
       "disposition_category": "out_of_scope",
@@ -1148,9 +499,7 @@
       "cluster": "I",
       "title": "No artifact content hashing",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-7.1"
-      ],
+      "source_ids": ["DOC-7.1"],
       "source_doc": "observability_gaps_deferred.md:139",
       "disposition": "deferred",
       "disposition_category": "platform_maturity",
@@ -1168,9 +517,7 @@
       "cluster": "I",
       "title": "No baseline/regression infrastructure",
       "severity": "LOW",
-      "source_ids": [
-        "DOC-3.2"
-      ],
+      "source_ids": ["DOC-3.2"],
       "source_doc": "observability_gaps_deferred.md:144",
       "disposition": "deferred",
       "disposition_category": "platform_maturity",
@@ -1188,9 +535,7 @@
       "cluster": "J",
       "title": "Parallel dispatch race condition visibility",
       "severity": "LOW",
-      "source_ids": [
-        "DEBUG-4.3"
-      ],
+      "source_ids": ["DEBUG-4.3"],
       "source_doc": "observability_gaps_deferred.md:151",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -1208,9 +553,7 @@
       "cluster": "J",
       "title": "Exception-vs-error-value distinction",
       "severity": "LOW",
-      "source_ids": [
-        "DEBUG-7.3"
-      ],
+      "source_ids": ["DEBUG-7.3"],
       "source_doc": "observability_gaps_deferred.md:156",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",
@@ -1228,9 +571,7 @@
       "cluster": "C",
       "title": "Stale worker token-key concern",
       "severity": "LOW",
-      "source_ids": [
-        "REPL-4"
-      ],
+      "source_ids": ["REPL-4"],
       "source_doc": "observability_gaps_deferred.md:161",
       "disposition": "deferred",
       "disposition_category": "low_value_detail",

@@ -16,8 +16,13 @@ from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.state import (
     OBS_BUG13_SUPPRESS_COUNT,
     OBS_REWRITE_COUNT,
+    OBS_REWRITE_FAILURE_CATEGORIES,
+    OBS_REWRITE_FAILURE_COUNT,
     OBS_REWRITE_TOTAL_MS,
     OBS_REASONING_RETRY_COUNT,
+    REPL_SUBMITTED_CODE_CHARS,
+    REPL_SUBMITTED_CODE_HASH,
+    REPL_SUBMITTED_CODE_PREVIEW,
 )
 from rlm_adk.tools.repl_tool import REPLTool
 
@@ -184,6 +189,43 @@ class TestRewriteInstrumentation:
         repl.cleanup()
         # Second call should show accumulated count = 2
         assert tc2.state.get(OBS_REWRITE_COUNT) == 2
+
+    @pytest.mark.asyncio
+    async def test_rewrite_failure_records_count_and_category(self):
+        """Rewrite failures should be counted separately from runtime failures."""
+        repl = LocalREPL()
+        tool = REPLTool(repl=repl)
+        tc = _make_tool_context()
+
+        with patch("rlm_adk.tools.repl_tool.has_llm_calls", return_value=True), \
+             patch("rlm_adk.tools.repl_tool.rewrite_for_async", side_effect=SyntaxError("bad rewrite")):
+            result = await tool.run_async(
+                args={"code": "result = llm_query('hello')"},
+                tool_context=tc,
+            )
+
+        repl.cleanup()
+        assert "SyntaxError" in result["stderr"]
+        assert tc.state[OBS_REWRITE_FAILURE_COUNT] == 1
+        assert tc.state[OBS_REWRITE_FAILURE_CATEGORIES]["SyntaxError"] == 1
+        assert tc.state.get(OBS_REWRITE_COUNT, 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_submitted_code_metrics_written_before_execution(self):
+        """Submitted-code observability should be persisted even when execution fails."""
+        repl = LocalREPL()
+        tool = REPLTool(repl=repl)
+        tc = _make_tool_context()
+        code = "result = llm_query('hello')"
+
+        with patch("rlm_adk.tools.repl_tool.has_llm_calls", return_value=True), \
+             patch("rlm_adk.tools.repl_tool.rewrite_for_async", side_effect=RuntimeError("rewrite boom")):
+            await tool.run_async(args={"code": code}, tool_context=tc)
+
+        repl.cleanup()
+        assert tc.state[REPL_SUBMITTED_CODE_CHARS] == len(code)
+        assert tc.state[REPL_SUBMITTED_CODE_PREVIEW] == code
+        assert len(tc.state[REPL_SUBMITTED_CODE_HASH]) == 64
 
 
 # ---------------------------------------------------------------------------

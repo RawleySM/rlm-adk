@@ -11,7 +11,7 @@
     },
     "meta": {
       "type": "object",
-      "required": ["mode", "total_gaps", "generated_from", "version"],
+      "required": ["mode", "total_gaps", "generated_from", "version", "project_phase"],
       "additionalProperties": false,
       "properties": {
         "mode": {
@@ -30,6 +30,10 @@
         "version": {
           "type": "integer",
           "minimum": 1
+        },
+        "project_phase": {
+          "type": "string",
+          "description": "Current project phase — used by gap guard delegation to weigh gap severity vs development stage"
         }
       }
     },

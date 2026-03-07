@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Bootstrap gap_registry.json from observability_gaps.md + observability_gaps_deferred.md.
+"""Bootstrap gap_registry.json from observability_gaps_deferred.md + issues/.
 
-Creates 33 OG-NN entries (pending) and 28 OD-NN entries (deferred with rationales).
+Creates 3 OG-NN entries (pending, from issues/) and 28 OD-NN entries (deferred).
 Runs gap_guard.py --check-only to validate output.
 """
 from __future__ import annotations
@@ -18,154 +18,25 @@ GUARD_SCRIPT = Path(__file__).resolve().parent / "gap_guard.py"
 
 TODAY = date.today().isoformat()
 
-# ── Active gaps (OG-01 through OG-33) from observability_gaps.md ──
+# ── Active gaps (OG-01 through OG-03) from issues/ ──
 
 ACTIVE_GAPS = [
-    # Cluster A: Code / Prompt / Response Persistence
-    {"id": "OG-01", "cluster": "A", "title": "Child dispatch prompt text",
-     "severity": "CRITICAL", "source_ids": ["DEBUG-3.4", "DEBUG-6.1", "CODE-4", "REPL-2"],
-     "source_doc": "observability_gaps.md:23"},
-    {"id": "OG-02", "cluster": "A", "title": "Child dispatch response text",
-     "severity": "CRITICAL", "source_ids": ["DEBUG-6.2", "CODE-5", "REPL-3"],
-     "source_doc": "observability_gaps.md:24"},
-    {"id": "OG-03", "cluster": "A", "title": "Pre-rewrite and post-rewrite source code",
-     "severity": "CRITICAL", "source_ids": ["DEBUG-8.1", "DEBUG-8.2", "CODE-6"],
-     "source_doc": "observability_gaps.md:25"},
-    {"id": "OG-04", "cluster": "A", "title": "Generated code string per execute_code",
-     "severity": "CRITICAL", "source_ids": ["CODE-1"],
-     "source_doc": "observability_gaps.md:26"},
-
-    # Cluster B: Cross-Depth Trace Linkage
-    {"id": "OG-05", "cluster": "B", "title": "Parent-child trace linkage",
-     "severity": "HIGH", "source_ids": ["DEBUG-1.2", "DOC-4.1"],
-     "source_doc": "observability_gaps.md:37"},
-
-    # Cluster C: Per-Child Granularity
-    {"id": "OG-06", "cluster": "C", "title": "Per-child error detail in batches",
-     "severity": "HIGH", "source_ids": ["DEBUG-3.2"],
-     "source_doc": "observability_gaps.md:45"},
-    {"id": "OG-07", "cluster": "C", "title": "REPLResult.llm_calls always empty",
-     "severity": "HIGH", "source_ids": ["REPL-1"],
-     "source_doc": "observability_gaps.md:46"},
-    {"id": "OG-08", "cluster": "C", "title": "Token counts written but never read",
-     "severity": "HIGH", "source_ids": ["REPL-4"],
-     "source_doc": "observability_gaps.md:47"},
-
-    # Cluster D: SDK-Opaque Retry Behavior
-    {"id": "OG-09", "cluster": "D", "title": "HTTP retry count inside genai SDK",
-     "severity": "MEDIUM", "source_ids": ["DEBUG-5.1"],
-     "source_doc": "observability_gaps.md:55"},
-    {"id": "OG-10", "cluster": "D", "title": "Rate-limit backoff duration",
-     "severity": "MEDIUM", "source_ids": ["PERF-2d"],
-     "source_doc": "observability_gaps.md:56"},
-    {"id": "OG-11", "cluster": "D", "title": "Rate limit temporal pattern",
-     "severity": "MEDIUM", "source_ids": ["PERF-5b/c"],
-     "source_doc": "observability_gaps.md:57"},
-
-    # Cluster E: Concurrency / Semaphore Instrumentation
-    {"id": "OG-12", "cluster": "E", "title": "Semaphore wait time",
-     "severity": "MEDIUM", "source_ids": ["PERF-2e"],
-     "source_doc": "observability_gaps.md:65"},
-    {"id": "OG-13", "cluster": "E", "title": "Effective parallelism",
-     "severity": "MEDIUM", "source_ids": ["PERF-3a"],
-     "source_doc": "observability_gaps.md:66"},
-
-    # Cluster F: Child Orchestrator Lifecycle Timing
-    {"id": "OG-14", "cluster": "F", "title": "Child orchestrator creation overhead",
-     "severity": "MEDIUM", "source_ids": ["PERF-8a"],
-     "source_doc": "observability_gaps.md:74"},
-    {"id": "OG-15", "cluster": "F", "title": "Child cleanup overhead",
-     "severity": "MEDIUM", "source_ids": ["PERF-8c"],
-     "source_doc": "observability_gaps.md:75"},
-
-    # Cluster G: REPL Execution Quality Signals
-    {"id": "OG-16", "cluster": "G", "title": "Variable state evolution",
-     "severity": "MEDIUM", "source_ids": ["CODE-3"],
-     "source_doc": "observability_gaps.md:83"},
-    {"id": "OG-17", "cluster": "G", "title": "Code retry patterns",
-     "severity": "MEDIUM", "source_ids": ["CODE-7"],
-     "source_doc": "observability_gaps.md:84"},
-    {"id": "OG-18", "cluster": "G", "title": "REPL error classification",
-     "severity": "MEDIUM", "source_ids": ["CODE-8"],
-     "source_doc": "observability_gaps.md:85"},
-    {"id": "OG-19", "cluster": "G", "title": "format_execution_result() drops variable values",
-     "severity": "MEDIUM", "source_ids": ["REPL-5"],
-     "source_doc": "observability_gaps.md:86"},
-    {"id": "OG-20", "cluster": "G", "title": "REPLResult.execution_time populated but never read",
-     "severity": "MEDIUM", "source_ids": ["REPL-6"],
-     "source_doc": "observability_gaps.md:87"},
-    {"id": "OG-21", "cluster": "G", "title": "Error-recovery turns",
-     "severity": "MEDIUM", "source_ids": ["PERF-9c"],
-     "source_doc": "observability_gaps.md:88"},
-
-    # Cluster H: AST Rewrite Gaps
-    {"id": "OG-22", "cluster": "H", "title": "Rewrite failure count",
-     "severity": "LOW", "source_ids": ["DEBUG-8.4"],
-     "source_doc": "observability_gaps.md:96"},
-
-    # Cluster I: Documentation / Multi-Session Infrastructure
-    {"id": "OG-23", "cluster": "I", "title": "Run ordinal within session",
-     "severity": "LOW", "source_ids": ["DOC-1.1d"],
-     "source_doc": "observability_gaps.md:107"},
-    {"id": "OG-24", "cluster": "I", "title": "Total batch dispatches not in traces enrichment",
-     "severity": "MEDIUM", "source_ids": ["DOC-1.2i"],
-     "source_doc": "observability_gaps.md:108"},
-    {"id": "OG-25", "cluster": "I", "title": "Policy violation key not captured in traces",
-     "severity": "LOW", "source_ids": ["DOC-1.3d"],
-     "source_doc": "observability_gaps.md:109"},
-    {"id": "OG-26", "cluster": "I", "title": "No normalized iteration table",
-     "severity": "LOW", "source_ids": ["DOC-2.3"],
-     "source_doc": "observability_gaps.md:110"},
-    {"id": "OG-27", "cluster": "I", "title": "No cost estimation metadata",
-     "severity": "LOW", "source_ids": ["DOC-5.2"],
-     "source_doc": "observability_gaps.md:111"},
-    {"id": "OG-28", "cluster": "I", "title": "System instruction not stored",
-     "severity": "LOW", "source_ids": ["DOC-6.1b"],
-     "source_doc": "observability_gaps.md:112"},
-    {"id": "OG-29", "cluster": "I", "title": "No artifact content hashing",
-     "severity": "LOW", "source_ids": ["DOC-7.1"],
-     "source_doc": "observability_gaps.md:113"},
-    {"id": "OG-30", "cluster": "I", "title": "No baseline infrastructure",
-     "severity": "LOW", "source_ids": ["DOC-3.2"],
-     "source_doc": "observability_gaps.md:114"},
-
-    # Cluster J: Miscellaneous
-    {"id": "OG-31", "cluster": "J", "title": "Parallel dispatch race condition visibility",
-     "severity": "LOW", "source_ids": ["DEBUG-4.3"],
-     "source_doc": "observability_gaps.md:122"},
-    {"id": "OG-32", "cluster": "J", "title": "Exception vs error-value distinction",
-     "severity": "LOW", "source_ids": ["DEBUG-7.3"],
-     "source_doc": "observability_gaps.md:123"},
-    {"id": "OG-33", "cluster": "J", "title": "Time breakdown / critical path / time-to-first-output",
-     "severity": "LOW", "source_ids": ["PERF-10b/c/d"],
-     "source_doc": "observability_gaps.md:124"},
+    {"id": "OG-01", "cluster": "A", "title": "REPL stdout not persisted under any state key",
+     "severity": "HIGH", "source_ids": ["REPL-STDOUT"],
+     "source_doc": "issues/bug-stdout-not-persisted-under-repl-state-key.md"},
+    {"id": "OG-02", "cluster": "A", "title": "repl_trace_summary not landing in tool telemetry rows",
+     "severity": "MEDIUM", "source_ids": ["REPL-TRACE-TEL"],
+     "source_doc": "issues/bug-repl-trace-summary-missing-from-tool-telemetry.md"},
+    {"id": "OG-03", "cluster": "A", "title": "repl_submitted_code* keys not persisted to session_state_events",
+     "severity": "HIGH", "source_ids": ["REPL-CODE-SSE"],
+     "source_doc": "issues/bug-repl-submitted-code-missing-from-session-state-events.md"},
 ]
 
 # ── Deferred gaps (OD-01 through OD-28) from observability_gaps_deferred.md ──
 # Each has a disposition_category and reason extracted from the deferred doc.
 
 DEFERRED_GAPS = [
-    # Redundant with active scope
-    {"id": "OD-01", "cluster": "A", "title": "Child dispatch prompt text (deferred duplicate)",
-     "severity": "CRITICAL", "source_ids": ["DEBUG-3.4", "DEBUG-6.1", "CODE-4", "REPL-2"],
-     "source_doc": "observability_gaps_deferred.md:7",
-     "category": "redundant_with_active",
-     "reason": "Already covered by the active child prompt/response persistence work in observability_gaps_codex.md."},
-    {"id": "OD-02", "cluster": "A", "title": "Child dispatch response text (deferred duplicate)",
-     "severity": "CRITICAL", "source_ids": ["DEBUG-6.2", "CODE-5", "REPL-3"],
-     "source_doc": "observability_gaps_deferred.md:12",
-     "category": "redundant_with_active",
-     "reason": "Already covered by the active child-layer LLM output persistence work in observability_gaps_codex.md."},
-    {"id": "OD-03", "cluster": "C", "title": "REPLResult.llm_calls always empty (deferred duplicate)",
-     "severity": "HIGH", "source_ids": ["REPL-1"],
-     "source_doc": "observability_gaps_deferred.md:17",
-     "category": "redundant_with_active",
-     "reason": "Already covered by the active call_log_sink / child-call plumbing work in observability_gaps_codex.md."},
-    {"id": "OD-04", "cluster": "A", "title": "Generated code string per execute_code (deferred duplicate)",
-     "severity": "CRITICAL", "source_ids": ["CODE-1"],
-     "source_doc": "observability_gaps_deferred.md:22",
-     "category": "redundant_with_active",
-     "reason": "Duplicative of the active REPL submitted-code capture item. Full raw persistence may be unnecessary; preview/hash/token metrics are likely sufficient."},
+    # OD-01..04 removed — implemented (child prompt/response persistence, llm_calls, submitted code)
 
     # Low-value implementation detail
     {"id": "OD-05", "cluster": "A", "title": "Post-rewrite AST source persistence",
@@ -355,8 +226,8 @@ def main() -> int:
         "meta": {
             "mode": "report",
             "total_gaps": len(gaps),
-            "generated_from": "observability_gaps.md + observability_gaps_deferred.md",
-            "version": 1,
+            "generated_from": "observability_gaps_deferred.md + issues/",
+            "version": 2,
         },
         "gaps": gaps,
     }

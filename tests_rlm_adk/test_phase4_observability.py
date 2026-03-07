@@ -8,7 +8,15 @@ from google.genai import types
 from rlm_adk.agent import create_child_orchestrator
 from rlm_adk.callbacks.reasoning import reasoning_before_model
 from rlm_adk.dispatch import DispatchConfig, create_dispatch_closures
-from rlm_adk.state import CONTEXT_WINDOW_SNAPSHOT, OBS_CHILD_DISPATCH_COUNT
+from rlm_adk.state import (
+    CONTEXT_WINDOW_SNAPSHOT,
+    OBS_CHILD_DISPATCH_COUNT,
+    REASONING_PARSED_OUTPUT,
+    REASONING_RAW_OUTPUT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_VISIBLE_OUTPUT_TEXT,
+    depth_key,
+)
 
 
 def _make_callback_context(state=None, rlm_depth=None):
@@ -129,3 +137,13 @@ class TestChildDispatchCountInFlush:
         delta2 = flush_fn()
         assert delta1[OBS_CHILD_DISPATCH_COUNT] == 0
         assert delta2[OBS_CHILD_DISPATCH_COUNT] == 0
+
+
+class TestReasoningObservabilityDepthKeys:
+    """Verify new reasoning observability keys are depth-scoped."""
+
+    def test_reasoning_output_keys_are_depth_scoped(self):
+        assert depth_key(REASONING_VISIBLE_OUTPUT_TEXT, 0) == REASONING_VISIBLE_OUTPUT_TEXT
+        assert depth_key(REASONING_THOUGHT_TEXT, 2) == "reasoning_thought_text@d2"
+        assert depth_key(REASONING_RAW_OUTPUT, 3) == "reasoning_raw_output@d3"
+        assert depth_key(REASONING_PARSED_OUTPUT, 1) == "reasoning_parsed_output@d1"

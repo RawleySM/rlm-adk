@@ -1,8 +1,11 @@
+import json
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from rlm_adk.utils.parsing import find_final_answer
 
 ########################################################
 ########   Structured Output Schema for Reasoning  #####
@@ -21,6 +24,48 @@ class ReasoningOutput(BaseModel):
     reasoning_summary: str = Field(
         default="", description="Brief reasoning summary."
     )
+
+
+class ReasoningObservability(BaseModel):
+    """Persistable reasoning-output observability payload."""
+
+    visible_output_text: str = ""
+    thought_text: str = ""
+    thoughts_tokens: int = 0
+    raw_output: Any = None
+    parsed_output: dict[str, Any] | None = None
+    final_answer: str = ""
+    reasoning_summary: str = ""
+
+
+def parse_reasoning_output(raw: Any) -> ReasoningObservability:
+    """Normalize a reasoning output_key payload for observability storage."""
+    payload = ReasoningObservability(raw_output=raw)
+
+    parsed: dict[str, Any] | None = None
+    if isinstance(raw, dict):
+        parsed = dict(raw)
+    elif isinstance(raw, str):
+        try:
+            decoded = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            decoded = None
+        if isinstance(decoded, dict):
+            parsed = decoded
+
+    if parsed is not None:
+        payload.parsed_output = parsed
+        payload.final_answer = str(parsed.get("final_answer", "") or "")
+        payload.reasoning_summary = str(parsed.get("reasoning_summary", "") or "")
+        if not payload.final_answer:
+            payload.final_answer = str(raw) if isinstance(raw, str) else ""
+        return payload
+
+    if isinstance(raw, str):
+        payload.final_answer = find_final_answer(raw) or raw
+    else:
+        payload.final_answer = str(raw) if raw is not None else ""
+    return payload
 
 
 def _serialize_value(value: Any) -> Any:
@@ -68,8 +113,12 @@ class LLMResult(str):
     finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
     input_tokens: int = 0
     output_tokens: int = 0
+    thoughts_tokens: int = 0
     model: str | None = None
     wall_time_ms: float = 0.0
+    visible_text: str | None = None
+    thought_text: str | None = None
+    raw_output: Any | None = None
     parsed: dict | None = None  # Validated structured output (set when output_schema used)
 
     def __new__(cls, text: str, **kwargs: Any) -> "LLMResult":
@@ -77,6 +126,11 @@ class LLMResult(str):
         for k, v in kwargs.items():
             setattr(instance, k, v)
         return instance
+
+    @property
+    def thought_tokens(self) -> int:
+        """Backward-compatible alias for older telemetry code."""
+        return getattr(self, "thoughts_tokens", 0)
 
 
 ########################################################
@@ -140,6 +194,12 @@ class RLMChatCompletion:
     response: str
     usage_summary: UsageSummary
     execution_time: float
+    finish_reason: str | None = None
+    thoughts_tokens: int = 0
+    visible_response: str | None = None
+    thought_response: str | None = None
+    raw_response: Any | None = None
+    parsed_response: dict[str, Any] | None = None
 
     def to_dict(self):
         return {
@@ -148,6 +208,12 @@ class RLMChatCompletion:
             "response": self.response,
             "usage_summary": self.usage_summary.to_dict(),
             "execution_time": self.execution_time,
+            "finish_reason": self.finish_reason,
+            "thoughts_tokens": self.thoughts_tokens,
+            "visible_response": self.visible_response,
+            "thought_response": self.thought_response,
+            "raw_response": _serialize_value(self.raw_response),
+            "parsed_response": self.parsed_response,
         }
 
     @classmethod
@@ -158,6 +224,12 @@ class RLMChatCompletion:
             response=data.get("response"),
             usage_summary=UsageSummary.from_dict(data.get("usage_summary")),
             execution_time=data.get("execution_time"),
+            finish_reason=data.get("finish_reason"),
+            thoughts_tokens=data.get("thoughts_tokens", 0),
+            visible_response=data.get("visible_response"),
+            thought_response=data.get("thought_response"),
+            raw_response=data.get("raw_response"),
+            parsed_response=data.get("parsed_response"),
         )
 
 
@@ -200,7 +272,3 @@ class REPLResult:
         if self.trace is not None:
             result["trace"] = self.trace
         return result
-
-
-
-

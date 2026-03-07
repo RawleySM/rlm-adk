@@ -29,16 +29,25 @@ from pydantic import BaseModel
 from rlm_adk.callbacks.worker import _classify_error
 from rlm_adk.callbacks.worker_retry import _bug13_stats
 from rlm_adk.repl.trace import DataFlowTracker
-from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 from rlm_adk.state import (
+    OBS_BUG13_SUPPRESS_COUNT,
     OBS_CHILD_DISPATCH_COUNT,
     OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
-    OBS_BUG13_SUPPRESS_COUNT,
     OBS_STRUCTURED_OUTPUT_FAILURES,
+    REASONING_INPUT_TOKENS,
+    REASONING_FINISH_REASON,
+    REASONING_OUTPUT_TOKENS,
+    REASONING_PARSED_OUTPUT,
+    REASONING_RAW_OUTPUT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_THOUGHT_TOKENS,
+    REASONING_VISIBLE_OUTPUT_TEXT,
     child_obs_key,
+    depth_key,
 )
+from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, UsageSummary
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +112,43 @@ def create_dispatch_closures(
     _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
 
+    def _child_obs_value(state: dict[str, Any], key: str, child_depth: int) -> Any:
+        """Read a child-scoped observability key if present."""
+        return state.get(depth_key(key, child_depth))
+
+    def _build_call_log(
+        prompt: str,
+        result: LLMResult,
+        elapsed_ms: float,
+    ) -> None:
+        """Append a structured child-call record for REPL observability."""
+        if call_log_sink is None:
+            return
+        model_name = result.model or dispatch_config.other_model
+        call_log_sink.append(
+            RLMChatCompletion(
+                root_model=model_name,
+                prompt=prompt,
+                response=str(result),
+                usage_summary=UsageSummary(
+                    model_usage_summaries={
+                        model_name: ModelUsageSummary(
+                            total_calls=1,
+                            total_input_tokens=getattr(result, "input_tokens", 0) or 0,
+                            total_output_tokens=getattr(result, "output_tokens", 0) or 0,
+                        )
+                    }
+                ),
+                execution_time=elapsed_ms / 1000.0,
+                finish_reason=result.finish_reason,
+                thoughts_tokens=result.thoughts_tokens,
+                visible_response=result.visible_text,
+                thought_response=result.thought_text,
+                raw_response=result.raw_output,
+                parsed_response=result.parsed,
+            )
+        )
+
     async def _run_child(
         prompt: str,
         model: str | None,
@@ -110,18 +156,22 @@ def create_dispatch_closures(
         fanout_idx: int,
     ) -> LLMResult:
         """Spawn a child orchestrator for a single sub-query."""
+        target_model = model or dispatch_config.other_model
         if depth + 1 >= max_depth:
-            return LLMResult(
+            result = LLMResult(
                 f"[DEPTH_LIMIT] Cannot dispatch at depth {depth + 1} (max_depth={max_depth})",
                 error=True,
                 error_category="DEPTH_LIMIT",
+                model=target_model,
             )
+            _build_call_log(prompt, result, 0.0)
+            return result
 
-        target_model = model or dispatch_config.other_model
         child_start = time.perf_counter()
         elapsed_ms = 0.0
         _child_result: LLMResult | None = None
         _error_message: str | None = None
+        _call_logged = False
 
         from rlm_adk.agent import create_child_orchestrator
 
@@ -160,20 +210,69 @@ def create_dispatch_closures(
             elapsed_ms = (time.perf_counter() - child_start) * 1000
 
             if answer:
-                _child_result = LLMResult(answer, error=False, model=target_model)
+                child_depth = depth + 1
+                input_tokens = _child_obs_value(
+                    ctx.session.state, REASONING_INPUT_TOKENS, child_depth
+                ) or 0
+                output_tokens = _child_obs_value(
+                    ctx.session.state, REASONING_OUTPUT_TOKENS, child_depth
+                ) or 0
+                thought_tokens = _child_obs_value(
+                    ctx.session.state, REASONING_THOUGHT_TOKENS, child_depth
+                ) or 0
+                finish_reason = _child_obs_value(
+                    ctx.session.state, REASONING_FINISH_REASON, child_depth
+                )
+                visible_text = _child_obs_value(
+                    ctx.session.state, REASONING_VISIBLE_OUTPUT_TEXT, child_depth
+                ) or answer
+                thought_text = _child_obs_value(
+                    ctx.session.state, REASONING_THOUGHT_TEXT, child_depth
+                ) or ""
+                parsed_payload = _child_obs_value(
+                    ctx.session.state, REASONING_PARSED_OUTPUT, child_depth
+                )
+                raw_payload = _child_obs_value(
+                    ctx.session.state, REASONING_RAW_OUTPUT, child_depth
+                )
+                _child_result = LLMResult(
+                    answer,
+                    error=False,
+                    model=target_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    thoughts_tokens=thought_tokens,
+                    finish_reason=finish_reason,
+                    visible_text=visible_text,
+                    thought_text=thought_text,
+                    raw_output=raw_payload,
+                    parsed=parsed_payload if isinstance(parsed_payload, dict) else None,
+                    wall_time_ms=round(elapsed_ms, 2),
+                )
             else:
                 _child_result = LLMResult(
                     "[Child orchestrator produced no answer]",
                     error=True,
                     error_category="NO_RESULT",
+                    model=target_model,
+                    wall_time_ms=round(elapsed_ms, 2),
                 )
         except Exception as e:
             elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error("Child dispatch error at depth %d: %s", depth + 1, e)
             cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
             _error_message = str(e)
-            _child_result = LLMResult(f"Error: {e}", error=True, error_category=cat)
+            _child_result = LLMResult(
+                f"Error: {e}",
+                error=True,
+                error_category=cat,
+                model=target_model,
+                wall_time_ms=round(elapsed_ms, 2),
+            )
         finally:
+            if _child_result is not None and not _call_logged:
+                _build_call_log(prompt, _child_result, elapsed_ms)
+                _call_logged = True
             # Write per-child observability summary
             _acc_child_summaries[child_obs_key(depth + 1, fanout_idx)] = {
                 "model": target_model,
@@ -182,6 +281,10 @@ def create_dispatch_closures(
                 "error_category": _child_result.error_category if isinstance(_child_result, LLMResult) else None,
                 "prompt_preview": prompt[:500],
                 "result_preview": str(_child_result)[:500] if _child_result is not None else None,
+                "input_tokens": getattr(_child_result, "input_tokens", 0) if _child_result is not None else 0,
+                "output_tokens": getattr(_child_result, "output_tokens", 0) if _child_result is not None else 0,
+                "thought_tokens": getattr(_child_result, "thoughts_tokens", 0) if _child_result is not None else 0,
+                "finish_reason": getattr(_child_result, "finish_reason", None) if _child_result is not None else None,
                 "error_message": _error_message,
             }
             # Clean up child's REPL
@@ -213,7 +316,10 @@ def create_dispatch_closures(
             call_start = time.perf_counter()
 
         results = await llm_query_batched_async(
-            [prompt], model=model, output_schema=output_schema,
+            [prompt],
+            model=model,
+            output_schema=output_schema,
+            _record_trace_entries=False,
         )
 
         if current_trace is not None:
@@ -221,6 +327,11 @@ def create_dispatch_closures(
             current_trace.record_llm_end(
                 call_index, results[0], elapsed_ms,
                 error=results[0].error if isinstance(results[0], LLMResult) else False,
+                input_tokens=getattr(results[0], "input_tokens", 0),
+                output_tokens=getattr(results[0], "output_tokens", 0),
+                thoughts_tokens=getattr(results[0], "thoughts_tokens", 0),
+                finish_reason=getattr(results[0], "finish_reason", None),
+                model=getattr(results[0], "model", None),
             )
 
         return results[0]
@@ -229,6 +340,7 @@ def create_dispatch_closures(
         prompts: list[str],
         model: str | None = None,
         output_schema: type[BaseModel] | None = None,
+        _record_trace_entries: bool = True,
     ) -> list[LLMResult]:
         """Dispatch K sub-LM queries via child orchestrators, concurrently.
 
@@ -283,7 +395,7 @@ def create_dispatch_closures(
                 _acc_child_error_counts[cat] = _acc_child_error_counts.get(cat, 0) + 1
 
         # Record trace entries
-        if current_trace is not None:
+        if current_trace is not None and _record_trace_entries:
             batch_elapsed = dispatch_elapsed_ms
             for idx, r in enumerate(all_results):
                 ci = batch_start_index + idx
@@ -294,10 +406,11 @@ def create_dispatch_closures(
                     "elapsed_ms": round(batch_elapsed, 2),
                     "prompt_len": len(prompts[idx]),
                     "response_len": len(r),
-                    "input_tokens": 0,
-                    "output_tokens": 0,
+                    "input_tokens": getattr(r, "input_tokens", 0),
+                    "output_tokens": getattr(r, "output_tokens", 0),
+                    "thoughts_tokens": getattr(r, "thoughts_tokens", 0),
                     "model": r.model if isinstance(r, LLMResult) else None,
-                    "finish_reason": None,
+                    "finish_reason": getattr(r, "finish_reason", None),
                     "error": r.error if isinstance(r, LLMResult) else False,
                     "error_category": r.error_category if isinstance(r, LLMResult) else None,
                 })

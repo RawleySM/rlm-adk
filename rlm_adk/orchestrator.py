@@ -40,15 +40,18 @@ from rlm_adk.state import (
     FINAL_ANSWER,
     ITERATION_COUNT,
     OBS_REASONING_RETRY_COUNT,
+    OBS_REASONING_RETRY_DELAY_MS,
     REPO_URL,
+    REASONING_PARSED_OUTPUT,
+    REASONING_RAW_OUTPUT,
+    REASONING_SUMMARY,
     REQUEST_ID,
     ROOT_PROMPT,
     SHOULD_STOP,
     depth_key,
 )
 from rlm_adk.tools.repl_tool import REPLTool
-from rlm_adk.types import LLMResult, ReasoningOutput
-from rlm_adk.utils.parsing import find_final_answer
+from rlm_adk.types import LLMResult, ReasoningOutput, parse_reasoning_output
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +226,7 @@ class RLMOrchestratorAgent(BaseAgent):
             # --- Delegate to reasoning_agent (with retry for transient errors) ---
             max_retries = int(os.getenv("RLM_LLM_MAX_RETRIES", "3"))
             base_delay = float(os.getenv("RLM_LLM_RETRY_DELAY", "5.0"))
+            total_retry_delay_ms = 0
             for attempt in range(max_retries + 1):
                 try:
                     async for event in self.reasoning_agent.run_async(ctx):
@@ -255,6 +259,7 @@ class RLMOrchestratorAgent(BaseAgent):
                         )
                         raise
                     delay = base_delay * (2 ** attempt)
+                    total_retry_delay_ms += round(delay * 1000)
                     print(
                         f"[RLM] transient error (attempt {attempt + 1}/{max_retries + 1}): "
                         f"{type(exc).__name__}. Retrying in {delay:.1f}s...",
@@ -268,12 +273,14 @@ class RLMOrchestratorAgent(BaseAgent):
 
             # Persist reasoning retry count if any retries occurred
             if attempt > 0:
+                retry_state_delta: dict[str, Any] = {
+                    OBS_REASONING_RETRY_COUNT: attempt,
+                    OBS_REASONING_RETRY_DELAY_MS: total_retry_delay_ms,
+                }
                 yield Event(
                     invocation_id=ctx.invocation_id,
                     author=self.name,
-                    actions=EventActions(state_delta={
-                        OBS_REASONING_RETRY_COUNT: attempt,
-                    }),
+                    actions=EventActions(state_delta=retry_state_delta),
                 )
 
             # --- Extract final_answer from output_key ---
@@ -282,26 +289,25 @@ class RLMOrchestratorAgent(BaseAgent):
             # When output_schema is NOT set, it's plain text.
             _output_key = self.reasoning_agent.output_key or "reasoning_output"
             raw = ctx.session.state.get(_output_key, "")
-            final_answer = ""
-            if isinstance(raw, dict):
-                # Already parsed (output_schema was set)
-                final_answer = raw.get("final_answer", "")
-            elif isinstance(raw, str):
-                # Try JSON first (ReasoningOutput format)
-                try:
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, dict):
-                        final_answer = parsed.get("final_answer", raw)
-                    else:
-                        final_answer = raw
-                except (json.JSONDecodeError, ValueError):
-                    # Plain text -- try FINAL() pattern extraction first
-                    parsed_final = find_final_answer(raw)
-                    if parsed_final is not None:
-                        final_answer = parsed_final
-                    else:
-                        # No FINAL() marker -- use raw text as-is
-                        final_answer = raw
+            reasoning_payload = parse_reasoning_output(raw)
+            final_answer = reasoning_payload.final_answer
+
+            reasoning_state_delta: dict[str, Any] = {
+                depth_key(REASONING_RAW_OUTPUT, self.depth): reasoning_payload.raw_output,
+            }
+            if reasoning_payload.parsed_output is not None:
+                reasoning_state_delta[depth_key(REASONING_PARSED_OUTPUT, self.depth)] = (
+                    reasoning_payload.parsed_output
+                )
+            if reasoning_payload.reasoning_summary:
+                reasoning_state_delta[depth_key(REASONING_SUMMARY, self.depth)] = (
+                    reasoning_payload.reasoning_summary
+                )
+            yield Event(
+                invocation_id=ctx.invocation_id,
+                author=self.name,
+                actions=EventActions(state_delta=reasoning_state_delta),
+            )
 
             if final_answer:
                 print(

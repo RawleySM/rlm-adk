@@ -30,6 +30,9 @@ class REPLTrace:
     exceptions: list[dict[str, Any]] = field(default_factory=list)
     data_flow_edges: list[tuple[int, int]] = field(default_factory=list)
     execution_mode: str = "sync"  # "sync" | "async"
+    submitted_code_chars: int = 0
+    submitted_code_hash: str | None = None
+    submitted_code_preview: str = ""
     _call_counter: int = field(default=0, repr=False)
 
     def record_llm_start(self, call_index: int, prompt: str, call_type: str = "single") -> None:
@@ -91,6 +94,9 @@ class REPLTrace:
         return {
             "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
             "execution_mode": self.execution_mode,
+            "submitted_code_chars": self.submitted_code_chars,
+            "submitted_code_hash": self.submitted_code_hash,
+            "submitted_code_preview": self.submitted_code_preview,
             "llm_calls": self.llm_calls,
             "var_snapshots": self.var_snapshots,
             "peak_memory_bytes": self.peak_memory_bytes,
@@ -106,6 +112,8 @@ class REPLTrace:
             "failed_llm_calls": sum(1 for c in self.llm_calls if c.get("error")),
             "peak_memory_bytes": self.peak_memory_bytes,
             "data_flow_edges": len(self.data_flow_edges),
+            "submitted_code_chars": self.submitted_code_chars,
+            "submitted_code_hash": self.submitted_code_hash,
         }
 
 

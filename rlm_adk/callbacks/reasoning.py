@@ -30,11 +30,17 @@ from rlm_adk.state import (
     ITERATION_COUNT,
     REASONING_CALL_START,
     REASONING_CONTENT_COUNT,
+    REASONING_FINISH_REASON,
     REASONING_HISTORY_MSG_COUNT,
     REASONING_INPUT_TOKENS,
     REASONING_OUTPUT_TOKENS,
     REASONING_PROMPT_CHARS,
+    REASONING_SUMMARY,
     REASONING_SYSTEM_CHARS,
+    REASONING_THOUGHT_TEXT,
+    REASONING_THOUGHT_TOKENS,
+    REASONING_VISIBLE_OUTPUT_TEXT,
+    depth_key,
 )
 
 
@@ -69,6 +75,35 @@ def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str:
                     if part.text:
                         dynamic_text += part.text
     return dynamic_text.strip()
+
+
+def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]:
+    """Split visible output text from hidden thought text."""
+    output_parts: list[str] = []
+    thought_parts: list[str] = []
+    if llm_response.content and llm_response.content.parts:
+        for part in llm_response.content.parts:
+            if not isinstance(part, types.Part) or not part.text:
+                continue
+            if getattr(part, "thought", False):
+                thought_parts.append(part.text)
+            else:
+                output_parts.append(part.text)
+    return "".join(output_parts), "".join(thought_parts)
+
+
+def _reasoning_depth(callback_context: CallbackContext) -> int:
+    """Return the current reasoning depth tagged by the orchestrator."""
+    agent = getattr(callback_context, "_invocation_context", None)
+    agent_obj = getattr(agent, "agent", None) if agent else None
+    depth = getattr(agent_obj, "_rlm_depth", 0)
+    return depth if isinstance(depth, int) else 0
+
+
+def _usage_int(usage: Any, attr: str) -> int:
+    """Return an integer usage field, guarding against MagicMock values in tests."""
+    value = getattr(usage, attr, 0)
+    return value if isinstance(value, int) else 0
 
 
 def reasoning_before_model(
@@ -123,9 +158,7 @@ def reasoning_before_model(
     callback_context.state[REASONING_CONTENT_COUNT] = content_count
     callback_context.state[REASONING_HISTORY_MSG_COUNT] = content_count
     # Read depth tag set by orchestrator (default 0)
-    agent = getattr(callback_context, '_invocation_context', None)
-    agent_obj = getattr(agent, 'agent', None) if agent else None
-    _depth = getattr(agent_obj, '_rlm_depth', 0)
+    _depth = _reasoning_depth(callback_context)
 
     callback_context.state[CONTEXT_WINDOW_SNAPSHOT] = {
         "agent_type": "reasoning",
@@ -150,13 +183,39 @@ def reasoning_after_model(
     """
     # --- Per-invocation token accounting from usage_metadata ---
     usage = llm_response.usage_metadata
+    depth = _reasoning_depth(callback_context)
+    visible_text, thought_text = _extract_response_text(llm_response)
+    callback_context.state[depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)] = visible_text
+    callback_context.state[depth_key(REASONING_THOUGHT_TEXT, depth)] = thought_text
+    finish_reason = getattr(getattr(llm_response, "finish_reason", None), "name", None)
+    if finish_reason is not None:
+        callback_context.state[depth_key(REASONING_FINISH_REASON, depth)] = finish_reason
     if usage:
-        callback_context.state[REASONING_INPUT_TOKENS] = (
-            getattr(usage, "prompt_token_count", 0) or 0
+        callback_context.state[depth_key(REASONING_INPUT_TOKENS, depth)] = (
+            _usage_int(usage, "prompt_token_count")
         )
-        callback_context.state[REASONING_OUTPUT_TOKENS] = (
-            getattr(usage, "candidates_token_count", 0) or 0
+        callback_context.state[depth_key(REASONING_OUTPUT_TOKENS, depth)] = (
+            _usage_int(usage, "candidates_token_count")
         )
+        callback_context.state[depth_key(REASONING_THOUGHT_TOKENS, depth)] = (
+            _usage_int(usage, "thoughts_token_count")
+        )
+    else:
+        callback_context.state[depth_key(REASONING_THOUGHT_TOKENS, depth)] = 0
+        callback_context.state[depth_key(REASONING_INPUT_TOKENS, depth)] = 0
+        callback_context.state[depth_key(REASONING_OUTPUT_TOKENS, depth)] = 0
+
+    if visible_text.lstrip().startswith("{"):
+        try:
+            import json
+
+            parsed = json.loads(visible_text)
+        except (json.JSONDecodeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            callback_context.state[depth_key(REASONING_SUMMARY, depth)] = (
+                parsed.get("reasoning_summary", "") or ""
+            )
 
     # Return None -- observe only, don't alter the response
     return None
