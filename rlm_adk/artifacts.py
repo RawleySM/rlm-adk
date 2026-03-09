@@ -8,7 +8,7 @@ Design principles:
 - All functions return None/[]/False gracefully when no artifact service is configured
 - All async functions wrap operations in try/except with warning-level logging (NFR-004)
 - should_offload_to_artifact and get_invocation_context are synchronous
-- Naming conventions: repl_output_iter_{N}.txt, worker_{name}_iter_{N}.txt, final_answer.md
+- Naming conventions: repl_code_d{D}_f{F}_iter_{N}_turn_{M}.py, final_answer_d{D}_f{F}.md
 """
 
 import logging
@@ -65,10 +65,12 @@ async def save_repl_output(
     stdout: str,
     stderr: str = "",
     mime_type: str = "text/plain",
+    depth: int = 0,
+    fanout_idx: int = 0,
 ) -> Optional[int]:
     """Save REPL output as a versioned artifact.
 
-    The artifact is named ``repl_output_iter_{iteration}.txt``.
+    The artifact is named ``repl_output_d{depth}_f{fanout_idx}_iter_{iteration}.txt``.
 
     Args:
         ctx: InvocationContext or CallbackContext.
@@ -76,6 +78,8 @@ async def save_repl_output(
         stdout: Standard output text from the REPL execution.
         stderr: Standard error text (optional).
         mime_type: MIME type for the artifact (default text/plain).
+        depth: Orchestrator nesting depth (0 = root).
+        fanout_idx: Fanout index within a batched dispatch (0 = single/first).
 
     Returns:
         Version number (int), or None if no artifact service configured
@@ -86,7 +90,7 @@ async def save_repl_output(
         logger.debug("No artifact service configured, skipping save_repl_output")
         return None
 
-    filename = f"repl_output_iter_{iteration}.txt"
+    filename = f"repl_output_d{depth}_f{fanout_idx}_iter_{iteration}.txt"
     content = stdout
     if stderr:
         content = f"{stdout}\n--- STDERR ---\n{stderr}"
@@ -100,7 +104,7 @@ async def save_repl_output(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(inv_ctx, filename, version, len(content.encode("utf-8")))
+        _update_save_tracking(ctx, filename, version, len(content.encode("utf-8")))
         return version
     except Exception as e:
         logger.warning("Failed to save REPL output artifact: %s", e)
@@ -112,16 +116,20 @@ async def save_repl_code(
     iteration: int,
     turn: int,
     code: str,
+    depth: int = 0,
+    fanout_idx: int = 0,
 ) -> Optional[int]:
     """Save REPL code block as a versioned artifact.
 
-    The artifact is named ``repl_code_iter_{iteration}_turn_{turn}.py``.
+    The artifact is named ``repl_code_d{depth}_f{fanout_idx}_iter_{iteration}_turn_{turn}.py``.
 
     Args:
         ctx: InvocationContext or CallbackContext.
         iteration: The current orchestrator iteration number.
         turn: The code block index within this iteration (0-based).
         code: The Python source code to save.
+        depth: Orchestrator nesting depth (0 = root).
+        fanout_idx: Fanout index within a batched dispatch (0 = single/first).
 
     Returns:
         Version number (int), or None if no artifact service configured
@@ -132,7 +140,7 @@ async def save_repl_code(
         logger.debug("No artifact service configured, skipping save_repl_code")
         return None
 
-    filename = f"repl_code_iter_{iteration}_turn_{turn}.py"
+    filename = f"repl_code_d{depth}_f{fanout_idx}_iter_{iteration}_turn_{turn}.py"
 
     try:
         artifact = types.Part(text=code)
@@ -143,7 +151,7 @@ async def save_repl_code(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(inv_ctx, filename, version, len(code.encode("utf-8")))
+        _update_save_tracking(ctx, filename, version, len(code.encode("utf-8")))
         return version
     except Exception as e:
         logger.warning("Failed to save REPL code artifact: %s", e)
@@ -155,16 +163,20 @@ async def save_repl_trace(
     iteration: int,
     turn: int,
     trace_dict: dict,
+    depth: int = 0,
+    fanout_idx: int = 0,
 ) -> Optional[int]:
     """Save detailed REPL trace as a JSON artifact.
 
-    The artifact is named ``repl_trace_iter_{iteration}_turn_{turn}.json``.
+    The artifact is named ``repl_trace_d{depth}_f{fanout_idx}_iter_{iteration}_turn_{turn}.json``.
 
     Args:
         ctx: InvocationContext or CallbackContext.
         iteration: The current orchestrator iteration number.
         turn: The code block index within this iteration (0-based).
         trace_dict: The serialized REPLTrace dict.
+        depth: Orchestrator nesting depth (0 = root).
+        fanout_idx: Fanout index within a batched dispatch (0 = single/first).
 
     Returns:
         Version number (int), or None if no artifact service configured
@@ -175,7 +187,7 @@ async def save_repl_trace(
         return None
 
     import json
-    filename = f"repl_trace_iter_{iteration}_turn_{turn}.json"
+    filename = f"repl_trace_d{depth}_f{fanout_idx}_iter_{iteration}_turn_{turn}.json"
     data = json.dumps(trace_dict, indent=2)
 
     try:
@@ -189,7 +201,7 @@ async def save_repl_trace(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(inv_ctx, filename, version, len(data.encode("utf-8")))
+        _update_save_tracking(ctx, filename, version, len(data.encode("utf-8")))
         return version
     except Exception as e:
         logger.warning("Failed to save REPL trace artifact: %s", e)
@@ -234,7 +246,7 @@ async def save_worker_result(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(inv_ctx, filename, version, len(result_text.encode("utf-8")))
+        _update_save_tracking(ctx, filename, version, len(result_text.encode("utf-8")))
         return version
     except Exception as e:
         logger.warning("Failed to save worker result artifact: %s", e)
@@ -245,15 +257,19 @@ async def save_final_answer(
     ctx: Union[InvocationContext, CallbackContext],
     answer: str,
     mime_type: str = "text/markdown",
+    depth: int = 0,
+    fanout_idx: int = 0,
 ) -> Optional[int]:
     """Save the final answer as an artifact.
 
-    The artifact is named ``final_answer.md``.
+    The artifact is named ``final_answer_d{depth}_f{fanout_idx}.md``.
 
     Args:
         ctx: InvocationContext or CallbackContext.
         answer: The final answer text.
         mime_type: MIME type for the artifact (default text/markdown).
+        depth: Orchestrator nesting depth (0 = root).
+        fanout_idx: Fanout index within a batched dispatch (0 = single/first).
 
     Returns:
         Version number (int), or None if no artifact service configured
@@ -264,7 +280,7 @@ async def save_final_answer(
         logger.debug("No artifact service configured, skipping save_final_answer")
         return None
 
-    filename = "final_answer.md"
+    filename = f"final_answer_d{depth}_f{fanout_idx}.md"
 
     try:
         artifact = types.Part.from_bytes(data=answer.encode("utf-8"), mime_type=mime_type)
@@ -275,7 +291,7 @@ async def save_final_answer(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(inv_ctx, filename, version, len(answer.encode("utf-8")))
+        _update_save_tracking(ctx, filename, version, len(answer.encode("utf-8")))
         return version
     except Exception as e:
         logger.warning("Failed to save final answer artifact: %s", e)
@@ -314,7 +330,7 @@ async def save_binary_artifact(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(inv_ctx, filename, version, len(data))
+        _update_save_tracking(ctx, filename, version, len(data))
         return version
     except Exception as e:
         logger.warning("Failed to save binary artifact '%s': %s", filename, e)
@@ -351,7 +367,10 @@ async def load_artifact(
             version=version,
         )
         if result is not None:
-            state = inv_ctx.session.state
+            if isinstance(ctx, CallbackContext):
+                state = ctx.state  # ADK State wrapper — tracks deltas properly
+            else:
+                state = inv_ctx.session.state  # fallback for raw InvocationContext
             state[ARTIFACT_LOAD_COUNT] = state.get(ARTIFACT_LOAD_COUNT, 0) + 1
         return result
     except Exception as e:
@@ -420,21 +439,30 @@ async def delete_artifact(
 
 
 def _update_save_tracking(
-    ctx: InvocationContext,
+    ctx: Union[InvocationContext, CallbackContext],
     filename: str,
     version: int,
     size_bytes: int,
 ) -> None:
     """Update session state with artifact save tracking metadata.
 
+    When *ctx* is a ``CallbackContext`` (or subclass like ``ToolContext``),
+    writes go through the ADK ``State`` wrapper which properly records deltas
+    in ``_event_actions.state_delta`` (AR-CRIT-001 compliant).  When *ctx* is
+    a raw ``InvocationContext``, falls back to ``ctx.session.state`` for
+    backward compatibility.
+
     Args:
-        ctx: The InvocationContext.
+        ctx: A CallbackContext/ToolContext (preferred) or InvocationContext.
         filename: The saved artifact filename.
         version: The version number returned by the service.
         size_bytes: Size of the saved data in bytes.
     """
     try:
-        state = ctx.session.state
+        if isinstance(ctx, CallbackContext):
+            state = ctx.state  # ADK State wrapper — tracks deltas properly
+        else:
+            state = ctx.session.state  # fallback for raw InvocationContext
         state[ARTIFACT_SAVE_COUNT] = state.get(ARTIFACT_SAVE_COUNT, 0) + 1
         state[ARTIFACT_TOTAL_BYTES_SAVED] = state.get(ARTIFACT_TOTAL_BYTES_SAVED, 0) + size_bytes
         state[ARTIFACT_LAST_SAVED_FILENAME] = filename

@@ -211,6 +211,7 @@ class RLMOrchestratorAgent(BaseAgent):
     worker_pool: Any = None
     repl: Any = None
     depth: int = 0
+    fanout_idx: int = 0
     output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
 
     async def _run_async_impl(
@@ -277,6 +278,7 @@ class RLMOrchestratorAgent(BaseAgent):
             flush_fn=flush_fn,
             trace_holder=trace_holder if trace_level > 0 else None,
             depth=self.depth,
+            fanout_idx=self.fanout_idx,
         )
 
         # Wire reasoning_agent at runtime with tools.
@@ -431,7 +433,10 @@ class RLMOrchestratorAgent(BaseAgent):
                 )
 
                 # Auto-save final answer as artifact
-                await save_final_answer(ctx, answer=final_answer)
+                await save_final_answer(
+                    ctx, answer=final_answer,
+                    depth=self.depth, fanout_idx=self.fanout_idx,
+                )
 
                 yield Event(
                     invocation_id=ctx.invocation_id,

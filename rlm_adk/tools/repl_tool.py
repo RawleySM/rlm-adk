@@ -53,6 +53,7 @@ class REPLTool(BaseTool):
         trace_holder: Optional[list] = None,
         flush_fn: Optional[Callable[[], dict]] = None,
         depth: int = 0,
+        fanout_idx: int = 0,
         summarization_threshold: int = 5000,
     ):
         super().__init__(
@@ -69,6 +70,7 @@ class REPLTool(BaseTool):
         self.trace_holder = trace_holder
         self._flush_fn = flush_fn
         self._depth = depth
+        self._fanout_idx = fanout_idx
         self._summarization_threshold = summarization_threshold
         self._rewrite_count = 0
         self._rewrite_total_ms = 0.0
@@ -108,6 +110,8 @@ class REPLTool(BaseTool):
             iteration=self._call_count + 1,
             turn=0,
             code=code,
+            depth=self._depth,
+            fanout_idx=self._fanout_idx,
         )
 
         self._call_count += 1

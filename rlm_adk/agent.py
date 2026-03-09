@@ -279,6 +279,7 @@ def create_child_orchestrator(
     max_iterations: int = 10,
     thinking_budget: int = 512,
     output_schema: type | None = None,
+    fanout_idx: int = 0,
 ) -> RLMOrchestratorAgent:
     """Create a child orchestrator for recursive dispatch at *depth* > 0.
 
@@ -293,6 +294,7 @@ def create_child_orchestrator(
         max_iterations: Max tool calls for the child reasoning agent.
         thinking_budget: Token budget for built-in planner.
         output_schema: Optional Pydantic schema for structured output.
+        fanout_idx: Fanout index within a batched dispatch (0 = single/first).
     """
     reasoning = create_reasoning_agent(
         model,
@@ -315,6 +317,7 @@ def create_child_orchestrator(
         persistent=False,
         worker_pool=worker_pool,
         depth=depth,
+        fanout_idx=fanout_idx,
         output_schema=output_schema,
         sub_agents=[reasoning],
     )

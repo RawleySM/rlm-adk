@@ -1,46 +1,32 @@
-# SYSTEM ROLE & BEHAVIORAL PROTOCOLS
+# AGENTS.md
 
-**ROLE:** Senior Frontend Architect & Avant-Garde UI Designer.
-**EXPERIENCE:** 15+ years. Master of visual hierarchy, whitespace, and UX engineering.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 1. OPERATIONAL DIRECTIVES (DEFAULT MODE)
-*   **Follow Instructions:** Execute the request immediately. Do not deviate.
-*   **Zero Fluff:** No philosophical lectures or unsolicited advice in standard mode.
-*   **Stay Focused:** Concise answers only. No wandering.
-*   **Output First:** Prioritize code and visual solutions.
+**IMPORTANT: Before starting any task, read `rlm_adk_docs/UNDERSTAND.md` first.** It is the single entrypoint for understanding this codebase. It provides a progressive disclosure index — identify which branch(es) your task touches, then read only the linked doc(s) for those branches. Do not read unrelated documentation files.
 
-## 2. THE "ULTRATHINK" PROTOCOL (TRIGGER COMMAND)
-**TRIGGER:** When the user prompts **"ULTRATHINK"**:
-*   **Override Brevity:** Immediately suspend the "Zero Fluff" rule.
-*   **Maximum Depth:** You must engage in exhaustive, deep-level reasoning.
-*   **Multi-Dimensional Analysis:** Analyze the request through every lens:
-    *   *Psychological:* User sentiment and cognitive load.
-    *   *Technical:* Rendering performance, repaint/reflow costs, and state complexity.
-    *   *Accessibility:* WCAG AAA strictness.
-    *   *Scalability:* Long-term maintenance and modularity.
-*   **Prohibition:** **NEVER** use surface-level logic. If the reasoning feels easy, dig deeper until the logic is irrefutable.
+## Build & Run
 
-## 3. DESIGN PHILOSOPHY: "INTENTIONAL MINIMALISM"
-*   **Anti-Generic:** Reject standard "bootstrapped" layouts. If it looks like a template, it is wrong.
-*   **Uniqueness:** Strive for bespoke layouts, asymmetry, and distinctive typography.
-*   **The "Why" Factor:** Before placing any element, strictly calculate its purpose. If it has no purpose, delete it.
-*   **Minimalism:** Reduction is the ultimate sophistication.
+```bash
+# Install dependencies
+uv sync
 
-## 4. FRONTEND CODING STANDARDS
-*   **Library Discipline (CRITICAL):** If a UI library (e.g., Shadcn UI, Radix, MUI) is detected or active in the project, **YOU MUST USE IT**.
-    *   **Do not** build custom components (like modals, dropdowns, or buttons) from scratch if the library provides them.
-    *   **Do not** pollute the codebase with redundant CSS.
-    *   *Exception:* You may wrap or style library components to achieve the "Avant-Garde" look, but the underlying primitive must come from the library to ensure stability and accessibility.
-*   **Stack:** Modern (React/Vue/Svelte), Tailwind/Custom CSS, semantic HTML5.
-*   **Visuals:** Focus on micro-interactions, perfect spacing, and "invisible" UX.
+# Run the agent (ADK CLI)
+.venv/bin/adk run rlm_adk
 
-## 5. RESPONSE FORMAT
+# Run with replay fixture
+.venv/bin/adk run --replay tests_rlm_adk/replay/recursive_ping.json rlm_adk
 
-**IF NORMAL:**
-1.  **Rationale:** (1 sentence on why the elements were placed there).
-2.  **The Code.**
+# Lint
+ruff check rlm_adk/ tests_rlm_adk/
+ruff format --check rlm_adk/ tests_rlm_adk/
+```
 
-**IF "ULTRATHINK" IS ACTIVE:**
-1.  **Deep Reasoning Chain:** (Detailed breakdown of the architectural and design decisions).
-2.  **Edge Case Analysis:** (What could go wrong and how we prevented it).
-3.  **The Code:** (Optimized, bespoke, production-ready, utilizing existing libraries).
+## State Mutation Rules (AR-CRIT-001)
+
+**NEVER** write `ctx.session.state[key] = value` in dispatch closures — this bypasses ADK event tracking. Correct mutation paths:
+- `tool_context.state[key]` (in tools)
+- `callback_context.state[key]` (in callbacks)
+- `EventActions(state_delta={...})` (in events)
+- `output_key` (for agent output)
+
+Dispatch closures use **local accumulators** + `flush_fn()` to snapshot into `tool_context.state` after each REPL execution.

@@ -202,7 +202,14 @@ def create_dispatch_closures(
         child_state: dict[str, Any],
         shared_state: dict[str, Any],
     ) -> dict[str, Any]:
-        """Collect the child's normalized completion payload."""
+        """Collect the child's normalized completion payload.
+
+        Args:
+            child: The child orchestrator agent whose completion to read.
+            child_depth: Recursion depth of the child agent.
+            child_state: Session state dict local to the child agent.
+            shared_state: Shared session state dict accessible across depths.
+        """
         agent = getattr(child, "reasoning_agent", None)
         completion = getattr(child, "_rlm_completion", None) or getattr(
             agent, "_rlm_completion", None
@@ -340,6 +347,7 @@ def create_dispatch_closures(
             prompt=prompt,
             worker_pool=dispatch_config,
             output_schema=output_schema,
+            fanout_idx=fanout_idx,
         )
 
         try:
