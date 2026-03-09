@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 
 from rlm_adk.state import (
     FINAL_ANSWER,
@@ -33,11 +34,27 @@ from rlm_adk.state import (
 from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
 from tests_rlm_adk.provider_fake.contract_runner import (
     PluginContractResult,
-    run_fixture_contract,
     run_fixture_contract_with_plugins,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
+
+
+# ---------------------------------------------------------------------------
+# Class-scoped fixture: run each fixture once, share result across methods
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(scope="class")
+async def fmea_result(request, tmp_path_factory):
+    """Run the fixture once per test class, share result across all methods."""
+    fixture_name = request.cls.FIXTURE
+    tmp_path = tmp_path_factory.mktemp(fixture_name)
+    return await run_fixture_contract_with_plugins(
+        FIXTURE_DIR / f"{fixture_name}.json",
+        traces_db_path=str(tmp_path / "traces.db"),
+        repl_trace_level=1,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -116,23 +133,20 @@ class TestReplErrorThenRetry:
 
     FIXTURE = "repl_error_then_retry"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_two_iterations_required(self, tmp_path: Path):
+    async def test_two_iterations_required(self, fmea_result: PluginContractResult):
         """Verify error forced a second iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 2, f"Expected 2 iterations, got {iter_count}"
 
-    async def test_error_visible_in_tool_response(self, tmp_path: Path):
+    async def test_error_visible_in_tool_response(self, fmea_result: PluginContractResult):
         """Verify the KeyError from iter1 is visible in a function_response stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, (
             f"Expected >= 2 tool results (error + retry), got {len(tool_results)}"
         )
@@ -143,7 +157,7 @@ class TestReplErrorThenRetry:
             f"Expected an error in first tool stderr: {first_stderr!r}"
         )
 
-    async def test_first_tool_response_variables_empty(self, tmp_path: Path):
+    async def test_first_tool_response_variables_empty(self, fmea_result: PluginContractResult):
         """Verify first (failed) tool_response has variables == {} (FM-23).
 
         When the REPL code raises KeyError after llm_query + json.loads,
@@ -152,9 +166,8 @@ class TestReplErrorThenRetry:
         tool result.  This verifies variable persistence loss (FM-23): the
         REPL correctly does NOT leak partial assignments from a failed exec.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, (
             f"Expected >= 2 tool results (error + retry), got {len(tool_results)}"
         )
@@ -164,7 +177,7 @@ class TestReplErrorThenRetry:
             f"(KeyError should prevent locals update), got {first_vars!r}"
         )
 
-    async def test_first_tool_response_has_llm_calls(self, tmp_path: Path):
+    async def test_first_tool_response_has_llm_calls(self, fmea_result: PluginContractResult):
         """Verify first tool_response has llm_calls_made=True (FM-05/14).
 
         Even though the REPL code raised KeyError, the llm_query() call was
@@ -172,9 +185,8 @@ class TestReplErrorThenRetry:
         path (execute_code_async). This confirms the async dispatch path was
         taken, not the sync path.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_llm_calls = tool_results[0].get("llm_calls_made")
         assert first_llm_calls is True, (
@@ -182,11 +194,10 @@ class TestReplErrorThenRetry:
             f"(llm_query was called before KeyError), got {first_llm_calls!r}"
         )
 
-    async def test_retry_succeeds_in_final_answer(self, tmp_path: Path):
+    async def test_retry_succeeds_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify the corrected code's result appears in FINAL_ANSWER."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "alpha-42" in fa, f"Expected 'alpha-42' in final_answer: {fa!r}"
 
 
@@ -200,16 +211,14 @@ class TestFakeRecursivePing:
 
     FIXTURE = "fake_recursive_ping"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract with structural child-state assertions."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_root_tool_surfaces_terminal_child_payload(self, tmp_path: Path):
+    async def test_root_tool_surfaces_terminal_child_payload(self, fmea_result: PluginContractResult):
         """The root tool result should include the forwarded terminal child payload."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         stdout = tool_results[0].get("stdout", "")
         assert "recursion_layer=0" in stdout, f"Missing layer 0 marker: {stdout!r}"
@@ -220,11 +229,10 @@ class TestFakeRecursivePing:
             f"Root stdout should not fall back to placeholder child output: {stdout!r}"
         )
 
-    async def test_final_reasoning_turn_records_terminal_payload_before_returning_pong(self, tmp_path: Path):
+    async def test_final_reasoning_turn_records_terminal_payload_before_returning_pong(self, fmea_result: PluginContractResult):
         """The final reasoning turn should receive the terminal payload without child errors."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        responses = _request_function_responses(result.contract.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -238,11 +246,11 @@ class TestFakeRecursivePing:
         assert response.get("stderr") == "", (
             f"Expected empty stderr in final request response: {response!r}"
         )
-        assert result.final_state.get(FINAL_ANSWER) == "pong"
-        assert OBS_CHILD_ERROR_COUNTS not in result.final_state, (
-            f"Expected no child error counts in final state, got {result.final_state!r}"
+        assert fmea_result.final_state.get(FINAL_ANSWER) == "pong"
+        assert OBS_CHILD_ERROR_COUNTS not in fmea_result.final_state, (
+            f"Expected no child error counts in final state, got {fmea_result.final_state!r}"
         )
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("execute_code") == 3, (
             f"Expected execute_code summary count == 3, got {summary!r}"
         )
@@ -261,34 +269,31 @@ class TestStructuredOutputBatchedK3:
 
     FIXTURE = "structured_output_batched_k3"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_all_workers_produced_results(self, tmp_path: Path):
+    async def test_all_workers_produced_results(self, fmea_result: PluginContractResult):
         """Verify 3 workers dispatched and results aggregated correctly."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        dispatch_count = result.final_state.get(OBS_CHILD_DISPATCH_COUNT, 0)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        dispatch_count = fmea_result.final_state.get(OBS_CHILD_DISPATCH_COUNT, 0)
         assert dispatch_count == 3, (
             f"Expected OBS_CHILD_DISPATCH_COUNT == 3, got {dispatch_count}"
         )
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "2 positive" in fa, f"Expected '2 positive' in final_answer: {fa!r}"
         assert "1 negative" in fa, f"Expected '1 negative' in final_answer: {fa!r}"
 
-    async def test_with_plugins_no_crash(self, tmp_path: Path):
+    async def test_with_plugins_no_crash(self, fmea_result: PluginContractResult):
         """Full plugin stack (observability + sqlite + repl tracing) runs cleanly."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        assert len(result.events) > 0, "Expected events from the run"
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        assert len(fmea_result.events) > 0, "Expected events from the run"
         # Verify REPL snapshot has trace_summary from repl_trace_level=1
         repl_snapshots = [
             (getattr(getattr(ev, "actions", None), "state_delta", None) or {}).get(
                 LAST_REPL_RESULT
             )
-            for ev in result.events
+            for ev in fmea_result.events
         ]
         repl_snapshots = [s for s in repl_snapshots if s is not None]
         assert len(repl_snapshots) >= 1, "Expected at least one REPL snapshot"
@@ -297,11 +302,10 @@ class TestStructuredOutputBatchedK3:
                 f"snapshot[{i}] missing trace_summary — keys: {list(snap.keys())}"
             )
 
-    async def test_tool_result_marks_llm_calls(self, tmp_path: Path):
+    async def test_tool_result_marks_llm_calls(self, fmea_result: PluginContractResult):
         """Verify function_response has llm_calls_made=True for the batch dispatch."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         llm_results = [tr for tr in tool_results if tr.get("llm_calls_made")]
         assert len(llm_results) >= 1, (
@@ -332,16 +336,14 @@ class TestWorker500ThenSuccess:
 
     FIXTURE = "worker_500_then_success"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract -- SDK retry should be transparent."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_recovery_transparent(self, tmp_path: Path):
+    async def test_recovery_transparent(self, fmea_result: PluginContractResult):
         """The REPL code should see a successful result, not an error message."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "Server recovered answer" in fa, (
             f"Expected 'Server recovered answer' in final_answer: {fa!r}"
         )
@@ -350,15 +352,14 @@ class TestWorker500ThenSuccess:
             f"Final answer should not contain 'error' unless describing recovery: {fa!r}"
         )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """SDK retry is transparent -- only 1 REPL iteration needed."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
 
-    async def test_obs_total_calls_persisted(self, tmp_path: Path):
+    async def test_obs_total_calls_persisted(self, fmea_result: PluginContractResult):
         """Verify OBS_TOTAL_CALLS is present in final state.
 
         ObservabilityPlugin.after_agent_callback re-persists ephemeral
@@ -370,38 +371,35 @@ class TestWorker500ThenSuccess:
         Worker calls are isolated in ParallelAgent and do NOT reach
         the plugin — only reasoning-level calls are counted.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        total_calls = result.final_state.get(OBS_TOTAL_CALLS, 0)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        total_calls = fmea_result.final_state.get(OBS_TOTAL_CALLS, 0)
         assert total_calls > 0, (
             f"Expected OBS_TOTAL_CALLS > 0 (after_agent_callback "
             f"re-persists ephemeral plugin state), got {total_calls}."
         )
         # Dispatch-level obs keys DO persist (written via flush_fn)
-        assert result.final_state.get(OBS_CHILD_DISPATCH_COUNT, 0) == 1, (
+        assert fmea_result.final_state.get(OBS_CHILD_DISPATCH_COUNT, 0) == 1, (
             "OBS_CHILD_DISPATCH_COUNT should persist via flush_fn path"
         )
 
-    async def test_tool_result_has_llm_calls(self, tmp_path: Path):
+    async def test_tool_result_has_llm_calls(self, fmea_result: PluginContractResult):
         """Verify the execute_code function_response shows llm_calls_made=True.
 
         FM-09: Even when the SDK retries a 500 transparently, the REPL code
         still called llm_query(), so the tool result must reflect this.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one execute_code tool result"
         results_with_llm = [tr for tr in tool_results if tr.get("llm_calls_made")]
         assert len(results_with_llm) >= 1, (
             f"No tool result had llm_calls_made=True: {tool_results}"
         )
 
-    async def test_parent_reasoning_turn_sees_recovered_worker_result(self):
+    async def test_parent_reasoning_turn_sees_recovered_worker_result(self, fmea_result: PluginContractResult):
         """The final reasoning turn should receive the recovered child result, not a placeholder."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -419,14 +417,13 @@ class TestWorker500ThenSuccess:
             f"Expected recovered result variable in final request response, got {response!r}"
         )
 
-    async def test_observability_retains_recovered_child_summary(self, tmp_path: Path):
+    async def test_observability_retains_recovered_child_summary(self, fmea_result: PluginContractResult):
         """State should record a clean child summary after SDK retry recovery."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        assert OBS_CHILD_ERROR_COUNTS not in result.final_state, (
-            f"Expected no child error counts after recovery, got {result.final_state!r}"
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        assert OBS_CHILD_ERROR_COUNTS not in fmea_result.final_state, (
+            f"Expected no child error counts after recovery, got {fmea_result.final_state!r}"
         )
-        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        summary = fmea_result.final_state.get("obs:child_summary@d1f0", {})
         assert summary.get("error") is False, (
             f"Recovered child summary should not be marked as error, got {summary!r}"
         )
@@ -439,7 +436,7 @@ class TestWorker500ThenSuccess:
         assert summary.get("final_answer") == "Server recovered answer", (
             f"Expected recovered final_answer in child summary, got {summary!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         trace_summary = last_repl_result.get("trace_summary", {})
         assert last_repl_result.get("has_errors") is False, (
             f"Expected handled REPL result after recovery, got {last_repl_result!r}"
@@ -454,16 +451,14 @@ class TestWorker500RetryExhausted:
 
     FIXTURE = "worker_500_retry_exhausted"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract for handled retry exhaustion."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_parent_reasoning_turn_sees_exhausted_worker_error(self):
+    async def test_parent_reasoning_turn_sees_exhausted_worker_error(self, fmea_result: PluginContractResult):
         """The final reasoning turn must receive the structured exhausted-child error result."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -479,15 +474,14 @@ class TestWorker500RetryExhausted:
             f"Expected exhausted child error string in variables.result, got {response!r}"
         )
 
-    async def test_observability_retains_exhausted_child_error(self, tmp_path: Path):
+    async def test_observability_retains_exhausted_child_error(self, fmea_result: PluginContractResult):
         """State should expose the exhausted worker category and result preview."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        error_counts = fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
         assert error_counts.get("SERVER") == 1, (
             f"Expected SERVER child error count == 1, got {error_counts!r}"
         )
-        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        summary = fmea_result.final_state.get("obs:child_summary@d1f0", {})
         assert summary.get("error") is True, (
             f"Expected exhausted child summary error=True, got {summary!r}"
         )
@@ -500,7 +494,7 @@ class TestWorker500RetryExhausted:
         assert "500 INTERNAL" in summary.get("final_answer", ""), (
             f"Expected final_answer to preserve worker 500 details, got {summary!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         trace_summary = last_repl_result.get("trace_summary", {})
         assert "Worker error: server retry exhausted" in last_repl_result.get("stdout_preview", ""), (
             f"Expected REPL snapshot stdout_preview to preserve handled exhaustion output, got {last_repl_result!r}"
@@ -515,16 +509,14 @@ class TestWorker500RetryExhaustedNaive:
 
     FIXTURE = "worker_500_retry_exhausted_naive"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract for naive retry exhaustion."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_parent_reasoning_turn_receives_error_string_consumed_as_answer(self):
+    async def test_parent_reasoning_turn_receives_error_string_consumed_as_answer(self, fmea_result: PluginContractResult):
         """The final reasoning turn should receive the raw child error string via the tool result."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -543,19 +535,18 @@ class TestWorker500RetryExhaustedNaive:
             f"Expected raw error string in variables.answer, got {response!r}"
         )
 
-    async def test_observability_marks_child_error_even_when_parent_consumes_it(self, tmp_path: Path):
+    async def test_observability_marks_child_error_even_when_parent_consumes_it(self, fmea_result: PluginContractResult):
         """State should still expose SERVER exhaustion even when FINAL_ANSWER is the raw error string."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        final_answer = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        final_answer = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "500 INTERNAL" in final_answer, (
             f"Expected FINAL_ANSWER to be the consumed worker error string, got {final_answer!r}"
         )
-        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        error_counts = fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
         assert error_counts.get("SERVER") == 1, (
             f"Expected SERVER child error count == 1, got {error_counts!r}"
         )
-        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        summary = fmea_result.final_state.get("obs:child_summary@d1f0", {})
         assert summary.get("error") is True, (
             f"Expected child summary error=True despite naive consumption, got {summary!r}"
         )
@@ -565,7 +556,7 @@ class TestWorker500RetryExhaustedNaive:
         assert "500 INTERNAL" in summary.get("final_answer", ""), (
             f"Expected child summary final_answer to preserve worker error, got {summary!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         trace_summary = last_repl_result.get("trace_summary", {})
         assert "Answer: Error: 500 INTERNAL" in last_repl_result.get("stdout_preview", ""), (
             f"Expected stdout_preview to expose the consumed error string, got {last_repl_result!r}"
@@ -590,23 +581,20 @@ class TestReplSyntaxError:
 
     FIXTURE = "repl_syntax_error"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_two_iterations_for_correction(self, tmp_path: Path):
+    async def test_two_iterations_for_correction(self, fmea_result: PluginContractResult):
         """Verify model needed 2 REPL iterations to self-correct."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 2, f"Expected 2 iterations, got {iter_count}"
 
-    async def test_syntax_error_in_first_tool_response(self, tmp_path: Path):
+    async def test_syntax_error_in_first_tool_response(self, fmea_result: PluginContractResult):
         """Verify the SyntaxError from iter1 appears in function_response stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, (
             f"Expected >= 2 tool results (error + fix), got {len(tool_results)}"
         )
@@ -615,11 +603,10 @@ class TestReplSyntaxError:
             f"Expected 'SyntaxError' in first tool stderr: {first_stderr!r}"
         )
 
-    async def test_corrected_code_succeeds(self, tmp_path: Path):
+    async def test_corrected_code_succeeds(self, fmea_result: PluginContractResult):
         """Verify the second REPL call has no errors in stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2
         second_stderr = tool_results[1].get("stderr", "")
         assert not second_stderr, (
@@ -637,25 +624,22 @@ class TestMaxIterationsExceeded:
 
     FIXTURE = "max_iterations_exceeded"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_limit_enforced(self, tmp_path: Path):
+    async def test_limit_enforced(self, fmea_result: PluginContractResult):
         """Third call should have been blocked by REPLTool max_calls."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 3, (
             f"Expected iteration_count == 3 (includes blocked call), got {iter_count}"
         )
 
-    async def test_limit_message_in_stderr(self, tmp_path: Path):
+    async def test_limit_message_in_stderr(self, fmea_result: PluginContractResult):
         """Verify the blocked third call returns the limit message in stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 3, (
             f"Expected >= 3 tool results, got {len(tool_results)}"
         )
@@ -664,7 +648,7 @@ class TestMaxIterationsExceeded:
             f"Expected limit message in third tool stderr: {third_stderr!r}"
         )
 
-    async def test_blocked_call_not_executed(self, tmp_path: Path):
+    async def test_blocked_call_not_executed(self, fmea_result: PluginContractResult):
         """Verify 3rd tool_result has stdout=='' and llm_calls_made==False (FM-03).
 
         When the call limit is reached, REPLTool returns immediately with the
@@ -672,9 +656,8 @@ class TestMaxIterationsExceeded:
         empty and llm_calls_made must be False, confirming the code was not
         executed on the blocked call.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 3, (
             f"Expected >= 3 tool results, got {len(tool_results)}"
         )
@@ -690,20 +673,18 @@ class TestMaxIterationsExceeded:
             f"got {third_llm_calls!r}"
         )
 
-    async def test_final_answer_acknowledges_limit(self, tmp_path: Path):
+    async def test_final_answer_acknowledges_limit(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER reflects the model responding to the limit."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "Completed with limit" in fa, (
             f"Expected 'Completed with limit' in final_answer: {fa!r}"
         )
 
-    async def test_limit_message_reaches_final_reasoning_turn(self):
+    async def test_limit_message_reaches_final_reasoning_turn(self, fmea_result: PluginContractResult):
         """Verify the blocked tool response is present in the final reasoning request."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        final_request = result.captured_requests[-1]
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        final_request = fmea_result.contract.captured_requests[-1]
         responses = _request_function_responses(final_request)
         assert len(responses) == 3, (
             f"Expected 3 execute_code function responses in final request, got {len(responses)}"
@@ -719,19 +700,18 @@ class TestMaxIterationsExceeded:
             f"Blocked call limit message missing from final request: {blocked!r}"
         )
 
-    async def test_observability_counts_blocked_call_even_with_minimal_stdout(self, tmp_path: Path):
+    async def test_observability_counts_blocked_call_even_with_minimal_stdout(self, fmea_result: PluginContractResult):
         """Evaluator-facing state should still show the blocked attempt."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("execute_code") == 3, (
             f"Expected execute_code count 3 in observability summary, got {summary!r}"
         )
-        breakdown = result.final_state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN)
+        breakdown = fmea_result.final_state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN)
         assert isinstance(breakdown, list) and len(breakdown) == 4, (
             f"Expected 4 model-call breakdown entries, got {breakdown!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         assert last_repl_result.get("stdout_preview", "").startswith("y = 30"), (
             f"Expected last_repl_result to preserve the last executed stdout, got {last_repl_result!r}"
         )
@@ -747,16 +727,14 @@ class TestEmptyReasoningOutput:
 
     FIXTURE = "empty_reasoning_output"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract -- should match [RLM ERROR] message."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_message_format(self, tmp_path: Path):
+    async def test_error_message_format(self, fmea_result: PluginContractResult):
         """Verify the error message is the expected [RLM ERROR] string."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert fa.startswith("[RLM ERROR]"), (
             f"Expected FINAL_ANSWER to start with '[RLM ERROR]', got: {fa!r}"
         )
@@ -764,11 +742,10 @@ class TestEmptyReasoningOutput:
             f"Expected plain empty-completion message, got: {fa!r}"
         )
 
-    async def test_single_repl_iteration(self, tmp_path: Path):
+    async def test_single_repl_iteration(self, fmea_result: PluginContractResult):
         """Verify only 1 REPL call was made before empty output."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
 
@@ -782,23 +759,20 @@ class TestReplRuntimeError:
 
     FIXTURE = "repl_runtime_error"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_two_iterations_for_recovery(self, tmp_path: Path):
+    async def test_two_iterations_for_recovery(self, fmea_result: PluginContractResult):
         """Verify model needed 2 REPL iterations to recover from NameError."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 2, f"Expected 2 iterations, got {iter_count}"
 
-    async def test_name_error_in_first_tool_response(self, tmp_path: Path):
+    async def test_name_error_in_first_tool_response(self, fmea_result: PluginContractResult):
         """Verify the NameError from iter1 appears in function_response stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, (
             f"Expected >= 2 tool results, got {len(tool_results)}"
         )
@@ -807,11 +781,10 @@ class TestReplRuntimeError:
             f"Expected 'NameError' in first tool stderr: {first_stderr!r}"
         )
 
-    async def test_corrected_output(self, tmp_path: Path):
+    async def test_corrected_output(self, fmea_result: PluginContractResult):
         """Verify the corrected code prints the expected output."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "hello world" in fa, (
             f"Expected 'hello world' in final_answer: {fa!r}"
         )
@@ -832,43 +805,37 @@ class TestStructuredOutputBatchedK3WithRetry:
 
     FIXTURE = "structured_output_batched_k3_with_retry"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract: final_answer, iterations, model_calls."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_retry_worker_recovered(self, tmp_path: Path):
+    async def test_retry_worker_recovered(self, fmea_result: PluginContractResult):
         """Verify all 3 workers produced results (2 positive, 1 negative after retry)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "2 positive" in fa, f"Expected '2 positive' in final_answer: {fa!r}"
         assert "1 negative" in fa, f"Expected '1 negative' in final_answer: {fa!r}"
 
 
-    async def test_bug13_patch_active(self, tmp_path: Path):
+    async def test_bug13_patch_active(self, fmea_result: PluginContractResult):
         """Verify BUG-13 monkey-patch is installed (_rlm_patched flag)."""
         import google.adk.flows.llm_flows._output_schema_processor as _osp
         assert getattr(
             _osp.get_structured_model_response, "_rlm_patched", False
         ), "BUG-13 patch not installed — _rlm_patched flag missing"
 
-    async def test_bug13_patch_invoked(self, tmp_path: Path):
+    async def test_bug13_patch_invoked(self, fmea_result: PluginContractResult):
         """Verify BUG-13 patch was actually invoked during retry, not just installed."""
         from rlm_adk.callbacks.worker_retry import _bug13_stats
-        initial_count = _bug13_stats["suppress_count"]
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        invocations = _bug13_stats["suppress_count"] - initial_count
-        assert invocations >= 1, (
-            f"Expected BUG-13 patch to fire >= 1 time during retry, "
-            f"but suppress_count delta was {invocations}. "
+        assert _bug13_stats["suppress_count"] >= 1, (
+            f"Expected BUG-13 patch to have fired >= 1 time during retry, "
+            f"but suppress_count was {_bug13_stats['suppress_count']}. "
             f"The patch may not be active for this fixture's retry path."
         )
 
-    async def test_final_reasoning_turn_sees_successful_batch_output(self, tmp_path: Path):
+    async def test_final_reasoning_turn_sees_successful_batch_output(self, fmea_result: PluginContractResult):
         """The final reasoning request should receive the recovered batch aggregate."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        responses = _request_function_responses(result.contract.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -887,17 +854,16 @@ class TestStructuredOutputBatchedK3WithRetry:
         assert variables.get("negative") == 1, (
             f"Expected one negative result in final request variables: {variables!r}"
         )
-        assert result.final_state.get(FINAL_ANSWER) == (
+        assert fmea_result.final_state.get(FINAL_ANSWER) == (
             "3 sentiments: 2 positive, 1 negative with retry"
         )
-        assert "2 positive" in result.final_state.get(FINAL_ANSWER, "")
-        assert "1 negative" in result.final_state.get(FINAL_ANSWER, "")
+        assert "2 positive" in fmea_result.final_state.get(FINAL_ANSWER, "")
+        assert "1 negative" in fmea_result.final_state.get(FINAL_ANSWER, "")
 
-    async def test_tool_result_surfaces_recovered_structured_outputs(self, tmp_path: Path):
+    async def test_tool_result_surfaces_recovered_structured_outputs(self, fmea_result: PluginContractResult):
         """The evaluator-visible tool result should contain recovered structured outputs."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_tool = tool_results[0]
         stdout = first_tool.get("stdout", "")
@@ -919,11 +885,10 @@ class TestStructuredOutputBatchedK3WithRetry:
             f"Expected negative count == 1 in tool variables, got {variables!r}"
         )
 
-    async def test_last_repl_result_records_clean_dispatch(self, tmp_path: Path):
+    async def test_last_repl_result_records_clean_dispatch(self, fmea_result: PluginContractResult):
         """LAST_REPL_RESULT should retain the recovered batch preview and clean trace counts."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        lrr = result.final_state.get(LAST_REPL_RESULT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        lrr = fmea_result.final_state.get(LAST_REPL_RESULT)
         assert isinstance(lrr, dict), f"Expected dict LAST_REPL_RESULT, got {type(lrr).__name__}"
         assert lrr.get("has_errors") is False, (
             f"Expected LAST_REPL_RESULT.has_errors=False, got {lrr!r}"
@@ -945,13 +910,12 @@ class TestStructuredOutputBatchedK3WithRetry:
             f"Expected trace_summary.failed_llm_calls == 0, got {trace_summary!r}"
         )
 
-    async def test_observability_records_clean_child_dispatch_summary(self, tmp_path: Path):
+    async def test_observability_records_clean_child_dispatch_summary(self, fmea_result: PluginContractResult):
         """No child errors should persist once the structured retry recovers."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert OBS_CHILD_ERROR_COUNTS not in result.final_state, (
-            f"Expected no child error counts after recovery, got {result.final_state!r}"
+        assert OBS_CHILD_ERROR_COUNTS not in fmea_result.final_state, (
+            f"Expected no child error counts after recovery, got {fmea_result.final_state!r}"
         )
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("execute_code") == 1, (
             f"Expected execute_code summary count == 1, got {summary!r}"
         )
@@ -970,35 +934,31 @@ class TestReplCancelledDuringAsync:
 
     FIXTURE = "repl_cancelled_during_async"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract (normal non-cancelled path)."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_happy_path_final_answer(self, tmp_path: Path):
+    async def test_happy_path_final_answer(self, fmea_result: PluginContractResult):
         """Verify the non-cancelled happy path produces expected result."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "15%" in fa, f"Expected '15%' in final_answer: {fa!r}"
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify single iteration completes when not cancelled."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
 
-    async def test_last_repl_result_happy_path(self, tmp_path: Path):
+    async def test_last_repl_result_happy_path(self, fmea_result: PluginContractResult):
         """Verify LAST_REPL_RESULT on happy-path: no errors, has output, 1 llm call.
 
         Establishes baseline observability for LAST_REPL_RESULT so that
         FM-14 injection tests can assert deviations from this baseline.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        lrr = result.final_state.get(LAST_REPL_RESULT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        lrr = fmea_result.final_state.get(LAST_REPL_RESULT)
         assert lrr is not None, (
             f"Expected LAST_REPL_RESULT in final state, got None"
         )
@@ -1025,6 +985,8 @@ class TestReplCancelledErrorInjection:
     after real execution has dispatched workers (populating accumulators).
     Validates flush_fn is called, LAST_REPL_RESULT has cancelled=True,
     and the tool result contains stderr with 'CancelledError'.
+
+    NOTE: These tests use monkeypatch and must run independently (not cached).
     """
 
     FIXTURE = "repl_cancelled_during_async"
@@ -1042,7 +1004,11 @@ class TestReplCancelledErrorInjection:
 
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_cancel)
 
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        result = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / f"{self.FIXTURE}.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
         tool_results = _extract_tool_results(result.events)
         cancelled_results = [
             tr for tr in tool_results
@@ -1066,7 +1032,11 @@ class TestReplCancelledErrorInjection:
 
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_cancel)
 
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        result = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / f"{self.FIXTURE}.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
         wdc = result.final_state.get(OBS_CHILD_DISPATCH_COUNT)
         assert wdc is not None and wdc >= 1, (
             f"Expected OBS_CHILD_DISPATCH_COUNT >= 1 after CancelledError "
@@ -1086,7 +1056,11 @@ class TestReplCancelledErrorInjection:
 
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_cancel)
 
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        result = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / f"{self.FIXTURE}.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
         lrr = result.final_state.get(LAST_REPL_RESULT)
         assert lrr is not None, (
             f"Expected LAST_REPL_RESULT in final state after CancelledError, "
@@ -1115,29 +1089,26 @@ class TestWorkerMaxTokensTruncated:
 
     FIXTURE = "worker_max_tokens_truncated"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_truncated_result_detected(self, tmp_path: Path):
+    async def test_truncated_result_detected(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER mentions truncation."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "runcated" in fa or "suggest" in fa, (
             f"Expected truncation indicator in final_answer: {fa!r}"
         )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify truncated response handled in one iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
 
-    async def test_obs_finish_max_tokens_tracked(self, tmp_path: Path):
+    async def test_obs_finish_max_tokens_tracked(self, fmea_result: PluginContractResult):
         """Verify MAX_TOKENS finish reason is handled with dispatch tracking.
 
         Child dispatch latency is tracked via OBS_CHILD_DISPATCH_LATENCY_MS.
@@ -1146,11 +1117,10 @@ class TestWorkerMaxTokensTruncated:
         the child reasoning agent doesn't extract the answer via output_key.
         We allow NO_RESULT but assert no real errors (RATE_LIMIT/SERVER).
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
         # Check dispatch latency (child or worker key)
         dispatch_latency = (
-            result.final_state.get(OBS_CHILD_DISPATCH_LATENCY_MS)
+            fmea_result.final_state.get(OBS_CHILD_DISPATCH_LATENCY_MS)
                    )
         assert dispatch_latency is not None and len(dispatch_latency) >= 1, (
             f"Expected dispatch latency with at least 1 entry, "
@@ -1158,7 +1128,7 @@ class TestWorkerMaxTokensTruncated:
         )
         # Allow NO_RESULT but no real errors
         error_counts = (
-            result.final_state.get(OBS_CHILD_ERROR_COUNTS)
+            fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS)
                    )
         if error_counts:
             real_errors = {k: v for k, v in error_counts.items() if k != "NO_RESULT"}
@@ -1167,11 +1137,10 @@ class TestWorkerMaxTokensTruncated:
                 f"got {error_counts!r}"
             )
 
-    async def test_tool_result_stdout_has_truncation_output(self, tmp_path: Path):
+    async def test_tool_result_stdout_has_truncation_output(self, fmea_result: PluginContractResult):
         """Verify REPL code detected truncation and printed output."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         llm_results = [tr for tr in tool_results if tr.get("llm_calls_made")]
         assert len(llm_results) >= 1, "No tool result had llm_calls_made=True"
@@ -1180,7 +1149,7 @@ class TestWorkerMaxTokensTruncated:
             f"Expected non-empty stdout from REPL code handling truncated response"
         )
 
-    async def test_llm_result_finish_reason_max_tokens(self, tmp_path: Path):
+    async def test_llm_result_finish_reason_max_tokens(self, fmea_result: PluginContractResult):
         """Verify LLMResult carries finish_reason=MAX_TOKENS (FM-25).
 
         The worker response has finishReason=MAX_TOKENS.  worker_after_model
@@ -1190,9 +1159,8 @@ class TestWorkerMaxTokensTruncated:
         sentence-ending punctuation (proving it was truncated), and the
         REPL code detected this via its endswith() check.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         llm_results = [tr for tr in tool_results if tr.get("llm_calls_made")]
         assert len(llm_results) >= 1, "No tool result had llm_calls_made=True"
         # The REPL code prints "Truncated response detected: ..." when
@@ -1212,7 +1180,7 @@ class TestWorkerMaxTokensTruncated:
                 f"Expected truncated text (no sentence-ending punct): {text_val!r}"
             )
 
-    async def test_last_repl_result_no_errors_with_output(self, tmp_path: Path):
+    async def test_last_repl_result_no_errors_with_output(self, fmea_result: PluginContractResult):
         """Verify LAST_REPL_RESULT has has_errors=False and has_output=True (FM-25).
 
         MAX_TOKENS is a graceful non-error condition: the worker produced
@@ -1220,9 +1188,8 @@ class TestWorkerMaxTokensTruncated:
         raising exceptions.  The REPL execution itself succeeded (no stderr),
         so has_errors=False and has_output=True (truncation info was printed).
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        lrr = result.final_state.get(LAST_REPL_RESULT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        lrr = fmea_result.final_state.get(LAST_REPL_RESULT)
         assert lrr is not None, (
             f"Expected LAST_REPL_RESULT in final state, got None"
         )
@@ -1246,32 +1213,28 @@ class TestWorkerMalformedJson:
 
     FIXTURE = "worker_malformed_json"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_in_final_answer(self, tmp_path: Path):
+    async def test_error_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER reports malformed/parse error."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "failed" in fa.lower() or "malformed" in fa.lower(), (
             f"Expected failure keywords in final_answer: {fa!r}"
         )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify malformed response handled in one iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_tool_result_shows_error(self, tmp_path: Path):
+    async def test_tool_result_shows_error(self, fmea_result: PluginContractResult):
         """Verify execute_code function_response contains error output (parity with FM-09)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_stdout = tool_results[0].get("stdout", "")
         assert "error" in first_stdout.lower() or "failed" in first_stdout.lower() or "Worker" in first_stdout, (
@@ -1289,32 +1252,28 @@ class TestStructuredOutputRetryExhaustion:
 
     FIXTURE = "structured_output_retry_exhaustion"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_in_final_answer(self, tmp_path: Path):
+    async def test_error_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER reports schema validation exhaustion."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "exhausted" in fa.lower() or "schema" in fa.lower(), (
             f"Expected exhaustion/schema keywords in final_answer: {fa!r}"
         )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify retry exhaustion handled in one iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_tool_result_shows_error(self, tmp_path: Path):
+    async def test_tool_result_shows_error(self, fmea_result: PluginContractResult):
         """Verify function_response contains error output (stdout or stderr)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_tr = tool_results[0]
         combined = (first_tr.get("stdout", "") + first_tr.get("stderr", "")).lower()
@@ -1322,7 +1281,7 @@ class TestStructuredOutputRetryExhaustion:
             f"Expected error indication in tool result: stdout={first_tr.get('stdout')!r}, stderr={first_tr.get('stderr')!r}"
         )
 
-    async def test_obs_error_counts(self, tmp_path: Path):
+    async def test_obs_error_counts(self, fmea_result: PluginContractResult):
         """Verify error is tracked when schema validation is exhausted.
 
         When the Pydantic ValidationError propagates as a batch-level
@@ -1332,10 +1291,9 @@ class TestStructuredOutputRetryExhaustion:
         will appear in error_counts.  With child orchestrators, NO_RESULT
         may appear instead.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
         error_counts = (
-            result.final_state.get(OBS_CHILD_ERROR_COUNTS)
+            fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS)
                    )
         if error_counts is not None:
             # Accept SCHEMA_VALIDATION_EXHAUSTED, NO_RESULT, or UNKNOWN
@@ -1345,17 +1303,16 @@ class TestStructuredOutputRetryExhaustion:
             )
         else:
             # Batch-level exception path: error captured in LAST_REPL_RESULT
-            repl_result = str(result.final_state.get(LAST_REPL_RESULT, ""))
+            repl_result = str(fmea_result.final_state.get(LAST_REPL_RESULT, ""))
             assert "error" in repl_result.lower() or "validation" in repl_result.lower(), (
                 f"Expected error indication in LAST_REPL_RESULT when "
                 f"error_counts is absent: {repl_result!r}"
             )
 
-    async def test_parent_reasoning_turn_sees_exhausted_tool_result(self):
+    async def test_parent_reasoning_turn_sees_exhausted_tool_result(self, fmea_result: PluginContractResult):
         """The parent reasoning turn must receive the exhausted child error payload."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -1367,21 +1324,20 @@ class TestStructuredOutputRetryExhaustion:
             f"Expected exhaustion message in parent-facing stdout, got {response!r}"
         )
 
-    async def test_observability_records_retry_attempts_and_exhaustion(self, tmp_path: Path):
+    async def test_observability_records_retry_attempts_and_exhaustion(self, fmea_result: PluginContractResult):
         """State should expose retries and the exhausted outcome even if stdout is terse."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("set_model_response") == 3, (
             f"Expected three structured-output attempts in tool summary, got {summary!r}"
         )
         assert summary.get("execute_code") == 1, (
             f"Expected one parent execute_code call in tool summary, got {summary!r}"
         )
-        assert result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
-            f"Expected one structured-output exhaustion, got {result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
+        assert fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
+            f"Expected one structured-output exhaustion, got {fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         trace_summary = last_repl_result.get("trace_summary", {})
         assert last_repl_result.get("has_errors") is False, (
             f"Expected handled parent REPL result with has_errors=False, got {last_repl_result!r}"
@@ -1434,7 +1390,11 @@ class TestReplExceptionFlushFn:
 
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_raise)
 
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        result = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / f"{self.FIXTURE}.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
         # Contract may or may not pass (error changes output), skip contract check
         wdc = result.final_state.get(OBS_CHILD_DISPATCH_COUNT)
         assert wdc is not None and wdc >= 1, (
@@ -1456,7 +1416,11 @@ class TestReplExceptionFlushFn:
 
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_raise)
 
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        result = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / f"{self.FIXTURE}.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
         lrr = result.final_state.get(LAST_REPL_RESULT)
         assert lrr is not None, (
             f"Expected LAST_REPL_RESULT in final state after generic Exception, "
@@ -1483,7 +1447,11 @@ class TestReplExceptionFlushFn:
 
         monkeypatch.setattr(LocalREPL, "execute_code_async", _execute_then_raise)
 
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
+        result = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / f"{self.FIXTURE}.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
         tool_results = _extract_tool_results(result.events)
         error_results = [
             tr for tr in tool_results
@@ -1512,23 +1480,20 @@ class TestReplExceptionThenRetry:
 
     FIXTURE = "repl_exception_then_retry"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract: final_answer, iterations, model_calls."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_two_iterations_required(self, tmp_path: Path):
+    async def test_two_iterations_required(self, fmea_result: PluginContractResult):
         """Verify error forced a second iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 2, f"Expected 2 iterations, got {iter_count}"
 
-    async def test_error_visible_in_tool_response(self, tmp_path: Path):
+    async def test_error_visible_in_tool_response(self, fmea_result: PluginContractResult):
         """Verify the RuntimeError from iter1 is visible in a function_response stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, (
             f"Expected >= 2 tool results (error + retry), got {len(tool_results)}"
         )
@@ -1537,11 +1502,10 @@ class TestReplExceptionThenRetry:
             f"Expected 'RuntimeError' in first tool stderr: {first_stderr!r}"
         )
 
-    async def test_retry_succeeds_in_final_answer(self, tmp_path: Path):
+    async def test_retry_succeeds_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify the retried code's result appears in FINAL_ANSWER."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "recovered-42" in fa, f"Expected 'recovered-42' in final_answer: {fa!r}"
 
 
@@ -1562,23 +1526,20 @@ class TestReplRuntimeErrorPartialState:
 
     FIXTURE = "repl_runtime_error_partial_state"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract: final_answer, iterations, model_calls."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_two_iterations_for_recovery(self, tmp_path: Path):
+    async def test_two_iterations_for_recovery(self, fmea_result: PluginContractResult):
         """Verify model needed 2 REPL iterations to recover from NameError."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 2, f"Expected 2 iterations, got {iter_count}"
 
-    async def test_name_error_in_first_tool_response(self, tmp_path: Path):
+    async def test_name_error_in_first_tool_response(self, fmea_result: PluginContractResult):
         """Verify the NameError from iter1 appears in function_response stderr."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, (
             f"Expected >= 2 tool results (error + fix), got {len(tool_results)}"
         )
@@ -1587,7 +1548,7 @@ class TestReplRuntimeErrorPartialState:
             f"Expected 'NameError' in first tool stderr: {first_stderr!r}"
         )
 
-    async def test_partial_vars_not_persisted(self, tmp_path: Path):
+    async def test_partial_vars_not_persisted(self, fmea_result: PluginContractResult):
         """Verify x and y from the failed first iteration are NOT in variables.
 
         The first call assigns x=10, y=20 before hitting NameError on
@@ -1595,9 +1556,8 @@ class TestReplRuntimeErrorPartialState:
         locals-update loop, x and y should NOT appear in the first tool
         result's variables dict.
         """
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_vars = tool_results[0].get("variables", {})
         assert "x" not in first_vars, (
@@ -1609,18 +1569,16 @@ class TestReplRuntimeErrorPartialState:
             f"Got variables: {first_vars}"
         )
 
-    async def test_corrected_output(self, tmp_path: Path):
+    async def test_corrected_output(self, fmea_result: PluginContractResult):
         """Verify the corrected code computes 10 + 20 + 60 = 90."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "90" in fa, f"Expected '90' in final_answer: {fa!r}"
 
-    async def test_retry_request_redefines_lost_variables(self):
+    async def test_retry_request_redefines_lost_variables(self, fmea_result: PluginContractResult):
         """The correction turn must redefine x and y instead of relying on leaked state."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        final_request = result.captured_requests[-1]
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        final_request = fmea_result.contract.captured_requests[-1]
         calls = _request_function_calls(final_request)
         assert len(calls) == 2, (
             f"Expected 2 execute_code calls in final reasoning request, got {len(calls)}"
@@ -1632,11 +1590,10 @@ class TestReplRuntimeErrorPartialState:
             f"Corrected code must define undefined_var: {corrected_code!r}"
         )
 
-    async def test_recovery_variables_come_from_second_run(self, tmp_path: Path):
+    async def test_recovery_variables_come_from_second_run(self, fmea_result: PluginContractResult):
         """The successful retry should expose the complete recomputed state in variables."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 2, "Expected error + retry tool results"
         second_vars = tool_results[1].get("variables", {})
         assert second_vars == {"x": 10, "y": 20, "undefined_var": 30, "z": 60}, (
@@ -1659,25 +1616,22 @@ class TestMaxIterationsExceededPersistent:
 
     FIXTURE = "max_iterations_exceeded_persistent"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_four_iterations_counted(self, tmp_path: Path):
+    async def test_four_iterations_counted(self, fmea_result: PluginContractResult):
         """Verify all 4 call attempts are counted in ITERATION_COUNT."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 4, (
             f"Expected 4 iterations (2 success + 2 blocked), got {iter_count}"
         )
 
-    async def test_two_blocked_calls(self, tmp_path: Path):
+    async def test_two_blocked_calls(self, fmea_result: PluginContractResult):
         """Verify calls 3 and 4 both received the limit message."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 4, (
             f"Expected >= 4 tool results (2 success + 2 blocked), "
             f"got {len(tool_results)}"
@@ -1692,11 +1646,10 @@ class TestMaxIterationsExceededPersistent:
             f"Expected limit message in fourth tool stderr: {fourth_stderr!r}"
         )
 
-    async def test_blocked_calls_have_empty_stdout(self, tmp_path: Path):
+    async def test_blocked_calls_have_empty_stdout(self, fmea_result: PluginContractResult):
         """Verify blocked calls have no stdout (code was not executed)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 4
         third_stdout = tool_results[2].get("stdout", "")
         fourth_stdout = tool_results[3].get("stdout", "")
@@ -1707,22 +1660,20 @@ class TestMaxIterationsExceededPersistent:
             f"Expected empty stdout on blocked call 4, got: {fourth_stdout!r}"
         )
 
-    async def test_blocked_calls_do_not_leak_new_variables(self, tmp_path: Path):
+    async def test_blocked_calls_do_not_leak_new_variables(self, fmea_result: PluginContractResult):
         """Blocked calls must not persist z or w into the tool response variables."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 4
         third_vars = tool_results[2].get("variables", {})
         fourth_vars = tool_results[3].get("variables", {})
         assert third_vars == {}, f"Blocked call 3 should not persist variables: {third_vars!r}"
         assert fourth_vars == {}, f"Blocked call 4 should not persist variables: {fourth_vars!r}"
 
-    async def test_final_reasoning_turn_sees_both_limit_failures(self):
+    async def test_final_reasoning_turn_sees_both_limit_failures(self, fmea_result: PluginContractResult):
         """The final reasoning request should include both blocked tool responses."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        final_request = result.captured_requests[-1]
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        final_request = fmea_result.contract.captured_requests[-1]
         responses = _request_function_responses(final_request)
         assert len(responses) == 4, (
             f"Expected 4 execute_code function responses in final request, got {len(responses)}"
@@ -1737,28 +1688,26 @@ class TestMaxIterationsExceededPersistent:
                 f"Blocked response missing limit message: {resp!r}"
             )
 
-    async def test_final_answer_reflects_limit(self, tmp_path: Path):
+    async def test_final_answer_reflects_limit(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER acknowledges the limit."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "limit" in fa.lower(), (
             f"Expected 'limit' in final_answer: {fa!r}"
         )
 
-    async def test_observability_counts_both_blocked_calls_even_with_minimal_stdout(self, tmp_path: Path):
+    async def test_observability_counts_both_blocked_calls_even_with_minimal_stdout(self, fmea_result: PluginContractResult):
         """Blocked retries should still be visible in state when stdout stays empty."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("execute_code") == 4, (
             f"Expected execute_code count 4 in observability summary, got {summary!r}"
         )
-        breakdown = result.final_state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN)
+        breakdown = fmea_result.final_state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN)
         assert isinstance(breakdown, list) and len(breakdown) == 5, (
             f"Expected 5 model-call breakdown entries, got {breakdown!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         assert last_repl_result.get("stdout_preview", "").startswith("y = 30"), (
             f"Expected last_repl_result to remain anchored to the last executed call, got {last_repl_result!r}"
         )
@@ -1779,16 +1728,14 @@ class TestEmptyReasoningOutputSafety:
 
     FIXTURE = "empty_reasoning_output_safety"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract -- should match [RLM ERROR] message."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_message_format(self, tmp_path: Path):
+    async def test_error_message_format(self, fmea_result: PluginContractResult):
         """Verify the error message is the expected [RLM ERROR] string."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert fa.startswith("[RLM ERROR]"), (
             f"Expected FINAL_ANSWER to start with '[RLM ERROR]', got: {fa!r}"
         )
@@ -1796,20 +1743,22 @@ class TestEmptyReasoningOutputSafety:
             f"Expected SAFETY-specific empty-completion message, got: {fa!r}"
         )
 
-    async def test_single_repl_iteration(self, tmp_path: Path):
+    async def test_single_repl_iteration(self, fmea_result: PluginContractResult):
         """Verify only 1 REPL call was made before SAFETY-blocked output."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_error_differs_from_stop_variant(self, tmp_path: Path):
+    async def test_error_differs_from_stop_variant(self, fmea_result: PluginContractResult, tmp_path: Path):
         """Verify SAFETY variant preserves finish reason instead of collapsing to STOP."""
-        result_safety = await _run_with_plugins(self.FIXTURE, tmp_path)
-        result_stop = await _run_with_plugins("empty_reasoning_output", tmp_path)
-        assert result_safety.contract.passed, result_safety.contract.diagnostics()
+        result_stop = await run_fixture_contract_with_plugins(
+            FIXTURE_DIR / "empty_reasoning_output.json",
+            traces_db_path=str(tmp_path / "traces.db"),
+            repl_trace_level=1,
+        )
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
         assert result_stop.contract.passed, result_stop.contract.diagnostics()
-        fa_safety = result_safety.final_state.get(FINAL_ANSWER, "")
+        fa_safety = fmea_result.final_state.get(FINAL_ANSWER, "")
         fa_stop = result_stop.final_state.get(FINAL_ANSWER, "")
         assert fa_safety != fa_stop, (
             f"SAFETY and STOP variants should now differ. "
@@ -1834,16 +1783,14 @@ class TestReasoningSafetyFinish:
 
     FIXTURE = "reasoning_safety_finish"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract -- should match [RLM ERROR] message."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_message_format(self, tmp_path: Path):
+    async def test_error_message_format(self, fmea_result: PluginContractResult):
         """Verify the error message is the expected [RLM ERROR] string."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert fa.startswith("[RLM ERROR]"), (
             f"Expected FINAL_ANSWER to start with '[RLM ERROR]', got: {fa!r}"
         )
@@ -1851,20 +1798,18 @@ class TestReasoningSafetyFinish:
             f"Expected SAFETY-specific reasoning-blocked message, got: {fa!r}"
         )
 
-    async def test_zero_repl_iterations(self, tmp_path: Path):
+    async def test_zero_repl_iterations(self, fmea_result: PluginContractResult):
         """Verify no REPL calls were made (SAFETY blocked on first turn)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count is None or iter_count == 0, (
             f"Expected 0 iterations (SAFETY on first turn), got {iter_count}"
         )
 
-    async def test_no_tool_results(self, tmp_path: Path):
+    async def test_no_tool_results(self, fmea_result: PluginContractResult):
         """Verify no execute_code function_responses in event stream."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) == 0, (
             f"Expected 0 tool results (no REPL calls), got {len(tool_results)}"
         )
@@ -1885,16 +1830,14 @@ class TestWorkerSafetyFinish:
 
     FIXTURE = "worker_safety_finish"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_parent_reasoning_turn_sees_safety_finish_tool_response(self):
+    async def test_parent_reasoning_turn_sees_safety_finish_tool_response(self, fmea_result: PluginContractResult):
         """The final reasoning turn should receive the blocked child marker."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -1909,11 +1852,10 @@ class TestWorkerSafetyFinish:
             f"Expected empty stderr for handled SAFETY finish, got {response!r}"
         )
 
-    async def test_observability_preserves_safety_finish_reason_and_empty_output(self, tmp_path: Path):
+    async def test_observability_preserves_safety_finish_reason_and_empty_output(self, fmea_result: PluginContractResult):
         """State should keep the blocked child summary even when parent handles it cleanly."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get("obs:child_summary@d1f0", {})
         assert summary.get("error") is True, (
             f"Expected blocked child summary to be marked errored, got {summary!r}"
         )
@@ -1926,7 +1868,7 @@ class TestWorkerSafetyFinish:
         assert summary.get("raw_output_preview") == "", (
             f"Expected empty raw_output_preview for SAFETY block, got {summary!r}"
         )
-        trace_summary = result.final_state.get(LAST_REPL_RESULT, {}).get("trace_summary", {})
+        trace_summary = fmea_result.final_state.get(LAST_REPL_RESULT, {}).get("trace_summary", {})
         assert trace_summary.get("failed_llm_calls") == 1, (
             f"Expected one failed llm call recorded for SAFETY block, got {trace_summary!r}"
         )
@@ -1937,16 +1879,14 @@ class TestWorkerEmptyResponse:
 
     FIXTURE = "worker_empty_response"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_parent_reasoning_turn_sees_valid_and_blocked_children(self):
+    async def test_parent_reasoning_turn_sees_valid_and_blocked_children(self, fmea_result: PluginContractResult):
         """The final reasoning turn should receive both the valid and blocked child results."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -1962,18 +1902,17 @@ class TestWorkerEmptyResponse:
             f"Expected final batch summary in parent-facing stdout, got {response!r}"
         )
 
-    async def test_observability_preserves_blocked_child_summary(self, tmp_path: Path):
+    async def test_observability_preserves_blocked_child_summary(self, fmea_result: PluginContractResult):
         """State should keep a per-child blocked summary instead of only the aggregate count."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        assert result.final_state.get(OBS_CHILD_DISPATCH_COUNT) == 2, (
-            f"Expected two child dispatches, got {result.final_state.get(OBS_CHILD_DISPATCH_COUNT)!r}"
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        assert fmea_result.final_state.get(OBS_CHILD_DISPATCH_COUNT) == 2, (
+            f"Expected two child dispatches, got {fmea_result.final_state.get(OBS_CHILD_DISPATCH_COUNT)!r}"
         )
-        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        error_counts = fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
         assert error_counts.get("SAFETY") == 1, (
             f"Expected one SAFETY child error, got {error_counts!r}"
         )
-        blocked = result.final_state.get("obs:child_summary@d1f1", {})
+        blocked = fmea_result.final_state.get("obs:child_summary@d1f1", {})
         assert blocked.get("finish_reason") == "SAFETY", (
             f"Expected finish_reason=SAFETY for blocked child summary, got {blocked!r}"
         )
@@ -1993,16 +1932,14 @@ class TestWorkerMaxTokensNaive:
 
     FIXTURE = "worker_max_tokens_naive"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_parent_reasoning_turn_receives_truncated_child_output(self):
+    async def test_parent_reasoning_turn_receives_truncated_child_output(self, fmea_result: PluginContractResult):
         """The final reasoning turn should receive the truncated child text verbatim."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -2018,11 +1955,10 @@ class TestWorkerMaxTokensNaive:
             f"Expected truncated stdout to end mid-sentence, got {stdout!r}"
         )
 
-    async def test_observability_preserves_max_tokens_finish_reason(self, tmp_path: Path):
+    async def test_observability_preserves_max_tokens_finish_reason(self, fmea_result: PluginContractResult):
         """State should expose MAX_TOKENS even when the parent reports a normal final answer."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get("obs:child_summary@d1f0", {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get("obs:child_summary@d1f0", {})
         assert summary.get("error") is False, (
             f"Expected truncated child summary to remain non-error, got {summary!r}"
         )
@@ -2032,10 +1968,10 @@ class TestWorkerMaxTokensNaive:
         assert summary.get("raw_output_preview", "").endswith("and"), (
             f"Expected raw_output_preview to retain truncated suffix, got {summary!r}"
         )
-        assert result.final_state.get(LAST_REPL_RESULT, {}).get("trace_summary", {}).get(
+        assert fmea_result.final_state.get(LAST_REPL_RESULT, {}).get("trace_summary", {}).get(
             "failed_llm_calls"
         ) == 0, (
-            f"Expected no failed llm calls for graceful truncation, got {result.final_state.get(LAST_REPL_RESULT)!r}"
+            f"Expected no failed llm calls for graceful truncation, got {fmea_result.final_state.get(LAST_REPL_RESULT)!r}"
         )
 
 
@@ -2056,32 +1992,28 @@ class TestWorkerAuthError401:
 
     FIXTURE = "worker_auth_error_401"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_in_final_answer(self, tmp_path: Path):
+    async def test_error_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER reports authentication error."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "auth" in fa.lower() or "401" in fa or "unauthorized" in fa.lower(), (
             f"Expected auth/401/unauthorized in final_answer: {fa!r}"
         )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify auth error handled in one iteration (no app-level retry)."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_tool_result_shows_error(self, tmp_path: Path):
+    async def test_tool_result_shows_error(self, fmea_result: PluginContractResult):
         """Verify execute_code function_response contains auth error output."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        tool_results = _extract_tool_results(result.events)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        tool_results = _extract_tool_results(fmea_result.events)
         assert len(tool_results) >= 1, "Expected at least one tool result"
         first_stdout = tool_results[0].get("stdout", "")
         assert "auth" in first_stdout.lower() or "error" in first_stdout.lower(), (
@@ -2103,34 +2035,30 @@ class TestStructuredOutputRetryExhaustionPureValidation:
 
     FIXTURE = "structured_output_retry_exhaustion_pure_validation"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_error_in_final_answer(self, tmp_path: Path):
+    async def test_error_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER reports pure validation exhaustion."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "exhausted" in fa.lower() or "validation" in fa.lower(), (
             f"Expected exhaustion/validation keywords in final_answer: {fa!r}"
         )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify pure validation exhaustion handled in one iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_obs_structured_output_failures(self, tmp_path: Path):
+    async def test_obs_structured_output_failures(self, fmea_result: PluginContractResult):
         """Verify OBS_STRUCTURED_OUTPUT_FAILURES counter is set."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        sof = result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        sof = fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
         error_counts = (
-            result.final_state.get(OBS_CHILD_ERROR_COUNTS)
+            fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS)
                    )
         # If the FM-16 detection path is reached, both counters should fire
         if error_counts and "SCHEMA_VALIDATION_EXHAUSTED" in error_counts:
@@ -2138,11 +2066,10 @@ class TestStructuredOutputRetryExhaustionPureValidation:
                 f"Expected OBS_STRUCTURED_OUTPUT_FAILURES >= 1, got {sof}"
             )
 
-    async def test_parent_reasoning_turn_sees_pure_validation_exhaustion(self):
+    async def test_parent_reasoning_turn_sees_pure_validation_exhaustion(self, fmea_result: PluginContractResult):
         """Parent reasoning should receive the exhausted pure-validation response."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -2154,23 +2081,22 @@ class TestStructuredOutputRetryExhaustionPureValidation:
             f"Expected pure-validation exhaustion message in stdout, got {response!r}"
         )
 
-    async def test_observability_records_pure_validation_retries_and_exhaustion(self, tmp_path: Path):
+    async def test_observability_records_pure_validation_retries_and_exhaustion(self, fmea_result: PluginContractResult):
         """State should expose all retry attempts for the pure-validation path."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("set_model_response") == 3, (
             f"Expected three pure-validation attempts in tool summary, got {summary!r}"
         )
-        assert result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
-            f"Expected one structured-output exhaustion, got {result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
+        assert fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
+            f"Expected one structured-output exhaustion, got {fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
         )
-        error_counts = result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
+        error_counts = fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS, {})
         assert error_counts.get("SCHEMA_VALIDATION_EXHAUSTED") == 1, (
             f"Expected SCHEMA_VALIDATION_EXHAUSTED == 1, got {error_counts!r}"
         )
-        assert result.final_state.get(LAST_REPL_RESULT, {}).get("has_errors") is False, (
-            f"Expected parent REPL result to stay handled/clean, got {result.final_state.get(LAST_REPL_RESULT)!r}"
+        assert fmea_result.final_state.get(LAST_REPL_RESULT, {}).get("has_errors") is False, (
+            f"Expected parent REPL result to stay handled/clean, got {fmea_result.final_state.get(LAST_REPL_RESULT)!r}"
         )
 
 
@@ -2189,31 +2115,26 @@ class TestStructuredOutputBatchedK3MultiRetry:
 
     FIXTURE = "structured_output_batched_k3_multi_retry"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract: final_answer, iterations, model_calls."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_all_workers_recovered(self, tmp_path: Path):
+    async def test_all_workers_recovered(self, fmea_result: PluginContractResult):
         """Verify all 3 workers produced results after retries."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "1 positive" in fa, f"Expected '1 positive' in final_answer: {fa!r}"
         assert "1 negative" in fa, f"Expected '1 negative' in final_answer: {fa!r}"
         assert "1 neutral" in fa, f"Expected '1 neutral' in final_answer: {fa!r}"
 
 
-    async def test_bug13_patch_invoked_multiple(self, tmp_path: Path):
+    async def test_bug13_patch_invoked_multiple(self, fmea_result: PluginContractResult):
         """Verify BUG-13 patch was invoked at least twice (once per retry worker)."""
         from rlm_adk.callbacks.worker_retry import _bug13_stats
-        initial_count = _bug13_stats["suppress_count"]
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        invocations = _bug13_stats["suppress_count"] - initial_count
-        assert invocations >= 2, (
-            f"Expected BUG-13 patch to fire >= 2 times (2 retry workers), "
-            f"but suppress_count delta was {invocations}"
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        assert _bug13_stats["suppress_count"] >= 2, (
+            f"Expected BUG-13 patch to have fired >= 2 times (2 retry workers), "
+            f"but suppress_count was {_bug13_stats['suppress_count']}"
         )
 
 
@@ -2232,28 +2153,25 @@ class TestStructuredOutputBatchedK3MixedExhaust:
 
     FIXTURE = "structured_output_batched_k3_mixed_exhaust"
 
-    async def test_contract(self):
+    async def test_contract(self, fmea_result: PluginContractResult):
         """Basic contract: final_answer, iterations, model_calls."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
 
-    async def test_mixed_results_in_final_answer(self, tmp_path: Path):
+    async def test_mixed_results_in_final_answer(self, fmea_result: PluginContractResult):
         """Verify FINAL_ANSWER reports both successes and exhaustion."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        fa = result.final_state.get(FINAL_ANSWER, "")
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        fa = fmea_result.final_state.get(FINAL_ANSWER, "")
         assert "2 succeeded" in fa, f"Expected '2 succeeded' in final_answer: {fa!r}"
         assert "exhausted" in fa.lower(), (
             f"Expected 'exhausted' in final_answer: {fa!r}"
         )
 
 
-    async def test_obs_error_counts_exhaustion(self, tmp_path: Path):
+    async def test_obs_error_counts_exhaustion(self, fmea_result: PluginContractResult):
         """Verify error tracked for the failed worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
         error_counts = (
-            result.final_state.get(OBS_CHILD_ERROR_COUNTS)
+            fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS)
                    )
         if error_counts is not None:
             # Accept SCHEMA_VALIDATION_EXHAUSTED or NO_RESULT (child orchestrator)
@@ -2265,31 +2183,28 @@ class TestStructuredOutputBatchedK3MixedExhaust:
                 f"Expected SCHEMA_VALIDATION_EXHAUSTED or NO_RESULT >= 1, got {error_counts}"
             )
 
-    async def test_obs_structured_output_failures(self, tmp_path: Path):
+    async def test_obs_structured_output_failures(self, fmea_result: PluginContractResult):
         """Verify OBS_STRUCTURED_OUTPUT_FAILURES counter tracks the exhausted worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        sof = result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        sof = fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES, 0)
         error_counts = (
-            result.final_state.get(OBS_CHILD_ERROR_COUNTS)
+            fmea_result.final_state.get(OBS_CHILD_ERROR_COUNTS)
                    )
         if error_counts and "SCHEMA_VALIDATION_EXHAUSTED" in error_counts:
             assert sof >= 1, (
                 f"Expected OBS_STRUCTURED_OUTPUT_FAILURES >= 1, got {sof}"
             )
 
-    async def test_single_iteration(self, tmp_path: Path):
+    async def test_single_iteration(self, fmea_result: PluginContractResult):
         """Verify mixed success/failure handled in one iteration."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        iter_count = result.final_state.get(ITERATION_COUNT)
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        iter_count = fmea_result.final_state.get(ITERATION_COUNT)
         assert iter_count == 1, f"Expected 1 iteration, got {iter_count}"
 
-    async def test_parent_reasoning_turn_sees_partial_batch_failure(self):
+    async def test_parent_reasoning_turn_sees_partial_batch_failure(self, fmea_result: PluginContractResult):
         """Parent reasoning should receive both batch summary and exhaustion signal."""
-        result = await run_fixture_contract(FIXTURE_DIR / f"{self.FIXTURE}.json")
-        assert result.passed, result.diagnostics()
-        responses = _request_function_responses(result.captured_requests[-1])
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        responses = _request_function_responses(fmea_result.contract.captured_requests[-1])
         assert len(responses) == 1, (
             f"Expected one execute_code response in final request, got {responses!r}"
         )
@@ -2305,21 +2220,20 @@ class TestStructuredOutputBatchedK3MixedExhaust:
             f"Expected exhausted worker marker in stdout, got {response!r}"
         )
 
-    async def test_observability_records_batch_retry_attempts_and_exhaustion(self, tmp_path: Path):
+    async def test_observability_records_batch_retry_attempts_and_exhaustion(self, fmea_result: PluginContractResult):
         """State should capture both retry volume and the exhausted worker."""
-        result = await _run_with_plugins(self.FIXTURE, tmp_path)
-        assert result.contract.passed, result.contract.diagnostics()
-        summary = result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
+        assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
+        summary = fmea_result.final_state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
         assert summary.get("set_model_response") == 5, (
             f"Expected five set_model_response calls across the batch, got {summary!r}"
         )
-        assert result.final_state.get(OBS_CHILD_DISPATCH_COUNT) == 3, (
-            f"Expected three child dispatches, got {result.final_state.get(OBS_CHILD_DISPATCH_COUNT)!r}"
+        assert fmea_result.final_state.get(OBS_CHILD_DISPATCH_COUNT) == 3, (
+            f"Expected three child dispatches, got {fmea_result.final_state.get(OBS_CHILD_DISPATCH_COUNT)!r}"
         )
-        assert result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
-            f"Expected one structured-output exhaustion, got {result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
+        assert fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES) == 1, (
+            f"Expected one structured-output exhaustion, got {fmea_result.final_state.get(OBS_STRUCTURED_OUTPUT_FAILURES)!r}"
         )
-        last_repl_result = result.final_state.get(LAST_REPL_RESULT, {})
+        last_repl_result = fmea_result.final_state.get(LAST_REPL_RESULT, {})
         trace_summary = last_repl_result.get("trace_summary", {})
         assert last_repl_result.get("has_errors") is False, (
             f"Expected parent REPL result to stay handled/clean, got {last_repl_result!r}"

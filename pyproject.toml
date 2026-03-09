@@ -31,6 +31,7 @@ dependencies = [
     "repomix>=0.5.0",
     "requests>=2.32.5",
     "rich>=13.0.0",
+    "substack-api>=0.1.0",
 ]
 
 [project.urls]
@@ -87,6 +88,11 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests_rlm_adk"]
 asyncio_mode = "auto"
+addopts = '-m "provider_fake_contract and not agent_challenge"'
 markers = [
     "provider_fake: e2e tests that run against provider-fake replay fixtures (no network)",
+    "provider_fake_contract: default provider-fake fixture-contract suite",
+    "provider_fake_extended: non-default provider-fake coverage beyond the default fixture-contract suite",
+    "agent_challenge: provider-fake tests that depend on fixtures under tests_rlm_adk/fixtures/provider_fake/agent_challenge/",
+    "unit_nondefault: non-default tests excluded from the provider-fake default pytest run",
 ]

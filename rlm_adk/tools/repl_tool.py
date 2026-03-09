@@ -21,12 +21,14 @@ from typing import Any, Callable, Optional
 from google.adk.tools import BaseTool, ToolContext
 from google.genai.types import FunctionDeclaration, Schema, Type
 
+from rlm_adk.artifacts import save_repl_code
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
 from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
     ITERATION_COUNT, LAST_REPL_RESULT, OBS_CHILD_DISPATCH_COUNT,
-    OBS_REWRITE_COUNT, OBS_REWRITE_TOTAL_MS,
+    OBS_REWRITE_COUNT, OBS_REWRITE_FAILURE_CATEGORIES,
+    OBS_REWRITE_FAILURE_COUNT, OBS_REWRITE_TOTAL_MS,
     REPL_SUBMITTED_CODE, REPL_SUBMITTED_CODE_CHARS,
     REPL_SUBMITTED_CODE_HASH, REPL_SUBMITTED_CODE_PREVIEW,
     depth_key,
@@ -70,6 +72,7 @@ class REPLTool(BaseTool):
         self._summarization_threshold = summarization_threshold
         self._rewrite_count = 0
         self._rewrite_total_ms = 0.0
+        self._rewrite_failure_count = 0
 
     def _get_declaration(self) -> FunctionDeclaration:
         return FunctionDeclaration(
@@ -98,6 +101,14 @@ class REPLTool(BaseTool):
         tool_context.state[depth_key(REPL_SUBMITTED_CODE_CHARS, self._depth)] = len(code)
         tool_context.state[depth_key(REPL_SUBMITTED_CODE_HASH, self._depth)] = code_hash
         tool_context.state[depth_key(REPL_SUBMITTED_CODE_PREVIEW, self._depth)] = code[:500]
+
+        # Persist submitted code as a versioned artifact file
+        await save_repl_code(
+            tool_context,
+            iteration=self._call_count + 1,
+            turn=0,
+            code=code,
+        )
 
         self._call_count += 1
         # Track iteration count in session state for observability
@@ -132,17 +143,27 @@ class REPLTool(BaseTool):
         try:
             if has_llm_calls(code):
                 llm_calls_made = True
-                _t0 = time.perf_counter()
-                tree = rewrite_for_async(code)
-                _rewrite_ms = (time.perf_counter() - _t0) * 1000
-                self._rewrite_count += 1
-                self._rewrite_total_ms += _rewrite_ms
-                # Write rewrite instrumentation early -- the count is known
-                # after the AST transform, before execution begins, so it
-                # survives execution errors (CancelledError / Exception).
-                tool_context.state[OBS_REWRITE_COUNT] = self._rewrite_count
-                tool_context.state[OBS_REWRITE_TOTAL_MS] = round(self._rewrite_total_ms, 3)
-                compiled = compile(tree, "<repl>", "exec")
+                try:
+                    _t0 = time.perf_counter()
+                    tree = rewrite_for_async(code)
+                    _rewrite_ms = (time.perf_counter() - _t0) * 1000
+                    self._rewrite_count += 1
+                    self._rewrite_total_ms += _rewrite_ms
+                    # Write rewrite instrumentation early -- the count is known
+                    # after the AST transform, before execution begins, so it
+                    # survives execution errors (CancelledError / Exception).
+                    tool_context.state[OBS_REWRITE_COUNT] = self._rewrite_count
+                    tool_context.state[OBS_REWRITE_TOTAL_MS] = round(self._rewrite_total_ms, 3)
+                    compiled = compile(tree, "<repl>", "exec")
+                except Exception as rewrite_exc:
+                    # Track rewrite failures separately from execution failures
+                    self._rewrite_failure_count += 1
+                    tool_context.state[OBS_REWRITE_FAILURE_COUNT] = self._rewrite_failure_count
+                    categories = tool_context.state.get(OBS_REWRITE_FAILURE_CATEGORIES, {})
+                    err_name = type(rewrite_exc).__name__
+                    categories[err_name] = categories.get(err_name, 0) + 1
+                    tool_context.state[OBS_REWRITE_FAILURE_CATEGORIES] = categories
+                    raise
                 # Merge globals and locals so _repl_exec sees variables from
                 # previous executions (imports, user-defined vars, etc.)
                 ns = {**self.repl.globals, **self.repl.locals}

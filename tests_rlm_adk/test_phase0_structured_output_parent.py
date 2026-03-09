@@ -13,14 +13,20 @@ import textwrap
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 
+import rlm_adk.orchestrator as _orchestrator_module
 from rlm_adk.orchestrator import RLMOrchestratorAgent
 from rlm_adk.types import ReasoningOutput
 
 
 def _get_orchestrator_source() -> str:
-    return textwrap.dedent(
+    impl_source = textwrap.dedent(
         inspect.getsource(RLMOrchestratorAgent._run_async_impl)
     )
+    # Include module-level helpers that were refactored out of _run_async_impl
+    helper_source = textwrap.dedent(
+        inspect.getsource(_orchestrator_module._collect_reasoning_completion)
+    )
+    return impl_source + "\n" + helper_source
 
 
 class TestReasoningAgentHasBothTools:
@@ -145,5 +151,6 @@ class TestOutputKeyDynamic:
 
     def test_source_reads_dynamic_output_key(self):
         source = _get_orchestrator_source()
-        assert "self.reasoning_agent.output_key" in source
+        # output_key is read in the module-level helper _collect_reasoning_completion
+        assert "reasoning_agent.output_key" in source
         assert 'or "reasoning_output"' in source

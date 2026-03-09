@@ -11,14 +11,20 @@ import inspect
 import json
 import textwrap
 
+import rlm_adk.orchestrator as _orchestrator_module
 from rlm_adk.orchestrator import RLMOrchestratorAgent
 
 
 def _get_orchestrator_source() -> str:
-    """Get dedented source of _run_async_impl."""
-    return textwrap.dedent(
+    """Get dedented source of _run_async_impl and module-level helpers."""
+    impl_source = textwrap.dedent(
         inspect.getsource(RLMOrchestratorAgent._run_async_impl)
     )
+    # Include module-level helpers that were refactored out of _run_async_impl
+    helper_source = textwrap.dedent(
+        inspect.getsource(_orchestrator_module._collect_reasoning_completion)
+    )
+    return impl_source + "\n" + helper_source
 
 
 class TestCollapsedOrchestratorStructure:

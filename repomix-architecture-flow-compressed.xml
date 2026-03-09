@@ -74,6 +74,7 @@ Enabled via RLM_REPL_TRACE > 0 env var.
 """
 ⋮----
 logger = logging.getLogger(__name__)
+_DEPTH_SUFFIX_RE = re.compile(r"@d(\d+)$")
 ⋮----
 class REPLTracingPlugin(BasePlugin)
 ⋮----
@@ -81,14 +82,21 @@ class REPLTracingPlugin(BasePlugin)
 ⋮----
 def __init__(self, name: str = "repl_tracing")
 ⋮----
+@staticmethod
+    def _parse_depth(raw_key: str) -> int
+⋮----
+match = _DEPTH_SUFFIX_RE.search(raw_key)
+⋮----
 """Capture LAST_REPL_RESULT events that contain trace data."""
 ⋮----
 sd = getattr(getattr(event, "actions", None), "state_delta", None) or {}
-repl_result = sd.get(LAST_REPL_RESULT)
 ⋮----
 trace_summary = repl_result.get("trace_summary")
 ⋮----
-iteration = sd.get(ITERATION_COUNT, 0)
+depth = self._parse_depth(raw_key)
+iteration_key = ITERATION_COUNT if depth == 0 else f"{ITERATION_COUNT}@d{depth}"
+iteration = sd.get(iteration_key, 0)
+trace_key = f"d{depth}:i{iteration}"
 ⋮----
 """Save accumulated traces as artifact."""
 ⋮----
@@ -238,85 +246,6 @@ new_module = ast.Module(body=[async_func], type_ignores=[])
 # Fix missing line numbers (required for compile())
 </file>
 
-<file path="rlm_adk/tools/repl_tool.py">
-"""REPLTool -- ADK BaseTool wrapping LocalREPL for function-calling execution.
-
-Replaces regex-parsed ```repl code blocks with a proper ADK tool that the
-model calls via function calling. The tool:
-
-- Executes Python code in a persistent LocalREPL environment
-- Detects llm_query calls and routes through the AST rewriter for async execution
-- Enforces a configurable call limit
-- Records execution traces when a trace_holder list is provided
-- Flushes dispatch accumulators into ToolContext.state when a flush_fn is provided
-"""
-⋮----
-_CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
-⋮----
-class REPLTool(BaseTool)
-⋮----
-"""ADK tool that executes Python code in a persistent REPL environment.
-
-    Variables persist between calls. Returns stdout, stderr, and current
-    variable values. Supports both sync code and async code containing
-    llm_query/llm_query_batched calls (auto-detected via AST analysis).
-    """
-⋮----
-def _get_declaration(self) -> FunctionDeclaration
-⋮----
-code = args["code"]
-⋮----
-# Track iteration count in session state for observability
-⋮----
-llm_calls_made = False
-⋮----
-# Create a REPLTrace when trace_holder is provided so dispatch
-# closures and LocalREPL can record timing/LLM-call data.
-trace: REPLTrace | None = None
-⋮----
-trace = REPLTrace()
-# Orchestrator passes [None]; set [0] so dispatch closures see
-# the live trace.  Empty lists (e.g. from tests) get an append.
-⋮----
-llm_calls_made = True
-tree = rewrite_for_async(code)
-compiled = compile(tree, "<repl>", "exec")
-# Merge globals and locals so _repl_exec sees variables from
-# previous executions (imports, user-defined vars, etc.)
-ns = {**self.repl.globals, **self.repl.locals}
-⋮----
-repl_exec_fn = ns["_repl_exec"]
-result = await self.repl.execute_code_async(code, repl_exec_fn, trace=trace)
-⋮----
-result = self.repl.execute_code(code, trace=trace)
-⋮----
-# FM-13 fix: flush accumulators before returning so dispatch
-# counts from this iteration are not lost (accumulator drift).
-total_llm_calls = 0
-⋮----
-acc = self._flush_fn()
-⋮----
-total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
-# Write LAST_REPL_RESULT even on cancellation for observability
-⋮----
-# FM-14 fix: flush accumulators before returning so dispatch
-⋮----
-# Write LAST_REPL_RESULT even on exception for observability
-⋮----
-# Flush dispatch accumulators into tool_context.state
-⋮----
-# Write LAST_REPL_RESULT summary for observability plugins
-last_repl: dict[str, Any] = {
-⋮----
-# Extract JSON-serializable variables from REPL locals.
-# We attempt json.dumps to catch nested non-serializable objects
-# (e.g., a dict containing module references) that would cause ADK's
-# deepcopy to fail with TypeError.
-variables: dict[str, Any] = {}
-⋮----
-pass  # Skip non-serializable values (incl. circular refs)
-</file>
-
 <file path="rlm_adk/callbacks/worker_retry.py">
 """Worker retry plugin for structured output self-healing.
 
@@ -345,6 +274,19 @@ _bug13_stats: dict[str, int] = {"suppress_count": 0}
 # Used as a guard so that retry/reflection logic only fires for structured
 # output validation, not for other tools like execute_code (REPLTool).
 _SET_MODEL_RESPONSE_TOOL_NAME = "set_model_response"
+⋮----
+def _structured_obs(agent: Any) -> dict[str, Any]
+⋮----
+"""Return the mutable structured-output telemetry dict for a child agent."""
+obs = getattr(agent, "_structured_output_obs", None)
+⋮----
+obs = {"attempts": 0, "retry_count": 0, "events": []}
+agent._structured_output_obs = obs  # type: ignore[attr-defined]
+⋮----
+"""Append a structured-output attempt event to the agent-local telemetry."""
+obs = _structured_obs(agent)
+⋮----
+event: dict[str, Any] = {
 ⋮----
 class WorkerRetryPlugin(ReflectAndRetryToolPlugin)
 ⋮----
@@ -386,12 +328,13 @@ plugin = WorkerRetryPlugin(max_retries=max_retries)
         The plugin's ``after_tool_callback`` expects ``tool_args=`` and
         ``result=``, so we translate between the two conventions here.
         """
-# On set_model_response success, store validated dict on the agent
+# Delegate to plugin for extract_error_from_result checks
+result = await plugin.after_tool_callback(
 ⋮----
 agent = tool_context._invocation_context.agent
-agent._structured_result = tool_response  # type: ignore[attr-defined]
+is_reflect_retry_payload = (
 ⋮----
-# Delegate to plugin for extract_error_from_result checks
+agent._structured_result = tool_response  # type: ignore[attr-defined]
 ⋮----
 """On-tool-error callback: delegate to plugin for retry/reflection.
 
@@ -402,6 +345,8 @@ agent._structured_result = tool_response  # type: ignore[attr-defined]
         Note: ADK calls this with ``args=`` (see
         google.adk.flows.llm_flows.functions line 443-447).
         """
+⋮----
+result = await plugin.on_tool_error_callback(
 ⋮----
 # ---------------------------------------------------------------------------
 # BUG-13 workaround: Patch ADK's output-schema postprocessor so that
@@ -438,113 +383,6 @@ parsed = _json.loads(result)
 _retry_aware_get_structured_model_response._rlm_patched = True  # type: ignore[attr-defined]
 ⋮----
 # Apply the patch at import time so it is active before any worker dispatch.
-</file>
-
-<file path="rlm_adk/types.py">
-########################################################
-########   Structured Output Schema for Reasoning  #####
-⋮----
-class ReasoningOutput(BaseModel)
-⋮----
-"""Structured output schema for the reasoning agent's final answer.
-
-    Used as ``output_schema`` on the reasoning ``LlmAgent`` so ADK
-    emits a ``set_model_response`` tool call that the model fills with
-    validated JSON matching this schema.
-    """
-⋮----
-final_answer: str = Field(description="Complete final answer to the query.")
-reasoning_summary: str = Field(
-⋮----
-def _serialize_value(value: Any) -> Any
-⋮----
-"""Convert a value to a JSON-serializable representation."""
-⋮----
-# Try to convert to string for other types
-⋮----
-########    Types for Worker LLM Results       #########
-⋮----
-class LLMResult(str)
-⋮----
-"""String subclass carrying worker call metadata.
-
-    Backward-compatible: passes isinstance(x, str), works in f-strings,
-    concatenation, etc. But REPL code can inspect error state:
-
-        result = llm_query("prompt")
-        if result.error:
-            if result.error_category == "TIMEOUT":
-                raise RuntimeError(f"Worker timed out: {result}")
-            elif result.error_category == "RATE_LIMIT":
-                await asyncio.sleep(5)
-                result = llm_query("prompt")  # retry
-    """
-⋮----
-error: bool = False
-error_category: str | None = None  # TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT, NETWORK, FORMAT, UNKNOWN
-http_status: int | None = None
-finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
-input_tokens: int = 0
-output_tokens: int = 0
-model: str | None = None
-wall_time_ms: float = 0.0
-parsed: dict | None = None  # Validated structured output (set when output_schema used)
-⋮----
-def __new__(cls, text: str, **kwargs: Any) -> "LLMResult"
-⋮----
-instance = super().__new__(cls, text)
-⋮----
-########    Types for LM Cost Tracking         #########
-⋮----
-@dataclass
-class ModelUsageSummary
-⋮----
-total_calls: int
-total_input_tokens: int
-total_output_tokens: int
-⋮----
-def to_dict(self)
-⋮----
-@classmethod
-    def from_dict(cls, data: dict) -> "ModelUsageSummary"
-⋮----
-@dataclass
-class UsageSummary
-⋮----
-model_usage_summaries: dict[str, ModelUsageSummary]
-⋮----
-@classmethod
-    def from_dict(cls, data: dict) -> "UsageSummary"
-⋮----
-########   Types for REPL and RLM Iterations   #########
-⋮----
-@dataclass
-class RLMChatCompletion
-⋮----
-"""Record of a single LLM call made from within the environment."""
-⋮----
-root_model: str
-prompt: str | dict[str, Any]
-response: str
-usage_summary: UsageSummary
-execution_time: float
-⋮----
-@classmethod
-    def from_dict(cls, data: dict) -> "RLMChatCompletion"
-⋮----
-@dataclass
-class REPLResult
-⋮----
-stdout: str
-stderr: str
-locals: dict
-execution_time: float | None
-llm_calls: list["RLMChatCompletion"]
-trace: dict[str, Any] | None
-⋮----
-def __str__(self)
-⋮----
-result = {
 </file>
 
 <file path="rlm_adk/callbacks/worker.py">
@@ -887,6 +725,155 @@ def __exit__(self, exc_type, exc_val, exc_tb)
 def __del__(self)
 </file>
 
+<file path="rlm_adk/types.py">
+########################################################
+########   Structured Output Schema for Reasoning  #####
+⋮----
+class ReasoningOutput(BaseModel)
+⋮----
+"""Structured output schema for the reasoning agent's final answer.
+
+    Used as ``output_schema`` on the reasoning ``LlmAgent`` so ADK
+    emits a ``set_model_response`` tool call that the model fills with
+    validated JSON matching this schema.
+    """
+⋮----
+final_answer: str = Field(description="Complete final answer to the query.")
+reasoning_summary: str = Field(
+⋮----
+class ReasoningObservability(BaseModel)
+⋮----
+"""Persistable reasoning-output observability payload."""
+⋮----
+visible_output_text: str = ""
+thought_text: str = ""
+thoughts_tokens: int = 0
+raw_output: Any = None
+parsed_output: dict[str, Any] | None = None
+final_answer: str = ""
+reasoning_summary: str = ""
+⋮----
+def parse_reasoning_output(raw: Any) -> ReasoningObservability
+⋮----
+"""Normalize a reasoning output_key payload for observability storage."""
+payload = ReasoningObservability(raw_output=raw)
+⋮----
+parsed: dict[str, Any] | None = None
+⋮----
+parsed = dict(raw)
+⋮----
+decoded = json.loads(raw)
+⋮----
+decoded = None
+⋮----
+parsed = decoded
+⋮----
+def _serialize_value(value: Any) -> Any
+⋮----
+"""Convert a value to a JSON-serializable representation."""
+⋮----
+# Try to convert to string for other types
+⋮----
+########    Types for Worker LLM Results       #########
+⋮----
+class LLMResult(str)
+⋮----
+"""String subclass carrying worker call metadata.
+
+    Backward-compatible: passes isinstance(x, str), works in f-strings,
+    concatenation, etc. But REPL code can inspect error state:
+
+        result = llm_query("prompt")
+        if result.error:
+            if result.error_category == "TIMEOUT":
+                raise RuntimeError(f"Worker timed out: {result}")
+            elif result.error_category == "RATE_LIMIT":
+                await asyncio.sleep(5)
+                result = llm_query("prompt")  # retry
+    """
+⋮----
+error: bool = False
+error_category: str | None = None  # TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT, NETWORK, FORMAT, UNKNOWN
+http_status: int | None = None
+finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
+input_tokens: int = 0
+output_tokens: int = 0
+⋮----
+model: str | None = None
+wall_time_ms: float = 0.0
+visible_text: str | None = None
+thought_text: str | None = None
+raw_output: Any | None = None
+parsed: dict | None = None  # Validated structured output (set when output_schema used)
+⋮----
+def __new__(cls, text: str, **kwargs: Any) -> "LLMResult"
+⋮----
+instance = super().__new__(cls, text)
+⋮----
+@property
+    def thought_tokens(self) -> int
+⋮----
+"""Backward-compatible alias for older telemetry code."""
+⋮----
+########    Types for LM Cost Tracking         #########
+⋮----
+@dataclass
+class ModelUsageSummary
+⋮----
+total_calls: int
+total_input_tokens: int
+total_output_tokens: int
+⋮----
+def to_dict(self)
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "ModelUsageSummary"
+⋮----
+@dataclass
+class UsageSummary
+⋮----
+model_usage_summaries: dict[str, ModelUsageSummary]
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "UsageSummary"
+⋮----
+########   Types for REPL and RLM Iterations   #########
+⋮----
+@dataclass
+class RLMChatCompletion
+⋮----
+"""Record of a single LLM call made from within the environment."""
+⋮----
+root_model: str
+prompt: str | dict[str, Any]
+response: str
+usage_summary: UsageSummary
+execution_time: float
+finish_reason: str | None = None
+⋮----
+visible_response: str | None = None
+thought_response: str | None = None
+raw_response: Any | None = None
+parsed_response: dict[str, Any] | None = None
+⋮----
+@classmethod
+    def from_dict(cls, data: dict) -> "RLMChatCompletion"
+⋮----
+@dataclass
+class REPLResult
+⋮----
+stdout: str
+stderr: str
+locals: dict
+execution_time: float | None
+llm_calls: list["RLMChatCompletion"]
+trace: dict[str, Any] | None
+⋮----
+def __str__(self)
+⋮----
+result = {
+</file>
+
 <file path="rlm_adk/callbacks/reasoning.py">
 """Reasoning Agent callbacks.
 
@@ -923,6 +910,24 @@ def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str
     """
 dynamic_text = ""
 ⋮----
+def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]
+⋮----
+"""Split visible output text from hidden thought text."""
+output_parts: list[str] = []
+thought_parts: list[str] = []
+⋮----
+def _reasoning_depth(callback_context: CallbackContext) -> int
+⋮----
+"""Return the current reasoning depth tagged by the orchestrator."""
+agent = getattr(callback_context, "_invocation_context", None)
+agent_obj = getattr(agent, "agent", None) if agent else None
+depth = getattr(agent_obj, "_rlm_depth", 0)
+⋮----
+def _usage_int(usage: Any, attr: str) -> int
+⋮----
+"""Return an integer usage field, guarding against MagicMock values in tests."""
+value = getattr(usage, attr, 0)
+⋮----
 """Merge dynamic instruction into system_instruction.
 
     ADK has already set:
@@ -955,9 +960,7 @@ system_chars = len(system_instruction_text)
 content_count = len(contents)
 ⋮----
 # Read depth tag set by orchestrator (default 0)
-agent = getattr(callback_context, '_invocation_context', None)
-agent_obj = getattr(agent, 'agent', None) if agent else None
-_depth = getattr(agent_obj, '_rlm_depth', 0)
+_depth = _reasoning_depth(callback_context)
 ⋮----
 """Record per-invocation token accounting from usage_metadata.
 
@@ -966,6 +969,13 @@ _depth = getattr(agent_obj, '_rlm_depth', 0)
     """
 # --- Per-invocation token accounting from usage_metadata ---
 usage = llm_response.usage_metadata
+depth = _reasoning_depth(callback_context)
+⋮----
+finish_reason = getattr(getattr(llm_response, "finish_reason", None), "name", None)
+⋮----
+parsed = json.loads(visible_text)
+⋮----
+parsed = None
 ⋮----
 # Return None -- observe only, don't alter the response
 ⋮----
@@ -1020,6 +1030,102 @@ placeholder = "Callback state: \n"
 tool_name = getattr(tool, "name", "unknown")
 ⋮----
 return None  # Proceed with normal tool execution
+</file>
+
+<file path="rlm_adk/tools/repl_tool.py">
+"""REPLTool -- ADK BaseTool wrapping LocalREPL for function-calling execution.
+
+Replaces regex-parsed ```repl code blocks with a proper ADK tool that the
+model calls via function calling. The tool:
+
+- Executes Python code in a persistent LocalREPL environment
+- Detects llm_query calls and routes through the AST rewriter for async execution
+- Enforces a configurable call limit
+- Records execution traces when a trace_holder list is provided
+- Flushes dispatch accumulators into ToolContext.state when a flush_fn is provided
+"""
+⋮----
+_CALL_LIMIT_MSG = "REPL call limit reached. Submit your final answer now."
+⋮----
+class REPLTool(BaseTool)
+⋮----
+"""ADK tool that executes Python code in a persistent REPL environment.
+
+    Variables persist between calls. Returns stdout, stderr, and current
+    variable values. Supports both sync code and async code containing
+    llm_query/llm_query_batched calls (auto-detected via AST analysis).
+    """
+⋮----
+def _get_declaration(self) -> FunctionDeclaration
+⋮----
+code = args["code"]
+⋮----
+# OG-03 fix: persist submitted code for observability
+code_hash = hashlib.sha256(code.encode()).hexdigest()
+⋮----
+# Persist submitted code as a versioned artifact file
+⋮----
+# Track iteration count in session state for observability
+⋮----
+llm_calls_made = False
+⋮----
+# Create a REPLTrace when trace_holder is provided so dispatch
+# closures and LocalREPL can record timing/LLM-call data.
+trace: REPLTrace | None = None
+⋮----
+trace = REPLTrace(
+# Orchestrator passes [None]; set [0] so dispatch closures see
+# the live trace.  Empty lists (e.g. from tests) get an append.
+⋮----
+llm_calls_made = True
+_t0 = time.perf_counter()
+tree = rewrite_for_async(code)
+_rewrite_ms = (time.perf_counter() - _t0) * 1000
+⋮----
+# Write rewrite instrumentation early -- the count is known
+# after the AST transform, before execution begins, so it
+# survives execution errors (CancelledError / Exception).
+⋮----
+compiled = compile(tree, "<repl>", "exec")
+# Merge globals and locals so _repl_exec sees variables from
+# previous executions (imports, user-defined vars, etc.)
+ns = {**self.repl.globals, **self.repl.locals}
+⋮----
+repl_exec_fn = ns["_repl_exec"]
+result = await self.repl.execute_code_async(code, repl_exec_fn, trace=trace)
+⋮----
+result = self.repl.execute_code(code, trace=trace)
+⋮----
+# OG-04 fix: ensure end_time is set so trace summary is non-negative
+⋮----
+# FM-13 fix: flush accumulators before returning so dispatch
+# counts from this iteration are not lost (accumulator drift).
+total_llm_calls = 0
+⋮----
+acc = self._flush_fn()
+⋮----
+total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
+# Write LAST_REPL_RESULT even on cancellation for observability
+⋮----
+# FM-14 fix: flush accumulators before returning so dispatch
+⋮----
+# Write LAST_REPL_RESULT even on exception for observability
+⋮----
+# Flush dispatch accumulators into tool_context.state
+⋮----
+# Write LAST_REPL_RESULT summary for observability plugins
+last_repl: dict[str, Any] = {
+⋮----
+# Skip ADK's post-tool summarization call for large outputs to save tokens
+output_len = len(result.stdout) + len(result.stderr)
+⋮----
+# Extract JSON-serializable variables from REPL locals.
+# We attempt json.dumps to catch nested non-serializable objects
+# (e.g., a dict containing module references) that would cause ADK's
+# deepcopy to fail with TypeError.
+variables: dict[str, Any] = {}
+⋮----
+pass  # Skip non-serializable values (incl. circular refs)
 </file>
 
 <file path="rlm_adk/agent.py">
@@ -1172,8 +1278,8 @@ kwargs: dict[str, Any] = {
 """Build the default plugin list.
 
     ObservabilityPlugin is always included (observe-only, zero overhead on the
-    happy path).  DebugLoggingPlugin is included by default.  Set *debug* to
-    ``False`` **and** leave ``RLM_ADK_DEBUG`` unset to disable it.
+    happy path).  When ``RLM_ADK_DEBUG=1`` is set, verbose mode is enabled
+    on ObservabilityPlugin (prints summary to stdout).
 
     LangfuseTracingPlugin is opt-in (default ``False``).  Enable via
     ``langfuse=True`` or ``RLM_ADK_LANGFUSE=1`` env var.
@@ -1182,14 +1288,15 @@ kwargs: dict[str, Any] = {
     Disable via ``sqlite_tracing=False``.  If the plugin module is not yet
     available (Track B), it is silently skipped.
     """
-plugins: list[BasePlugin] = [ObservabilityPlugin()]
 _debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
-⋮----
+plugins: list[BasePlugin] = [ObservabilityPlugin(verbose=_debug_env)]
 _sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")
 ⋮----
 _langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
 ⋮----
 _repl_trace_env = int(os.getenv("RLM_REPL_TRACE", "0"))
+⋮----
+_cloud_env = os.getenv("RLM_ADK_CLOUD_OBS", "").lower() in ("1", "true", "yes")
 ⋮----
 _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
 ⋮----
@@ -1198,9 +1305,8 @@ _adk_dir = str(_project_root() / ".adk")
 """Create the full RLM ADK App with plugins wired in.
 
     This is the recommended entry point for programmatic usage.  The returned
-    ``App`` carries the ``ObservabilityPlugin`` (always) and the
-    ``DebugLoggingPlugin`` (enabled by default).  Pass *plugins* to override
-    the default plugin list entirely.
+    ``App`` carries the ``ObservabilityPlugin`` (always).  Pass *plugins* to
+    override the default plugin list entirely.
 
     Args:
         model: The LLM model identifier.
@@ -1213,8 +1319,6 @@ _adk_dir = str(_project_root() / ".adk")
         repo_url: Optional repository URL for context.
         plugins: Explicit plugin list.  When ``None`` (default), uses
             :func:`_default_plugins`.
-        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
-            via ``RLM_ADK_DEBUG`` env-var).
         thinking_budget: Token budget for the reasoning agent's built-in
             planner.  Set to ``0`` to disable.
         langfuse: Enable LangfuseTracingPlugin (default ``False``; also
@@ -1230,8 +1334,7 @@ resolved_plugins = plugins if plugins is not None else _default_plugins(
     This is the recommended entry point for programmatic usage.  The returned
     ``Runner`` has:
 
-    - The ``App`` with ``ObservabilityPlugin`` (always) and
-      ``DebugLoggingPlugin`` (enabled by default).
+    - The ``App`` with ``ObservabilityPlugin`` (always).
     - A ``SqliteSessionService`` for persistent state (default), or the
       caller-provided session service.
     - A ``FileArtifactService`` for persistent artifact storage (default),
@@ -1264,8 +1367,6 @@ resolved_plugins = plugins if plugins is not None else _default_plugins(
         repo_url: Optional repository URL for context.
         plugins: Explicit plugin list.  When ``None`` (default), uses
             :func:`_default_plugins`.
-        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
-            via ``RLM_ADK_DEBUG`` env-var).
         thinking_budget: Token budget for the reasoning agent's built-in
             planner.  Set to ``0`` to disable.
         artifact_service: Optional artifact service to use.  When ``None``
@@ -1321,6 +1422,7 @@ logger = logging.getLogger(__name__)
 ⋮----
 # Transient HTTP status codes that warrant a retry.
 _TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+_COMPLIANCE_FINISH_REASONS = frozenset({"SAFETY", "RECITATION"})
 ⋮----
 def is_transient_error(exc: Exception) -> bool
 ⋮----
@@ -1329,6 +1431,40 @@ def is_transient_error(exc: Exception) -> bool
     Recognizes google.genai errors, asyncio timeouts, and network-level
     exceptions as transient.  Generic exceptions are never retried.
     """
+⋮----
+def _serialize_completion_payload(value: Any) -> str
+⋮----
+"""Return a stable string form for structured child results."""
+⋮----
+"""Classify a missing/errored reasoning completion."""
+⋮----
+schema_name = getattr(output_schema, "__name__", "structured output schema")
+⋮----
+"""Normalize the final reasoning payload for dispatch + finalization."""
+output_key = reasoning_agent.output_key or "reasoning_output"
+raw = session_state.get(output_key)
+structured = getattr(reasoning_agent, "_structured_result", None)
+visible_text = session_state.get(depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)) or ""
+thought_text = session_state.get(depth_key(REASONING_THOUGHT_TEXT, depth)) or ""
+finish_reason = session_state.get(depth_key(REASONING_FINISH_REASON, depth))
+⋮----
+payload = parse_reasoning_output(raw)
+source = "output_key"
+⋮----
+payload = parse_reasoning_output(structured)
+source = "structured_result"
+⋮----
+payload = parse_reasoning_output(visible_text)
+source = "visible_output_text"
+⋮----
+parsed_output = payload.parsed_output if isinstance(payload.parsed_output, dict) else None
+result_text = payload.final_answer or _serialize_completion_payload(
+error = False
+error_category = None
+⋮----
+error = True
+⋮----
+completion = {
 ⋮----
 class RLMOrchestratorAgent(BaseAgent)
 ⋮----
@@ -1420,6 +1556,7 @@ initial_prompt = self.root_prompt or "Analyze and answer the query."
 # --- Delegate to reasoning_agent (with retry for transient errors) ---
 max_retries = int(os.getenv("RLM_LLM_MAX_RETRIES", "3"))
 base_delay = float(os.getenv("RLM_LLM_RETRY_DELAY", "5.0"))
+total_retry_delay_ms = 0
 ⋮----
 transient = is_transient_error(exc)
 ⋮----
@@ -1432,40 +1569,25 @@ error_msg = (
 ⋮----
 delay = base_delay * (2 ** attempt)
 ⋮----
+# Persist reasoning retry count if any retries occurred
+⋮----
+retry_state_delta: dict[str, Any] = {
+⋮----
 # --- Extract final_answer from output_key ---
 # ADK's output_key stores the raw text of the final model response.
 # When output_schema is set, it's a JSON dict (ReasoningOutput).
 # When output_schema is NOT set, it's plain text.
-_output_key = self.reasoning_agent.output_key or "reasoning_output"
-raw = ctx.session.state.get(_output_key, "")
-final_answer = ""
+completion = _collect_reasoning_completion(
 ⋮----
-# Already parsed (output_schema was set)
-final_answer = raw.get("final_answer", "")
+final_answer = completion["text"]
 ⋮----
-# Try JSON first (ReasoningOutput format)
-⋮----
-parsed = json.loads(raw)
-⋮----
-final_answer = parsed.get("final_answer", raw)
-⋮----
-final_answer = raw
-⋮----
-# Plain text -- try FINAL() pattern extraction first
-parsed_final = find_final_answer(raw)
-⋮----
-final_answer = parsed_final
-⋮----
-# No FINAL() marker -- use raw text as-is
+reasoning_state_delta: dict[str, Any] = {
 ⋮----
 # Auto-save final answer as artifact
 ⋮----
 # Yield final content event
 ⋮----
-# No final answer extracted -- reasoning agent may not have
-# produced a valid ReasoningOutput
-⋮----
-exhausted_msg = (
+exhausted_msg = final_answer or (
 ⋮----
 # Clean up reasoning_agent wiring
 </file>
@@ -1490,6 +1612,21 @@ State mutation discipline (AR-CRIT-001):
 """
 ⋮----
 logger = logging.getLogger(__name__)
+_CHILD_PREVIEW_LIMIT = 500
+⋮----
+def _truncate_text(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None
+⋮----
+"""Return a bounded text preview for evaluator-facing state."""
+⋮----
+text = value if isinstance(value, str) else str(value)
+⋮----
+def _preview_payload(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None
+⋮----
+"""Return a bounded preview for arbitrary payloads."""
+⋮----
+def _safe_int(value: Any) -> int
+⋮----
+"""Best-effort integer coercion for telemetry fields."""
 ⋮----
 class DispatchConfig
 ⋮----
@@ -1529,36 +1666,142 @@ _acc_child_dispatches = 0
 _acc_child_batch_dispatches = 0
 _acc_child_latencies: list[float] = []
 _acc_child_error_counts: dict[str, int] = {}
+_acc_child_summaries: dict[str, dict] = {}
 _acc_structured_output_failures = 0
+⋮----
+"""Read a child-scoped observability key, preferring child-local deltas."""
+scoped_key = depth_key(key, child_depth)
+⋮----
+"""Append a structured child-call record for REPL observability."""
+⋮----
+model_name = result.model or dispatch_config.other_model
+⋮----
+def _serialize_child_payload(value: Any) -> str
+⋮----
+"""Return a stable text form for child structured results."""
+⋮----
+"""Collect the child's normalized completion payload."""
+agent = getattr(child, "reasoning_agent", None)
+completion = getattr(child, "_rlm_completion", None) or getattr(
+normalized = dict(completion) if isinstance(completion, dict) else {}
+⋮----
+parsed_payload = normalized.get("parsed_output")
+⋮----
+parsed_payload = None
+⋮----
+raw_payload = normalized.get("raw_output")
+text = str(normalized.get("text", "") or "")
+error = bool(normalized.get("error", False))
+error_category = normalized.get("error_category")
+parsed_from_state = _child_obs_value(
+⋮----
+parsed_payload = dict(parsed_from_state)
+raw_from_state = _child_obs_value(
+⋮----
+raw_payload = raw_from_state
+⋮----
+output_key = getattr(agent, "output_key", None) or f"reasoning_output@d{child_depth}"
+raw = child_state.get(output_key, shared_state.get(output_key))
+⋮----
+raw_payload = raw
+⋮----
+parsed_payload = dict(raw)
+text = str(raw.get("final_answer", "") or "") or _serialize_child_payload(raw)
+⋮----
+decoded = json.loads(raw)
+⋮----
+decoded = None
+⋮----
+parsed_payload = decoded
+text = str(decoded.get("final_answer", "") or "") or _serialize_child_payload(decoded)
+⋮----
+text = raw
+⋮----
+text = str(raw)
+⋮----
+structured = getattr(agent, "_structured_result", None)
+⋮----
+parsed_payload = dict(structured)
+raw_payload = structured
+text = str(structured.get("final_answer", "") or "") or _serialize_child_payload(structured)
+⋮----
+error = True
+error_category = error_category or "UNKNOWN"
+⋮----
+def _read(key: str) -> Any
 ⋮----
 """Spawn a child orchestrator for a single sub-query."""
 ⋮----
 target_model = model or dispatch_config.other_model
+⋮----
+result = LLMResult(
+⋮----
 child_start = time.perf_counter()
+elapsed_ms = 0.0
+_child_result: LLMResult | None = None
+_error_message: str | None = None
+_call_logged = False
+completion: dict[str, Any] = {}
+_child_state: dict[str, Any] = {}
+session = getattr(ctx, "session", None)
+shared_state = getattr(session, "state", {})
 ⋮----
 child = create_child_orchestrator(
 ⋮----
-pass  # consume events
+actions = getattr(_event, "actions", None)
+state_delta = getattr(actions, "state_delta", None)
 ⋮----
-# Read result from child's output_key
-_child_output_key = child.reasoning_agent.output_key or f"reasoning_output@d{depth + 1}"
-raw = ctx.session.state.get(_child_output_key, "")
-⋮----
-# Parse the result
-⋮----
-answer = raw.get("final_answer", str(raw))
-⋮----
-parsed = json.loads(raw)
-⋮----
-answer = parsed.get("final_answer", raw)
-⋮----
-answer = raw
-⋮----
-answer = str(raw)
+child_depth = depth + 1
+completion = _read_child_completion(
+answer = completion["text"]
 ⋮----
 elapsed_ms = (time.perf_counter() - child_start) * 1000
 ⋮----
-cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+input_tokens = completion.get("input_tokens") or 0
+output_tokens = completion.get("output_tokens") or 0
+thought_tokens = completion.get("thoughts_tokens") or 0
+finish_reason = completion.get("finish_reason")
+visible_text = completion.get("visible_output_text") or answer
+thought_text = completion.get("thought_text") or ""
+parsed_payload = completion.get("parsed_output")
+raw_payload = completion.get("raw_output")
+is_error = bool(completion.get("error"))
+error_category = completion.get("error_category")
+⋮----
+_child_result = LLMResult(
+_error_message = answer if is_error else None
+⋮----
+error_text = (
+⋮----
+_error_message = error_text
+⋮----
+cat = "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else (
+⋮----
+_error_message = str(e)
+⋮----
+_call_logged = True
+⋮----
+child_reasoning = getattr(child, "reasoning_agent", None)
+structured_obs = getattr(child_reasoning, "_structured_output_obs", {})
+structured_result = getattr(child_reasoning, "_structured_result", None)
+structured_attempts = _safe_int(
+structured_retries = _safe_int(
+structured_events = (
+parsed_output = (
+⋮----
+parsed_output = dict(structured_result)
+validated_structured_result = (
+⋮----
+structured_outcome = "not_applicable"
+⋮----
+structured_outcome = "retry_exhausted"
+⋮----
+structured_outcome = (
+⋮----
+structured_outcome = "incomplete"
+⋮----
+structured_outcome = "missing"
+# Write per-child observability summary
 ⋮----
 # Clean up child's REPL
 ⋮----
@@ -1620,7 +1863,10 @@ def flush_fn() -> dict
 ⋮----
 delta: dict[str, Any] = {
 ⋮----
-# Keep WORKER_DISPATCH_COUNT for backward compat with REPLTool
+# BUG-13 monkey-patch invocation count
+bug13_count = _bug13_stats.get("suppress_count", 0)
+⋮----
+# Merge per-child summaries into delta
 ⋮----
 # Reset accumulators
 </file>

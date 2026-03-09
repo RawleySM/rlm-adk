@@ -1,0 +1,49 @@
+{
+  "session_id": "5e0cdf8f-b5ce-4d28-8b02-782a6a0a5777",
+  "search_timestamp": "2026-03-06T00:00:00Z",
+  "cloud_search_results": {
+    "projects_checked": [
+      "dbxagent-85638",
+      "geminilogs",
+      "gen-lang-client-0730373468",
+      "temporal-unison-jr6hj",
+      "youtubeapa-464313"
+    ],
+    "logging": {
+      "status": "No logs found for session_id or request_id in any project.",
+      "details": "Searched geminilogs, gen-lang-client-0730373468, and others. geminilogs has audit logs from Mar 5 15:30Z showing services being enabled, which is AFTER the session timestamp found in the local database (Mar 5 14:51Z)."
+    },
+    "trace": {
+      "status": "No traces found.",
+      "details": "Searched via gcloud alpha trace and describe for the session ID and its hex representation."
+    },
+    "storage": {
+      "status": "No buckets found.",
+      "details": "List buckets across all projects returned zero buckets."
+    },
+    "vertex_ai": {
+      "status": "No resources found.",
+      "details": "List models, endpoints, and custom-jobs in geminilogs us-central1 returned zero items."
+    },
+    "api_key_association": {
+      "api_key": "AIzaSyCly...NjQ",
+      "project_id": "gen-lang-client-0730373468",
+      "project_name": "Gemini API",
+      "key_display_name": "API key 3",
+      "confirmation": "Confirmed via gcloud services api-keys get-key-string match."
+    },
+    "assets": {
+      "status": "No resources found.",
+      "details": "Global asset search for the session ID across all projects returned zero items."
+    }
+  },
+  "local_telemetry_snapshot": {
+    "source": "rlm_adk/.adk/session.db",
+    "session_id": "5e0cdf8f-b5ce-4d28-8b02-782a6a0a5777",
+    "user_id": "test_user",
+    "app_name": "rlm_adk",
+    "last_update_time": "2026-03-05T14:51:06Z",
+    "request_id": "fe949532-00ce-497c-8cf6-44340b2bca5a",
+    "summary": "Local session exists but no corresponding cloud data was found in the authenticated projects."
+  }
+}

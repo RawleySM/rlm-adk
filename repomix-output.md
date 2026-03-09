@@ -765,6 +765,9 @@ class REPLTrace:
     exceptions: list[dict[str, Any]] = field(default_factory=list)
     data_flow_edges: list[tuple[int, int]] = field(default_factory=list)
     execution_mode: str = &quot;sync&quot;  # &quot;sync&quot; | &quot;async&quot;
+    submitted_code_chars: int = 0
+    submitted_code_hash: str | None = None
+    submitted_code_preview: str = &quot;&quot;
     _call_counter: int = field(default=0, repr=False)
 
     def record_llm_start(self, call_index: int, prompt: str, call_type: str = &quot;single&quot;) -&gt; None:
@@ -824,8 +827,11 @@ class REPLTrace:
     def to_dict(self) -&gt; dict[str, Any]:
         &quot;&quot;&quot;Serialize to a JSON-compatible dict.&quot;&quot;&quot;
         return {
-            &quot;wall_time_ms&quot;: round((self.end_time - self.start_time) * 1000, 2) if self.start_time else 0,
+            &quot;wall_time_ms&quot;: round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
             &quot;execution_mode&quot;: self.execution_mode,
+            &quot;submitted_code_chars&quot;: self.submitted_code_chars,
+            &quot;submitted_code_hash&quot;: self.submitted_code_hash,
+            &quot;submitted_code_preview&quot;: self.submitted_code_preview,
             &quot;llm_calls&quot;: self.llm_calls,
             &quot;var_snapshots&quot;: self.var_snapshots,
             &quot;peak_memory_bytes&quot;: self.peak_memory_bytes,
@@ -836,11 +842,13 @@ class REPLTrace:
     def summary(self) -&gt; dict[str, Any]:
         &quot;&quot;&quot;Compact summary for LAST_REPL_RESULT enrichment.&quot;&quot;&quot;
         return {
-            &quot;wall_time_ms&quot;: round((self.end_time - self.start_time) * 1000, 2) if self.start_time else 0,
+            &quot;wall_time_ms&quot;: round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
             &quot;llm_call_count&quot;: len(self.llm_calls),
             &quot;failed_llm_calls&quot;: sum(1 for c in self.llm_calls if c.get(&quot;error&quot;)),
             &quot;peak_memory_bytes&quot;: self.peak_memory_bytes,
             &quot;data_flow_edges&quot;: len(self.data_flow_edges),
+            &quot;submitted_code_chars&quot;: self.submitted_code_chars,
+            &quot;submitted_code_hash&quot;: self.submitted_code_hash,
         }
 
 
@@ -932,8 +940,8 @@ except Exception:
 </repository_files>
 <statistics>
   <total_files>4</total_files>
-  <total_chars>30522</total_chars>
+  <total_chars>30999</total_chars>
   <total_tokens>0</total_tokens>
-  <generated_at>2026-03-06 10:04:31</generated_at>
+  <generated_at>2026-03-08 05:43:40</generated_at>
 </statistics>
 </repository>

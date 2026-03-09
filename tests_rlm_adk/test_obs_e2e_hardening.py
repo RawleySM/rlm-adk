@@ -430,6 +430,54 @@ class TestObsChildSummaryContract:
                         },
                     },
                 ],
+                "expected_contract": {
+                    "callers": {
+                        "sequence": ["reasoning", "fault", "worker", "reasoning"],
+                        "counts": {"reasoning": 2, "fault": 1, "worker": 1},
+                        "count": 4
+                    },
+                    "captured_requests": {"count": 4},
+                    "events": {
+                        "part_sequence": [
+                            {"kind": "function_call", "name": "execute_code", "role": "model"},
+                            {"kind": "function_response", "name": "execute_code", "role": "user"}
+                        ]
+                    },
+                    "tool_results": {
+                        "count": 1,
+                        "any": [
+                            {
+                                "function_name": "execute_code",
+                                "call_number": 1,
+                                "llm_calls_made": True,
+                                "stderr": "",
+                                "variables": {"result": "Server recovered answer"}
+                            }
+                        ]
+                    },
+                    "observability": {
+                        "obs:tool_invocation_summary": {"execute_code": 1},
+                        "obs:child_summary@d1f0": {
+                            "error": False,
+                            "error_category": None,
+                            "finish_reason": "STOP",
+                            "prompt_preview": "What is the status?",
+                            "result_preview": "Server recovered answer",
+                            "final_answer": "Server recovered answer"
+                        },
+                        "last_repl_result": {
+                            "has_errors": False,
+                            "has_output": True,
+                            "total_llm_calls": 1,
+                            "trace_summary": {
+                                "llm_call_count": 1,
+                                "failed_llm_calls": 0
+                            }
+                        },
+                        "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": True},
+                        "obs:total_calls": {"$gt": 0}
+                    }
+                },
             },
         )
         result = await run_fixture_contract_with_plugins(

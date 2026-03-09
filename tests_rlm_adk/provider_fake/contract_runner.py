@@ -259,7 +259,7 @@ async def run_fixture_contract(
             fixture_path,
             prompt=prompt,
             traces_db_path=str(Path(tmpdir) / "traces.db"),
-            repl_trace_level=2,
+            repl_trace_level=1,
         )
     return plugin_result.contract
 

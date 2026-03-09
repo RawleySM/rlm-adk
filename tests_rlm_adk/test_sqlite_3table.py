@@ -77,9 +77,10 @@ class TestTelemetryColumns:
             "telemetry_id", "trace_id", "event_type", "agent_name",
             "iteration", "depth", "call_number", "start_time", "end_time",
             "duration_ms", "model", "input_tokens", "output_tokens",
-            "finish_reason", "num_contents", "agent_type", "prompt_chars",
-            "system_chars", "tool_name", "tool_args_keys", "result_preview",
-            "repl_has_errors", "repl_has_output", "repl_llm_calls",
+            "thought_tokens", "finish_reason", "num_contents", "agent_type",
+            "prompt_chars", "system_chars", "tool_name", "tool_args_keys",
+            "result_preview", "repl_has_errors", "repl_has_output",
+            "repl_llm_calls", "repl_stdout_len", "repl_stderr_len",
             "repl_trace_summary",
             "status", "error_type", "error_message",
         ]

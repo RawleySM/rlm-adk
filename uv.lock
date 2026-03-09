@@ -3364,6 +3364,7 @@ dependencies = [
     { name = "repomix" },
     { name = "requests" },
     { name = "rich" },
+    { name = "substack-api" },
 ]
 
 [package.optional-dependencies]
@@ -3423,6 +3424,7 @@ requires-dist = [
     { name = "repomix", specifier = ">=0.5.0" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "substack-api", specifier = ">=0.1.0" },
 ]
 provides-extras = ["dashboard", "modal", "e2b", "daytona", "prime"]
 
@@ -3685,6 +3687,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
+]
+
+[[package]]
+name = "substack-api"
+version = "1.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/89/25/9c06fca7583dc47d99c8f36761e5dbf59990f9b6e73934fee7a61702448b/substack_api-1.1.3.tar.gz", hash = "sha256:4eda526ffe7b78f342fb4748623594b1f717553f4ddd78fbc51e5ca74fc37d57", size = 122431, upload-time = "2025-11-03T01:29:39.627Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/27/ce34396a608629b79b5a4d220a787ca567db55cc4ec5dd95a18dabdf5970/substack_api-1.1.3-py3-none-any.whl", hash = "sha256:4ac7725934aa33a182f910a276554cca744f28567ac3ba5d170b0ca6a48361d5", size = 14128, upload-time = "2025-11-03T01:29:38.433Z" },
 ]
 
 [[package]]

@@ -73,12 +73,14 @@ eval/
   __init__.py
   queries.py
   session_fork.py
+  session_report.py
   trace_reader.py
 plugins/
   __init__.py
   cache.py
   context_snapshot.py
-  debug_logging.py
+  google_cloud_analytics.py
+  google_cloud_tracing.py
   langfuse_tracing.py
   migration.py
   observability.py
@@ -91,6 +93,17 @@ repl/
   local_repl.py
   trace.py
 skills/
+  research/
+    sources/
+      substack/
+        __init__.py
+        client.py
+        README.md
+        test_auth.py
+      __init__.py
+      DAG_TEMPLATE.md
+      PROCESS.md
+    __init__.py
   __init__.py
   README.md
   repomix_helpers.py
@@ -182,6 +195,24 @@ def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str
     """
 dynamic_text = ""
 ⋮----
+def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]
+⋮----
+"""Split visible output text from hidden thought text."""
+output_parts: list[str] = []
+thought_parts: list[str] = []
+⋮----
+def _reasoning_depth(callback_context: CallbackContext) -> int
+⋮----
+"""Return the current reasoning depth tagged by the orchestrator."""
+agent = getattr(callback_context, "_invocation_context", None)
+agent_obj = getattr(agent, "agent", None) if agent else None
+depth = getattr(agent_obj, "_rlm_depth", 0)
+⋮----
+def _usage_int(usage: Any, attr: str) -> int
+⋮----
+"""Return an integer usage field, guarding against MagicMock values in tests."""
+value = getattr(usage, attr, 0)
+⋮----
 """Merge dynamic instruction into system_instruction.
 
     ADK has already set:
@@ -214,9 +245,7 @@ system_chars = len(system_instruction_text)
 content_count = len(contents)
 ⋮----
 # Read depth tag set by orchestrator (default 0)
-agent = getattr(callback_context, '_invocation_context', None)
-agent_obj = getattr(agent, 'agent', None) if agent else None
-_depth = getattr(agent_obj, '_rlm_depth', 0)
+_depth = _reasoning_depth(callback_context)
 ⋮----
 """Record per-invocation token accounting from usage_metadata.
 
@@ -225,6 +254,13 @@ _depth = getattr(agent_obj, '_rlm_depth', 0)
     """
 # --- Per-invocation token accounting from usage_metadata ---
 usage = llm_response.usage_metadata
+depth = _reasoning_depth(callback_context)
+⋮----
+finish_reason = getattr(getattr(llm_response, "finish_reason", None), "name", None)
+⋮----
+parsed = json.loads(visible_text)
+⋮----
+parsed = None
 ⋮----
 # Return None -- observe only, don't alter the response
 ⋮----
@@ -310,6 +346,19 @@ _bug13_stats: dict[str, int] = {"suppress_count": 0}
 # output validation, not for other tools like execute_code (REPLTool).
 _SET_MODEL_RESPONSE_TOOL_NAME = "set_model_response"
 ⋮----
+def _structured_obs(agent: Any) -> dict[str, Any]
+⋮----
+"""Return the mutable structured-output telemetry dict for a child agent."""
+obs = getattr(agent, "_structured_output_obs", None)
+⋮----
+obs = {"attempts": 0, "retry_count": 0, "events": []}
+agent._structured_output_obs = obs  # type: ignore[attr-defined]
+⋮----
+"""Append a structured-output attempt event to the agent-local telemetry."""
+obs = _structured_obs(agent)
+⋮----
+event: dict[str, Any] = {
+⋮----
 class WorkerRetryPlugin(ReflectAndRetryToolPlugin)
 ⋮----
 """Extends ReflectAndRetryToolPlugin for set_model_response validation.
@@ -350,12 +399,13 @@ plugin = WorkerRetryPlugin(max_retries=max_retries)
         The plugin's ``after_tool_callback`` expects ``tool_args=`` and
         ``result=``, so we translate between the two conventions here.
         """
-# On set_model_response success, store validated dict on the agent
+# Delegate to plugin for extract_error_from_result checks
+result = await plugin.after_tool_callback(
 ⋮----
 agent = tool_context._invocation_context.agent
-agent._structured_result = tool_response  # type: ignore[attr-defined]
+is_reflect_retry_payload = (
 ⋮----
-# Delegate to plugin for extract_error_from_result checks
+agent._structured_result = tool_response  # type: ignore[attr-defined]
 ⋮----
 """On-tool-error callback: delegate to plugin for retry/reflection.
 
@@ -366,6 +416,8 @@ agent._structured_result = tool_response  # type: ignore[attr-defined]
         Note: ADK calls this with ``args=`` (see
         google.adk.flows.llm_flows.functions line 443-447).
         """
+⋮----
+result = await plugin.on_tool_error_callback(
 ⋮----
 # ---------------------------------------------------------------------------
 # BUG-13 workaround: Patch ADK's output-schema postprocessor so that
@@ -1860,6 +1912,288 @@ last_inv_id = (
 override_event = Event(
 </file>
 
+<file path="eval/session_report.py">
+"""Session Assessment Report - Consolidates session telemetry into machine-readable JSON.
+
+Queries all 4 SQLite tables (traces, telemetry, session_state_events, spans)
+for a given trace_id and produces a structured JSON report designed for
+debugging, performance analysis, documentation, and code review personas.
+
+Usage:
+    python -m rlm_adk.eval.session_report --trace-id <trace_id> --db .adk/traces.db
+"""
+⋮----
+# ---- Value truncation ----
+⋮----
+_MAX_VALUE_LEN = 200
+⋮----
+def _trunc(value: Any, max_len: int = _MAX_VALUE_LEN) -> Any
+⋮----
+"""Truncate string/JSON values to max_len chars for compact output."""
+⋮----
+# ---- Agent name -> depth mapping ----
+⋮----
+_AGENT_DEPTH_RE = re.compile(r'_d(\d+)$')
+⋮----
+def _agent_depth(agent_name: Optional[str]) -> int
+⋮----
+"""Extract depth from agent_name pattern (reasoning_agent=0, child_reasoning_d1=1, etc)."""
+⋮----
+return -1  # unknown
+⋮----
+m = _AGENT_DEPTH_RE.search(agent_name)
+⋮----
+# ---- Percentile helper ----
+⋮----
+def _percentile(sorted_values: list[float], p: float) -> float
+⋮----
+"""Compute percentile from a pre-sorted list. Returns 0 if empty."""
+⋮----
+k = (len(sorted_values) - 1) * (p / 100.0)
+f = math.floor(k)
+c = math.ceil(k)
+⋮----
+# ---- DB query helpers ----
+⋮----
+def _query(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict[str, Any]]
+⋮----
+"""Execute SQL and return list of dicts."""
+⋮----
+cursor = conn.execute(sql, params)
+cols = [d[0] for d in cursor.description]
+⋮----
+def _query_one(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> Optional[dict[str, Any]]
+⋮----
+"""Execute SQL and return first row as dict, or None."""
+rows = _query(conn, sql, params)
+⋮----
+def _parse_json_value(value: Any, default: Any) -> Any
+⋮----
+"""Parse JSON text into a Python value, returning default on failure."""
+⋮----
+def _has_table(conn: sqlite3.Connection, table_name: str) -> bool
+⋮----
+"""Check if a table exists."""
+row = _query_one(
+⋮----
+# ---- Report sections ----
+⋮----
+def _build_overview(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build the overview section from the traces table."""
+trace = _query_one(conn, "SELECT * FROM traces WHERE trace_id = ?", (trace_id,))
+⋮----
+# Compute wall clock from telemetry if traces.end_time is missing
+wall_clock_s = None
+⋮----
+wall_clock_s = round(trace["end_time"] - trace["start_time"], 2)
+⋮----
+# Fallback: span from earliest to latest telemetry timestamp
+bounds = _query_one(
+⋮----
+wall_clock_s = round(bounds["t_max"] - bounds["t_min"], 2)
+⋮----
+# Token totals from telemetry (more reliable than traces table for running traces)
+tok = None
+⋮----
+tok = _query_one(
+⋮----
+# Iteration count from SSE
+iter_row = None
+⋮----
+iter_row = _query_one(
+⋮----
+# Tool call count (guarded)
+tool_count_row = None
+⋮----
+tool_count_row = _query_one(
+⋮----
+def _depth_key(depth: int) -> str
+⋮----
+"""Convert numeric depth to a display key (depth_unknown for -1)."""
+⋮----
+def _build_layer_tree(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build hierarchical layer view grouped by depth."""
+⋮----
+rows = _query(
+⋮----
+layers: dict[int, dict[str, Any]] = {}
+⋮----
+depth = _agent_depth(row["agent_name"])
+⋮----
+layer = layers[depth]
+⋮----
+# Convert sets to lists for JSON serialization
+result = {}
+⋮----
+def _build_performance(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build performance section with per-layer latency stats."""
+⋮----
+# Per-layer model call latency stats
+model_rows = _query(
+⋮----
+layer_durations: dict[int, list[float]] = {}
+⋮----
+latency_by_layer = {}
+⋮----
+vals = sorted(layer_durations[depth])
+⋮----
+# Rate limit impact: error rows with RESOURCE in error_message
+rate_limit = _query_one(
+⋮----
+# REPL execution times
+repl_rows = _query(
+repl_durations = [r["duration_ms"] for r in repl_rows]
+repl_stats = {}
+⋮----
+repl_stats = {
+⋮----
+def _build_errors(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build errors section: telemetry errors + REPL stderr errors."""
+⋮----
+# Telemetry errors grouped by agent and error type
+error_rows = _query(
+⋮----
+telemetry_errors = []
+⋮----
+# REPL errors from result_preview (stderr content)
+repl_error_rows = _query(
+⋮----
+repl_errors = []
+⋮----
+# Error chain: which depths had errors
+error_by_depth = {}
+⋮----
+d = e["depth"]
+⋮----
+def _build_repl_outcomes(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build REPL outcomes section from tool_call telemetry."""
+⋮----
+tool_rows = _query(
+⋮----
+error_patterns: dict[str, int] = {}
+by_depth: dict[int, dict[str, int]] = {}
+reasoning_calls: list[dict[str, Any]] = []
+⋮----
+stats = by_depth[depth]
+⋮----
+# Only include per-call detail for depth-0 (reasoning agent) to keep output compact
+⋮----
+# Extract Python error types from result_preview
+⋮----
+err_type = match.group(1)
+⋮----
+total = sum(s["total"] for s in by_depth.values())
+total_errors = sum(s["errors"] for s in by_depth.values())
+⋮----
+def _build_state_timeline(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build state timeline from session_state_events."""
+sse_rows = _query(
+⋮----
+events = []
+by_category: dict[str, list[dict[str, Any]]] = {}
+⋮----
+# Resolve value
+value: Any = None
+⋮----
+value = row["value_int"]
+⋮----
+value = row["value_float"]
+⋮----
+value = _trunc(row["value_text"])
+⋮----
+value = json.loads(row["value_json"]) if row["value_json"] else None
+⋮----
+value = _trunc(row["value_json"])
+⋮----
+value = bool(row["value_int"])
+⋮----
+value = None
+⋮----
+# Truncate nested values
+⋮----
+s = json.dumps(value)
+⋮----
+value = _trunc(s)
+⋮----
+entry = {
+⋮----
+"""Flatten a persisted obs:child_summary payload for evaluator consumption."""
+structured_output = summary.get("structured_output", {})
+⋮----
+structured_output = {}
+⋮----
+nested_dispatch = summary.get("nested_dispatch", {})
+⋮----
+nested_dispatch = {}
+⋮----
+def _build_child_outcomes(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any]
+⋮----
+"""Build evaluator-facing child summary/error/structured-output outcomes."""
+trace = _query_one(conn, "SELECT * FROM traces WHERE trace_id = ?", (trace_id,)) or {}
+child_error_counts = _parse_json_value(trace.get("child_error_counts"), {})
+⋮----
+child_error_counts = {}
+⋮----
+latest_summaries: dict[tuple[int, int | None], dict[str, Any]] = {}
+⋮----
+summary = None
+⋮----
+summary = _parse_json_value(row["value_json"], None)
+⋮----
+summary = _parse_json_value(row["value_text"], None)
+⋮----
+summaries = sorted(
+⋮----
+structured_output_outcomes: dict[str, int] = {}
+child_error_categories: dict[str, int] = {}
+⋮----
+outcome = summary["structured_output"].get("outcome")
+⋮----
+error_category = summary.get("error_category")
+⋮----
+# ---- Main report builder ----
+⋮----
+def build_session_report(trace_id: str, db_path: str = ".adk/traces.db") -> dict[str, Any]
+⋮----
+"""Build a complete session assessment report for a trace.
+
+    Args:
+        trace_id: The trace identifier to report on.
+        db_path: Path to the SQLite traces database.
+
+    Returns:
+        Structured dict with sections: overview, layer_tree, performance,
+        errors, repl_outcomes, state_timeline.
+
+    Raises:
+        FileNotFoundError: If db_path does not exist.
+        sqlite3.Error: If the database cannot be opened.
+    """
+db_file = Path(db_path)
+⋮----
+conn = sqlite3.connect(str(db_file))
+⋮----
+report: dict[str, Any] = {}
+⋮----
+# ---- CLI ----
+⋮----
+def main() -> None
+⋮----
+parser = argparse.ArgumentParser(
+⋮----
+args = parser.parse_args()
+⋮----
+report = build_session_report(args.trace_id, args.db)
+⋮----
+print()  # trailing newline
+</file>
+
 <file path="eval/trace_reader.py">
 """TraceReader - DuckDB analytical overlay for SQLite session data.
 
@@ -1916,7 +2250,7 @@ def close(self) -> None
 ⋮----
 def __enter__(self) -> "TraceReader"
 ⋮----
-def __exit__(self, *exc) -> None
+def __exit__(self, *_exc: object) -> None
 ⋮----
 def execute(self, sql: str, params: Optional[list] = None) -> list[dict[str, Any]]
 ⋮----
@@ -1930,6 +2264,7 @@ def execute(self, sql: str, params: Optional[list] = None) -> list[dict[str, Any
         Returns:
             List of dicts, one per row, with column names as keys.
         """
+⋮----
 result = self._conn.execute(sql, params or [])
 columns = [desc[0] for desc in result.description]
 ⋮----
@@ -2004,6 +2339,175 @@ sql = f"""
 rows = self.execute(sql, params)
 ⋮----
 pass  # Leave as string if not valid JSON
+⋮----
+# ------------------------------------------------------------------
+# Helper: table existence check (for graceful degradation)
+⋮----
+def _has_table(self, table_name: str) -> bool
+⋮----
+"""Check if a table exists in the attached SQLite schema."""
+⋮----
+rows = self.execute(
+⋮----
+# traces table methods
+⋮----
+"""List traces ordered by start_time DESC.
+
+        Args:
+            limit: Optional maximum number of traces to return.
+            status: Optional status filter ('running', 'completed', etc.).
+
+        Returns:
+            List of trace dicts, or empty list if traces table is absent.
+        """
+⋮----
+conditions: list[str] = []
+params: list[Any] = []
+⋮----
+where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+⋮----
+def get_trace(self, trace_id: str) -> Optional[dict[str, Any]]
+⋮----
+"""Return a single trace dict by trace_id, or None.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Trace dict or None if not found.
+        """
+⋮----
+sql = "SELECT * FROM sdb.traces WHERE trace_id = $1"
+rows = self.execute(sql, [trace_id])
+⋮----
+def get_trace_summary(self, trace_id: str) -> Optional[dict[str, Any]]
+⋮----
+"""Return key metrics for a trace.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Dict with keys: trace_id, status, total_input_tokens,
+            total_output_tokens, total_calls, iterations, duration_s,
+            child_dispatch_count, structured_output_failures.
+            Returns None if trace not found.
+        """
+⋮----
+# telemetry table methods
+⋮----
+"""Return telemetry rows for a trace.
+
+        Args:
+            trace_id: The trace identifier.
+            event_type: Optional filter ('model_call' or 'tool_call').
+
+        Returns:
+            List of telemetry dicts ordered by start_time,
+            or empty list if telemetry table is absent.
+        """
+⋮----
+conditions = ["trace_id = $1"]
+params: list[Any] = [trace_id]
+⋮----
+def get_model_calls(self, trace_id: str) -> list[dict[str, Any]]
+⋮----
+"""Shorthand for get_telemetry filtered to model_call.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            List of model_call telemetry dicts.
+        """
+⋮----
+def get_tool_calls(self, trace_id: str) -> list[dict[str, Any]]
+⋮----
+"""Shorthand for get_telemetry filtered to tool_call.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            List of tool_call telemetry dicts.
+        """
+⋮----
+def get_token_usage(self, trace_id: str) -> dict[str, Any]
+⋮----
+"""Return token usage totals and per-model breakdown from telemetry.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Dict with keys: total_input_tokens, total_output_tokens, per_model.
+            per_model maps model name to {input_tokens, output_tokens, calls}.
+        """
+⋮----
+total_in = 0
+total_out = 0
+per_model: dict[str, dict[str, int]] = {}
+⋮----
+model = row["model"] or "unknown"
+in_tok = row["input_tokens"]
+out_tok = row["output_tokens"]
+⋮----
+def get_iteration_timeline(self, trace_id: str) -> list[dict[str, Any]]
+⋮----
+"""Return per-iteration timing and token counts from telemetry.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            List of dicts per iteration with keys: iteration,
+            total_input_tokens, total_output_tokens, model_calls,
+            tool_calls, total_duration_ms.
+        """
+⋮----
+# session_state_events table methods
+⋮----
+"""Return session state event rows for a trace.
+
+        Args:
+            trace_id: The trace identifier.
+            key_category: Optional filter by key_category.
+            state_key: Optional filter by exact state_key.
+
+        Returns:
+            List of state event dicts ordered by seq,
+            or empty list if session_state_events table is absent.
+        """
+⋮----
+"""Return ordered value changes for a specific state key.
+
+        Args:
+            trace_id: The trace identifier.
+            state_key: The state key to track.
+
+        Returns:
+            List of state event dicts for that key, ordered by seq.
+        """
+⋮----
+def get_error_summary(self, trace_id: str) -> dict[str, Any]
+⋮----
+"""Return error summary from telemetry and state events.
+
+        Args:
+            trace_id: The trace identifier.
+
+        Returns:
+            Dict with keys: telemetry_errors (count), error_types (list),
+            worker_error_counts (dict or None).
+        """
+# Telemetry errors
+telemetry_errors = 0
+error_types: list[str] = []
+⋮----
+# Worker error counts from SSE
+worker_error_counts: Optional[dict] = None
+⋮----
+worker_error_counts = json.loads(rows[0]["value_json"])
 </file>
 
 <file path="plugins/__init__.py">
@@ -2377,160 +2881,75 @@ async def _flush_output_entry(self, entry: dict[str, Any]) -> None
 """Write a model output JSONL line atomically."""
 </file>
 
-<file path="plugins/debug_logging.py">
-"""DebugLoggingPlugin - Development-only detailed tracing.
+<file path="plugins/google_cloud_analytics.py">
+"""GoogleCloudAnalyticsPlugin - Exports session summaries to BigQuery Agent Analytics.
 
-Wraps/extends logging with full interaction traces.
-Development only - not for production.
+This plugin bridges ADK observability (obs: prefixed state keys) to the
+official Google BigQuery Agent Analytics plugin. It ensures session
+summaries are formatted correctly and sent to the cloud upon run completion.
 """
 ⋮----
 logger = logging.getLogger(__name__)
 ⋮----
-class DebugLoggingPlugin(BasePlugin)
+class GoogleCloudAnalyticsPlugin(BasePlugin)
 ⋮----
-"""Full interaction trace logging for development.
+"""Bridge to BigQueryAgentAnalyticsPlugin for cloud telemetry."""
+⋮----
+def _init_bq_plugin(self) -> None
+⋮----
+"""One-time initialization of the official BigQueryAgentAnalyticsPlugin."""
+⋮----
+"""Delegate to BigQueryAgentAnalyticsPlugin to send the final session summary."""
+⋮----
+# BigQueryAgentAnalyticsPlugin typically implements after_run_callback
+# to extract obs: keys from session state and send them.
+⋮----
+@property
+    def enabled(self) -> bool
+</file>
 
-    Records prompts, responses, tool calls, and state snapshots.
-    Writes traces to YAML on after_run_callback.
-    Not for production use.
-    """
+<file path="plugins/google_cloud_tracing.py">
+"""GoogleCloudTracingPlugin - OpenTelemetry tracing to Google Cloud Trace.
+
+This plugin configures the OpenTelemetry SDK to export spans to Google Cloud
+Trace using the CloudTraceSpanExporter. It instruments the Google ADK
+automatically to capture agent calls, tool invocations, and model interactions.
+
+This works alongside local tracing (SqliteTracingPlugin) and Langfuse.
+"""
 ⋮----
-"""Record agent entry with state snapshot."""
+logger = logging.getLogger(__name__)
 ⋮----
-state = callback_context.state
-agent_name = getattr(agent, "name", "unknown")
-iteration = state.get(ITERATION_COUNT, 0)
+_INSTRUMENTED = False
 ⋮----
-entry: dict[str, Any] = {
+def _init_cloud_trace_instrumentation() -> bool
 ⋮----
-"""Record agent exit."""
+"""One-time initialization of Cloud Trace + GoogleADK OTel instrumentation."""
 ⋮----
-iteration = callback_context.state.get(ITERATION_COUNT, 0)
+# Check if project ID is available
+project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 ⋮----
-"""Record model request details."""
+# Ensure a TracerProvider is set. If one already exists (e.g. from Langfuse),
+# we add our exporter to it if possible, otherwise we set a new one.
+provider = trace.get_tracer_provider()
 ⋮----
-model = llm_request.model or "unknown"
+provider = TracerProvider()
 ⋮----
-num_contents = len(llm_request.contents)
+# Add Cloud Trace exporter
+exporter = CloudTraceSpanExporter(project_id=project_id)
 ⋮----
-# Build focused one-line stdout summary with token accounting
-# Detect agent type from state keys set by before_model callbacks
-reasoning_chars = state.get(REASONING_PROMPT_CHARS)
-worker_chars = state.get(WORKER_PROMPT_CHARS)
+# Instrument Google ADK with OpenInference (idempotent)
 ⋮----
-history_msgs = state.get(REASONING_HISTORY_MSG_COUNT, 0)
-sys_chars = state.get(REASONING_SYSTEM_CHARS, 0)
+_INSTRUMENTED = True
 ⋮----
-worker_contents = state.get(WORKER_CONTENT_COUNT, 0)
+class GoogleCloudTracingPlugin(BasePlugin)
 ⋮----
-# Record prompt text
-prompt_parts = []
+"""ADK Plugin that enables Google Cloud Trace OpenTelemetry tracing."""
 ⋮----
-si = getattr(llm_request.config, "system_instruction", None)
+def __init__(self, *, name: str = "google_cloud_tracing")
 ⋮----
-# Capture per-invocation token accounting from state
-context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
-⋮----
-token_accounting = {}
-⋮----
-val = state.get(key)
-⋮----
-"""Record model response details."""
-⋮----
-# Extract token usage from response metadata
-tokens_in = 0
-tokens_out = 0
-⋮----
-tokens_in = getattr(
-tokens_out = getattr(
-⋮----
-# Determine agent type from state keys
-reasoning_in = state.get(REASONING_INPUT_TOKENS)
-worker_in = state.get(WORKER_INPUT_TOKENS)
-⋮----
-agent_label = "reasoning"
-⋮----
-agent_label = "worker"
-⋮----
-agent_label = "unknown"
-⋮----
-# Worker dispatch info
-dispatch_count = state.get(WORKER_DISPATCH_COUNT, 0)
-⋮----
-parts = [
-⋮----
-# Record response text
-⋮----
-response_text = ""
-⋮----
-# Record usage metadata
-⋮----
-# Capture per-agent-type response token breakdowns from
-# llm_response.usage_metadata directly (not from state, which
-# lags by one iteration -- see bug-005).
-⋮----
-response_tokens = {}
-⋮----
-"""Record model error details."""
-⋮----
-"""Record tool invocation."""
-⋮----
-"""Record tool result."""
-⋮----
-"""Record events including artifact deltas."""
-⋮----
-delta_keys = list(event.actions.state_delta.keys())
-⋮----
-# Only print state delta summaries for non-trivial deltas
-⋮----
-# Compact display: show key names without the prefix
-short_keys = [k.split(":")[-1] if ":" in k else k for k in delta_keys]
-⋮----
-# Track artifact deltas
-⋮----
-artifact_delta = event.actions.artifact_delta
-⋮----
-"""Write all traces to YAML file and print run summary."""
-⋮----
-state = invocation_context.session.state
-⋮----
-# --- Print run summary to stdout ---
-total_iters = state.get(ITERATION_COUNT, 0)
-total_in = state.get(OBS_TOTAL_INPUT_TOKENS, 0)
-total_out = state.get(OBS_TOTAL_OUTPUT_TOKENS, 0)
-total_calls = state.get(OBS_TOTAL_CALLS, 0)
-total_time = state.get(OBS_TOTAL_EXECUTION_TIME, 0)
-final_answer = state.get(FINAL_ANSWER, "")
-answer_len = len(final_answer) if final_answer else 0
-⋮----
-summary_parts = [
-⋮----
-# Worker dispatch stats
-total_dispatches = state.get(OBS_WORKER_TOTAL_DISPATCHES, 0)
-⋮----
-latencies = state.get(OBS_WORKER_DISPATCH_LATENCY_MS, [])
-avg_latency = (
-⋮----
-# Artifact stats
-artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
-⋮----
-artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
-⋮----
-state_snapshot = None
-⋮----
-state_snapshot = _safe_state_snapshot(
-⋮----
-output = {
-⋮----
-def _safe_state_snapshot(state: Any) -> dict
-⋮----
-"""Create a JSON-safe snapshot of session state."""
-snapshot = {}
-⋮----
-# state may be a dict-like object
-items = state.items() if hasattr(state, "items") else {}
-⋮----
-# Only include serializable values
+@property
+    def enabled(self) -> bool
 </file>
 
 <file path="plugins/langfuse_tracing.py">
@@ -2761,7 +3180,7 @@ class ObservabilityPlugin(BasePlugin)
     Logging errors are caught and suppressed.
     """
 ⋮----
-def __init__(self, *, name: str = "observability")
+def __init__(self, *, name: str = "observability", verbose: bool = False)
 ⋮----
 """Record agent entry."""
 ⋮----
@@ -2839,8 +3258,6 @@ breakdown_entry: dict[str, Any] = {
 # Include agent-type-specific prompt characterization
 reasoning_prompt_chars = state.get(REASONING_PROMPT_CHARS)
 ⋮----
-worker_prompt_chars = state.get(WORKER_PROMPT_CHARS)
-⋮----
 breakdowns: list = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
 ⋮----
 """Record tool invocation."""
@@ -2876,9 +3293,25 @@ artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
 artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
 child_dispatches = state.get(OBS_CHILD_DISPATCH_COUNT, 0)
 child_errors = state.get(OBS_CHILD_ERROR_COUNTS, {})
+batch_dispatches = state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES, 0)
+latencies = state.get(OBS_CHILD_DISPATCH_LATENCY_MS, [])
+final_answer = state.get(FINAL_ANSWER, "")
+answer_len = len(final_answer) if final_answer else 0
+⋮----
+# Extract total_llm_calls from LAST_REPL_RESULT if present
+repl_result = state.get(LAST_REPL_RESULT)
+total_llm_calls = None
+⋮----
+total_llm_calls = repl_result.get("total_llm_calls")
 ⋮----
 log_msg = (
-log_args = [
+log_args: list = [
+⋮----
+lat_min = min(latencies)
+lat_max = max(latencies)
+lat_mean = sum(latencies) / len(latencies)
+⋮----
+# Verbose mode: also print to stdout (replaces DebugLoggingPlugin)
 </file>
 
 <file path="plugins/policy.py">
@@ -2952,6 +3385,7 @@ Enabled via RLM_REPL_TRACE > 0 env var.
 """
 ⋮----
 logger = logging.getLogger(__name__)
+_DEPTH_SUFFIX_RE = re.compile(r"@d(\d+)$")
 ⋮----
 class REPLTracingPlugin(BasePlugin)
 ⋮----
@@ -2959,14 +3393,21 @@ class REPLTracingPlugin(BasePlugin)
 ⋮----
 def __init__(self, name: str = "repl_tracing")
 ⋮----
+@staticmethod
+    def _parse_depth(raw_key: str) -> int
+⋮----
+match = _DEPTH_SUFFIX_RE.search(raw_key)
+⋮----
 """Capture LAST_REPL_RESULT events that contain trace data."""
 ⋮----
 sd = getattr(getattr(event, "actions", None), "state_delta", None) or {}
-repl_result = sd.get(LAST_REPL_RESULT)
 ⋮----
 trace_summary = repl_result.get("trace_summary")
 ⋮----
-iteration = sd.get(ITERATION_COUNT, 0)
+depth = self._parse_depth(raw_key)
+iteration_key = ITERATION_COUNT if depth == 0 else f"{ITERATION_COUNT}@d{depth}"
+iteration = sd.get(iteration_key, 0)
+trace_key = f"d{depth}:i{iteration}"
 ⋮----
 """Save accumulated traces as artifact."""
 ⋮----
@@ -2977,25 +3418,65 @@ artifact = types.Part.from_bytes(
 </file>
 
 <file path="plugins/sqlite_tracing.py">
-"""SqliteTracingPlugin - Local SQLite-based span tracing.
+"""SqliteTracingPlugin - Local SQLite-based telemetry.
 
-Captures span-like telemetry from ADK callbacks into a local traces.db file.
-Provides a lightweight alternative to Langfuse for local development and
-evaluation agent queries.
+Captures structured telemetry from ADK callbacks into a local traces.db file
+using a 3-table schema: traces (enriched), telemetry, session_state_events.
 
 No external dependencies beyond the Python standard library (sqlite3).
 """
 ⋮----
 logger = logging.getLogger(__name__)
 ⋮----
+# ---- Depth/fanout key parser ----
+⋮----
+_DEPTH_FANOUT_RE = re.compile(r'^(.+)@d(\d+)(?:f(\d+))?$')
+⋮----
+def _parse_key(raw_key: str) -> tuple[str, int, int | None]
+⋮----
+"""Parse depth/fanout suffix from a state key.
+
+    Returns (base_key, depth, fanout_or_None).
+    """
+m = _DEPTH_FANOUT_RE.match(raw_key)
+⋮----
+# ---- Key categorization ----
+⋮----
+def _categorize_key(key: str) -> str
+⋮----
+"""Categorize a state key for the session_state_events table."""
+⋮----
+# ---- Curated capture set ----
+⋮----
+_CURATED_PREFIXES = (
+⋮----
+_CURATED_EXACT = {
+⋮----
+def _should_capture(base_key: str) -> bool
+⋮----
+"""Return True if this key should be captured in session_state_events."""
+⋮----
+# ---- Value typing helper ----
+⋮----
+def _typed_value(value: Any) -> tuple[str, int | None, float | None, str | None, str | None]
+⋮----
+"""Return (value_type, value_int, value_float, value_text, value_json)."""
+⋮----
+# ---- Schema SQL ----
+⋮----
 _SCHEMA_SQL = """
 ⋮----
 class SqliteTracingPlugin(BasePlugin)
 ⋮----
-"""ADK Plugin that writes span-like telemetry to a local SQLite database.
+"""ADK Plugin that writes structured telemetry to a local SQLite database.
 
-    Each invocation (runner.run_async call) creates one trace row.
-    Each callback event (before/after model, tool, agent) creates one span row.
+    Uses a 3-table schema:
+    - traces: One row per invocation, enriched with OBS keys at run end.
+    - telemetry: One row per model call or tool invocation (structured columns).
+    - session_state_events: One row per curated state key change from events.
+
+    The legacy ``spans`` table is retained for backward compatibility but
+    no longer receives new writes.
 
     The plugin is observe-only: all callbacks return None and never block
     execution. Database write errors are caught and logged as warnings.
@@ -3006,93 +3487,209 @@ class SqliteTracingPlugin(BasePlugin)
             Created if it does not exist. Parent directories are created.
     """
 ⋮----
-# Stack of active span IDs for parent tracking.
-# before_agent pushes, after_agent pops.
+# Pending telemetry: callback/tool context id -> (telemetry_id, start_time)
 ⋮----
-# Map of model key -> span_id for pairing before_model -> after_model spans.
+# Monotonic counter for session_state_events per trace
 ⋮----
-# Map of tool_name -> span_id for pairing before_tool -> after_tool spans.
+# Legacy: kept for backward compat in agent span tracking
 ⋮----
 def _init_db(self) -> None
 ⋮----
 """Initialize the database connection and create tables."""
 ⋮----
-def _new_span_id(self) -> str
+# Try full schema creation (works for fresh DBs).
+# On existing DBs, CREATE TABLE IF NOT EXISTS is a no-op for
+# tables that already exist, but CREATE INDEX may fail if
+# referenced columns are missing. We catch and continue.
 ⋮----
-"""Generate a new unique span ID."""
+# Always run migration to add missing columns to existing tables.
 ⋮----
-def _current_parent_span_id(self) -> Optional[str]
+# Re-run CREATE INDEX statements after migration has added columns.
 ⋮----
-"""Return the span_id of the most recent unfinished agent span."""
+def _migrate_schema(self) -> None
 ⋮----
-"""Insert a span row into the database."""
+"""Add missing columns to existing tables.
+
+        CREATE TABLE IF NOT EXISTS is a no-op for tables that already exist
+        but have fewer columns than the current schema. This method inspects
+        existing columns via PRAGMA table_info and adds any missing ones.
+        """
 ⋮----
-"""Update a span row with end_time and optional attributes."""
+# Expected columns per table: (column_name, column_def)
+_EXPECTED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+⋮----
+existing = {
+⋮----
+def _new_id(self) -> str
+⋮----
+"""Generate a new unique ID."""
+⋮----
+@staticmethod
+    def _pending_key(obj: Any) -> int
+⋮----
+"""Return a stable in-process key for pairing before/after callbacks."""
+⋮----
+@staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int
+⋮----
+"""Best-effort integer coercion for callback payloads and mocks."""
+⋮----
+"""Select the best-matching last_repl_result payload from tool state."""
+⋮----
+exact_match: dict[str, Any] | None = None
+fallback: dict[str, Any] | None = None
+⋮----
+exact_match = value
+⋮----
+fallback = value
+⋮----
+# ---- Telemetry write helpers ----
+⋮----
+"""Insert a telemetry row."""
+⋮----
+cols = ["telemetry_id", "trace_id", "event_type", "start_time"]
+vals: list[Any] = [telemetry_id, self._trace_id, event_type, start_time]
+⋮----
+placeholders = ", ".join("?" for _ in cols)
+col_str = ", ".join(cols)
+⋮----
+def _update_telemetry(self, telemetry_id: str, **kwargs: Any) -> None
+⋮----
+"""Update a telemetry row with additional fields."""
+⋮----
+set_clauses = ", ".join(f"{col} = ?" for col in kwargs)
+vals = list(kwargs.values()) + [telemetry_id]
+⋮----
+# ---- Session state events write helper ----
+⋮----
+"""Insert a session_state_events row for a curated key."""
+⋮----
+category = _categorize_key(base_key)
 ⋮----
 # ---- Lifecycle callbacks ----
 ⋮----
 """Create a new trace row for this invocation."""
 ⋮----
-"""Finalize the trace row with summary stats."""
-⋮----
+# Build config snapshot from state and env vars
 state = invocation_context.session.state
+config: dict[str, Any] = {}
+⋮----
+val = os.environ.get(env_key)
+⋮----
+"""Finalize the trace row with summary stats and enriched columns."""
+⋮----
 final_answer = state.get(FINAL_ANSWER, "")
+⋮----
+# Aggregate model usage from obs:model_usage:* keys
+model_usage: dict[str, Any] = {}
+⋮----
+model_name = k[len("obs:model_usage:"):]
+⋮----
+root_prompt = state.get("root_prompt", "")
+⋮----
+# Compute prompt hash
+prompt_hash = None
+⋮----
+prompt_hash = hashlib.sha256(root_prompt.encode()).hexdigest()
+⋮----
+# Compute max depth reached from telemetry agent_name patterns
+max_depth_reached = 0
+depth_re = re.compile(r'_d(\d+)')
+rows = self._conn.execute(
+⋮----
+m = depth_re.search(agent_name)
+⋮----
+d = int(m.group(1))
+⋮----
+max_depth_reached = d
 ⋮----
 # ---- Agent callbacks ----
 ⋮----
-"""Create an agent span and push it onto the parent stack."""
+"""Track agent name for parent context (no span write)."""
 ⋮----
 agent_name = getattr(agent, "name", "unknown")
-span_id = self._new_span_id()
 ⋮----
-"""Close the most recent agent span by setting its end_time."""
-⋮----
-span_id = self._agent_span_stack.pop()
+"""Pop agent from context stack."""
 ⋮----
 # ---- Model callbacks ----
 ⋮----
-"""Create a model_call span and store its ID for pairing with after_model."""
+"""Insert a telemetry row for model_call and store ID for pairing."""
 ⋮----
 model = llm_request.model or "unknown"
 num_contents = len(llm_request.contents) if llm_request.contents else 0
+iteration = callback_context.state.get(ITERATION_COUNT, 0)
+agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
 ⋮----
-# Store span_id to pair with after_model
+# Extract agent_type, prompt_chars, system_chars from context snapshot
+context_snapshot = callback_context.state.get(CONTEXT_WINDOW_SNAPSHOT)
+agent_type = None
+prompt_chars = None
+system_chars = None
 ⋮----
-"""Close the model_call span with token usage and end_time."""
+agent_type = context_snapshot.get("agent_type")
+prompt_chars = context_snapshot.get("prompt_chars")
+system_chars = context_snapshot.get("system_chars")
 ⋮----
-model = llm_response.model_version or "unknown"
-span_id = self._pending_model_spans.pop(model, None)
-# Also try popping with "unknown" if model_version not set
+call_number = callback_context.state.get(OBS_TOTAL_CALLS)
 ⋮----
-span_id = self._pending_model_spans.pop("unknown", None)
-# Fallback: pop any remaining span
+telemetry_id = self._new_id()
+start_time = time.time()
+⋮----
+"""Update telemetry row with tokens, finish_reason, duration."""
+⋮----
+pending = self._pending_model_telemetry.pop(
 ⋮----
 tokens_in = 0
 tokens_out = 0
+thought_tokens = 0
 ⋮----
-tokens_in = getattr(llm_response.usage_metadata, "prompt_token_count", 0) or 0
-tokens_out = getattr(llm_response.usage_metadata, "candidates_token_count", 0) or 0
+tokens_in = self._coerce_int(
+tokens_out = self._coerce_int(
+thought_tokens = self._coerce_int(
 ⋮----
-attributes = {
+finish_reason = None
 ⋮----
-# No matching before_model span -- write a standalone span
-standalone_id = self._new_span_id()
+finish_reason = llm_response.finish_reason.name if hasattr(llm_response.finish_reason, "name") else str(llm_response.finish_reason)
 ⋮----
-"""Mark the pending model span as an error."""
+end_time = time.time()
+⋮----
+duration_ms = (end_time - start_time) * 1000
+update_kwargs: dict[str, Any] = {
+⋮----
+# Standalone telemetry row
+standalone_id = self._new_id()
+⋮----
+"""Mark the pending model telemetry row as an error."""
 ⋮----
 # ---- Tool callbacks ----
 ⋮----
-"""Create a tool_call span and store its ID for pairing with after_tool."""
+"""Insert a telemetry row for tool_call."""
 ⋮----
 tool_name = getattr(tool, "name", str(tool))
 ⋮----
-"""Close the tool_call span with result preview and end_time."""
+"""Update the tool telemetry row with result preview and duration."""
 ⋮----
-span_id = self._pending_tool_spans.pop(tool_name, None)
+pending = self._pending_tool_telemetry.pop(
+⋮----
+# REPL enrichment
+⋮----
+state = getattr(tool_context, "state", None)
+repl_state = self._resolve_repl_state(
+stdout = result.get("stdout")
+stderr = result.get("stderr")
+⋮----
+trace_summary = repl_state.get("trace_summary")
 ⋮----
 # ---- Event callback ----
 ⋮----
-"""Capture artifact delta events as artifact_save spans."""
+"""Capture curated state_delta keys as session_state_events rows."""
+⋮----
+now = time.time()
+author = event.author
+⋮----
+# Capture curated state_delta keys
+⋮----
+# Keep artifact_delta tracking (backward compat via SSE)
 ⋮----
 # ---- Cleanup ----
 ⋮----
@@ -3472,6 +4069,9 @@ peak_memory_bytes: int = 0
 exceptions: list[dict[str, Any]] = field(default_factory=list)
 data_flow_edges: list[tuple[int, int]] = field(default_factory=list)
 execution_mode: str = "sync"  # "sync" | "async"
+submitted_code_chars: int = 0
+submitted_code_hash: str | None = None
+submitted_code_preview: str = ""
 _call_counter: int = field(default=0, repr=False)
 ⋮----
 def record_llm_start(self, call_index: int, prompt: str, call_type: str = "single") -> None
@@ -3537,6 +4137,1455 @@ TRACE_HEADER_MEMORY = '''\
 TRACE_FOOTER = '''\
 ⋮----
 TRACE_FOOTER_MEMORY = '''\
+</file>
+
+<file path="skills/research/sources/substack/__init__.py">
+
+</file>
+
+<file path="skills/research/sources/substack/client.py">
+"""Substack client with lazy cookie extraction and self-healing auth.
+
+Cookie extraction pipeline:
+  1. Try browser-cookie3 to read Chrome's cookie DB
+  2. On failure, pip-upgrade browser-cookie3 and retry once
+  3. On second failure, fall back to public-only API (no paywalled content)
+"""
+⋮----
+log = logging.getLogger(__name__)
+⋮----
+_COOKIE_NAMES = ("substack.sid", "substack.lli")
+_COOKIE_CACHE_PATH = Path.home() / ".config" / "substack" / "cookies.json"
+⋮----
+def _extract_cookies_from_chrome() -> list[dict[str, Any]] | None
+⋮----
+"""Extract Substack cookies from Chrome's local cookie store."""
+⋮----
+cj = browser_cookie3.chrome(domain_name=".substack.com")
+cookies = []
+⋮----
+def _upgrade_browser_cookie3() -> bool
+⋮----
+"""Pip-upgrade browser-cookie3 in the current venv. Returns True on success."""
+⋮----
+result = subprocess.run(
+⋮----
+# Force reimport of the upgraded module
+⋮----
+def _extract_with_retry() -> list[dict[str, Any]] | None
+⋮----
+"""Try cookie extraction, upgrade browser-cookie3 on failure, retry once."""
+cookies = _extract_cookies_from_chrome()
+⋮----
+def _save_cookie_cache(cookies: list[dict[str, Any]]) -> None
+⋮----
+def _load_cookie_cache() -> list[dict[str, Any]] | None
+⋮----
+cookies = json.loads(_COOKIE_CACHE_PATH.read_text())
+⋮----
+class SubstackClient
+⋮----
+"""Substack client with lazy auth and graceful degradation.
+
+    Auth is resolved on first use, not at construction time.
+    Paywalled content requires Chrome to be available for cookie extraction.
+    Public content (posts, metadata, subscriptions) works without auth.
+    """
+⋮----
+def __init__(self, username: str) -> None
+⋮----
+def _resolve_auth(self) -> SubstackAuth | None
+⋮----
+"""Lazy auth: extract cookies on first access, cache for process lifetime."""
+⋮----
+# Try fresh extraction from Chrome
+cookies = _extract_with_retry()
+⋮----
+# Fall back to cached cookies
+cached = _load_cookie_cache()
+⋮----
+@property
+    def authenticated(self) -> bool
+⋮----
+def get_user(self) -> User
+⋮----
+def get_subscriptions(self) -> list[dict[str, Any]]
+⋮----
+"""Get subscriptions. Uses authenticated endpoint when available.
+
+        The public profile API hides some paid subscriptions.
+        The authenticated /api/v1/subscriptions endpoint returns the full list.
+        """
+auth = self._resolve_auth()
+⋮----
+resp = auth.get("https://substack.com/api/v1/subscriptions")
+⋮----
+data = resp.json()
+pubs = {p["id"]: p for p in data.get("publications", [])}
+results = []
+⋮----
+pub = pubs.get(s.get("publication_id"), {})
+domain = (
+⋮----
+# Fallback to public API (incomplete for paid subs)
+⋮----
+def get_newsletter(self, url: str) -> Newsletter
+⋮----
+def get_post(self, url: str) -> Post
+⋮----
+def get_post_content(self, post_url: str) -> str
+⋮----
+"""Fetch full HTML content of a post. Auth enables paywalled access."""
+content = self.get_post(post_url).get_content()
+⋮----
+def get_post_metadata(self, post_url: str) -> dict[str, Any]
+⋮----
+def get_recent_posts(self, newsletter_url: str, limit: int = 10) -> list[Post]
+</file>
+
+<file path="skills/research/sources/substack/README.md">
+# Substack API
+
+An unofficial Python client library for interacting with Substack newsletters and content.
+
+## Overview
+
+This library provides Python interfaces for interacting with Substack's unofficial API, allowing you to:
+
+- Retrieve newsletter posts, podcasts, and recommendations
+- Get user profile information and subscriptions
+- Fetch post content and metadata
+- Search for posts within newsletters
+- Access paywalled content **that you have written or paid for** with user-provided authentication
+
+## Installation
+
+```bash
+# Using pip
+pip install substack-api
+
+# Using poetry
+poetry add substack-api
+```
+
+## Usage Examples
+
+### Working with Newsletters
+
+```python
+from substack_api import Newsletter
+
+# Initialize a newsletter by its URL
+newsletter = Newsletter("https://example.substack.com")
+
+# Get recent posts (returns Post objects)
+recent_posts = newsletter.get_posts(limit=5)
+
+# Get posts sorted by popularity
+top_posts = newsletter.get_posts(sorting="top", limit=10)
+
+# Search for posts
+search_results = newsletter.search_posts("machine learning", limit=3)
+
+# Get podcast episodes
+podcasts = newsletter.get_podcasts(limit=5)
+
+# Get recommended newsletters
+recommendations = newsletter.get_recommendations()
+
+# Get newsletter authors
+authors = newsletter.get_authors()
+```
+
+### Working with Posts
+
+```python
+from substack_api import Post
+
+# Initialize a post by its URL
+post = Post("https://example.substack.com/p/post-slug")
+
+# Get post metadata
+metadata = post.get_metadata()
+
+# Get the post's HTML content
+content = post.get_content()
+```
+
+### Accessing Paywalled Content with Authentication
+
+To access paywalled content, you need to provide your own session cookies from a logged-in Substack session:
+
+```python
+from substack_api import Newsletter, Post, SubstackAuth
+
+# Set up authentication with your cookies
+auth = SubstackAuth(cookies_path="path/to/your/cookies.json")
+
+# Use authentication with newsletters
+newsletter = Newsletter("https://example.substack.com", auth=auth)
+posts = newsletter.get_posts(limit=5)  # Can now access paywalled posts
+
+# Use authentication with individual posts
+post = Post("https://example.substack.com/p/paywalled-post", auth=auth)
+content = post.get_content()  # Can now access paywalled content
+
+# Check if a post is paywalled
+if post.is_paywalled():
+    print("This post requires a subscription")
+```
+
+#### Getting Your Cookies
+
+To access paywalled content, you need to export your browser cookies from a logged-in Substack session. The cookies should be in JSON format with the following structure:
+
+```json
+[
+  {
+    "name": "substack.sid",
+    "value": "your_session_id",
+    "domain": ".substack.com",
+    "path": "/",
+    "secure": true
+  },
+  {
+    "name": "substack.lli",
+    "value": "your_lli_value",
+    "domain": ".substack.com",
+    "path": "/",
+    "secure": true
+  },
+  ...
+]
+```
+
+**Important**: Only use your own cookies from your own authenticated session. **This feature is intended for users to access their own subscribed or authored content programmatically.**
+
+### Working with Users
+
+```python
+from substack_api import User
+
+# Initialize a user by their username
+user = User("username")
+
+# Get user profile information
+profile_data = user.get_raw_data()
+
+# Get user ID and name
+user_id = user.id
+name = user.name
+
+# Get user's subscriptions
+subscriptions = user.get_subscriptions()
+```
+
+#### Handling Renamed Accounts
+
+Substack allows users to change their handle (username) at any time. When this happens, the old API endpoints return 404 errors. This library automatically handles these redirects by default.
+
+##### Automatic Redirect Handling
+
+```python
+from substack_api import User
+
+# This will automatically follow redirects if the handle has changed
+user = User("oldhandle")  # Will find the user even if they renamed to "newhandle"
+
+# Check if a redirect occurred
+if user.was_redirected:
+    print(f"User was renamed from {user.original_username} to {user.username}")
+```
+
+##### Disable Redirect Following
+
+If you prefer to handle 404s yourself:
+
+```python
+# Disable automatic redirect following
+user = User("oldhandle", follow_redirects=False)
+```
+
+##### Manual Handle Resolution
+
+You can also manually resolve handle redirects:
+
+```python
+from substack_api import resolve_handle_redirect
+
+new_handle = resolve_handle_redirect("oldhandle")
+if new_handle:
+    print(f"Handle was renamed to: {new_handle}")
+```
+
+### Discovery: Categories and Thought-Leader Rankings
+
+Substack organizes newsletters into 31 categories with ranked leaderboards.
+
+```python
+from substack_api import list_all_categories, Category
+
+# List all 31 categories
+categories = list_all_categories()
+# Returns: [('Culture', 96), ('Technology', 4), ('Business', 62), ...]
+
+# Get ranked newsletters in a category (up to 525+ per category)
+tech = Category(name="Technology")
+
+# Full metadata: name, subscriber counts, ranking details
+metadata = tech.get_newsletter_metadata()
+# [{'name': 'ByteByteGo', 'rankingDetail': 'Tens of thousands of paid subscribers', ...}, ...]
+
+# Just URLs
+urls = tech.get_newsletter_urls()
+
+# Newsletter objects ready to query
+newsletters = tech.get_newsletters()
+```
+
+Available categories: Culture, Technology, Business, U.S. Politics, Finance,
+Food & Drink, Podcasts, Sports, Art & Illustration, World Politics,
+Health Politics, News, Fashion & Beauty, Music, Faith & Spirituality,
+Climate & Environment, Science, Literature, Fiction, Health & Wellness,
+Design, Travel, Parenting, Philosophy, Comics, International, Crypto,
+History, Humor, Education, Film & TV.
+
+### Discovery: Global Publication Search (requires auth)
+
+Cross-newsletter keyword search. Requires authenticated session cookies
+(returns empty results without auth).
+
+```python
+from substack_api import SubstackAuth
+
+auth = SubstackAuth(cookies_path="~/.config/substack/cookies.json")
+resp = auth.get(
+    "https://substack.com/api/v1/publication/search",
+    params={"query": "artificial intelligence", "page": 0, "limit": 100, "sort": "relevance"},
+)
+results = resp.json()  # List of publications with metadata
+```
+
+### Discovery: Trending Posts
+
+Currently viral posts across Substack, filterable by category. No auth required.
+
+```python
+import requests
+
+# Trending in Technology (category_id=4)
+resp = requests.get(
+    "https://substack.com/api/v1/trending",
+    params={"limit": 50, "category_id": 4},
+    headers={"User-Agent": "Mozilla/5.0"},
+)
+data = resp.json()
+# data["posts"] — full post objects with reactions, restacks, comment_count
+# data["publications"] — publisher metadata incl. author_bestseller_tier
+```
+
+### Discovery: Recommendation Graph
+
+Each newsletter recommends related publications. Walk the graph to discover
+thought-leaders starting from newsletters you already follow.
+
+```python
+from substack_api import Newsletter
+
+# Get recommendations from a known newsletter
+nl = Newsletter("https://www.latent.space")
+recs = nl.get_recommendations()
+# Returns list of Newsletter objects — each can be queried for their own recs
+
+# Depth-2 graph walk
+for rec in recs[:5]:
+    deeper = rec.get_recommendations()
+    # ...discover newsletters 2 hops away
+```
+
+### RLM SubstackClient (local wrapper)
+
+`client.py` wraps `substack_api` with self-healing cookie auth and the
+authenticated subscriptions endpoint.
+
+```python
+from rlm_adk.skills.research.sources.substack.client import SubstackClient
+
+client = SubstackClient("rawleystanhope")
+
+# Subscriptions (uses authenticated endpoint — returns ALL subs including hidden paid)
+subs = client.get_subscriptions()
+# Public API hides some paid subs; authenticated endpoint returns the full list
+
+# Paywalled content (cookies extracted automatically from Chrome)
+posts = client.get_recent_posts("https://www.racket.news", limit=3)
+content = client.get_post_content("https://www.racket.news/p/some-article")
+
+# Auth pipeline: Chrome cookies → pip-upgrade retry → cached cookies → public fallback
+print(client.authenticated)  # True if cookies available
+```
+
+**Cookie extraction pipeline:**
+1. Extract fresh cookies from Chrome's local DB via `browser-cookie3`
+2. On failure, `pip install --upgrade browser-cookie3` and retry once
+3. Fall back to cached cookies at `~/.config/substack/cookies.json`
+4. Fall back to public API only (no paywalled content)
+
+### Authenticated vs Public API
+
+| Feature | Public API | Authenticated API |
+|---------|-----------|-------------------|
+| Free subscriptions | Yes | Yes |
+| **All** paid subscriptions | Partial (some hidden) | Yes |
+| Free post content | Yes | Yes |
+| Paywalled post content | No | Yes |
+| Endpoint | `/api/v1/user/{name}/public_profile` | `/api/v1/subscriptions` |
+
+## Full API Endpoint Reference
+
+### Public (no auth required)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/categories` | All 31 categories with subcategories |
+| `GET /api/v1/category/public/{id}/{sort}?page=N` | Ranked newsletters per category (see sorts below) |
+| `GET /api/v1/trending?limit=N&offset=N&category_id=N` | **Trending posts** with engagement metrics |
+| `GET {nl_url}/api/v1/archive?sort=new&search={q}&offset=N&limit=N` | Search posts within one newsletter |
+| `GET {nl_url}/api/v1/archive?sort=top&offset=N&limit=N` | Top posts by engagement |
+| `GET {nl_url}/api/v1/recommendations/from/{pub_id}` | Outbound recommendations |
+| `GET {nl_url}/api/v1/publication/users/ranked?public=true` | Authors/writers ranked |
+| `GET {nl_url}/api/v1/posts/{slug}` | Post metadata + engagement stats |
+| `GET /api/v1/user/{handle}/public_profile` | Profile, leaderboard status, bestseller tier |
+
+**Category sort variants** (`/api/v1/category/public/{id}/{sort}?page=N`):
+
+| Sort | Ranking by |
+|------|-----------|
+| `paid` | Paid subscriber count (strongest thought-leader signal) |
+| `bestsellers` | Overall popularity |
+| `trending` | Recent momentum |
+| `top` / `popular` / `all` | Overall popularity (similar results) |
+| `free` | Free subscriber count |
+| `new` | Recently launched |
+| `featured` | Substack editorial picks |
+
+Each response includes `rankingDetail` (e.g., "Tens of thousands of paid subscribers")
+and `rankingDetailFreeSubscriberCount` (e.g., "Over 1,100,000 subscribers").
+
+**Trending endpoint** (`/api/v1/trending`) returns:
+- `posts[]` — full post objects with `reactions`, `restacks`, `comment_count`
+- `publications[]` — publisher metadata incl. `author_bestseller_tier`
+- `trendingPosts[]` — lightweight references with `primary_category`, `tag_id`
+- Filterable by `category_id` (e.g., `4` = Technology)
+
+**Technology subcategories** (from `/api/v1/categories`):
+AI (76964), Cybersecurity (76965), Emerging Tech (76966), Gadgets (76967),
+Digital Media (76968), Programming (76969), Software (76970).
+
+### Authenticated (requires cookies)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/subscriptions` | **Full** subscription list (incl. hidden paid subs) |
+| `GET /api/v1/publication/search?query=X&page=0&limit=100&sort=relevance` | **Global publication search** (empty without auth) |
+| `GET /api/v1/reader/feed/profile/{user_id}?types[]=like` | User's liked posts |
+| `GET /api/v1/reader/feed/profile/{user_id}` | User's restacks |
+| `GET /api/v1/reader/posts` | Reader post feed |
+| `GET /api/v1/feed` | Main feed |
+| `GET /api/v1/notes` (cursor pagination) | Notes feed |
+
+### Not available via API
+
+- Cross-newsletter post search (search only works within one newsletter)
+- Leaderboard Rising vs Bestseller as separate endpoints (use `paid` vs `trending` sorts instead)
+- Exact subscriber counts (only tier brackets like "Tens of thousands")
+- Notes search/trending
+
+## Thought-Leader Discovery Pipeline
+
+Four-layer strategy for topic-driven discovery:
+
+**Layer 1 — Category Seeding** (broad, structured)
+- Map topic to relevant categories from the 31 available
+- Use `paid` sort for thought-leader signal, `trending` for momentum
+- Paginate `/category/public/{id}/paid?page=N` for ranked newsletters
+- `rankingDetail` gives subscriber tier brackets
+
+**Layer 2 — Trending Posts** (real-time signal)
+- `GET /api/v1/trending?limit=50&category_id={id}` for currently viral posts
+- Extract authors and publications from trending results
+- Engagement metrics (reactions, restacks, comments) identify high-impact writers
+- Repeat periodically to track who consistently trends
+
+**Layer 3 — Publication Search** (targeted, keyword-driven, requires auth)
+- `GET /api/v1/publication/search?query={topic}&limit=100&sort=relevance`
+- Run multiple queries per topic (synonyms, subtopics)
+- Catches niche publishers missed by category rankings
+- Note: returns empty results without authentication
+
+**Layer 4 — Recommendation Graph Walk** (organic, community-driven)
+- Take top 10-20 newsletters from Layers 1-3 as seeds
+- BFS to depth 2 via `get_recommendations()`
+- Dedup by URL; expect 200-400 unique publications from 5 seeds
+- Rate limit: 2s between requests, ~30-60 min for depth-2 crawl
+
+**Scoring candidates** (per-newsletter):
+- Subscriber tier from `rankingDetail` / `rankingDetailFreeSubscriberCount`
+- Bestseller tier from author profile
+- Recommendation in-degree (how many others recommend them)
+- Post engagement (reactions, restacks, comments from trending + archive)
+- Category sort position across `paid`, `trending`, `bestsellers`
+
+## Limitations
+
+- This is an unofficial library and not endorsed by Substack
+- APIs may change without notice, potentially breaking functionality
+- Rate limiting may be enforced by Substack
+- **Authentication requires users to provide their own session cookies**
+- **Users are responsible for complying with Substack's terms of service when using authentication features**
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+</file>
+
+<file path="skills/research/sources/substack/test_auth.py">
+#!/usr/bin/env python3
+"""Test script: authenticate and print subscriptions, then fetch a paywalled post.
+
+Usage:
+    python test_auth.py [username]
+
+    # Default username from env
+    SUBSTACK_USERNAME=rawleystanhope python test_auth.py
+"""
+⋮----
+def main() -> None
+⋮----
+username = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("SUBSTACK_USERNAME")
+⋮----
+client = SubstackClient(username)
+user = client.get_user()
+⋮----
+subscriptions = client.get_subscriptions()
+⋮----
+paid = [s for s in subscriptions if s.get("membership_state") == "subscribed"]
+free = [s for s in subscriptions if s.get("membership_state") != "subscribed"]
+⋮----
+# Test paywalled content if authenticated
+⋮----
+newsletter_url = f"https://{paid[0]['domain']}"
+posts = client.get_recent_posts(newsletter_url, limit=1)
+⋮----
+meta = posts[0].get_metadata()
+content = posts[0].get_content()
+</file>
+
+<file path="skills/research/sources/__init__.py">
+
+</file>
+
+<file path="skills/research/sources/DAG_TEMPLATE.md">
+# Source Integration DAG Template
+
+A parameterized directed acyclic graph for building research integrations against any rich data source. Designed to be followed by an autonomous workflow agent.
+
+---
+
+## DAG Specification
+
+```yaml
+dag:
+  name: "source_integration_pipeline"
+  version: "1.0"
+  description: >
+    End-to-end pipeline for discovering, evaluating, authenticating,
+    wrapping, and documenting a new data source integration.
+
+parameters:
+  source_name: "string — e.g., substack, medium, arxiv, hackernews"
+  language: "python | typescript | go"
+  auth_method: "cookie | api_key | oauth | none"
+  project_root: "absolute path to project root"
+  package_path: "relative path for source package, e.g., skills/research/sources"
+  package_manager: "uv | pip | npm | pnpm"
+  browser: "chrome | firefox | edge  # only relevant if auth_method=cookie"
+  discovery_topics: "list of topic strings to seed discovery research"
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 1: SOURCE DISCOVERY
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: search_tool_registries
+    name: "Search curated tool registries"
+    phase: discovery
+    depends_on: []
+    parallel_with: [search_github]
+    inputs: [source_name, language]
+    outputs: [registry_candidates]
+    tools: ["npx skills find", "npx skillfish search"]
+    decision_point: false
+    retry:
+      on_failure: search_github  # registries are often empty; not blocking
+      max_attempts: 1
+    description: >
+      Search skills.sh and skillfish registries for a pre-built integration.
+      These are fast checks (seconds) that occasionally surface curated tools.
+      Empty results are expected and non-blocking.
+
+  - id: search_github
+    name: "Search GitHub for libraries"
+    phase: discovery
+    depends_on: []
+    parallel_with: [search_tool_registries]
+    inputs: [source_name, language]
+    outputs: [github_candidates]
+    tools: [WebSearch]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 2
+    description: >
+      Broad GitHub search: '"<source> API" OR "<source> scraper" language:<lang> stars:>10'.
+      Categorize results into scraper/downloader/API-wrapper/SDK.
+      Record: repo URL, stars, last commit, language, install method, license.
+      Target: 8-15 candidates.
+
+  - id: evaluate_candidates
+    name: "Deep-evaluate top candidates"
+    phase: discovery
+    depends_on: [search_tool_registries, search_github]
+    inputs: [registry_candidates, github_candidates]
+    outputs: [evaluation_matrix]
+    tools: [WebFetch, "mcp__deepwiki__read_wiki_structure"]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Select top 2-3 candidates by stars and relevance. For each:
+      - Fetch README directly (DeepWiki may not have indexed smaller repos)
+      - Assess: API surface, auth support, maintenance, test coverage, types
+      - Build comparison matrix: [name, stars, last_commit, api_coverage, auth, install]
+
+  - id: select_library
+    name: "Select library or decide to build from scratch"
+    phase: discovery
+    depends_on: [evaluate_candidates]
+    inputs: [evaluation_matrix]
+    outputs: [chosen_library, capability_inventory, known_gaps]
+    tools: []
+    decision_point: true
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      DECISION: Pick the best library based on:
+        1. Language fit (must match project language)
+        2. API coverage (>60% of desired features)
+        3. Maintenance (commit in last 6 months)
+        4. Install simplicity (pip/npm > git clone)
+      If no library scores above threshold: plan to build thin HTTP client
+      from scratch against the source's REST/GraphQL API.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 2: INTEGRATION SETUP
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: add_dependency
+    name: "Add dependency to project manifest"
+    phase: setup
+    depends_on: [select_library]
+    inputs: [chosen_library, project_root, package_manager]
+    outputs: [updated_manifest]
+    tools: [Edit, Bash]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 2
+    description: >
+      Add the chosen library to pyproject.toml / package.json.
+      Run '<package_manager> sync' or equivalent to install.
+      Verify import succeeds in a quick test.
+
+  - id: create_package_structure
+    name: "Create source package directory"
+    phase: setup
+    depends_on: [add_dependency]
+    inputs: [project_root, package_path, source_name]
+    outputs: [source_directory]
+    tools: [Bash, Write]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Create: <project_root>/<package_path>/<source_name>/
+      Create __init__.py at each new directory level.
+      Copy upstream README into the source directory for reference.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 3: AUTHENTICATION ENGINEERING
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: write_initial_test
+    name: "Write initial test script"
+    phase: auth
+    depends_on: [create_package_structure]
+    inputs: [chosen_library, source_directory]
+    outputs: [test_script, api_surface_notes]
+    tools: [Write, Bash]
+    decision_point: false
+    retry:
+      on_failure: inspect_library_source
+      max_attempts: 2
+    description: >
+      Write a minimal test script that imports the library and calls
+      its basic public API. Expect failures — README examples often
+      have incorrect signatures. Record actual error messages.
+
+  - id: inspect_library_source
+    name: "Inspect actual library API surface"
+    phase: auth
+    depends_on: [write_initial_test]
+    inputs: [chosen_library]
+    outputs: [real_api_signatures]
+    tools: [Bash]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Use 'inspect.getsource()' or read installed library files to
+      discover actual class/function signatures. Fix test script to
+      match real API surface, not documented one.
+
+  # --- Auth branch: cookie-based ---
+
+  - id: extract_browser_cookies
+    name: "Extract cookies from browser DB"
+    phase: auth
+    depends_on: [inspect_library_source]
+    inputs: [browser, source_name]
+    outputs: [cookies_json]
+    tools: [Bash]
+    decision_point: false
+    condition: "auth_method == 'cookie'"
+    retry:
+      on_failure: upgrade_cookie_extractor
+      max_attempts: 1
+    description: >
+      Use browser-cookie3 (Python) or equivalent to read cookies
+      from the browser's encrypted SQLite database.
+      Target cookies: session ID, auth tokens specific to the source.
+      DO NOT attempt: browser automation, JS document.cookie (httpOnly blocked),
+      manual Chrome cookie decryption (encryption varies by version/OS).
+
+  - id: upgrade_cookie_extractor
+    name: "Upgrade cookie extraction library and retry"
+    phase: auth
+    depends_on: [extract_browser_cookies]
+    inputs: [package_manager]
+    outputs: [cookies_json]
+    tools: [Bash]
+    decision_point: false
+    condition: "auth_method == 'cookie' AND extract_browser_cookies.failed"
+    retry:
+      on_failure: fallback_to_public
+      max_attempts: 1
+    description: >
+      pip install --upgrade browser-cookie3 (or equivalent).
+      Force reimport (clear sys.modules cache). Retry extraction.
+      If still fails, fall through to public-only fallback.
+
+  - id: cache_cookies
+    name: "Cache extracted cookies to disk"
+    phase: auth
+    depends_on: [extract_browser_cookies]
+    inputs: [cookies_json, source_name]
+    outputs: [cookie_cache_path]
+    tools: [Write]
+    decision_point: false
+    condition: "auth_method == 'cookie' AND extract_browser_cookies.succeeded"
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Save cookies to ~/.config/<source_name>/cookies.json.
+      This serves as fallback if live extraction fails in future runs.
+
+  # --- Auth branch: API key ---
+
+  - id: configure_api_key
+    name: "Configure API key from env/config"
+    phase: auth
+    depends_on: [inspect_library_source]
+    inputs: [source_name]
+    outputs: [api_key_location]
+    tools: [Bash]
+    decision_point: false
+    condition: "auth_method == 'api_key'"
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Read API key from environment variable (<SOURCE_NAME>_API_KEY)
+      or config file (~/.config/<source_name>/api_key).
+      Validate key with a lightweight authenticated API call.
+
+  # --- Auth branch: OAuth ---
+
+  - id: implement_oauth_flow
+    name: "Implement OAuth token flow"
+    phase: auth
+    depends_on: [inspect_library_source]
+    inputs: [source_name, chosen_library]
+    outputs: [oauth_tokens, refresh_logic]
+    tools: [Write, Bash]
+    decision_point: false
+    condition: "auth_method == 'oauth'"
+    retry:
+      on_failure: fallback_to_public
+      max_attempts: 2
+    description: >
+      Implement OAuth authorization code or client credentials flow.
+      Store refresh token to ~/.config/<source_name>/oauth.json.
+      Implement automatic token refresh on 401 responses.
+
+  # --- Auth convergence ---
+
+  - id: fallback_to_public
+    name: "Degrade to public-only API"
+    phase: auth
+    depends_on: []
+    inputs: [source_name]
+    outputs: [public_only_flag]
+    tools: []
+    decision_point: true
+    condition: "all auth branches failed"
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      DECISION: Accept public-only API access. Document which features
+      are unavailable. The client wrapper must handle this gracefully
+      (no crashes on missing auth, just reduced functionality).
+
+  - id: verify_auth
+    name: "Verify authentication works end-to-end"
+    phase: auth
+    depends_on: [cache_cookies, configure_api_key, implement_oauth_flow, fallback_to_public]
+    inputs: [test_script]
+    outputs: [auth_verified, public_vs_auth_diff]
+    tools: [Bash]
+    decision_point: false
+    retry:
+      on_failure: fallback_to_public
+      max_attempts: 1
+    description: >
+      Run test script with auth. Compare authenticated response to
+      public response. Record the delta (what auth unlocks).
+      Note: depends_on includes all auth branches but only the
+      relevant branch will have executed (conditional edges).
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 4: SELF-HEALING CLIENT WRAPPER
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: build_client
+    name: "Build client wrapper with self-healing auth"
+    phase: client
+    depends_on: [verify_auth]
+    inputs: [chosen_library, auth_method, source_directory, public_vs_auth_diff]
+    outputs: [client_module]
+    tools: [Write]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Create client.py with:
+      - Lazy auth resolution (not at construction time)
+      - Process-lifetime session caching
+      - Self-healing pipeline: primary auth -> retry/upgrade -> cache -> public fallback
+      - High-level methods that hide auth plumbing
+      - Type hints on all public methods
+
+  - id: test_client
+    name: "Test client against real data"
+    phase: client
+    depends_on: [build_client]
+    inputs: [client_module]
+    outputs: [client_test_results]
+    tools: [Bash]
+    decision_point: false
+    retry:
+      on_failure: build_client
+      max_attempts: 3
+    description: >
+      Exercise every public method on the client.
+      Verify: auth works, public fallback works, error handling works.
+      Compare results to what user sees in the source's UI.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 5: API GAP DISCOVERY
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: compare_api_to_ui
+    name: "Compare API results to UI (find hidden data)"
+    phase: gaps
+    depends_on: [test_client]
+    inputs: [client_module, source_name]
+    outputs: [gap_report]
+    tools: [Bash, "mcp__snap-happy__TakeScreenshot"]
+    decision_point: true
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      DECISION POINT: Compare API output to what the user sees in their
+      browser. Identify data that the UI shows but the API hides.
+      Example: Substack's public API hid 8/94 subscriptions (paid subs).
+      Take screenshots of UI for comparison evidence.
+      If gaps found: proceed to find_authenticated_endpoints.
+      If no gaps: skip to discovery_research.
+
+  - id: find_authenticated_endpoints
+    name: "Probe for authenticated endpoints that fill gaps"
+    phase: gaps
+    depends_on: [compare_api_to_ui]
+    inputs: [gap_report, source_name]
+    outputs: [new_endpoints, updated_client]
+    tools: [Bash]
+    decision_point: false
+    condition: "compare_api_to_ui.gaps_found"
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Probe common REST patterns for authenticated equivalents:
+        /api/v1/<resource> (public) vs /api/v1/me/<resource> (auth)
+        /api/v1/<resource> with vs without cookies
+      Update client.py to prefer authenticated endpoints where they
+      return more complete data.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 6: DISCOVERY RESEARCH (PARALLEL)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: research_discovery_strategies
+    name: "Research discovery/exploration strategies"
+    phase: discovery_research
+    depends_on: [find_authenticated_endpoints]
+    parallel_with: [probe_api_endpoints]
+    inputs: [source_name, discovery_topics]
+    outputs: [strategy_report]
+    tools: [WebSearch, WebFetch]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Research how others discover content/creators on this source:
+      - Blog posts, community guides, documentation
+      - Recommendation systems, trending feeds, category taxonomies
+      - Third-party tools that augment discovery
+      - Graph-based exploration (who recommends whom)
+      Output: ranked list of discovery strategies with feasibility notes.
+
+  - id: probe_api_endpoints
+    name: "Brute-force probe API endpoints"
+    phase: discovery_research
+    depends_on: [find_authenticated_endpoints]
+    parallel_with: [research_discovery_strategies]
+    inputs: [source_name, auth_method]
+    outputs: [endpoint_catalog]
+    tools: [Bash]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Systematically probe common API patterns:
+        /api/v1/trending, /api/v1/categories, /api/v1/search,
+        /api/v1/feed, /api/v1/recommendations, /api/v1/popular
+      For each endpoint: test with and without auth, record response
+      shape, pagination method, rate limits, query parameters.
+      Output: full endpoint catalog with auth requirements.
+
+  - id: merge_discovery_findings
+    name: "Merge parallel research into discovery pipeline"
+    phase: discovery_research
+    depends_on: [research_discovery_strategies, probe_api_endpoints]
+    inputs: [strategy_report, endpoint_catalog]
+    outputs: [discovery_pipeline, scoring_criteria]
+    tools: []
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 1
+    description: >
+      Cross-reference strategies with discovered endpoints.
+      Design multi-layer discovery pipeline:
+        Layer 1: Structured seeding (categories, rankings)
+        Layer 2: Real-time signals (trending, recent)
+        Layer 3: Targeted search (keyword-driven, may require auth)
+        Layer 4: Graph walk (recommendations, citations, links)
+      Define scoring criteria for ranking discovered entities.
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHASE 7: DOCUMENTATION
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: write_readme
+    name: "Write comprehensive README"
+    phase: documentation
+    depends_on: [merge_discovery_findings]
+    inputs: [client_module, endpoint_catalog, discovery_pipeline, scoring_criteria]
+    outputs: [readme]
+    tools: [Write]
+    decision_point: false
+    retry:
+      on_failure: null
+      max_attempts: 2
+    description: >
+      Create README.md in the source directory covering:
+      - Usage examples for every public client method
+      - Auth setup instructions (specific to auth_method)
+      - Full API endpoint reference (public vs authenticated table)
+      - Discovery pipeline strategy
+      - Limitations and caveats
+      - Comparison tables (public vs auth features)
+
+  - id: validate_documentation
+    name: "Cross-check docs against actual behavior"
+    phase: documentation
+    depends_on: [write_readme]
+    inputs: [readme, client_module]
+    outputs: [validated_readme]
+    tools: [Bash, Read]
+    decision_point: false
+    retry:
+      on_failure: write_readme
+      max_attempts: 2
+    description: >
+      Run every code example in the README. Fix any that fail.
+      Verify endpoint reference matches actual probe results.
+      Ensure auth instructions work from a clean state.
+```
+
+---
+
+## Mermaid Diagram
+
+```mermaid
+graph TD
+    %% Phase 1: Discovery
+    subgraph "Phase 1: Source Discovery"
+        A1[search_tool_registries] --> A3[evaluate_candidates]
+        A2[search_github] --> A3
+        A3 --> A4{select_library}
+    end
+
+    %% Phase 2: Setup
+    subgraph "Phase 2: Integration Setup"
+        A4 --> B1[add_dependency]
+        B1 --> B2[create_package_structure]
+    end
+
+    %% Phase 3: Auth
+    subgraph "Phase 3: Authentication"
+        B2 --> C1[write_initial_test]
+        C1 -->|"API mismatch"| C2[inspect_library_source]
+        C2 --> C3_COOKIE[extract_browser_cookies]
+        C2 --> C3_KEY[configure_api_key]
+        C2 --> C3_OAUTH[implement_oauth_flow]
+
+        C3_COOKIE -->|"fail"| C3B[upgrade_cookie_extractor]
+        C3B -->|"fail"| C_FALLBACK[fallback_to_public]
+        C3_COOKIE -->|"success"| C4[cache_cookies]
+        C3B -->|"success"| C4
+
+        C3_KEY --> C5[verify_auth]
+        C3_OAUTH -->|"fail"| C_FALLBACK
+        C3_OAUTH -->|"success"| C5
+        C4 --> C5
+        C_FALLBACK --> C5
+    end
+
+    %% Phase 4: Client
+    subgraph "Phase 4: Client Wrapper"
+        C5 --> D1[build_client]
+        D1 --> D2[test_client]
+        D2 -->|"fail"| D1
+    end
+
+    %% Phase 5: Gap Discovery
+    subgraph "Phase 5: API Gap Discovery"
+        D2 --> E1{compare_api_to_ui}
+        E1 -->|"gaps found"| E2[find_authenticated_endpoints]
+        E1 -->|"no gaps"| F1
+    end
+
+    %% Phase 6: Discovery Research (parallel)
+    subgraph "Phase 6: Discovery Research"
+        E2 --> F1[research_discovery_strategies]
+        E2 --> F2[probe_api_endpoints]
+        F1 --> F3[merge_discovery_findings]
+        F2 --> F3
+    end
+
+    %% Phase 7: Documentation
+    subgraph "Phase 7: Documentation"
+        F3 --> G1[write_readme]
+        G1 --> G2[validate_documentation]
+        G2 -->|"examples fail"| G1
+    end
+
+    %% Styling
+    style A4 fill:#ff9,stroke:#333
+    style E1 fill:#ff9,stroke:#333
+    style C_FALLBACK fill:#f99,stroke:#333
+    style A1 fill:#9cf,stroke:#333
+    style A2 fill:#9cf,stroke:#333
+    style F1 fill:#9cf,stroke:#333
+    style F2 fill:#9cf,stroke:#333
+
+    %% Legend (as notes)
+    classDef decision fill:#ff9,stroke:#333
+    classDef parallel fill:#9cf,stroke:#333
+    classDef fallback fill:#f99,stroke:#333
+```
+
+**Legend**: Yellow = decision point, Blue = parallel nodes, Red = fallback/degradation path.
+
+---
+
+## How to Instantiate This DAG for a New Source
+
+### Step 1: Set Parameters
+
+Fill in the parameter block for your target source. Examples:
+
+| Parameter | Medium | Arxiv | HackerNews |
+|-----------|--------|-------|------------|
+| `source_name` | `medium` | `arxiv` | `hackernews` |
+| `language` | `python` | `python` | `python` |
+| `auth_method` | `cookie` | `none` | `cookie` |
+| `package_path` | `skills/research/sources` | `skills/research/sources` | `skills/research/sources` |
+| `package_manager` | `uv` | `uv` | `uv` |
+| `browser` | `chrome` | N/A | `chrome` |
+| `discovery_topics` | `["AI", "startups"]` | `["cs.AI", "cs.LG"]` | `["AI", "Show HN"]` |
+
+### Step 2: Evaluate Conditional Branches
+
+Based on `auth_method`, entire branches of the DAG are skipped:
+
+- **`auth_method=none`** (Arxiv): Skip all of Phase 3 auth branches. The `verify_auth` node still runs but confirms public-only access. Phase 5 gap discovery is likely a no-op (no authenticated endpoints to find).
+
+- **`auth_method=cookie`** (Medium, HackerNews): Follow the cookie extraction pipeline. Key cookies to target:
+  - Medium: `sid`, `uid`
+  - HackerNews: `user` cookie (simple auth token, not encrypted)
+
+- **`auth_method=api_key`** (OpenAI, Anthropic, etc.): Single node, no retry pipeline needed. Just read from env.
+
+- **`auth_method=oauth`** (Google, GitHub): Most complex branch. May need to register an OAuth app, handle redirect URIs, implement PKCE.
+
+### Step 3: Adapt Discovery Layers
+
+The 4-layer discovery pipeline maps differently per source:
+
+| Layer | Substack | Medium | Arxiv | HackerNews |
+|-------|----------|--------|-------|------------|
+| **Structured seeding** | 31 categories, `paid` sort | Tags, topics | arXiv categories (cs.AI, etc.) | Front page, Show/Ask/Jobs |
+| **Real-time signals** | `/api/v1/trending` | Trending on Medium | Recent submissions, daily digests | `/best`, `/newest` |
+| **Targeted search** | Publication search (auth) | Tag/keyword search | arXiv search API, semantic scholar | Algolia HN search API |
+| **Graph walk** | Recommendation graph | "Related publications" | Citation graph (semantic scholar) | Who comments on whom, user submissions |
+
+### Step 4: Execute the DAG
+
+Walk the nodes in topological order. For each node:
+
+1. Check `condition` -- skip if condition is false
+2. Check `depends_on` -- all must be complete
+3. Execute using listed `tools`
+4. If node fails and has `retry.on_failure`: jump to the fallback node
+5. If node is a `decision_point`: evaluate the decision criteria before choosing the next edge
+6. If node has `parallel_with`: execute those nodes concurrently
+
+### Step 5: Source-Specific Considerations
+
+**Medium:**
+- Medium's API is severely limited (deprecated public API). Most data requires scraping.
+- Consider `medium-api` (unofficial) or `scrapingbee` for rendered HTML.
+- Auth is cookie-based (`sid` cookie from Chrome).
+- Discovery: tags are the primary taxonomy, no recommendation graph API.
+
+**Arxiv:**
+- Fully public API (no auth needed). OAI-PMH and Arxiv API for metadata.
+- `arxiv` Python package is well-maintained and pip-installable.
+- Discovery: category-based (cs.AI, cs.LG, etc.), citation graph via Semantic Scholar API.
+- Gap discovery phase is minimal -- API is comprehensive for metadata.
+
+**HackerNews:**
+- Official Firebase API is public and well-documented.
+- Algolia search API provides full-text search across all HN content.
+- Auth only needed for user-specific actions (upvotes, submissions).
+- Discovery: front page algorithm is the primary signal, user karma is secondary.
+- Cookie extraction is simple (HN uses plain-text cookies, no encryption).
+
+**RSS-based sources (blogs, podcasts):**
+- Set `auth_method=none` -- RSS is public by design.
+- Skip Phases 3 and 5 entirely.
+- Library selection: `feedparser` (Python) is the universal choice.
+- Discovery: OPML import/export, podcast directories, blogroll links.
+
+---
+
+## Execution Checklist
+
+Use this checklist when instantiating the DAG for a new source:
+
+```
+[ ] Parameters filled in
+[ ] auth_method conditional branches identified
+[ ] Phase 1: Library selected (or decision to build from scratch)
+[ ] Phase 2: Package structure created, dependency installed
+[ ] Phase 3: Auth working (or gracefully degraded to public)
+[ ] Phase 4: Client wrapper built with self-healing auth
+[ ] Phase 5: API gaps identified and patched with auth endpoints
+[ ] Phase 6: Discovery pipeline designed (parallel research complete)
+[ ] Phase 7: README written and validated
+[ ] All code examples in README tested and passing
+```
+</file>
+
+<file path="skills/research/sources/PROCESS.md">
+# Source Integration Process: Repeatable Methodology
+
+This document records the process used to build the Substack research integration and generalizes it into a repeatable methodology for integrating any rich data source.
+
+---
+
+## Phase 1: Source Discovery and Library Selection
+
+### Inputs
+- Target data source name (e.g., "Substack")
+- Language preference (e.g., Python)
+- Desired capabilities (scraping, API access, auth, etc.)
+
+### Activities
+
+1. **Search purpose-built tool registries first** (fast, curated):
+   - `npx skills find "<source> scraper"` (skills.sh ecosystem)
+   - `npx skillfish search "<source>"` (skillfish ecosystem)
+   - These return nothing most of the time but take seconds to check.
+
+2. **Search GitHub broadly** via WebSearch:
+   - Query: `"<source> API" OR "<source> scraper" language:<lang> stars:>10`
+   - Categorize results: scraper/downloader/API-wrapper/SDK
+   - Record: repo URL, stars, last commit date, language, install method, license
+
+3. **Deep-evaluate top 2-3 candidates**:
+   - Read README via direct fetch (DeepWiki indexing is unreliable for smaller repos)
+   - Check: API surface completeness, auth support, maintenance activity, test coverage
+   - Prefer: pip/npm-installable > git-clone, typed > untyped, actively maintained > archived
+
+### Decision Point: Library Selection
+- Criteria matrix: language fit, API coverage, star count, maintenance, install simplicity
+- If no suitable library exists: evaluate building a thin client from scratch against the source's HTTP API
+
+### Outputs
+- Chosen library (name, repo URL, install command)
+- Capability inventory (what the library can and cannot do)
+- Known gaps to fill with direct API calls
+
+---
+
+## Phase 2: Integration Setup
+
+### Inputs
+- Chosen library from Phase 1
+- Project directory structure conventions
+
+### Activities
+
+1. **Add dependency** to `pyproject.toml` (or equivalent package manifest)
+2. **Create directory structure**: `<project>/skills/research/sources/<source>/`
+3. **Create package files**: `__init__.py` at each level for import resolution
+4. **Copy upstream README** into the source directory (reference material)
+5. **Install**: `uv sync` / `pip install -e .` / equivalent
+
+### Outputs
+- Importable package at `<project>.skills.research.sources.<source>`
+- Library installed and importable in the project venv
+
+---
+
+## Phase 3: Authentication Engineering
+
+### Inputs
+- Library installed from Phase 2
+- Auth requirements from upstream docs
+
+### Activities
+
+1. **Write initial test script** to exercise the library's basic API
+2. **Discover API surface discrepancies**: upstream README may not match actual code
+   - Use `inspect.getsource()` to read actual class/function signatures
+   - Fix test script based on real signatures, not documented ones
+3. **Implement auth extraction** (method depends on source):
+
+   **Branch A: Cookie-based auth** (Substack, Reddit old, etc.)
+   - Attempt browser automation first (DevTools, JS injection) -- likely blocked by httpOnly flags
+   - Fall back to reading browser's SQLite cookie DB directly
+   - Use `browser-cookie3` (handles Chrome encryption variants across OS/versions)
+   - Cache extracted cookies to `~/.config/<source>/cookies.json`
+
+   **Branch B: API key auth** (OpenAI, Anthropic, etc.)
+   - Read from environment variable or config file
+   - No extraction pipeline needed
+
+   **Branch C: OAuth flow** (Google, GitHub, etc.)
+   - Implement token refresh cycle
+   - Store refresh token securely, access token in memory
+
+4. **Verify auth works**: run test script, confirm authenticated vs public access difference
+
+### Decision Point: Auth Feasibility
+- If cookie extraction fails after all fallbacks: degrade to public-only API
+- If OAuth is too complex for the integration scope: check if API keys are available as alternative
+
+### Outputs
+- Working auth pipeline with fallback chain
+- Test script that demonstrates authenticated access
+- Cookie/token cache location documented
+
+---
+
+## Phase 4: Self-Healing Client Wrapper
+
+### Inputs
+- Working auth from Phase 3
+- Upstream library API surface
+
+### Activities
+
+1. **Build client class** (`client.py`) that wraps the upstream library:
+   - Lazy auth resolution (not at construction time)
+   - Process-lifetime session caching
+   - Graceful degradation (auth failure -> public API fallback)
+2. **Implement retry/self-healing pipeline**:
+   - For cookie auth: extract -> upgrade dependency -> retry -> cached fallback -> public fallback
+   - For API keys: validate -> refresh -> re-read from env -> fail with clear error
+3. **Expose high-level methods** that hide auth plumbing:
+   - `get_subscriptions()`, `get_post_content()`, etc.
+   - Auth injected transparently into upstream library calls
+
+### Outputs
+- `client.py` with self-healing auth and clean public API
+- All upstream library complexity hidden behind simple method calls
+
+---
+
+## Phase 5: API Gap Discovery
+
+### Inputs
+- Working client from Phase 4
+- Expected feature set from user requirements
+
+### Activities
+
+1. **Test against real data** and compare results to what the user sees in the UI
+2. **Identify discrepancies**: public API may return incomplete data
+   - Example: Substack's public profile API hid 8 of 94 subscriptions (paid subs hidden)
+3. **Search for authenticated endpoints** that return complete data
+   - Probe common REST patterns: `/api/v1/<resource>`, `/api/v1/me/<resource>`
+   - Compare public vs authenticated responses
+4. **Update client** to prefer authenticated endpoints where they return better data
+
+### Decision Point: Gap Severity
+- If gaps are minor (cosmetic, non-blocking): document and move on
+- If gaps affect core functionality: find alternative endpoints or build workarounds
+
+### Outputs
+- Updated client with authenticated endpoint preferences
+- Public vs authenticated API comparison table
+- List of features that are truly unavailable via API
+
+---
+
+## Phase 6: Discovery Research (Parallel Agents)
+
+### Inputs
+- Working client from Phase 5
+- Topic: "What discovery/exploration capabilities does this source offer?"
+
+### Activities
+
+Run two parallel research tracks:
+
+**Agent 1: Strategy Research**
+- Research discovery strategies for the source (blog posts, docs, community guides)
+- Identify recommendation graphs, trending feeds, category systems
+- Document third-party tools that augment discovery
+
+**Agent 2: API Endpoint Probing**
+- Brute-force probe common API endpoint patterns
+- Test each with and without auth
+- Record response shapes, pagination, rate limits
+- Identify undocumented endpoints
+
+**Merge findings**:
+- Cross-reference Agent 1's strategies with Agent 2's discovered endpoints
+- Build a multi-layer discovery pipeline (e.g., category seeding -> trending -> search -> graph walk)
+- Document scoring/ranking signals available from the API
+
+### Outputs
+- Complete API endpoint reference (public vs authenticated)
+- Multi-layer discovery pipeline design
+- Scoring criteria for ranking discovered entities
+
+---
+
+## Phase 7: Documentation
+
+### Inputs
+- All outputs from Phases 1-6
+
+### Activities
+
+1. **Write comprehensive README** for the source integration:
+   - Usage examples for every major feature
+   - Auth setup instructions
+   - Full API endpoint reference table
+   - Discovery pipeline strategy
+   - Limitations and caveats
+2. **Iterative correction**: cross-check documentation against actual agent findings
+3. **Include comparison tables**: public vs authenticated, available vs unavailable features
+
+### Outputs
+- `README.md` in the source directory
+- Self-contained reference for anyone using or extending the integration
+
+---
+
+## Process Anti-Patterns (Lessons Learned)
+
+1. **Do not trust upstream READMEs blindly.** Always verify API signatures with `inspect.getsource()` or by reading the actual library code. The Substack library's README examples had type errors.
+
+2. **Do not attempt browser automation for httpOnly cookies.** DevTools shortcuts are blocked by extensions, and httpOnly cookies are inaccessible from JavaScript by design. Go straight to the browser's cookie database.
+
+3. **Do not assume public APIs return complete data.** Substack's public profile API hid paid subscriptions. Always compare public API results against what the authenticated user sees in the UI.
+
+4. **Do not skip the parallel research phase.** Strategy research (Agent 1) finds the "what to look for" while endpoint probing (Agent 2) finds the "what actually exists." Neither alone is sufficient.
+
+5. **Chrome cookie encryption is non-trivial.** Do not attempt manual decryption (CBC/GCM key derivation varies by Chrome version and OS). Use `browser-cookie3` which handles all variants.
+</file>
+
+<file path="skills/research/__init__.py">
+
 </file>
 
 <file path="skills/__init__.py">
@@ -3936,6 +5985,11 @@ def _get_declaration(self) -> FunctionDeclaration
 ⋮----
 code = args["code"]
 ⋮----
+# OG-03 fix: persist submitted code for observability
+code_hash = hashlib.sha256(code.encode()).hexdigest()
+⋮----
+# Persist submitted code as a versioned artifact file
+⋮----
 # Track iteration count in session state for observability
 ⋮----
 llm_calls_made = False
@@ -3944,12 +5998,19 @@ llm_calls_made = False
 # closures and LocalREPL can record timing/LLM-call data.
 trace: REPLTrace | None = None
 ⋮----
-trace = REPLTrace()
+trace = REPLTrace(
 # Orchestrator passes [None]; set [0] so dispatch closures see
 # the live trace.  Empty lists (e.g. from tests) get an append.
 ⋮----
 llm_calls_made = True
+_t0 = time.perf_counter()
 tree = rewrite_for_async(code)
+_rewrite_ms = (time.perf_counter() - _t0) * 1000
+⋮----
+# Write rewrite instrumentation early -- the count is known
+# after the AST transform, before execution begins, so it
+# survives execution errors (CancelledError / Exception).
+⋮----
 compiled = compile(tree, "<repl>", "exec")
 # Merge globals and locals so _repl_exec sees variables from
 # previous executions (imports, user-defined vars, etc.)
@@ -3960,13 +6021,15 @@ result = await self.repl.execute_code_async(code, repl_exec_fn, trace=trace)
 ⋮----
 result = self.repl.execute_code(code, trace=trace)
 ⋮----
+# OG-04 fix: ensure end_time is set so trace summary is non-negative
+⋮----
 # FM-13 fix: flush accumulators before returning so dispatch
 # counts from this iteration are not lost (accumulator drift).
 total_llm_calls = 0
 ⋮----
 acc = self._flush_fn()
 ⋮----
-total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
+total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
 # Write LAST_REPL_RESULT even on cancellation for observability
 ⋮----
 # FM-14 fix: flush accumulators before returning so dispatch
@@ -3977,6 +6040,9 @@ total_llm_calls = acc.get(WORKER_DISPATCH_COUNT, 0)
 ⋮----
 # Write LAST_REPL_RESULT summary for observability plugins
 last_repl: dict[str, Any] = {
+⋮----
+# Skip ADK's post-tool summarization call for large outputs to save tokens
+output_len = len(result.stdout) + len(result.stderr)
 ⋮----
 # Extract JSON-serializable variables from REPL locals.
 # We attempt json.dumps to catch nested non-serializable objects
@@ -4215,8 +6281,8 @@ kwargs: dict[str, Any] = {
 """Build the default plugin list.
 
     ObservabilityPlugin is always included (observe-only, zero overhead on the
-    happy path).  DebugLoggingPlugin is included by default.  Set *debug* to
-    ``False`` **and** leave ``RLM_ADK_DEBUG`` unset to disable it.
+    happy path).  When ``RLM_ADK_DEBUG=1`` is set, verbose mode is enabled
+    on ObservabilityPlugin (prints summary to stdout).
 
     LangfuseTracingPlugin is opt-in (default ``False``).  Enable via
     ``langfuse=True`` or ``RLM_ADK_LANGFUSE=1`` env var.
@@ -4225,14 +6291,15 @@ kwargs: dict[str, Any] = {
     Disable via ``sqlite_tracing=False``.  If the plugin module is not yet
     available (Track B), it is silently skipped.
     """
-plugins: list[BasePlugin] = [ObservabilityPlugin()]
 _debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
-⋮----
+plugins: list[BasePlugin] = [ObservabilityPlugin(verbose=_debug_env)]
 _sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")
 ⋮----
 _langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
 ⋮----
 _repl_trace_env = int(os.getenv("RLM_REPL_TRACE", "0"))
+⋮----
+_cloud_env = os.getenv("RLM_ADK_CLOUD_OBS", "").lower() in ("1", "true", "yes")
 ⋮----
 _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
 ⋮----
@@ -4241,9 +6308,8 @@ _adk_dir = str(_project_root() / ".adk")
 """Create the full RLM ADK App with plugins wired in.
 
     This is the recommended entry point for programmatic usage.  The returned
-    ``App`` carries the ``ObservabilityPlugin`` (always) and the
-    ``DebugLoggingPlugin`` (enabled by default).  Pass *plugins* to override
-    the default plugin list entirely.
+    ``App`` carries the ``ObservabilityPlugin`` (always).  Pass *plugins* to
+    override the default plugin list entirely.
 
     Args:
         model: The LLM model identifier.
@@ -4256,8 +6322,6 @@ _adk_dir = str(_project_root() / ".adk")
         repo_url: Optional repository URL for context.
         plugins: Explicit plugin list.  When ``None`` (default), uses
             :func:`_default_plugins`.
-        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
-            via ``RLM_ADK_DEBUG`` env-var).
         thinking_budget: Token budget for the reasoning agent's built-in
             planner.  Set to ``0`` to disable.
         langfuse: Enable LangfuseTracingPlugin (default ``False``; also
@@ -4273,8 +6337,7 @@ resolved_plugins = plugins if plugins is not None else _default_plugins(
     This is the recommended entry point for programmatic usage.  The returned
     ``Runner`` has:
 
-    - The ``App`` with ``ObservabilityPlugin`` (always) and
-      ``DebugLoggingPlugin`` (enabled by default).
+    - The ``App`` with ``ObservabilityPlugin`` (always).
     - A ``SqliteSessionService`` for persistent state (default), or the
       caller-provided session service.
     - A ``FileArtifactService`` for persistent artifact storage (default),
@@ -4307,8 +6370,6 @@ resolved_plugins = plugins if plugins is not None else _default_plugins(
         repo_url: Optional repository URL for context.
         plugins: Explicit plugin list.  When ``None`` (default), uses
             :func:`_default_plugins`.
-        debug: Enable DebugLoggingPlugin (default ``True``; also forced on
-            via ``RLM_ADK_DEBUG`` env-var).
         thinking_budget: Token budget for the reasoning agent's built-in
             planner.  Set to ``0`` to disable.
         artifact_service: Optional artifact service to use.  When ``None``
@@ -4569,6 +6630,21 @@ State mutation discipline (AR-CRIT-001):
 """
 ⋮----
 logger = logging.getLogger(__name__)
+_CHILD_PREVIEW_LIMIT = 500
+⋮----
+def _truncate_text(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None
+⋮----
+"""Return a bounded text preview for evaluator-facing state."""
+⋮----
+text = value if isinstance(value, str) else str(value)
+⋮----
+def _preview_payload(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None
+⋮----
+"""Return a bounded preview for arbitrary payloads."""
+⋮----
+def _safe_int(value: Any) -> int
+⋮----
+"""Best-effort integer coercion for telemetry fields."""
 ⋮----
 class DispatchConfig
 ⋮----
@@ -4608,36 +6684,142 @@ _acc_child_dispatches = 0
 _acc_child_batch_dispatches = 0
 _acc_child_latencies: list[float] = []
 _acc_child_error_counts: dict[str, int] = {}
+_acc_child_summaries: dict[str, dict] = {}
 _acc_structured_output_failures = 0
+⋮----
+"""Read a child-scoped observability key, preferring child-local deltas."""
+scoped_key = depth_key(key, child_depth)
+⋮----
+"""Append a structured child-call record for REPL observability."""
+⋮----
+model_name = result.model or dispatch_config.other_model
+⋮----
+def _serialize_child_payload(value: Any) -> str
+⋮----
+"""Return a stable text form for child structured results."""
+⋮----
+"""Collect the child's normalized completion payload."""
+agent = getattr(child, "reasoning_agent", None)
+completion = getattr(child, "_rlm_completion", None) or getattr(
+normalized = dict(completion) if isinstance(completion, dict) else {}
+⋮----
+parsed_payload = normalized.get("parsed_output")
+⋮----
+parsed_payload = None
+⋮----
+raw_payload = normalized.get("raw_output")
+text = str(normalized.get("text", "") or "")
+error = bool(normalized.get("error", False))
+error_category = normalized.get("error_category")
+parsed_from_state = _child_obs_value(
+⋮----
+parsed_payload = dict(parsed_from_state)
+raw_from_state = _child_obs_value(
+⋮----
+raw_payload = raw_from_state
+⋮----
+output_key = getattr(agent, "output_key", None) or f"reasoning_output@d{child_depth}"
+raw = child_state.get(output_key, shared_state.get(output_key))
+⋮----
+raw_payload = raw
+⋮----
+parsed_payload = dict(raw)
+text = str(raw.get("final_answer", "") or "") or _serialize_child_payload(raw)
+⋮----
+decoded = json.loads(raw)
+⋮----
+decoded = None
+⋮----
+parsed_payload = decoded
+text = str(decoded.get("final_answer", "") or "") or _serialize_child_payload(decoded)
+⋮----
+text = raw
+⋮----
+text = str(raw)
+⋮----
+structured = getattr(agent, "_structured_result", None)
+⋮----
+parsed_payload = dict(structured)
+raw_payload = structured
+text = str(structured.get("final_answer", "") or "") or _serialize_child_payload(structured)
+⋮----
+error = True
+error_category = error_category or "UNKNOWN"
+⋮----
+def _read(key: str) -> Any
 ⋮----
 """Spawn a child orchestrator for a single sub-query."""
 ⋮----
 target_model = model or dispatch_config.other_model
+⋮----
+result = LLMResult(
+⋮----
 child_start = time.perf_counter()
+elapsed_ms = 0.0
+_child_result: LLMResult | None = None
+_error_message: str | None = None
+_call_logged = False
+completion: dict[str, Any] = {}
+_child_state: dict[str, Any] = {}
+session = getattr(ctx, "session", None)
+shared_state = getattr(session, "state", {})
 ⋮----
 child = create_child_orchestrator(
 ⋮----
-pass  # consume events
+actions = getattr(_event, "actions", None)
+state_delta = getattr(actions, "state_delta", None)
 ⋮----
-# Read result from child's output_key
-_child_output_key = child.reasoning_agent.output_key or f"reasoning_output@d{depth + 1}"
-raw = ctx.session.state.get(_child_output_key, "")
-⋮----
-# Parse the result
-⋮----
-answer = raw.get("final_answer", str(raw))
-⋮----
-parsed = json.loads(raw)
-⋮----
-answer = parsed.get("final_answer", raw)
-⋮----
-answer = raw
-⋮----
-answer = str(raw)
+child_depth = depth + 1
+completion = _read_child_completion(
+answer = completion["text"]
 ⋮----
 elapsed_ms = (time.perf_counter() - child_start) * 1000
 ⋮----
-cat = _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+input_tokens = completion.get("input_tokens") or 0
+output_tokens = completion.get("output_tokens") or 0
+thought_tokens = completion.get("thoughts_tokens") or 0
+finish_reason = completion.get("finish_reason")
+visible_text = completion.get("visible_output_text") or answer
+thought_text = completion.get("thought_text") or ""
+parsed_payload = completion.get("parsed_output")
+raw_payload = completion.get("raw_output")
+is_error = bool(completion.get("error"))
+error_category = completion.get("error_category")
+⋮----
+_child_result = LLMResult(
+_error_message = answer if is_error else None
+⋮----
+error_text = (
+⋮----
+_error_message = error_text
+⋮----
+cat = "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else (
+⋮----
+_error_message = str(e)
+⋮----
+_call_logged = True
+⋮----
+child_reasoning = getattr(child, "reasoning_agent", None)
+structured_obs = getattr(child_reasoning, "_structured_output_obs", {})
+structured_result = getattr(child_reasoning, "_structured_result", None)
+structured_attempts = _safe_int(
+structured_retries = _safe_int(
+structured_events = (
+parsed_output = (
+⋮----
+parsed_output = dict(structured_result)
+validated_structured_result = (
+⋮----
+structured_outcome = "not_applicable"
+⋮----
+structured_outcome = "retry_exhausted"
+⋮----
+structured_outcome = (
+⋮----
+structured_outcome = "incomplete"
+⋮----
+structured_outcome = "missing"
+# Write per-child observability summary
 ⋮----
 # Clean up child's REPL
 ⋮----
@@ -4699,7 +6881,10 @@ def flush_fn() -> dict
 ⋮----
 delta: dict[str, Any] = {
 ⋮----
-# Keep WORKER_DISPATCH_COUNT for backward compat with REPLTool
+# BUG-13 monkey-patch invocation count
+bug13_count = _bug13_stats.get("suppress_count", 0)
+⋮----
+# Merge per-child summaries into delta
 ⋮----
 # Reset accumulators
 </file>
@@ -4723,6 +6908,7 @@ logger = logging.getLogger(__name__)
 ⋮----
 # Transient HTTP status codes that warrant a retry.
 _TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+_COMPLIANCE_FINISH_REASONS = frozenset({"SAFETY", "RECITATION"})
 ⋮----
 def is_transient_error(exc: Exception) -> bool
 ⋮----
@@ -4731,6 +6917,40 @@ def is_transient_error(exc: Exception) -> bool
     Recognizes google.genai errors, asyncio timeouts, and network-level
     exceptions as transient.  Generic exceptions are never retried.
     """
+⋮----
+def _serialize_completion_payload(value: Any) -> str
+⋮----
+"""Return a stable string form for structured child results."""
+⋮----
+"""Classify a missing/errored reasoning completion."""
+⋮----
+schema_name = getattr(output_schema, "__name__", "structured output schema")
+⋮----
+"""Normalize the final reasoning payload for dispatch + finalization."""
+output_key = reasoning_agent.output_key or "reasoning_output"
+raw = session_state.get(output_key)
+structured = getattr(reasoning_agent, "_structured_result", None)
+visible_text = session_state.get(depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)) or ""
+thought_text = session_state.get(depth_key(REASONING_THOUGHT_TEXT, depth)) or ""
+finish_reason = session_state.get(depth_key(REASONING_FINISH_REASON, depth))
+⋮----
+payload = parse_reasoning_output(raw)
+source = "output_key"
+⋮----
+payload = parse_reasoning_output(structured)
+source = "structured_result"
+⋮----
+payload = parse_reasoning_output(visible_text)
+source = "visible_output_text"
+⋮----
+parsed_output = payload.parsed_output if isinstance(payload.parsed_output, dict) else None
+result_text = payload.final_answer or _serialize_completion_payload(
+error = False
+error_category = None
+⋮----
+error = True
+⋮----
+completion = {
 ⋮----
 class RLMOrchestratorAgent(BaseAgent)
 ⋮----
@@ -4822,6 +7042,7 @@ initial_prompt = self.root_prompt or "Analyze and answer the query."
 # --- Delegate to reasoning_agent (with retry for transient errors) ---
 max_retries = int(os.getenv("RLM_LLM_MAX_RETRIES", "3"))
 base_delay = float(os.getenv("RLM_LLM_RETRY_DELAY", "5.0"))
+total_retry_delay_ms = 0
 ⋮----
 transient = is_transient_error(exc)
 ⋮----
@@ -4834,40 +7055,25 @@ error_msg = (
 ⋮----
 delay = base_delay * (2 ** attempt)
 ⋮----
+# Persist reasoning retry count if any retries occurred
+⋮----
+retry_state_delta: dict[str, Any] = {
+⋮----
 # --- Extract final_answer from output_key ---
 # ADK's output_key stores the raw text of the final model response.
 # When output_schema is set, it's a JSON dict (ReasoningOutput).
 # When output_schema is NOT set, it's plain text.
-_output_key = self.reasoning_agent.output_key or "reasoning_output"
-raw = ctx.session.state.get(_output_key, "")
-final_answer = ""
+completion = _collect_reasoning_completion(
 ⋮----
-# Already parsed (output_schema was set)
-final_answer = raw.get("final_answer", "")
+final_answer = completion["text"]
 ⋮----
-# Try JSON first (ReasoningOutput format)
-⋮----
-parsed = json.loads(raw)
-⋮----
-final_answer = parsed.get("final_answer", raw)
-⋮----
-final_answer = raw
-⋮----
-# Plain text -- try FINAL() pattern extraction first
-parsed_final = find_final_answer(raw)
-⋮----
-final_answer = parsed_final
-⋮----
-# No FINAL() marker -- use raw text as-is
+reasoning_state_delta: dict[str, Any] = {
 ⋮----
 # Auto-save final answer as artifact
 ⋮----
 # Yield final content event
 ⋮----
-# No final answer extracted -- reasoning agent may not have
-# produced a valid ReasoningOutput
-⋮----
-exhausted_msg = (
+exhausted_msg = final_answer or (
 ⋮----
 # Clean up reasoning_agent wiring
 </file>
@@ -4895,6 +7101,13 @@ POLICY_VIOLATION = "policy_violation"
 MESSAGE_HISTORY = "message_history"
 LAST_REPL_RESULT = "last_repl_result"
 FINAL_ANSWER = "final_answer"
+REASONING_SUMMARY = "reasoning_summary"
+REASONING_FINISH_REASON = "reasoning_finish_reason"
+REASONING_VISIBLE_OUTPUT_TEXT = "reasoning_visible_output_text"
+REASONING_THOUGHT_TEXT = "reasoning_thought_text"
+REASONING_THOUGHT_TOKENS = "reasoning_thought_tokens"
+REASONING_RAW_OUTPUT = "reasoning_raw_output"
+REASONING_PARSED_OUTPUT = "reasoning_parsed_output"
 ⋮----
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
@@ -4929,44 +7142,40 @@ REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
 REASONING_CONTENT_COUNT = "reasoning_content_count"
 REASONING_INPUT_TOKENS = "reasoning_input_tokens"
 REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
-# Worker accounting keys (session-scoped, cumulative across invocations).
-# Values are aggregated from worker objects in the dispatch closure.
-WORKER_PROMPT_CHARS = "worker_prompt_chars"
-WORKER_CONTENT_COUNT = "worker_content_count"
-WORKER_INPUT_TOKENS = "worker_input_tokens"
-WORKER_OUTPUT_TOKENS = "worker_output_tokens"
 CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
-⋮----
-# Worker Dispatch Lifecycle Keys (session-scoped, cumulative)
-WORKER_DISPATCH_COUNT = "worker_dispatch_count"
-⋮----
-# Worker Dispatch Timing Keys (session-scoped, cumulative)
-OBS_WORKER_DISPATCH_LATENCY_MS = "obs:worker_dispatch_latency_ms"
-OBS_WORKER_TOTAL_DISPATCHES = "obs:worker_total_dispatches"
-OBS_WORKER_TOTAL_BATCH_DISPATCHES = "obs:worker_total_batch_dispatches"
 ⋮----
 # Finish Reason Tracking (written by ObservabilityPlugin)
 OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
 OBS_FINISH_RECITATION_COUNT = "obs:finish_recitation_count"
 OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
 ⋮----
-# Worker Error Classification (written by dispatch closures)
-OBS_WORKER_TIMEOUT_COUNT = "obs:worker_timeout_count"
-OBS_WORKER_RATE_LIMIT_COUNT = "obs:worker_rate_limit_count"
-OBS_WORKER_ERROR_COUNTS = "obs:worker_error_counts"  # dict[category, count]
-⋮----
-# Worker Pool Observability (written by WorkerPool.acquire)
-OBS_WORKER_POOL_EXHAUSTION_COUNT = "obs:worker_pool_exhaustion_count"
-⋮----
 # Structured Output Observability (written by dispatch closures)
 OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 ⋮----
+# AST Rewrite Instrumentation (written by REPLTool)
+OBS_REWRITE_COUNT = "obs:rewrite_count"
+OBS_REWRITE_TOTAL_MS = "obs:rewrite_total_ms"
+OBS_REWRITE_FAILURE_COUNT = "obs:rewrite_failure_count"
+OBS_REWRITE_FAILURE_CATEGORIES = "obs:rewrite_failure_categories"
+⋮----
+# Reasoning Retry Observability (written by orchestrator)
+OBS_REASONING_RETRY_COUNT = "obs:reasoning_retry_count"
+OBS_REASONING_RETRY_DELAY_MS = "obs:reasoning_retry_delay_ms"
+⋮----
+# BUG-13 Monkey-Patch Observability (written by flush_fn)
+OBS_BUG13_SUPPRESS_COUNT = "obs:bug13_suppress_count"
+⋮----
 # Child Dispatch Observability Keys (session-scoped)
 OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
-OBS_CHILD_SUMMARY_PREFIX = "obs:child_summary@"
 OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
 OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
 OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
+⋮----
+# REPL Submitted-Code Observability Keys
+REPL_SUBMITTED_CODE = "repl_submitted_code"
+REPL_SUBMITTED_CODE_PREVIEW = "repl_submitted_code_preview"
+REPL_SUBMITTED_CODE_HASH = "repl_submitted_code_hash"
+REPL_SUBMITTED_CODE_CHARS = "repl_submitted_code_chars"
 ⋮----
 def child_obs_key(depth: int, fanout_idx: int) -> str
 ⋮----
@@ -4992,10 +7201,7 @@ ARTIFACT_LAST_SAVED_VERSION = "artifact_last_saved_version"
 ⋮----
 # Artifact Observability Keys (session-scoped)
 OBS_ARTIFACT_SAVES = "obs:artifact_saves"
-OBS_ARTIFACT_LOADS = "obs:artifact_loads"
-OBS_ARTIFACT_DELETES = "obs:artifact_deletes"
 OBS_ARTIFACT_BYTES_SAVED = "obs:artifact_bytes_saved"
-OBS_ARTIFACT_SAVE_LATENCY_MS = "obs:artifact_save_latency_ms"
 ⋮----
 # Artifact Configuration Keys (app-scoped)
 APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"
@@ -5039,6 +7245,33 @@ class ReasoningOutput(BaseModel)
 final_answer: str = Field(description="Complete final answer to the query.")
 reasoning_summary: str = Field(
 ⋮----
+class ReasoningObservability(BaseModel)
+⋮----
+"""Persistable reasoning-output observability payload."""
+⋮----
+visible_output_text: str = ""
+thought_text: str = ""
+thoughts_tokens: int = 0
+raw_output: Any = None
+parsed_output: dict[str, Any] | None = None
+final_answer: str = ""
+reasoning_summary: str = ""
+⋮----
+def parse_reasoning_output(raw: Any) -> ReasoningObservability
+⋮----
+"""Normalize a reasoning output_key payload for observability storage."""
+payload = ReasoningObservability(raw_output=raw)
+⋮----
+parsed: dict[str, Any] | None = None
+⋮----
+parsed = dict(raw)
+⋮----
+decoded = json.loads(raw)
+⋮----
+decoded = None
+⋮----
+parsed = decoded
+⋮----
 def _serialize_value(value: Any) -> Any
 ⋮----
 """Convert a value to a JSON-serializable representation."""
@@ -5069,13 +7302,22 @@ http_status: int | None = None
 finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
 input_tokens: int = 0
 output_tokens: int = 0
+⋮----
 model: str | None = None
 wall_time_ms: float = 0.0
+visible_text: str | None = None
+thought_text: str | None = None
+raw_output: Any | None = None
 parsed: dict | None = None  # Validated structured output (set when output_schema used)
 ⋮----
 def __new__(cls, text: str, **kwargs: Any) -> "LLMResult"
 ⋮----
 instance = super().__new__(cls, text)
+⋮----
+@property
+    def thought_tokens(self) -> int
+⋮----
+"""Backward-compatible alias for older telemetry code."""
 ⋮----
 ########    Types for LM Cost Tracking         #########
 ⋮----
@@ -5111,6 +7353,12 @@ prompt: str | dict[str, Any]
 response: str
 usage_summary: UsageSummary
 execution_time: float
+finish_reason: str | None = None
+⋮----
+visible_response: str | None = None
+thought_response: str | None = None
+raw_response: Any | None = None
+parsed_response: dict[str, Any] | None = None
 ⋮----
 @classmethod
     def from_dict(cls, data: dict) -> "RLMChatCompletion"

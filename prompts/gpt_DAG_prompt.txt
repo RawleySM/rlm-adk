@@ -1,0 +1,64 @@
+User propmpt request:
+
+  Review rlm_adk_docs/architecture_summary.md and provide a user-prompt for a task that would require the LlmAgents in rlm_adk to use multiple
+  recursive depths to accomplish a task. Your prompt should direct the agent to run a high-level DAG-style workflow at the REPL of the parent layer
+  (layer-0), with llm_query() used to drop work to Recursive layer 1 to work-out details at one level of granularity below the parent, and with
+  utilziation of layer 2 for additional granulatority, maybe under a different class of work (like layer 1 is plan-implement-review of a node in the
+  parent, with plan dropping down to layer 2)
+
+
+• I’ll review rlm_adk_docs/architecture_summary.md first, then draft a single user prompt that explicitly enforces a layer-0 DAG workflow with
+  recursive delegation to layer-1 and layer-2 via llm_query().
+
+• Explored
+  └ Read architecture_summary.md
+    Search llm_query|layer-0|layer 0|layer-1|layer 1|layer-2|layer 2|recursive|DAG|REPL in rlm_adk_docs
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ve extracted the runtime constraints from architecture_summary.md (layer-0 REPL orchestration, llm_query* delegation, and parent aggregation) and
+  I’m now drafting a single ready-to-use prompt that hard-requires layer-1 and layer-2 recursion with explicit DAG execution contracts.
+
+• Rationale: This prompt forces a layer-0 REPL DAG orchestration pattern with mandatory layer-1 node execution and deeper layer-2 specialization, so
+  recursion is required rather than optional.
+
+  You are operating inside rlm_adk as the Layer-0 parent orchestrator. Execute this mission with recursive delegation (Layer-0 -> Layer-1 -> Layer-
+  2), not a single-pass answer.
+
+  MISSION
+  Create a “Recursive Safety Hardening Pack” for rlm_adk that delivers:
+  1) recursion budget enforcement improvements (depth/fanout/in-flight),
+  2) state-scope collision prevention rules and validation,
+  3) observability lineage rollup verification tests,
+  4) a final integrated patch/test summary.
+
+  MANDATORY EXECUTION MODEL
+  - Layer-0 must run a high-level DAG-style workflow in REPL code (`execute_code` path), with explicit nodes and dependencies.
+  - Layer-0 must use `llm_query()` / `llm_query_batched()` to delegate node work to Layer-1.
+  - Each Layer-1 node must run a strict `PLAN -> IMPLEMENT -> REVIEW` sub-workflow.
+  - The `PLAN` phase of each Layer-1 node must delegate to Layer-2 for deeper-granularity analysis under a different work class:
+    - Layer-2A: adversarial edge-case / failure-mode analysis
+    - Layer-2B: test-oracle + acceptance-criteria synthesis
+  - Layer-1 must consume Layer-2 outputs before IMPLEMENT begins.
+
+  DAG REQUIREMENTS (Layer-0)
+  Use this DAG (or stricter equivalent):
+  - N0: Baseline invariant extraction from docs/code (root)
+  - N1: Budget guard design + implementation plan (depends N0)
+  - N2: State scoping guard design + implementation plan (depends N0)
+  - N3: Observability lineage rollup test design (depends N0)
+  - N4: Integration review + regression strategy (depends N1,N2,N3)
+  - N5: Final synthesis + risk register + next actions (depends N4)
+
+  RECURSION DEPTH REQUIREMENTS
+  - Minimum Layer-1 delegations from Layer-0: 4
+  - For each Layer-1 delegation, minimum Layer-2 delegations: 2
+  - Use `llm_query_batched()` for independent sibling nodes where possible.
+
+  OUTPUT CONTRACT
+  Return:
+  1) Layer-0 DAG execution trace (node id, dependency status, delegated layer, completion result),
+  2) per-node PLAN/IMPLEMENT/REVIEW artifacts,
+  3) Layer-2 findings mapped to the Layer-1 node that consumed them,
+  4) final integrated outcome with concrete file-level changes and tests,
+  5) explicit unresolved risks and what recursion depth handled each risk.
