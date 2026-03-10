@@ -23,7 +23,10 @@
 | Artifacts & Session | [artifacts_and_session.md](artifacts_and_session.md) | Session service, artifact persistence, save helpers |
 | Skills & Prompts | [skills_and_prompts.md](skills_and_prompts.md) | Skill system, static/dynamic instructions, adding skills |
 | Configuration | [configuration.md](configuration.md) | Env vars, factory functions, plugin wiring, pyproject.toml |
-| Vision & Roadmap | [vision.md](vision.md) | Product direction, planned features, self-improvement architecture, autonomous task pickup |
+| Vision: Dynamic Skill Loading | [vision/dynamic_skill_loading.md](vision/dynamic_skill_loading.md) | REPL embeddings, vector store, skill retrieval, feedback loop |
+| Vision: Polya Topology Engine | [vision/polya_topology_engine.md](vision/polya_topology_engine.md) | Understand→Plan→Implement→Reflect, horizontal/vertical/hybrid workflows |
+| Vision: Autonomous Self-Improvement | [vision/autonomous_self_improvement.md](vision/autonomous_self_improvement.md) | Cron-triggered agents, gap audits, doc staleness, test expansion |
+| Vision: Evolution Principles | [vision/evolution_principles.md](vision/evolution_principles.md) | Design philosophy, self-improvement feedback loops |
 
 > **ADK Gotchas** are distributed as a final section in each branch doc above. Every doc includes the AR-CRIT-001 state mutation warning, plus gotchas specific to that branch (Pydantic constraints, private API, BUG-13, testing patterns, etc.).
 
@@ -127,9 +130,15 @@ Key env vars: `RLM_ADK_MODEL` (model), `RLM_MAX_ITERATIONS` (REPL call cap), `RL
 
 ## Vision & Roadmap
 
-RLM-ADK is Rawley Stanhope's personal agent — designed for a single power user, not multi-tenant deployment. It evolves through three planned capabilities: dynamic skill loading from REPL execution history embeddings, Polya-inspired topology engine (horizontal/vertical/hybrid workflows via dynamic instructions), and autonomous self-improvement via cron-triggered agents that audit gaps, expand test coverage, and mine reusable patterns.
+RLM-ADK is Rawley Stanhope's personal agent — designed for a single power user, not multi-tenant deployment. It evolves through three planned capabilities:
 
-**Deep dive:** [vision.md](vision.md) — planned features, embedding schema, topology variants, autonomous task types, evolution principles
+| Feature | Status | Doc |
+|---------|--------|-----|
+| Dynamic skill loading from REPL execution history embeddings | Planned (research complete) | [vision/dynamic_skill_loading.md](vision/dynamic_skill_loading.md) |
+| Polya topology engine — horizontal/vertical/hybrid workflows via dynamic instructions | Planned (research complete) | [vision/polya_topology_engine.md](vision/polya_topology_engine.md) |
+| Autonomous self-improvement via cron-triggered agents | Conceptual | [vision/autonomous_self_improvement.md](vision/autonomous_self_improvement.md) |
+
+Design philosophy: [vision/evolution_principles.md](vision/evolution_principles.md)
 
 ---
 
