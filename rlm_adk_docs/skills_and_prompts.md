@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-10 -->
 
 # Skills & Prompt System
 
@@ -192,7 +192,106 @@ The agent can now call `my_function()` directly in `execute_code` blocks -- no i
 
 ---
 
-## 8. Future: Dynamic Skill Activation
+## 8. Source-Expandable REPL Skills
+
+**Files:** `rlm_adk/repl/skill_registry.py`, `rlm_adk/skills/repl_skills/ping.py`
+
+### Two Skill Delivery Modes
+
+RLM-ADK has two distinct mechanisms for making skill functions available in the REPL:
+
+| Mode | Mechanism | Use When |
+|------|-----------|----------|
+| `repl.globals` injection | Function injected directly into REPL namespace | Skill is pure Python utility with no `llm_query()` / `llm_query_batched()` calls |
+| Source expansion | Synthetic import expanded to inline source before AST rewrite | Skill implementation contains `llm_query()` or `llm_query_batched()` calls |
+
+The `repl.globals` path (used by `probe_repo`, `pack_repo`, `shard_repo`) is simpler: the function exists at runtime and the model calls it directly. However, `llm_query()` calls inside injected globals are invisible to the AST rewriter, which only operates on submitted code text. Source expansion solves this by inlining skill source into the submitted code before AST analysis, making any `llm_query()` calls visible for sync-to-async rewriting.
+
+### Defining a Synthetic REPL Skill Module
+
+A skill module registers `ReplSkillExport` entries at import time via `register_skill_export()`. Each export describes one symbol:
+
+```python
+from rlm_adk.repl.skill_registry import ReplSkillExport, register_skill_export
+
+register_skill_export(
+    ReplSkillExport(
+        module="rlm_repl_skills.my_skill",   # synthetic module path
+        name="my_function",                    # exported symbol name
+        source='def my_function(x):\n    return llm_query(f"Process: {x}")',
+        requires=["helper_const"],             # dependencies (other exports in same module)
+        kind="function",                       # "function", "class", "const", or "source_block"
+    )
+)
+```
+
+**`ReplSkillExport` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `module` | `str` | Synthetic module path (e.g. `rlm_repl_skills.ping`) |
+| `name` | `str` | Exported symbol name |
+| `source` | `str` | Full source text to inline (must be valid standalone Python) |
+| `requires` | `list[str]` | Ordered dependencies by symbol name (same module) |
+| `kind` | `str` | One of `function`, `class`, `const`, `source_block` |
+
+### The Synthetic Import Contract
+
+The model writes standard Python import syntax targeting the `rlm_repl_skills` namespace:
+
+```python
+from rlm_repl_skills.ping import run_recursive_ping, RecursivePingResult
+```
+
+REPLTool intercepts this before AST rewriting and expands it into inline source blocks. The expanded code replaces the import statement with the full source of the requested symbols and all their transitive dependencies, topologically sorted.
+
+**v1 limitations:**
+- Only `from rlm_repl_skills.<module> import <symbol>[, <symbol>...]` is supported
+- No wildcard imports (`from rlm_repl_skills.ping import *`)
+- No aliasing (`from rlm_repl_skills.ping import run_recursive_ping as rp`)
+- No plain imports (`import rlm_repl_skills.ping`)
+
+### Constraints on Exported Source
+
+- Source must be valid standalone Python when inlined at module level
+- Source may assume REPL globals: `llm_query`, `llm_query_batched`, `LLMResult`, safe builtins, and any other globals present in `LocalREPL`
+- Source must not rely on runtime imports for `llm_query`-containing helpers (the whole point of expansion is making these visible to the AST rewriter)
+- If expansion would create a name conflict with a user-defined name in the same submitted code block, the expansion fails with a clear error
+
+### When to Choose Expansion vs repl.globals
+
+- **Use `repl.globals`** for pure utility functions (no LM calls): file helpers, data transformers, repo tools
+- **Use source expansion** when the skill's implementation calls `llm_query()` or `llm_query_batched()`, because these calls must be visible to the AST rewriter for sync-to-async transformation
+
+### Example: The Ping Skill Module
+
+**File:** `rlm_adk/skills/repl_skills/ping.py`
+
+The first expandable skill module implements a recursive ping workflow. It registers six exports under `rlm_repl_skills.ping`:
+
+| Symbol | Kind | Dependencies | Purpose |
+|--------|------|-------------|---------|
+| `PING_TERMINAL_PAYLOAD` | const | -- | Terminal layer JSON payload |
+| `PING_REASONING_LAYER_1` | const | -- | Layer 1 reasoning summary |
+| `PING_REASONING_LAYER_2` | const | -- | Layer 2 reasoning summary |
+| `RecursivePingResult` | class | -- | Result container with layer, payload, child_response, debug_log |
+| `build_recursive_ping_prompt` | function | `PING_TERMINAL_PAYLOAD`, `PING_REASONING_LAYER_1`, `PING_REASONING_LAYER_2` | Constructs per-layer prompts |
+| `run_recursive_ping` | function | All five above | Orchestrates the recursive ping with debug logging and `llm_query()` |
+
+Usage in REPL code:
+
+```python
+from rlm_repl_skills.ping import run_recursive_ping
+
+result = run_recursive_ping(max_layer=2)
+print(result.payload)  # {"my_response": "pong", "your_response": "ping"}
+```
+
+The expansion inlines all six symbols (topologically sorted) into the submitted code, making the `llm_query()` call inside `run_recursive_ping` visible to the AST rewriter.
+
+---
+
+## 9. Future: Dynamic Skill Activation
 
 The current skill system is static -- skills are compiled into the system prompt at agent creation time. A planned enhancement involves:
 
@@ -205,7 +304,7 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 
 ---
 
-## Quick Reference
+## 10. Quick Reference
 
 | Component | File | Role |
 |-----------|------|------|
@@ -216,6 +315,10 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 | build_skill_instruction_block() | `rlm_adk/skills/repomix_skill.py` | Returns XML discovery + instructions |
 | create_reasoning_agent() | `rlm_adk/agent.py` | Wires static + dynamic + skills |
 | reasoning_before_model | `rlm_adk/callbacks/reasoning.py` | Merges dynamic into system_instruction |
+| SkillRegistry | `rlm_adk/repl/skill_registry.py` | Synthetic import expansion registry |
+| register_skill_export() | `rlm_adk/repl/skill_registry.py` | Module-level registration API |
+| expand_skill_imports() | `rlm_adk/repl/skill_registry.py` | Expansion entry point (called by REPLTool) |
+| ping skill module | `rlm_adk/skills/repl_skills/ping.py` | First expandable skill (recursive ping) |
 
 ---
 
@@ -248,6 +351,7 @@ object.__setattr__(self.reasoning_agent, "tools", [repl_tool])
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
+- **2026-03-10** — Added section 8 (Source-Expandable REPL Skills) documenting skill registry, expansion contract, and ping skill module.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

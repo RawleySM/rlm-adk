@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-10 -->
 
 # RLM-ADK Core Loop Reference
 
@@ -91,15 +91,36 @@ REPLTool(
 1. Persist submitted code metadata to tool_context.state
 2. Save code as versioned artifact
 3. Increment call count; if > max_calls, return error immediately
-4. AST detection: has_llm_calls(code)?
-   YES -> rewrite_for_async(code) -> compile -> exec -> await _repl_exec()
+4. Expand synthetic skill imports (expand_skill_imports())
+   -> If expansion occurred, write REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH,
+      REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND to tool_context.state
+5. AST detection: has_llm_calls(expanded_code)?
+   YES -> rewrite_for_async(expanded_code) -> compile -> exec -> await _repl_exec()
           Uses repl.execute_code_async()
    NO  -> repl.execute_code() (sync, with timeout)
-5. Call flush_fn() to snapshot dispatch accumulators into tool_context.state
-6. Write LAST_REPL_RESULT summary dict to tool_context.state
-7. If output > summarization_threshold, set skip_summarization = True
-8. Filter locals to JSON-serializable values and return
+6. Call flush_fn() to snapshot dispatch accumulators into tool_context.state
+7. Write LAST_REPL_RESULT summary dict to tool_context.state
+8. If output > summarization_threshold, set skip_summarization = True
+9. Filter locals to JSON-serializable values and return
 ```
+
+### Skill Import Expansion Pass (Step 4)
+
+**File:** `rlm_adk/repl/skill_registry.py`
+
+Before AST analysis, REPLTool calls `expand_skill_imports(code)` from the `SkillRegistry` singleton. This expansion pass detects synthetic `from rlm_repl_skills.<module> import <symbol>` statements in the submitted code and replaces them with inline source blocks.
+
+The expansion pipeline:
+
+1. Parse submitted code to AST.
+2. Detect `ImportFrom` nodes targeting the `rlm_repl_skills.*` namespace.
+3. If none found, return the original code unchanged (`did_expand=False`).
+4. Resolve requested symbols and their transitive dependencies via the registry.
+5. Topologically sort all required exports by their `requires` dependency graph.
+6. Check for name conflicts between expanded symbols and user-defined names in the submitted code (hard error on conflict).
+7. Reassemble: normal imports first, then skill source blocks (with `# --- skill: module.name ---` markers), then remaining user code.
+
+The expanded code is what flows into `has_llm_calls()` and `rewrite_for_async()`. This makes `llm_query()` calls inside skill source visible to the AST rewriter, which would otherwise miss them if they were hidden behind a runtime import. The original submitted code is preserved separately for observability (see `REPL_SUBMITTED_CODE` vs `REPL_EXPANDED_CODE` in state).
 
 ### Call limit enforcement
 
@@ -447,6 +468,7 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 - **2026-03-09 13:15** — `orchestrator.py`: Added `fanout_idx` Pydantic field to `RLMOrchestratorAgent`, threaded to REPLTool and `save_final_answer()`.
 - **2026-03-09 13:15** — `repl_tool.py`: Added `fanout_idx` to `REPLTool.__init__()`, threaded to `save_repl_code()` with depth and fanout_idx.
 - **2026-03-09 13:15** — `agent.py`: Added `fanout_idx` to `create_child_orchestrator()`, passed to `RLMOrchestratorAgent`.
+- **2026-03-10** — `repl_tool.py`: Documented skill import expansion pass (step 4) in REPL execution pipeline.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

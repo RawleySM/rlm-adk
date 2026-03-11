@@ -2,6 +2,10 @@
 
 Serves ``POST /v1beta/models/{model}:generateContent`` with responses
 driven by a :class:`ScenarioRouter`.
+
+Also serves ``POST /v1/chat/completions`` (OpenAI-compatible) for LiteLLM
+mode testing, translating Gemini fixture responses to OpenAI format via
+:mod:`gemini_to_openai`.
 """
 
 from __future__ import annotations
@@ -13,12 +17,18 @@ from typing import Any
 from aiohttp import web
 
 from .fixtures import ScenarioRouter
+from .gemini_to_openai import gemini_error_to_openai, gemini_response_to_openai
 
 logger = logging.getLogger(__name__)
 
 
 class FakeGeminiServer:
-    """Lightweight aiohttp server emulating the Gemini generateContent endpoint."""
+    """Lightweight aiohttp server emulating the Gemini generateContent endpoint.
+
+    Also serves an OpenAI-compatible ``/v1/chat/completions`` endpoint for
+    LiteLLM mode testing.  Both endpoints share the same :class:`ScenarioRouter`
+    and fixture response sequence.
+    """
 
     def __init__(
         self,
@@ -33,6 +43,11 @@ class FakeGeminiServer:
         self._app.router.add_post(
             "/v1beta/models/{model}:generateContent",
             self._handle_generate_content,
+        )
+        # OpenAI-compatible endpoint for LiteLLM mode
+        self._app.router.add_post(
+            "/v1/chat/completions",
+            self._handle_chat_completions,
         )
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
@@ -69,7 +84,7 @@ class FakeGeminiServer:
         return self._base_url
 
     # ------------------------------------------------------------------
-    # Request handling
+    # Request handling — Gemini native
     # ------------------------------------------------------------------
 
     async def _handle_generate_content(self, request: web.Request) -> web.Response:
@@ -88,7 +103,13 @@ class FakeGeminiServer:
             body: dict[str, Any] = await request.json()
         except (json.JSONDecodeError, Exception):
             return web.json_response(
-                {"error": {"code": 400, "message": "Invalid JSON body", "status": "INVALID_ARGUMENT"}},
+                {
+                    "error": {
+                        "code": 400,
+                        "message": "Invalid JSON body",
+                        "status": "INVALID_ARGUMENT",
+                    }
+                },
                 status=400,
             )
 
@@ -102,7 +123,8 @@ class FakeGeminiServer:
 
         # Get next scripted response
         status_code, response_body = self.router.next_response(
-            body, request_meta={"model": model_name},
+            body,
+            request_meta={"model": model_name},
         )
 
         # Handle malformed JSON fault
@@ -115,3 +137,71 @@ class FakeGeminiServer:
             )
 
         return web.json_response(response_body, status=status_code)
+
+    # ------------------------------------------------------------------
+    # Request handling — OpenAI-compatible (for LiteLLM mode)
+    # ------------------------------------------------------------------
+
+    async def _handle_chat_completions(self, request: web.Request) -> web.Response:
+        """Handle POST /v1/chat/completions (OpenAI-compatible).
+
+        Uses the same ScenarioRouter fixture sequence as the Gemini endpoint,
+        translating Gemini-format responses to OpenAI format on the fly.
+        """
+        # Validate auth header (Bearer token or api-key)
+        auth = request.headers.get("Authorization", "")
+        api_key = request.headers.get("api-key", "")
+        if not auth and not api_key:
+            return web.json_response(
+                {
+                    "error": {
+                        "message": "Missing API key",
+                        "type": "authentication_error",
+                        "code": "401",
+                    }
+                },
+                status=401,
+            )
+
+        # Parse request body
+        try:
+            body: dict[str, Any] = await request.json()
+        except (json.JSONDecodeError, Exception):
+            return web.json_response(
+                {"error": {"message": "Invalid JSON body", "type": "invalid_request_error"}},
+                status=400,
+            )
+
+        model_name = body.get("model", "unknown")
+        messages = body.get("messages", [])
+        logger.debug(
+            "FakeGeminiServer (OpenAI): model=%s messages_count=%d",
+            model_name,
+            len(messages),
+        )
+
+        # Get next scripted response (Gemini format) from the shared router.
+        # We pass the OpenAI body to the router for request logging, but the
+        # router doesn't care about the format — it just indexes call_index.
+        status_code, gemini_response = self.router.next_response(
+            body,
+            request_meta={"model": model_name},
+        )
+
+        # Handle malformed JSON fault
+        if status_code == -1:
+            raw = gemini_response.get("_raw", "{bad json")
+            return web.Response(
+                text=raw,
+                content_type="application/json",
+                status=200,
+            )
+
+        # Error responses — translate to OpenAI error format
+        if status_code >= 400:
+            openai_error = gemini_error_to_openai(gemini_response, status_code)
+            return web.json_response(openai_error, status=status_code)
+
+        # Success — translate Gemini response to OpenAI format
+        openai_response = gemini_response_to_openai(gemini_response, model=model_name)
+        return web.json_response(openai_response, status=200)

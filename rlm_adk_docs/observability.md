@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-10 -->
 
 # Observability and Plugin Reference
 
@@ -339,7 +339,35 @@ server exceptions lack the `.code` attribute.
 
 ---
 
-## 9. REPL Trace Infrastructure
+## 9. Skill Expansion Observability Keys
+
+**Written by:** `REPLTool.run_async()` in `rlm_adk/tools/repl_tool.py`
+
+When REPLTool expands synthetic skill imports (see `skills_and_prompts.md` section 8), it writes four depth-scoped state keys to `tool_context.state`. These are **additive** -- they do not replace the existing submitted code keys (`REPL_SUBMITTED_CODE`, `REPL_SUBMITTED_CODE_HASH`, etc.), which continue to capture the original code as written by the model.
+
+| Key | Constant | Type | Description |
+|-----|----------|------|-------------|
+| `repl_expanded_code` | `REPL_EXPANDED_CODE` | `str` | Full expanded source text (with skill source inlined) |
+| `repl_expanded_code_hash` | `REPL_EXPANDED_CODE_HASH` | `str` | SHA-256 hex digest of the expanded source |
+| `repl_skill_expansion_meta` | `REPL_SKILL_EXPANSION_META` | `dict` | `{"symbols": [...], "modules": [...]}` -- lists of expanded symbol names and synthetic module paths |
+| `repl_did_expand` | `REPL_DID_EXPAND` | `bool` | `True` when expansion occurred; key is absent when no synthetic imports were detected |
+
+All four keys are **depth-scoped** (listed in `DEPTH_SCOPED_KEYS` in `state.py`). At depth 0 the keys are bare; at depth N they are suffixed `@dN` (e.g. `repl_expanded_code@d1`).
+
+These keys are only written when `expand_skill_imports()` returns `did_expand=True`. If the submitted code contains no `from rlm_repl_skills.*` imports, none of these keys are set.
+
+**Relationship to existing keys:**
+
+| What | Key | Content |
+|------|-----|---------|
+| Original submitted code | `REPL_SUBMITTED_CODE` | Code as the model wrote it (with synthetic imports) |
+| Expanded executed code | `REPL_EXPANDED_CODE` | Code actually executed (synthetic imports replaced with inline source) |
+
+This split enables debugging expansion issues: compare the submitted code hash to the expanded code hash to determine whether expansion changed the code, and inspect `REPL_SKILL_EXPANSION_META` to see exactly which symbols were inlined.
+
+---
+
+## 10. REPL Trace Infrastructure
 
 **File:** `rlm_adk/repl/trace.py`
 
@@ -383,7 +411,7 @@ peak memory into the shared `_rlm_trace` object.
 
 ---
 
-## 10. Dashboard
+## 11. Dashboard
 
 **Directory:** `rlm_adk/dashboard/`
 
@@ -447,6 +475,7 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
+- **2026-03-10** — Added section 9 (Skill Expansion Observability Keys) documenting REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH, REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

@@ -98,6 +98,12 @@ REPL_SUBMITTED_CODE_PREVIEW = "repl_submitted_code_preview"
 REPL_SUBMITTED_CODE_HASH = "repl_submitted_code_hash"
 REPL_SUBMITTED_CODE_CHARS = "repl_submitted_code_chars"
 
+# Skill Expansion Observability Keys
+REPL_EXPANDED_CODE = "repl_expanded_code"
+REPL_EXPANDED_CODE_HASH = "repl_expanded_code_hash"
+REPL_SKILL_EXPANSION_META = "repl_skill_expansion_meta"
+REPL_DID_EXPAND = "repl_did_expand"
+
 
 def child_obs_key(depth: int, fanout_idx: int) -> str:
     """Return fanout-suffixed obs key: obs:child_summary@d{depth}f{fanout_idx}."""
@@ -149,6 +155,10 @@ DEPTH_SCOPED_KEYS: set[str] = {
     REPL_SUBMITTED_CODE_PREVIEW,
     REPL_SUBMITTED_CODE_HASH,
     REPL_SUBMITTED_CODE_CHARS,
+    REPL_EXPANDED_CODE,
+    REPL_EXPANDED_CODE_HASH,
+    REPL_SKILL_EXPANSION_META,
+    REPL_DID_EXPAND,
 }
 # NOTE: Only iteration-local keys that need independent state per depth
 # level are included. Global observability keys are excluded.

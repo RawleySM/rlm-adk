@@ -111,6 +111,54 @@ async def save_repl_output(
         return None
 
 
+def _build_metadata_docstring(
+    *,
+    session_id: str,
+    model: str,
+    depth: int,
+    fanout: int,
+    iteration: int,
+    turn: int,
+    stdout: str,
+    stderr: str,
+) -> str:
+    """Build a YAML-style metadata docstring to prepend to REPL code artifacts.
+
+    Args:
+        session_id: The session identifier.
+        model: The LLM model name.
+        depth: Orchestrator nesting depth.
+        fanout: Fanout index within a batched dispatch.
+        iteration: The current orchestrator iteration number.
+        turn: The code block index within this iteration.
+        stdout: Standard output from REPL execution.
+        stderr: Standard error from REPL execution.
+
+    Returns:
+        A triple-quoted docstring with metadata fields.
+    """
+    def _format_block(value: str) -> str:
+        """Format a multiline value as indented YAML block scalar."""
+        if not value or not value.strip():
+            return "\n    (empty)"
+        indented = "\n".join(f"    {line}" for line in value.splitlines())
+        return "\n" + indented
+
+    lines = [
+        '"""',
+        f"session_id: {session_id}",
+        f"model: {model}",
+        f"depth: {depth}",
+        f"fanout: {fanout}",
+        f"iteration: {iteration}",
+        f"turn: {turn}",
+        f"stdout: |{_format_block(stdout)}",
+        f"stderr: |{_format_block(stderr)}",
+        '"""',
+    ]
+    return "\n".join(lines) + "\n"
+
+
 async def save_repl_code(
     ctx: Union[InvocationContext, CallbackContext],
     iteration: int,
@@ -118,10 +166,18 @@ async def save_repl_code(
     code: str,
     depth: int = 0,
     fanout_idx: int = 0,
+    *,
+    model: Optional[str] = None,
+    session_id: Optional[str] = None,
+    stdout: Optional[str] = None,
+    stderr: Optional[str] = None,
 ) -> Optional[int]:
     """Save REPL code block as a versioned artifact.
 
     The artifact is named ``repl_code_d{depth}_f{fanout_idx}_iter_{iteration}_turn_{turn}.py``.
+
+    When *model*, *session_id*, *stdout*, and *stderr* are provided, a YAML-style
+    metadata docstring is prepended to the code before saving.
 
     Args:
         ctx: InvocationContext or CallbackContext.
@@ -130,6 +186,11 @@ async def save_repl_code(
         code: The Python source code to save.
         depth: Orchestrator nesting depth (0 = root).
         fanout_idx: Fanout index within a batched dispatch (0 = single/first).
+        model: LLM model name (keyword-only). When provided with other metadata
+            kwargs, a metadata docstring is prepended.
+        session_id: Session identifier (keyword-only).
+        stdout: Standard output from REPL execution (keyword-only).
+        stderr: Standard error from REPL execution (keyword-only).
 
     Returns:
         Version number (int), or None if no artifact service configured
@@ -142,8 +203,23 @@ async def save_repl_code(
 
     filename = f"repl_code_d{depth}_f{fanout_idx}_iter_{iteration}_turn_{turn}.py"
 
+    # Prepend metadata docstring when metadata kwargs are provided
+    content = code
+    if model is not None and session_id is not None and stdout is not None and stderr is not None:
+        docstring = _build_metadata_docstring(
+            session_id=session_id,
+            model=model,
+            depth=depth,
+            fanout=fanout_idx,
+            iteration=iteration,
+            turn=turn,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        content = docstring + code
+
     try:
-        artifact = types.Part(text=code)
+        artifact = types.Part(text=content)
         version = await inv_ctx.artifact_service.save_artifact(
             app_name=inv_ctx.app_name,
             user_id=inv_ctx.session.user_id,
@@ -151,7 +227,7 @@ async def save_repl_code(
             filename=filename,
             artifact=artifact,
         )
-        _update_save_tracking(ctx, filename, version, len(code.encode("utf-8")))
+        _update_save_tracking(ctx, filename, version, len(content.encode("utf-8")))
         return version
     except Exception as e:
         logger.warning("Failed to save REPL code artifact: %s", e)
