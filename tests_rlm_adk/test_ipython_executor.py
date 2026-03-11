@@ -180,14 +180,22 @@ class TestIPythonDebugExecutorAsync:
 
 
 class TestIPythonDebugExecutorDebugMode:
-    def test_no_interactive_when_debug_disabled(self):
+    def test_no_interactive_when_debug_disabled(self, monkeypatch):
         """Debug mode disabled should never call IPython.embed or debugpy."""
+        from unittest.mock import MagicMock, patch
+
         cfg = REPLDebugConfig(debug=False, debugpy_enabled=False, ipython_embed=False)
         executor = IPythonDebugExecutor(config=cfg)
         ns = {"__builtins__": __builtins__}
-        # Should run cleanly without any interactive behavior
-        stdout, stderr, success = executor.execute_sync("x = 1", ns)
-        assert success is True
+
+        mock_embed = MagicMock()
+        with patch("rlm_adk.repl.ipython_executor.IPythonDebugExecutor._embed_on_exception", mock_embed):
+            # Trigger exception path where embed would be called if enabled
+            stdout, stderr, success = executor.execute_sync("1/0", ns)
+
+        assert success is False
+        assert "ZeroDivisionError" in stderr
+        mock_embed.assert_not_called()
 
     def test_exec_backend_uses_raw_exec(self):
         """When backend=exec, executor uses plain exec() without IPython."""

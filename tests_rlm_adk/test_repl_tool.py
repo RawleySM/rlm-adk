@@ -216,3 +216,5 @@ class TestREPLToolIPythonBackendContract:
         # Rewrite counter should have been incremented
         from rlm_adk.state import OBS_REWRITE_COUNT
         assert tc.state.get(OBS_REWRITE_COUNT, 0) >= 1
+        # Verify the async path actually executed and returned the variable
+        assert result["variables"].get("result") == "fake response"

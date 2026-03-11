@@ -13,10 +13,13 @@ No ADK-specific behavior lives here.
 from __future__ import annotations
 
 import io
+import logging
 import os
 import sys
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -106,9 +109,11 @@ class IPythonDebugExecutor:
             self._debugpy_armed = True
             if self._config.debugpy_wait:
                 debugpy.wait_for_client()
-        except Exception:
-            # If debugpy is already listening or port is busy, ignore
-            pass
+        except Exception as e:
+            logger.warning(
+                "Failed to arm debugpy on %s:%s: %s",
+                self._config.debugpy_host, self._config.debugpy_port, e,
+            )
 
     def execute_sync(
         self, code: str, namespace: dict[str, Any],
@@ -247,12 +252,11 @@ class IPythonDebugExecutor:
             pass
 
     def cleanup(self) -> None:
-        """Release executor resources."""
-        if self._shell is not None:
-            try:
-                # Reset the instance to avoid stale state
-                type(self._shell)._instance = None  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            self._shell = None
+        """Release executor resources.
+
+        Does NOT destroy the InteractiveShell singleton since other executors
+        (e.g. parent REPL in recursive dispatch) may still reference it.
+        We only drop our local reference.
+        """
+        self._shell = None
         self._debugpy_armed = False
