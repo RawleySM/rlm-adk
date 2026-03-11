@@ -168,12 +168,11 @@ class REPLTool(BaseTool):
                     categories[err_name] = categories.get(err_name, 0) + 1
                     tool_context.state[OBS_REWRITE_FAILURE_CATEGORIES] = categories
                     raise
-                # Merge globals and locals so _repl_exec sees variables from
-                # previous executions (imports, user-defined vars, etc.)
-                ns = {**self.repl.globals, **self.repl.locals}
-                exec(compiled, ns)
-                repl_exec_fn = ns["_repl_exec"]
-                result = await self.repl.execute_code_async(code, repl_exec_fn, trace=trace)
+                # Delegate compiled async wrapper to LocalREPL/executor.
+                # The executor installs _repl_exec into the namespace and runs it.
+                result = await self.repl.execute_code_async(
+                    code, trace=trace, compiled=compiled,
+                )
             else:
                 result = self.repl.execute_code(code, trace=trace)
         except asyncio.CancelledError as exc:

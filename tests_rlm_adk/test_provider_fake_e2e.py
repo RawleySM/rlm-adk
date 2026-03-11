@@ -467,7 +467,7 @@ async def test_repl_trace_in_events_multi_iteration(tmp_path: Path):
 
     # At least one tool result should exist (code was executed)
     assert len(tool_results) >= 1, (
-        f"No execute_code function_response events found"
+        "No execute_code function_response events found"
     )
 
     # At least one tool result should have llm_calls_made=True
@@ -510,6 +510,42 @@ async def test_captured_requests_populated():
     print(f"  captured_requests: {len(result.captured_requests)}")
     for i, req in enumerate(result.captured_requests):
         print(f"    #{i}: keys={sorted(req.keys())}")
+
+
+# ===========================================================================
+# GROUP E: IPython backend e2e
+# ===========================================================================
+
+
+@pytest.mark.agent_challenge
+async def test_ipython_backend_multi_iteration_with_workers(tmp_path: Path, monkeypatch):
+    """Provider-fake e2e passes with RLM_REPL_BACKEND=ipython and debug disabled.
+
+    Uses the multi_iteration_with_workers fixture which exercises execute_code.
+    """
+    monkeypatch.setenv("RLM_REPL_BACKEND", "ipython")
+    monkeypatch.setenv("RLM_REPL_IPYTHON_EMBED", "0")
+    monkeypatch.setenv("RLM_REPL_DEBUGPY", "0")
+    monkeypatch.setenv("RLM_REPL_DEBUGPY_WAIT", "0")
+
+    result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
+    assert result.contract.passed, result.contract.diagnostics()
+    assert result.final_state.get(FINAL_ANSWER) == "4"
+
+    # Verify at least one execute_code tool response exists
+    tool_results = []
+    for event in result.events:
+        content = getattr(event, "content", None)
+        if content is None:
+            continue
+        for part in getattr(content, "parts", []):
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "name", "") == "execute_code":
+                response_data = getattr(fr, "response", None)
+                if isinstance(response_data, dict):
+                    tool_results.append(response_data)
+
+    assert len(tool_results) >= 1, "Expected at least one execute_code tool response"
 
 
 async def test_save_captured_requests_to_json(tmp_path: Path):

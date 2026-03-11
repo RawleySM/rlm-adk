@@ -40,6 +40,7 @@ Repository = "https://github.com/alexzhang13/rlm"
 Issues = "https://github.com/alexzhang13/rlm/issues"
 
 [project.optional-dependencies]
+debug = ["ipython>=8.0", "debugpy>=1.8"]
 dashboard = ["nicegui>=2.0"]
 modal = ["modal>=0.73.0", "dill>=0.3.7"]
 e2b = ["e2b-code-interpreter>=0.0.11", "dill>=0.3.7"]
