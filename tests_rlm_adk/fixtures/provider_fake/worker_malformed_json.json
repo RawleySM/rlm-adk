@@ -170,5 +170,23 @@
         "$gt": 0
       }
     }
+  },
+  "litellm_overrides": {
+    "expected_state": {
+      "obs:child_error_counts": {
+        "$not_empty": true
+      }
+    },
+    "expected_contract": {
+      "observability": {
+        "obs:child_error_counts": {
+          "$not_empty": true
+        },
+        "obs:child_summary@d1f0": {
+          "error_category": {"$oneof": ["UNKNOWN", "SERVER"]},
+          "result_preview": {"$not_none": true}
+        }
+      }
+    }
   }
 }

@@ -36,12 +36,12 @@ class DashboardDataLoader:
         jsonl_path: str | None = None,
         outputs_path: str | None = None,
     ):
-        from rlm_adk.agent import _project_root
+        from rlm_adk.agent import _package_dir
 
         if jsonl_path is None:
-            jsonl_path = str(_project_root() / ".adk" / "context_snapshots.jsonl")
+            jsonl_path = str(_package_dir() / ".adk" / "context_snapshots.jsonl")
         if outputs_path is None:
-            outputs_path = str(_project_root() / ".adk" / "model_outputs.jsonl")
+            outputs_path = str(_package_dir() / ".adk" / "model_outputs.jsonl")
         self._path = Path(jsonl_path)
         self._outputs_path = Path(outputs_path)
 

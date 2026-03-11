@@ -1,4 +1,4 @@
-<!-- last-audit: 2026-03-09 -->
+<!-- last-audit: 2026-03-10 -->
 <!-- source: ai_docs/codebase_documentation_research/PLAN.md -->
 # RLM-ADK: Agent Orientation Guide
 
@@ -156,6 +156,8 @@ Design philosophy: [vision/evolution_principles.md](vision/evolution_principles.
 | `rlm_adk/callbacks/worker_retry.py` | Structured output self-healing, BUG-13 |
 | `rlm_adk/plugins/observability.py` | Token accounting plugin |
 | `rlm_adk/plugins/sqlite_tracing.py` | SQLite tracing plugin |
+| `rlm_adk/repl/skill_registry.py` | Synthetic REPL skill import expansion |
+| `rlm_adk/skills/repl_skills/ping.py` | First expandable skill module (recursive ping) |
 | `tests_rlm_adk/provider_fake/` | FakeGeminiServer, contract runner |
 
 ---

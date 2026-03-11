@@ -1,0 +1,9 @@
+{
+  "state": {
+    "app:max_iterations": 5,
+    "app:max_depth": 2
+  },
+  "queries": [
+    "You are testing multi-model parallel dispatch via LiteLLM Router.\n\nIMPORTANT: Call execute_code with the following Python code:\n\n```python\nprompts = [\n    'What is 2+2? Reply with just the number.',\n    'What is 3+3? Reply with just the number.',\n    'What is 4+4? Reply with just the number.'\n]\nresults = llm_query_batched(prompts)\nfor i, r in enumerate(results):\n    print(f'Result {i}: {r}')\n```\n\nAfter the code executes, call set_model_response with the concatenated results as your final_answer."
+  ]
+}

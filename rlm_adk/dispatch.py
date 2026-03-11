@@ -85,8 +85,8 @@ class DispatchConfig:
 
     def __init__(
         self,
-        default_model: str,
-        other_model: str | None = None,
+        default_model: "str | Any",
+        other_model: "str | Any | None" = None,
         pool_size: int = 5,
     ):
         self.default_model = default_model
@@ -160,7 +160,7 @@ def create_dispatch_closures(
         """Append a structured child-call record for REPL observability."""
         if call_log_sink is None:
             return
-        model_name = result.model or dispatch_config.other_model
+        model_name = str(result.model or dispatch_config.other_model)
         call_log_sink.append(
             RLMChatCompletion(
                 root_model=model_name,
@@ -318,7 +318,11 @@ def create_dispatch_closures(
     ) -> LLMResult:
         """Spawn a child orchestrator for a single sub-query."""
         nonlocal _acc_structured_output_failures
-        target_model = model or dispatch_config.other_model
+        # Preserve the raw model object for create_child_orchestrator so that
+        # _resolve_model()'s CRIT-1 check can pass LiteLlm objects through
+        # unchanged.  Use str() only for logging / dict keys / LLMResult.model.
+        raw_model = model if model is not None else dispatch_config.other_model
+        target_model = str(raw_model)
         if depth + 1 >= max_depth:
             result = LLMResult(
                 f"[DEPTH_LIMIT] Cannot dispatch at depth {depth + 1} (max_depth={max_depth})",
@@ -342,7 +346,7 @@ def create_dispatch_closures(
         from rlm_adk.agent import create_child_orchestrator
 
         child = create_child_orchestrator(
-            model=target_model,
+            model=raw_model,
             depth=depth + 1,
             prompt=prompt,
             worker_pool=dispatch_config,
@@ -417,7 +421,7 @@ def create_dispatch_closures(
             elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error("Child dispatch error at depth %d: %s", depth + 1, e)
             cat = "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else (
-                _classify_error(e) if hasattr(e, "code") else "UNKNOWN"
+                _classify_error(e) if (hasattr(e, "code") or hasattr(e, "status_code")) else "UNKNOWN"
             )
             if cat == "SCHEMA_VALIDATION_EXHAUSTED":
                 _acc_structured_output_failures += 1

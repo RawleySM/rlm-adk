@@ -109,6 +109,10 @@ _ENV_KEYS = (
     "RLM_LLM_MAX_RETRIES",
     "RLM_MAX_ITERATIONS",
     "RLM_REPL_TRACE",
+    # LiteLLM mode keys
+    "RLM_ADK_LITELLM",
+    "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
 )
 
 
@@ -135,6 +139,79 @@ def _set_env(base_url: str, router: ScenarioRouter) -> None:
     os.environ["RLM_LLM_RETRY_DELAY"] = str(router.config.get("retry_delay", 0.01))
     os.environ["RLM_LLM_MAX_RETRIES"] = str(router.config.get("max_retries", 3))
     os.environ["RLM_MAX_ITERATIONS"] = str(router.config.get("max_iterations", 5))
+
+
+def _set_env_litellm(base_url: str, router: ScenarioRouter) -> None:
+    """Set env vars to redirect traffic through LiteLLM to the fake server.
+
+    Activates ``RLM_ADK_LITELLM=1`` and configures an ``openai/`` model in
+    the LiteLLM Router model list pointing at the fake server's
+    ``/v1/chat/completions`` endpoint.
+    """
+    os.environ["RLM_ADK_LITELLM"] = "1"
+    os.environ["OPENAI_API_KEY"] = "fake-key-for-litellm-testing"
+    os.environ["OPENAI_API_BASE"] = base_url + "/v1"
+    # Remove Gemini-specific vars to avoid conflict
+    os.environ.pop("GOOGLE_GEMINI_BASE_URL", None)
+    os.environ.pop("GEMINI_API_KEY", None)
+    os.environ.pop("GOOGLE_API_KEY", None)
+    os.environ["RLM_ADK_MODEL"] = router.config.get("model", "gemini-fake")
+    os.environ["RLM_LLM_RETRY_DELAY"] = str(router.config.get("retry_delay", 0.01))
+    os.environ["RLM_LLM_MAX_RETRIES"] = str(router.config.get("max_retries", 3))
+    os.environ["RLM_MAX_ITERATIONS"] = str(router.config.get("max_iterations", 5))
+
+
+def _build_litellm_model_list(base_url: str) -> list[dict[str, Any]]:
+    """Build a LiteLLM Router model list pointing at the fake server."""
+    api_base = base_url + "/v1"
+    return [
+        {
+            "model_name": "reasoning",
+            "litellm_params": {
+                "model": "openai/fake-model",
+                "api_key": "fake-key-for-litellm-testing",
+                "api_base": api_base,
+            },
+        },
+        {
+            "model_name": "worker",
+            "litellm_params": {
+                "model": "openai/fake-model",
+                "api_key": "fake-key-for-litellm-testing",
+                "api_base": api_base,
+            },
+        },
+    ]
+
+
+def _setup_litellm_client(base_url: str) -> None:
+    """Create and install the LiteLLM Router singleton pointing at the fake server.
+
+    Resets the cached client in ``litellm_router`` module so tests start fresh,
+    then installs a new ``RouterLiteLlmClient`` backed by the fake server.
+    """
+    import rlm_adk.models.litellm_router as lr
+
+    # Reset singleton
+    lr._cached_client = None
+
+    model_list = _build_litellm_model_list(base_url)
+    client = lr.RouterLiteLlmClient(
+        model_list=model_list,
+        routing_strategy="simple-shuffle",
+        num_retries=0,  # Let the fixture sequence handle retries
+    )
+    lr._cached_client = client
+
+
+def _teardown_litellm_client() -> None:
+    """Reset the LiteLLM Router singleton after a test run."""
+    try:
+        import rlm_adk.models.litellm_router as lr
+
+        lr._cached_client = None
+    except ImportError:
+        pass
 
 
 def _make_repl(router: ScenarioRouter) -> LocalREPL | None:
@@ -175,6 +252,7 @@ async def _make_runner_and_session(
     dynamic_instruction = None
     if router.config.get("test_hooks"):
         from rlm_adk.utils.prompts import RLM_DYNAMIC_INSTRUCTION
+
         dynamic_instruction = (
             RLM_DYNAMIC_INSTRUCTION
             + "Callback state: {cb_reasoning_context?}\n"
@@ -210,7 +288,9 @@ async def _make_runner_and_session(
 
 
 async def _run_to_completion(
-    runner: Runner, session: Any, prompt: str = "test prompt",
+    runner: Runner,
+    session: Any,
+    prompt: str = "test prompt",
 ) -> dict[str, Any]:
     """Drive the runner to completion and return final session state."""
     content = types.Content(
@@ -236,6 +316,7 @@ async def _run_to_completion(
 async def run_fixture_contract(
     fixture_path: Path,
     prompt: str = "test prompt",
+    litellm_mode: bool = False,
 ) -> ContractResult:
     """Execute a fixture through the plugin-enabled production pipeline.
 
@@ -250,6 +331,8 @@ async def run_fixture_contract(
     Args:
         fixture_path: Path to the fixture JSON file.
         prompt: User prompt to send to the runner.
+        litellm_mode: When True, route calls through LiteLLM Router instead
+            of the native Gemini SDK.
 
     Returns:
         A :class:`ContractResult` with pass/fail status and diagnostics.
@@ -260,6 +343,7 @@ async def run_fixture_contract(
             prompt=prompt,
             traces_db_path=str(Path(tmpdir) / "traces.db"),
             repl_trace_level=1,
+            litellm_mode=litellm_mode,
         )
     return plugin_result.contract
 
@@ -269,6 +353,7 @@ async def run_fixture_contract_with_plugins(
     prompt: str = "test prompt",
     traces_db_path: str | None = None,
     repl_trace_level: int = 2,
+    litellm_mode: bool = False,
 ) -> PluginContractResult:
     """Execute a fixture through the full plugin-enabled pipeline.
 
@@ -281,20 +366,25 @@ async def run_fixture_contract_with_plugins(
     - ``ObservabilityPlugin`` verbose mode disabled (noisy in CI)
     - ``LangfuseTracingPlugin`` disabled (requires external service)
 
+    When *litellm_mode* is True, routes calls through LiteLLM Router
+    (``RLM_ADK_LITELLM=1``) pointing at the fake server's OpenAI-compatible
+    endpoint.
+
     Args:
         fixture_path: Path to the fixture JSON file.
         prompt: User prompt to send to the runner.
         traces_db_path: Path for SqliteTracingPlugin DB.  ``None`` disables
             sqlite tracing.
         repl_trace_level: ``RLM_REPL_TRACE`` env var value (0 = off).
+        litellm_mode: When True, route via LiteLLM Router.
 
     Returns:
         A :class:`PluginContractResult` with contract result, events,
         final state, artifact service reference, and traces DB path.
     """
     from rlm_adk.plugins.observability import ObservabilityPlugin
-    from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
     from rlm_adk.plugins.repl_tracing import REPLTracingPlugin
+    from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
 
     router = ScenarioRouter.from_file(fixture_path)
     server = FakeGeminiServer(router=router, host="127.0.0.1", port=0)
@@ -302,11 +392,16 @@ async def run_fixture_contract_with_plugins(
     saved = _save_env()
     try:
         base_url = await server.start()
-        _set_env(base_url, router)
+        if litellm_mode:
+            _set_env_litellm(base_url, router)
+            _setup_litellm_client(base_url)
+        else:
+            _set_env(base_url, router)
         os.environ["RLM_REPL_TRACE"] = str(repl_trace_level)
 
         # Build plugin list
         from google.adk.plugins.base_plugin import BasePlugin
+
         plugins: list[BasePlugin] = [ObservabilityPlugin()]
         if traces_db_path:
             plugins.append(SqliteTracingPlugin(db_path=traces_db_path))
@@ -363,6 +458,7 @@ async def run_fixture_contract_with_plugins(
             fixture_path,
             elapsed,
             events=events,
+            litellm_mode=litellm_mode,
         )
 
         return PluginContractResult(
@@ -375,4 +471,6 @@ async def run_fixture_contract_with_plugins(
         )
     finally:
         await server.stop()
+        if litellm_mode:
+            _teardown_litellm_client()
         _restore_env(saved)

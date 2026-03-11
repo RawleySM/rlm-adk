@@ -50,6 +50,31 @@ from rlm_adk.utils.prompts import (
 
 logger = logging.getLogger(__name__)
 
+
+def _is_litellm_active() -> bool:
+    """Check if LiteLLM Router mode is enabled via RLM_ADK_LITELLM env var."""
+    return os.getenv("RLM_ADK_LITELLM", "").lower() in ("1", "true", "yes")
+
+
+def _resolve_model(model_str, tier=None):
+    """Resolve model string to either plain str (Gemini) or LiteLlm (Router).
+
+    When ``RLM_ADK_LITELLM`` is not active, returns *model_str* unchanged.
+    When active, creates a ``LiteLlm`` object backed by the singleton Router.
+
+    CRIT-1: If *model_str* is already a non-string (e.g. a ``LiteLlm`` object),
+    it is returned as-is to prevent double-wrapping on recursive dispatch.
+    """
+    if not _is_litellm_active():
+        return model_str
+    if not isinstance(model_str, str):
+        return model_str  # Already a LiteLlm object (CRIT-1)
+    from rlm_adk.models.litellm_router import create_litellm_model
+
+    logical_name = tier or os.getenv("RLM_LITELLM_TIER", "reasoning")
+    return create_litellm_model(logical_name)
+
+
 # Load repo-root .env so model and API key env vars are available.
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
 
@@ -58,8 +83,20 @@ def _project_root() -> Path:
     """Resolve the project root directory (contains pyproject.toml).
 
     Uses __file__ to anchor resolution, matching the .env pattern at line 54.
+    Used only for repo-level paths (e.g. .env loading).
     """
     return Path(__file__).resolve().parents[1]
+
+
+def _package_dir() -> Path:
+    """Resolve the rlm_adk package directory (contains agent.py).
+
+    This is the directory where ``adk run`` roots its ``.adk`` storage.
+    Use this (not ``_project_root()``) as the anchor for all plugin and
+    service file paths so that custom plugins write to the same ``.adk/``
+    directory as ADK's built-in session and artifact services.
+    """
+    return Path(__file__).resolve().parent
 
 
 _DEFAULT_RETRY_OPTIONS = HttpRetryOptions(
@@ -69,8 +106,8 @@ _DEFAULT_RETRY_OPTIONS = HttpRetryOptions(
     exp_base=2.0,
 )
 
-_DEFAULT_DB_PATH = str(_project_root() / ".adk" / "session.db")
-_DEFAULT_ARTIFACT_ROOT = str(_project_root() / ".adk" / "artifacts")
+_DEFAULT_DB_PATH = str(_package_dir() / ".adk" / "session.db")
+_DEFAULT_ARTIFACT_ROOT = str(_package_dir() / ".adk" / "artifacts")
 
 _SQLITE_STARTUP_PRAGMAS = """
 PRAGMA journal_mode = WAL;
@@ -192,8 +229,10 @@ def create_reasoning_agent(
             output.  When set, ADK injects a ``set_model_response`` tool
             and validates the model's response against this schema.
     """
+    litellm_active = _is_litellm_active()
+
     planner = None
-    if thinking_budget > 0:
+    if thinking_budget > 0 and not litellm_active:
         planner = BuiltInPlanner(
             thinking_config=types.ThinkingConfig(
                 include_thoughts=True,
@@ -207,11 +246,13 @@ def create_reasoning_agent(
 
         static_instruction = static_instruction + "\n" + build_skill_instruction_block()
 
-    gcc = _build_generate_content_config(retry_config)
+    gcc = _build_generate_content_config(retry_config) if not litellm_active else None
+
+    resolved_model = _resolve_model(model) if litellm_active else model
 
     return LlmAgent(
         name=name,
-        model=model,
+        model=resolved_model,
         description="Main reasoning agent for RLM iteration loop",
         instruction=dynamic_instruction,
         static_instruction=static_instruction,
@@ -253,7 +294,16 @@ def create_rlm_orchestrator(
 
     # Default WorkerPool if none provided
     if worker_pool is None:
-        worker_pool = WorkerPool(default_model=model)
+        if _is_litellm_active():
+            from rlm_adk.models.litellm_router import create_litellm_model
+
+            worker_tier = os.getenv("RLM_LITELLM_WORKER_TIER", "worker")
+            worker_pool = WorkerPool(
+                default_model=model,
+                other_model=create_litellm_model(worker_tier),
+            )
+        else:
+            worker_pool = WorkerPool(default_model=model)
 
     kwargs: dict[str, Any] = {
         "name": "rlm_orchestrator",
@@ -272,7 +322,7 @@ def create_rlm_orchestrator(
 
 
 def create_child_orchestrator(
-    model: str,
+    model: "str | Any",
     depth: int,
     prompt: str,
     worker_pool: WorkerPool | None = None,
@@ -348,7 +398,7 @@ def _default_plugins(
         try:
             from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
             plugins.append(SqliteTracingPlugin(
-                db_path=str(_project_root() / ".adk" / "traces.db"),
+                db_path=str(_package_dir() / ".adk" / "traces.db"),
             ))
         except ImportError:
             logger.debug("SqliteTracingPlugin not available, skipping")
@@ -376,11 +426,19 @@ def _default_plugins(
     _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
     if _snapshot_env:
         from rlm_adk.plugins.context_snapshot import ContextWindowSnapshotPlugin
-        _adk_dir = str(_project_root() / ".adk")
+        _adk_dir = str(_package_dir() / ".adk")
         plugins.append(ContextWindowSnapshotPlugin(
             output_path=f"{_adk_dir}/context_snapshots.jsonl",
             output_capture_path=f"{_adk_dir}/model_outputs.jsonl",
         ))
+
+    if _is_litellm_active():
+        try:
+            from rlm_adk.plugins.litellm_cost_tracking import LiteLLMCostTrackingPlugin
+            plugins.append(LiteLLMCostTrackingPlugin())
+        except ImportError:
+            logger.debug("LiteLLMCostTrackingPlugin not available, skipping")
+
     return plugins
 
 

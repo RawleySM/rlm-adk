@@ -35,9 +35,9 @@ class TestFileArtifactServiceDefault:
 
     def test_default_artifact_root_is_adk_artifacts(self):
         """Default FileArtifactService root resolves to absolute .adk/artifacts."""
-        from rlm_adk.agent import _DEFAULT_ARTIFACT_ROOT, _project_root
+        from rlm_adk.agent import _DEFAULT_ARTIFACT_ROOT, _package_dir
 
-        expected = str(_project_root() / ".adk" / "artifacts")
+        expected = str(_package_dir() / ".adk" / "artifacts")
         assert _DEFAULT_ARTIFACT_ROOT == expected
 
     def test_explicit_artifact_service_overrides_default(self):

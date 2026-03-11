@@ -22,15 +22,26 @@ from google.adk.tools import BaseTool, ToolContext
 from google.genai.types import FunctionDeclaration, Schema, Type
 
 from rlm_adk.artifacts import save_repl_code
-from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
+from rlm_adk.repl.local_repl import LocalREPL
+from rlm_adk.repl.skill_registry import expand_skill_imports
 from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
-    ITERATION_COUNT, LAST_REPL_RESULT, OBS_CHILD_DISPATCH_COUNT,
-    OBS_REWRITE_COUNT, OBS_REWRITE_FAILURE_CATEGORIES,
-    OBS_REWRITE_FAILURE_COUNT, OBS_REWRITE_TOTAL_MS,
-    REPL_SUBMITTED_CODE, REPL_SUBMITTED_CODE_CHARS,
-    REPL_SUBMITTED_CODE_HASH, REPL_SUBMITTED_CODE_PREVIEW,
+    ITERATION_COUNT,
+    LAST_REPL_RESULT,
+    OBS_CHILD_DISPATCH_COUNT,
+    OBS_REWRITE_COUNT,
+    OBS_REWRITE_FAILURE_CATEGORIES,
+    OBS_REWRITE_FAILURE_COUNT,
+    OBS_REWRITE_TOTAL_MS,
+    REPL_DID_EXPAND,
+    REPL_EXPANDED_CODE,
+    REPL_EXPANDED_CODE_HASH,
+    REPL_SKILL_EXPANSION_META,
+    REPL_SUBMITTED_CODE,
+    REPL_SUBMITTED_CODE_CHARS,
+    REPL_SUBMITTED_CODE_HASH,
+    REPL_SUBMITTED_CODE_PREVIEW,
     depth_key,
 )
 
@@ -144,12 +155,37 @@ class REPLTool(BaseTool):
             else:
                 self.trace_holder.append(trace)
 
+        # Expand synthetic skill imports before AST analysis.
+        # Expansion errors (unknown module/symbol, name conflicts) are caught
+        # and returned as stderr so they follow the same structured response
+        # contract as other execution errors.
         try:
-            if has_llm_calls(code):
+            expansion = expand_skill_imports(code)
+        except RuntimeError as expand_exc:
+            return {
+                "stdout": "",
+                "stderr": f"SkillExpansionError: {expand_exc}",
+                "variables": {},
+                "llm_calls_made": False,
+                "call_number": self._call_count,
+            }
+        exec_code = expansion.expanded_code
+        if expansion.did_expand:
+            exec_code_hash = hashlib.sha256(exec_code.encode()).hexdigest()
+            tool_context.state[depth_key(REPL_EXPANDED_CODE, self._depth)] = exec_code
+            tool_context.state[depth_key(REPL_EXPANDED_CODE_HASH, self._depth)] = exec_code_hash
+            tool_context.state[depth_key(REPL_SKILL_EXPANSION_META, self._depth)] = {
+                "symbols": expansion.expanded_symbols,
+                "modules": expansion.expanded_modules,
+            }
+            tool_context.state[depth_key(REPL_DID_EXPAND, self._depth)] = True
+
+        try:
+            if has_llm_calls(exec_code):
                 llm_calls_made = True
                 try:
                     _t0 = time.perf_counter()
-                    tree = rewrite_for_async(code)
+                    tree = rewrite_for_async(exec_code)
                     _rewrite_ms = (time.perf_counter() - _t0) * 1000
                     self._rewrite_count += 1
                     self._rewrite_total_ms += _rewrite_ms
@@ -174,7 +210,7 @@ class REPLTool(BaseTool):
                     code, trace=trace, compiled=compiled,
                 )
             else:
-                result = self.repl.execute_code(code, trace=trace)
+                result = self.repl.execute_code(exec_code, trace=trace)
         except asyncio.CancelledError as exc:
             # OG-04 fix: ensure end_time is set so trace summary is non-negative
             if trace is not None and trace.start_time and not trace.end_time:

@@ -34,8 +34,21 @@ def _classify_error(error: Exception) -> str:
     import json as _json_mod
 
     code = getattr(error, "code", None)
+    # LiteLLM exceptions use status_code (int) instead of code (str).
+    # Fall back to status_code when code is missing or non-integer.
+    status_code = getattr(error, "status_code", None)
+    if (code is None or not isinstance(code, int)) and isinstance(status_code, int):
+        code = status_code
     if isinstance(error, asyncio.TimeoutError):
         return "TIMEOUT"
+    # Also detect litellm.Timeout which is not an asyncio.TimeoutError
+    try:
+        import litellm as _litellm_mod
+
+        if isinstance(error, _litellm_mod.Timeout):
+            return "TIMEOUT"
+    except ImportError:
+        pass
     if code == 429:
         return "RATE_LIMIT"
     if code in (401, 403):

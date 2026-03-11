@@ -329,5 +329,14 @@
       },
       "obs:total_calls": 7
     }
+  },
+  "litellm_overrides": {
+    "expected_contract": {
+      "observability": {
+        "last_repl_result": {
+          "has_errors": {"$oneof": [true, false]}
+        }
+      }
+    }
   }
 }

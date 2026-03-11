@@ -452,6 +452,7 @@ The default marker filter is `-m "provider_fake_contract and not agent_challenge
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
+- **2026-03-10** — `fixtures.py`: Added `$oneof` matcher operator, `litellm_overrides` fixture section support with `_deep_merge`, and upgraded top-level checks (`final_answer`, `total_iterations`, `total_model_calls`) to use `_match_value()` for operator support. `contract_runner.py`: passes `litellm_mode` through to `check_expectations()`.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

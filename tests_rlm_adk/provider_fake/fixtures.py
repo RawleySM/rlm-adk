@@ -17,6 +17,32 @@ logger = logging.getLogger(__name__)
 # Matcher helpers for declarative expected_state assertions
 # ---------------------------------------------------------------------------
 
+def _is_operator_dict(d: Any) -> bool:
+    """Return True if *d* is a matcher operator dict (all keys start with ``$``)."""
+    return isinstance(d, dict) and bool(d) and all(
+        isinstance(k, str) and k.startswith("$") for k in d
+    )
+
+
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *overrides* into *base* (mutates *base*).
+
+    Nested dicts are merged, **except** when the override value is a matcher
+    operator dict (all keys start with ``$``), which fully replaces the base.
+    """
+    for key, value in overrides.items():
+        if (
+            key in base
+            and isinstance(base[key], dict)
+            and isinstance(value, dict)
+            and not _is_operator_dict(value)
+        ):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
 def _match_value(
     actual: Any,
     spec: Any,
@@ -90,6 +116,11 @@ def _match_value(
                 return False, f"$len_eq: expected sized, got {type(actual).__name__}"
             if len(actual) != operand:
                 return False, f"$len_eq: expected len == {operand}, got {len(actual)}"
+        elif op == "$oneof":
+            if not isinstance(operand, list):
+                return False, f"$oneof: operand must be a list, got {type(operand).__name__}"
+            if actual not in operand:
+                return False, f"$oneof: {actual!r} not in {operand!r}"
         elif op == "$absent":
             # Handled by caller — should not reach here, but be safe
             pass
@@ -222,6 +253,7 @@ class ScenarioRouter:
         self.expected: dict[str, Any] = fixture.get("expected", {})
         self.expected_state: dict[str, Any] = fixture.get("expected_state", {})
         self.expected_contract: dict[str, Any] = fixture.get("expected_contract", {})
+        self._litellm_overrides: dict[str, Any] = fixture.get("litellm_overrides", {})
 
         self._responses: list[dict[str, Any]] = fixture.get("responses", [])
         self._faults: dict[int, dict[str, Any]] = {
@@ -370,54 +402,75 @@ class ScenarioRouter:
         elapsed_s: float,
         *,
         events: list[Any] | None = None,
+        litellm_mode: bool = False,
     ) -> ContractResult:
         """Compare actual run results against fixture ``expected`` values.
 
         Checks ``final_answer``, ``total_iterations``, and ``total_model_calls``
         when present in the fixture's ``expected`` block.  Missing expected keys
         are skipped (not failures).  Missing actual values produce ``actual=None``.
+
+        When *litellm_mode* is True and the fixture defines a
+        ``litellm_overrides`` section, overrides are deep-merged on top of
+        ``expected``, ``expected_state``, and ``expected_contract`` before
+        checking.
         """
         from rlm_adk.state import FINAL_ANSWER, ITERATION_COUNT
+
+        # Apply litellm overrides if present
+        expected = self.expected
+        expected_state = self.expected_state
+        expected_contract = self.expected_contract
+        if litellm_mode and self._litellm_overrides:
+            expected = _deep_merge(copy.deepcopy(self.expected), self._litellm_overrides.get("expected", {}))
+            expected_state = _deep_merge(copy.deepcopy(self.expected_state), self._litellm_overrides.get("expected_state", {}))
+            expected_contract = _deep_merge(copy.deepcopy(self.expected_contract), self._litellm_overrides.get("expected_contract", {}))
 
         checks: list[dict[str, Any]] = []
         event_parts = _extract_event_parts(events or [])
         tool_results = _extract_tool_results(event_parts)
 
         # final_answer
-        if "final_answer" in self.expected:
+        if "final_answer" in expected:
             actual = final_state.get(FINAL_ANSWER)
-            expected = self.expected["final_answer"]
+            expected_fa = expected["final_answer"]
+            ok, detail = _match_value(actual, expected_fa)
             checks.append({
                 "field": "final_answer",
-                "expected": expected,
+                "expected": expected_fa,
                 "actual": actual,
-                "ok": actual == expected,
+                "ok": ok,
+                "detail": detail,
             })
 
         # total_iterations
-        if "total_iterations" in self.expected:
+        if "total_iterations" in expected:
             actual_iter = final_state.get(ITERATION_COUNT)
-            expected_iter = self.expected["total_iterations"]
+            expected_iter = expected["total_iterations"]
+            ok, detail = _match_value(actual_iter, expected_iter)
             checks.append({
                 "field": "total_iterations",
                 "expected": expected_iter,
                 "actual": actual_iter,
-                "ok": actual_iter == expected_iter,
+                "ok": ok,
+                "detail": detail,
             })
 
         # total_model_calls
-        if "total_model_calls" in self.expected:
-            expected_calls = self.expected["total_model_calls"]
+        if "total_model_calls" in expected:
+            expected_calls = expected["total_model_calls"]
             actual_calls = self._call_index
+            ok, detail = _match_value(actual_calls, expected_calls)
             checks.append({
                 "field": "total_model_calls",
                 "expected": expected_calls,
                 "actual": actual_calls,
-                "ok": actual_calls == expected_calls,
+                "ok": ok,
+                "detail": detail,
             })
 
         # Declarative expected_state assertions
-        for key, spec in self.expected_state.items():
+        for key, spec in expected_state.items():
             # $absent: key should not exist in state
             if isinstance(spec, dict) and spec.get("$absent"):
                 present = key in final_state
@@ -452,7 +505,7 @@ class ScenarioRouter:
         })
 
         for check in _check_contract_invariants(
-            self.expected_contract,
+            expected_contract,
             final_state=final_state,
             callers=[meta.get("caller", "unknown") for meta in self._captured_metadata],
             captured_request_count=len(self._captured_requests),

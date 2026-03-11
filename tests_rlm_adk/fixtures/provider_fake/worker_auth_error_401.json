@@ -177,5 +177,29 @@
         "$gt": 0
       }
     }
+  },
+  "litellm_overrides": {
+    "_comment": "LiteLLM wraps 401 errors as litellm.AuthenticationError instead of Gemini-native '401 UNAUTHENTICATED'. Error classification (AUTH) is identical.",
+    "expected_contract": {
+      "tool_results": {
+        "any": [
+          {
+            "function_name": "execute_code",
+            "call_number": 1,
+            "llm_calls_made": true,
+            "stdout": {
+              "$contains": "AuthenticationError"
+            }
+          }
+        ]
+      },
+      "observability": {
+        "obs:child_summary@d1f0": {
+          "result_preview": {
+            "$contains": "AuthenticationError"
+          }
+        }
+      }
+    }
   }
 }
