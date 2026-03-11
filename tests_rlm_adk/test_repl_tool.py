@@ -152,3 +152,67 @@ class TestREPLToolExceptionSafety:
         result = await tool.run_async(args={"code": "x = 1"}, tool_context=tc)
         assert "CancelledError" in result["stderr"]
         repl.cleanup()
+
+
+# ===========================================================================
+# IPython backend contract-preservation tests
+# ===========================================================================
+
+
+class TestREPLToolIPythonBackendContract:
+    """Verify REPLTool returns the same result shape when using the ipython backend."""
+
+    @pytest.fixture
+    def ipython_repl_tool(self, monkeypatch):
+        monkeypatch.setenv("RLM_REPL_BACKEND", "ipython")
+        monkeypatch.setenv("RLM_REPL_DEBUGPY", "0")
+        monkeypatch.setenv("RLM_REPL_IPYTHON_EMBED", "0")
+        repl = LocalREPL()
+        tool = REPLTool(repl=repl)
+        yield tool
+        repl.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_result_shape_with_ipython_backend(self, ipython_repl_tool):
+        tc = _make_tool_context()
+        result = await ipython_repl_tool.run_async(
+            args={"code": "print('ipython')"}, tool_context=tc,
+        )
+        # Contract: same keys as always
+        assert set(result.keys()) == {"stdout", "stderr", "variables", "llm_calls_made", "call_number"}
+        assert "ipython" in result["stdout"]
+        assert result["stderr"] == ""
+        assert result["llm_calls_made"] is False
+        assert result["call_number"] == 1
+
+    @pytest.mark.asyncio
+    async def test_variable_persistence_with_ipython_backend(self, ipython_repl_tool):
+        tc = _make_tool_context()
+        await ipython_repl_tool.run_async(args={"code": "x = 99"}, tool_context=tc)
+        result = await ipython_repl_tool.run_async(
+            args={"code": "print(x)"}, tool_context=tc,
+        )
+        assert "99" in result["stdout"]
+
+    @pytest.mark.asyncio
+    async def test_rewrite_telemetry_counters_on_async_path(self, ipython_repl_tool):
+        """When the async path is taken, rewrite counters must still be written."""
+        # Inject fake async llm_query functions so has_llm_calls triggers
+        async def fake_llm_query_async(prompt, **kw):
+            return "fake response"
+
+        async def fake_llm_query_batched_async(prompts, **kw):
+            return ["fake"] * len(prompts)
+
+        ipython_repl_tool.repl.set_async_llm_query_fns(
+            fake_llm_query_async, fake_llm_query_batched_async,
+        )
+        tc = _make_tool_context()
+        result = await ipython_repl_tool.run_async(
+            args={"code": "result = llm_query('hello')"},
+            tool_context=tc,
+        )
+        assert result["llm_calls_made"] is True
+        # Rewrite counter should have been incremented
+        from rlm_adk.state import OBS_REWRITE_COUNT
+        assert tc.state.get(OBS_REWRITE_COUNT, 0) >= 1
