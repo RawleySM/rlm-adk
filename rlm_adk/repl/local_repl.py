@@ -21,6 +21,7 @@ import uuid
 from contextlib import contextmanager
 from typing import Any, Callable
 
+from rlm_adk.repl.ipython_executor import IPythonDebugExecutor, REPLDebugConfig
 from rlm_adk.repl.trace import (
     REPLTrace,
     TRACE_HEADER,
@@ -181,7 +182,12 @@ class LocalREPL:
     injected by the orchestrator.
     """
 
-    def __init__(self, depth: int = 1, sync_timeout: float | None = None):
+    def __init__(
+        self,
+        depth: int = 1,
+        sync_timeout: float | None = None,
+        executor_config: REPLDebugConfig | None = None,
+    ):
         self.depth = depth
         self.sync_timeout = sync_timeout if sync_timeout is not None else float(
             os.environ.get("RLM_REPL_SYNC_TIMEOUT", "30")
@@ -190,6 +196,10 @@ class LocalREPL:
         self.original_cwd = os.getcwd()
         self._pending_llm_calls: list[RLMChatCompletion] = []
         self._last_exec_error: str | None = None
+
+        # Execution backend
+        self._executor_config = executor_config or REPLDebugConfig.from_env()
+        self._executor = IPythonDebugExecutor(config=self._executor_config)
 
         # Setup globals and locals
         self.globals: dict[str, Any] = {
@@ -275,38 +285,34 @@ class LocalREPL:
 
         Returns (stdout, stderr, success) where success=True means no exception.
         Side-effects: updates self.locals on success, self._last_exec_error on failure.
+        Delegates actual execution to the IPythonDebugExecutor.
         """
         trace_level = int(os.environ.get("RLM_REPL_TRACE", "0"))
 
-        with _EXEC_LOCK, self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
-            try:
-                combined = {**self.globals, **self.locals}
+        with _EXEC_LOCK, self._temp_cwd():
+            combined = {**self.globals, **self.locals}
 
-                if trace is not None:
-                    combined["_rlm_trace"] = trace
-                    if trace_level >= 2:
-                        instrumented = TRACE_HEADER_MEMORY + "\n" + code + "\n" + TRACE_FOOTER_MEMORY
-                    else:
-                        instrumented = TRACE_HEADER + "\n" + code + "\n" + TRACE_FOOTER
+            if trace is not None:
+                combined["_rlm_trace"] = trace
+                if trace_level >= 2:
+                    instrumented = TRACE_HEADER_MEMORY + "\n" + code + "\n" + TRACE_FOOTER_MEMORY
                 else:
-                    instrumented = code
+                    instrumented = TRACE_HEADER + "\n" + code + "\n" + TRACE_FOOTER
+            else:
+                instrumented = code
 
-                exec(instrumented, combined, combined)
+            stdout, stderr, success = self._executor.execute_sync(instrumented, combined)
 
+            if success:
                 # Update locals with new variables (underscore filter hides _rlm_*)
                 for key, value in combined.items():
                     if key not in self.globals and not key.startswith("_"):
                         self.locals[key] = value
-
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue()
                 self._last_exec_error = None
-                return stdout, stderr, True
-            except Exception as e:
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
-                self._last_exec_error = f"{type(e).__name__}: {e}"
-                return stdout, stderr, False
+            else:
+                self._last_exec_error = stderr.strip().split("\n")[-1] if stderr.strip() else None
+
+            return stdout, stderr, success
 
     def execute_code(self, code: str, trace: REPLTrace | None = None) -> REPLResult:
         """Execute code synchronously in the sandboxed namespace.
@@ -366,7 +372,12 @@ class LocalREPL:
         return _cwd_open
 
     async def execute_code_async(
-        self, code: str, repl_exec_fn: Any, trace: REPLTrace | None = None,
+        self,
+        code: str,
+        repl_exec_fn: Any = None,
+        trace: REPLTrace | None = None,
+        *,
+        compiled: Any = None,
     ) -> REPLResult:
         """Execute AST-rewritten async code.
 
@@ -376,8 +387,12 @@ class LocalREPL:
 
         Args:
             code: The original code (before AST rewriting -- for reference/logging)
-            repl_exec_fn: The compiled async function from AST rewriter
+            repl_exec_fn: Legacy: pre-extracted async function from AST rewriter.
+                Deprecated in favor of ``compiled``.
             trace: Optional REPLTrace accumulator for this code block
+            compiled: Compiled code object containing async def _repl_exec().
+                When provided, the executor installs and runs _repl_exec from
+                the compiled code object, replacing the old exec()-in-REPLTool path.
         """
         start_time = time.perf_counter()
         self._pending_llm_calls.clear()
@@ -403,8 +418,18 @@ class LocalREPL:
                 trace.start_time = time.perf_counter()
                 trace.execution_mode = "async"
 
-            # Run the async _repl_exec function
-            new_locals = await repl_exec_fn()
+            if compiled is not None:
+                # New path: delegate to executor for the async wrapper.
+                # capture=False because we already redirect sys.stdout/stderr.
+                ns = {**self.globals, **self.locals}
+                _, _, new_locals = await self._executor.execute_async(
+                    compiled, ns, capture=False,
+                )
+            elif repl_exec_fn is not None:
+                # Legacy path: caller already extracted the async function
+                new_locals = await repl_exec_fn()
+            else:
+                raise ValueError("Either compiled or repl_exec_fn must be provided")
 
             if trace is not None:
                 trace.end_time = time.perf_counter()
@@ -445,11 +470,14 @@ class LocalREPL:
         )
 
     def cleanup(self) -> None:
-        """Clean up temp directory and reset state."""
+        """Clean up temp directory, executor, and reset state."""
         try:
             shutil.rmtree(self.temp_dir)
         except Exception:
             pass
+        if self._executor is not None:
+            self._executor.cleanup()
+            self._executor = None
         self.globals.clear()
         self.locals.clear()
 
