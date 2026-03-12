@@ -1,0 +1,104 @@
+{
+  "scenario_id": "skill_expansion",
+  "description": "Skill expansion e2e: Iter 1 reasoning imports run_recursive_ping from rlm_repl_skills.ping and calls it (triggers expansion + async rewrite + 1 worker). Iter 2 reasoning returns FINAL.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from rlm_repl_skills.ping import run_recursive_ping\n\nresult = run_recursive_ping(\n    max_layer=1,\n    starting_layer=0,\n    terminal_layer=1,\n    emit_debug=True,\n)\nprint(f\"layer={result.layer}, payload={result.payload}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 200,
+          "totalTokenCount": 500
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "{\"my_response\": \"pong\", \"your_response\": \"ping\"}"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 120
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The recursive ping skill executed successfully. The run_recursive_ping function was expanded from the skill registry, the llm_query call was dispatched to a child worker, and the terminal payload was returned.\n\nFINAL(skill_expansion_ok: layer=0, payload=pong)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 450
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "skill_expansion_ok: layer=0, payload=pong",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

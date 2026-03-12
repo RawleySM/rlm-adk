@@ -225,6 +225,15 @@ All constants are defined in `rlm_adk/state.py`.
 | `REPL_SUBMITTED_CODE_HASH` | `repl_submitted_code_hash` | Yes |
 | `REPL_SUBMITTED_CODE_CHARS` | `repl_submitted_code_chars` | Yes |
 
+### Skill Expansion Observability Keys
+
+| Constant | Key String | Depth-Scoped |
+|----------|-----------|:------------:|
+| `REPL_EXPANDED_CODE` | `repl_expanded_code` | Yes |
+| `REPL_EXPANDED_CODE_HASH` | `repl_expanded_code_hash` | Yes |
+| `REPL_SKILL_EXPANSION_META` | `repl_skill_expansion_meta` | Yes |
+| `REPL_DID_EXPAND` | `repl_did_expand` | Yes |
+
 ### Token Accounting
 
 | Constant | Key String | Depth-Scoped |
@@ -250,6 +259,9 @@ All constants are defined in `rlm_adk/state.py`.
 | `OBS_FINISH_SAFETY_COUNT` | `obs:finish_safety_count` | ObservabilityPlugin |
 | `OBS_FINISH_RECITATION_COUNT` | `obs:finish_recitation_count` | ObservabilityPlugin |
 | `OBS_FINISH_MAX_TOKENS_COUNT` | `obs:finish_max_tokens_count` | ObservabilityPlugin |
+| `obs_model_usage_key(model)` | `obs:model_usage:{model}` | ObservabilityPlugin |
+| `obs:litellm_last_call_cost` | `obs:litellm_last_call_cost` | LiteLLMCostTrackingPlugin |
+| `obs:litellm_total_cost` | `obs:litellm_total_cost` | LiteLLMCostTrackingPlugin |
 
 ### Observability -- Dispatch
 
@@ -299,6 +311,14 @@ All constants are defined in `rlm_adk/state.py`.
 | `CACHE_MISS_COUNT` | `cache:miss_count` |
 | `CACHE_LAST_HIT_KEY` | `cache:last_hit_key` |
 
+### Migration Status
+
+| Constant | Key String |
+|----------|-----------|
+| `MIGRATION_STATUS` | `migration:status` |
+| `MIGRATION_TIMESTAMP` | `migration:timestamp` |
+| `MIGRATION_ERROR` | `migration:error` |
+
 ### Artifacts
 
 | Constant | Key String |
@@ -323,6 +343,17 @@ All constants are defined in `rlm_adk/state.py`.
 
 ---
 
+## Callback Lifecycles and Error Isolation
+
+Worker agents inside the `WorkerPool` rely on critical callback logic (`rlm_adk/callbacks/worker.py`) for robustness.
+
+- **Error Isolation (FM-20):** `worker_on_model_error` is an essential safety net for recursive dispatch. It catches exceptions thrown by an underlying LLM (e.g., rate limits, timeouts) and translates them into an `LlmResponse` holding the error state. This prevents a single child failure from crashing its sibling workers within a `ParallelAgent` batch, ensuring graceful degradation.
+- **Result Extraction:** `worker_after_model` executes when a child completes successfully, extracting the result and preparing it for the orchestrator, and populating `agent._call_record`.
+
+**Testing Context Keys:** `CB_REASONING_CONTEXT` and `CB_TOOL_CONTEXT` (and related test hook keys) are heavily used within these callbacks. During automated testing, callbacks inject their execution context into these state keys, allowing test fixtures to verify exact state transitions, prompt generation, and error isolation behavior without modifying the main execution path.
+
+---
+
 ## depth_key() and DEPTH_SCOPED_KEYS
 
 ```python
@@ -337,7 +368,7 @@ recursive child its own independent state namespace. This prevents a child at de
 clobbering the root's `iteration_count`, for example.
 
 The `DEPTH_SCOPED_KEYS` set defines which keys require scoping. It includes all REPL execution
-keys, submitted code keys, `ITERATION_COUNT`, `SHOULD_STOP`, and per-invocation token keys
+keys, submitted code keys, skill expansion keys, `ITERATION_COUNT`, `SHOULD_STOP`, and per-invocation token keys
 (`REASONING_INPUT_TOKENS`, `REASONING_OUTPUT_TOKENS`). Global observability keys (`obs:*`) are
 intentionally excluded -- they accumulate across all depths.
 

@@ -80,3 +80,78 @@ class TestExpandedNestedCallsAwaited:
         # Should compile without error
         compiled = compile(tree, "<test>", "exec")
         assert compiled is not None
+
+
+class TestDirectLlmQueryRegression:
+    """TEST-3: Handwritten llm_query() still works after expansion pass."""
+
+    def test_direct_llm_query_unchanged_by_expansion(self):
+        code = "result = llm_query('hello world')\nprint(result)"
+        expansion = expand_skill_imports(code)
+        assert expansion.did_expand is False
+        assert expansion.expanded_code == code
+        assert expansion.expanded_symbols == []
+        assert expansion.expanded_modules == []
+
+    def test_direct_llm_query_detected_by_has_llm_calls(self):
+        code = "result = llm_query('hello world')\nprint(result)"
+        expansion = expand_skill_imports(code)
+        assert has_llm_calls(expansion.expanded_code) is True
+
+    def test_direct_llm_query_rewrites_to_async(self):
+        code = "result = llm_query('hello world')\nprint(result)"
+        expansion = expand_skill_imports(code)
+        tree = rewrite_for_async(expansion.expanded_code)
+        source = ast.unparse(tree)
+        assert "await llm_query_async" in source
+        assert "async def _repl_exec" in source
+
+    def test_direct_llm_query_rewrites_to_compilable_code(self):
+        code = "result = llm_query('hello world')\nprint(result)"
+        expansion = expand_skill_imports(code)
+        tree = rewrite_for_async(expansion.expanded_code)
+        compiled = compile(tree, "<test>", "exec")
+        assert compiled is not None
+
+
+class TestExpansionIntroducesLlmQuery:
+    """TEST-5: Expansion introducing llm_query triggers async path."""
+
+    def test_expansion_introduces_llm_query_into_sync_code(self):
+        code = (
+            "from rlm_repl_skills.ping import run_recursive_ping\nresult = run_recursive_ping()\n"
+        )
+        # Original code has no llm_query
+        assert has_llm_calls(code) is False
+        # After expansion, it should have llm_query
+        expansion = expand_skill_imports(code)
+        assert expansion.did_expand is True
+        assert has_llm_calls(expansion.expanded_code) is True
+
+    def test_expansion_introduces_llm_query_triggers_async_rewrite(self):
+        code = (
+            "from rlm_repl_skills.ping import run_recursive_ping\nresult = run_recursive_ping()\n"
+        )
+        expansion = expand_skill_imports(code)
+        assert has_llm_calls(expansion.expanded_code) is True
+        tree = rewrite_for_async(expansion.expanded_code)
+        source = ast.unparse(tree)
+        assert "await" in source
+        assert "llm_query_async" in source
+
+    def test_expansion_introduces_llm_query_compiles(self):
+        code = (
+            "from rlm_repl_skills.ping import run_recursive_ping\nresult = run_recursive_ping()\n"
+        )
+        expansion = expand_skill_imports(code)
+        tree = rewrite_for_async(expansion.expanded_code)
+        compiled = compile(tree, "<test>", "exec")
+        assert compiled is not None
+
+    def test_expansion_with_non_llm_query_skill_no_async(self):
+        code = (
+            "from rlm_repl_skills.ping import PING_TERMINAL_PAYLOAD\nprint(PING_TERMINAL_PAYLOAD)\n"
+        )
+        expansion = expand_skill_imports(code)
+        assert expansion.did_expand is True
+        assert has_llm_calls(expansion.expanded_code) is False

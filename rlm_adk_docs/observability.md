@@ -205,6 +205,16 @@ forwarded to the Langfuse UI. No manual span creation is needed.
 
 ---
 
+## 5.1 Additional Plugins
+
+Several other specialized plugins manage state, cost, and lifecycle migrations:
+
+- **`MigrationPlugin`** (`rlm_adk/plugins/migration.py`): Handles schema migrations for state files or databases when moving between RLM-ADK versions.
+- **`ContextSnapshotPlugin`** (`rlm_adk/plugins/context_snapshot.py`): Periodically saves copies of the current context window or state dictionary for debugging or UI replay.
+- **`LiteLLMCostTrackingPlugin`** (`rlm_adk/plugins/litellm_cost_tracking.py`): Integrates with LiteLLM to provide precise API cost estimation based on the extracted token usage counts.
+
+---
+
 ## 6. Callback System
 
 ### Worker Callbacks

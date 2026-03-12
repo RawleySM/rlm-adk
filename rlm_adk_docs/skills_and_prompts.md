@@ -70,12 +70,12 @@ Children don't get repomix because they operate on data passed via their prompt,
 
 **File:** `/home/rawley-stanhope/dev/rlm-adk/rlm_adk/callbacks/reasoning.py`
 
-The `reasoning_before_model` callback merges the ADK-resolved dynamic instruction into the system instruction before each model call:
+The `reasoning_before_model` callback merges the ADK-resolved dynamic instruction into the system instruction before each model call, largely handled by `_extract_adk_dynamic_instruction`:
 
-1. ADK resolves `{repo_url?}`, `{root_prompt?}`, `{test_context?}` from session state
-2. ADK places the resolved `instruction` into the request contents
-3. `reasoning_before_model` extracts it and merges into `llm_request.config.system_instruction`
-4. This maintains proper Gemini role alternation (system instruction is separate from user/model turns)
+1. ADK resolves `{repo_url?}`, `{root_prompt?}`, `{test_context?}` from session state based on the provided template.
+2. ADK initially places the resolved `instruction` into the request contents as part of the user turn.
+3. `reasoning_before_model` calls `_extract_adk_dynamic_instruction` to find, remove, and merge this dynamic instruction into `llm_request.config.system_instruction`.
+4. This maintains proper Gemini role alternation (system instruction is completely separate from user/model turns) and prevents prompt formatting errors.
 
 The callback also records per-invocation accounting: `REASONING_PROMPT_CHARS`, `REASONING_SYSTEM_CHARS`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`.
 
@@ -209,7 +209,7 @@ The `repl.globals` path (used by `probe_repo`, `pack_repo`, `shard_repo`) is sim
 
 ### Defining a Synthetic REPL Skill Module
 
-A skill module registers `ReplSkillExport` entries at import time via `register_skill_export()`. Each export describes one symbol:
+A skill module registers `ReplSkillExport` entries at import time via `register_skill_export()`. Each export describes one symbol. The `SkillRegistry` implements topological sorting based on the `requires` fields, allowing complex dependencies between exported symbols, and features a conflict detection mechanism to prevent expanding symbols that clash with user-defined names in the submitted code.
 
 ```python
 from rlm_adk.repl.skill_registry import ReplSkillExport, register_skill_export

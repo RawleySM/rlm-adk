@@ -37,6 +37,7 @@ ROOT_PROMPT = "root_prompt"
 # resolve them at runtime via its built-in state variable injection.
 DYN_REPO_URL = "repo_url"
 DYN_ROOT_PROMPT = "root_prompt"
+DYN_SKILL_INSTRUCTION = "skill_instruction"
 
 # Caching Keys (session-scoped despite : separator)
 CACHE_STORE = "cache:store"

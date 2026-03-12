@@ -18,6 +18,15 @@ All env vars are read at import time or factory call time. A `.env` file at the 
 |----------|---------|-------------|
 | `RLM_ADK_MODEL` | `gemini-3.1-pro-preview` | Model identifier for the root agent and ADK CLI entrypoint |
 | `RLM_REASONING_HTTP_TIMEOUT` | `300000` | HTTP timeout in milliseconds for Gemini API calls (5 min) |
+| `RLM_ADK_LITELLM` | `0` | Enable LiteLLM routing (`1`/`true`/`yes`) |
+| `RLM_LITELLM_TIER` | -- | Default tier for LiteLLM routing |
+| `RLM_LITELLM_WORKER_TIER` | -- | Default tier for LiteLLM workers |
+| `RLM_LITELLM_PROVIDER` | -- | Specific LiteLLM provider override |
+| `RLM_LITELLM_ROUTING_STRATEGY` | -- | LiteLLM routing strategy (e.g. `latency-based`) |
+| `RLM_LITELLM_NUM_RETRIES` | `3` | Retries for LiteLLM failures |
+| `RLM_LITELLM_COOLDOWN_TIME` | `60` | Cooldown time for failing models |
+| `RLM_LITELLM_TIMEOUT` | `300` | LiteLLM request timeout |
+| `RLM_OPENROUTER_REASONING_MODEL` | -- | Fallback OpenRouter reasoning model |
 
 ### Limits
 
@@ -37,16 +46,22 @@ All env vars are read at import time or factory call time. A `.env` file at the 
 | `RLM_ADK_SQLITE_TRACING` | off | Enable SqliteTracingPlugin via env var (`1`/`true`/`yes`). Also enabled by `sqlite_tracing=True` kwarg (default). |
 | `RLM_ADK_LANGFUSE` | off | Enable LangfuseTracingPlugin (`1`/`true`/`yes`) |
 | `RLM_REPL_TRACE` | `0` | REPL tracing level: `0`=off, `1`=timing+snapshots+dataflow, `2`=+tracemalloc memory |
+| `RLM_REPL_BACKEND` | `local` | REPL execution backend (e.g., `local`, `ipython`) |
+| `RLM_REPL_SYNC_TIMEOUT` | `30` | Sync code timeout for REPL execution in seconds |
+| `RLM_REPL_DEBUG` | off | Enable interactive debugpy breakpoints (`1`/`true`/`yes`) |
 | `RLM_ADK_CLOUD_OBS` | off | Enable Google Cloud tracing and analytics plugins (`1`/`true`/`yes`) |
 | `RLM_CONTEXT_SNAPSHOTS` | off | Enable ContextWindowSnapshotPlugin (`1`/`true`/`yes`) |
 
-### Tracing (Langfuse)
+### Tracing and Storage
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LANGFUSE_PUBLIC_KEY` | -- | Langfuse project public key (required for Langfuse plugin) |
 | `LANGFUSE_SECRET_KEY` | -- | Langfuse project secret key (required for Langfuse plugin) |
 | `LANGFUSE_BASE_URL` | -- | Langfuse server URL (e.g. `http://localhost:3100`) |
+| `GOOGLE_CLOUD_PROJECT` | -- | Google Cloud Project ID (required for Cloud Tracing) |
+| `RLM_POSTGRES_URL` | -- | Database URL for MigrationPlugin storage |
+| `RLM_MIGRATION_RETENTION` | `30` | Retention period in days for migrations |
 
 ### Session and storage
 
@@ -134,6 +149,8 @@ Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/rep
 | `GoogleCloudTracingPlugin` | `RLM_ADK_CLOUD_OBS=1` | Silently skipped if import fails |
 | `GoogleCloudAnalyticsPlugin` | `RLM_ADK_CLOUD_OBS=1` | Silently skipped if import fails |
 | `ContextWindowSnapshotPlugin` | `RLM_CONTEXT_SNAPSHOTS=1` | Writes `.adk/context_snapshots.jsonl` and `.adk/model_outputs.jsonl` |
+| `LiteLLMCostTrackingPlugin` | Automatic if LiteLLM is configured | Tracks API costs based on model mappings |
+| `MigrationPlugin` | Enabled if `RLM_POSTGRES_URL` exists | Manages database schema migrations |
 
 When `plugins=` is passed explicitly to `create_rlm_app()` or `create_rlm_runner()`, it overrides the default list entirely.
 
@@ -170,6 +187,26 @@ Pass `retry_config=None` (default) for the above defaults. Pass `retry_config={}
 
 ---
 
+## 4.1 LiteLLM & OpenRouter Routing Architecture
+
+`rlm_adk/models/litellm_router.py` implements a sophisticated model routing system to handle tier-based model allocation and fallback logic. 
+
+### Router Tiers
+Models are grouped into logical tiers:
+- **`reasoning`**: High-capability models (e.g., `gpt-4o`, `claude-3-5-sonnet`) with strict RPM/TPM limits.
+- **`worker`**: Faster, cheaper models (e.g., `gemini-2.5-flash`, `haiku`) for parallel child dispatch.
+- **`search`**: Specialized low-latency models for grounding.
+
+### Implementation Details
+- **Provider Filtering**: `build_model_list()` uses `RLM_LITELLM_PROVIDER` to dynamically filter the active model pool based on provider availability.
+- **Thread Safety (CRIT-2)**: The router uses a thread-safe singleton pattern with double-checked locking (`_get_or_create_client`) to ensure safe initialization across concurrent child worker threads.
+- **Empty List Protection (CRIT-4)**: Explicit error handling for empty model lists prevents silent failures during router initialization.
+
+### OpenRouter Native Fallbacks
+Beyond LiteLLM's internal fallbacks, the system specifically integrates OpenRouter's native fallback mechanism by manipulating `extra_body["models"]` to supply backup models (limited to 3 models maximum) on transient provider failures. This operates completely independently of ADK-level retry plugins.
+
+---
+
 ## 5. pyproject.toml settings
 
 ### Project metadata
@@ -192,12 +229,16 @@ Pass `retry_config=None` (default) for the above defaults. Pass `retry_config={}
 | `python-dotenv` | `>=1.2.1` | `.env` file loading |
 | `repomix` | `>=0.5.0` | Repository context skill |
 | `rich` | `>=13.0.0` | Terminal formatting |
+| `anthropic` | `>=0.40.0` | Anthropic model integrations |
+| `openai` | `>=1.50.0` | OpenAI compatible providers |
+| `portkey-ai` | `>=1.0.0` | Portkey router support |
+| `substack-api` | `>=0.1.0` | Substack scraping skill |
 
 ### Optional dependency groups
 
 | Group | Packages | Purpose |
 |-------|----------|---------|
-| `dashboard` | nicegui | Streamlit-based observability dashboard |
+| `dashboard` | nicegui | NiceGUI-based observability dashboard |
 | `modal` | modal, dill | Modal cloud sandbox |
 | `e2b` | e2b-code-interpreter, dill | E2B sandbox |
 | `daytona` | daytona, dill | Daytona sandbox |

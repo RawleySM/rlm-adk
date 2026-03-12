@@ -29,6 +29,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
+    DYN_SKILL_INSTRUCTION,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     CONTEXT_WINDOW_SNAPSHOT,
     FINAL_ANSWER,
@@ -216,6 +217,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
     repl_stdout_len     INTEGER,
     repl_stderr_len     INTEGER,
     repl_trace_summary  TEXT,
+    skill_instruction   TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -375,6 +377,7 @@ class SqliteTracingPlugin(BasePlugin):
                 ("repl_stdout_len", "INTEGER"),
                 ("repl_stderr_len", "INTEGER"),
                 ("repl_trace_summary", "TEXT"),
+                ("skill_instruction", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -748,6 +751,7 @@ class SqliteTracingPlugin(BasePlugin):
                 system_chars = context_snapshot.get("system_chars")
 
             call_number = callback_context.state.get(OBS_TOTAL_CALLS)
+            skill_instruction = callback_context.state.get(DYN_SKILL_INSTRUCTION)
 
             telemetry_id = self._new_id()
             start_time = time.time()
@@ -763,6 +767,7 @@ class SqliteTracingPlugin(BasePlugin):
                 prompt_chars=prompt_chars,
                 system_chars=system_chars,
                 call_number=call_number,
+                skill_instruction=skill_instruction,
             )
             self._pending_model_telemetry[self._pending_key(callback_context)] = (
                 telemetry_id,

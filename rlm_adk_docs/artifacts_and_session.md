@@ -140,7 +140,7 @@ The artifact path is independent of the state-based observability path. Both fir
 
 `REPLTracingPlugin` listens on `on_event_callback` for `LAST_REPL_RESULT` state deltas. It extracts `trace_summary` from each result dict, groups by `d{depth}:i{iteration}`, and saves the aggregate as a single JSON artifact at run end.
 
-Requires `RLM_REPL_TRACE=1` or `RLM_REPL_TRACE=2` to activate.
+Requires `RLM_REPL_TRACE=1` or `RLM_REPL_TRACE=2` to activate (configured in `_default_plugins` in `agent.py`).
 
 ### final_answer.md pipeline
 
@@ -180,7 +180,7 @@ Every `save_*` call updates session state via `_update_save_tracking()`:
 
 These keys are session-scoped (not depth-scoped). The `ObservabilityPlugin` tracks artifact operations via `on_event_callback` watching `artifact_delta` in events, and the `SqliteTracingPlugin` captures these keys in `session_state_events` when they appear in state deltas.
 
-Note: `_update_save_tracking()` writes directly to `ctx.session.state` (not through `tool_context.state`), because artifact helpers receive `InvocationContext` rather than `ToolContext`. This is an accepted deviation from AR-CRIT-001 since artifact tracking metadata is observability-only and does not drive control flow.
+Note: `_update_save_tracking()` handles state updates correctly by checking for a `CallbackContext` and utilizing the `ctx.state` ADK State wrapper to ensure deltas are correctly tracked, maintaining AR-CRIT-001 compliance.
 
 ---
 
@@ -201,8 +201,6 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 - `callback_context.state[key]` (in callbacks)
 - `EventActions(state_delta={...})` (in events)
 - `output_key` (for agent output)
-
-The `_update_save_tracking()` deviation noted above is an accepted exception for observability-only metadata.
 
 ---
 
