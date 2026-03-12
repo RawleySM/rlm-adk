@@ -37,6 +37,7 @@ from rlm_adk.state import (
     CURRENT_DEPTH,
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
+    DYN_SKILL_INSTRUCTION,
     FINAL_ANSWER,
     ITERATION_COUNT,
     OBS_REASONING_RETRY_COUNT,
@@ -213,6 +214,7 @@ class RLMOrchestratorAgent(BaseAgent):
     depth: int = 0
     fanout_idx: int = 0
     output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
+    instruction_router: Any = None  # Callable[[int, int], str] | None
 
     async def _run_async_impl(
         self, ctx: InvocationContext
@@ -252,6 +254,8 @@ class RLMOrchestratorAgent(BaseAgent):
                 call_log_sink=repl._pending_llm_calls,
                 trace_sink=trace_holder if trace_level > 0 else None,
                 depth=self.depth,
+                instruction_router=self.instruction_router,
+                fanout_idx=self.fanout_idx,
             )
             repl.set_async_llm_query_fns(llm_query_async, llm_query_batched_async)
 
@@ -318,6 +322,28 @@ class RLMOrchestratorAgent(BaseAgent):
             if self.repo_url:
                 initial_state[REPO_URL] = self.repo_url
                 initial_state[DYN_REPO_URL] = self.repo_url
+
+            if self.instruction_router is not None:
+                _skill_text = self.instruction_router(self.depth, self.fanout_idx)
+                if _skill_text:
+                    initial_state[DYN_SKILL_INSTRUCTION] = _skill_text
+
+                    # Seed skill instruction via before_agent_callback so it's
+                    # visible to before_model_callback on the first model call.
+                    # callback_context.state writes are tracked by ADK and applied
+                    # to session state immediately (unlike EventActions state_delta
+                    # which requires Runner processing to apply).
+                    async def _seed_skill_instruction(
+                        *, callback_context, **_kw,
+                    ):
+                        callback_context.state[DYN_SKILL_INSTRUCTION] = _skill_text
+                        return None
+
+                    object.__setattr__(
+                        self.reasoning_agent,
+                        "before_agent_callback",
+                        _seed_skill_instruction,
+                    )
 
             # Yield initial state
             yield Event(

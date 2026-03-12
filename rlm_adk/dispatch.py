@@ -46,6 +46,7 @@ from rlm_adk.state import (
     REASONING_THOUGHT_TEXT,
     REASONING_THOUGHT_TOKENS,
     REASONING_VISIBLE_OUTPUT_TEXT,
+    DYN_SKILL_INSTRUCTION,
     child_obs_key,
     depth_key,
 )
@@ -109,6 +110,8 @@ def create_dispatch_closures(
     trace_sink: list | None = None,
     depth: int = 0,
     max_depth: int = 3,
+    instruction_router: Any = None,
+    fanout_idx: int = 0,
 ) -> tuple[Any, Any, Any]:
     """Create llm_query_async, llm_query_batched_async, and flush_fn closures.
 
@@ -139,6 +142,11 @@ def create_dispatch_closures(
     _acc_child_error_counts: dict[str, int] = {}
     _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
+
+    # Pre-compute parent's skill instruction for flush_fn restoration
+    _parent_skill_instruction: str | None = None
+    if instruction_router is not None:
+        _parent_skill_instruction = instruction_router(depth, fanout_idx)
 
     def _child_obs_value(
         child_state: dict[str, Any],
@@ -352,6 +360,7 @@ def create_dispatch_closures(
             worker_pool=dispatch_config,
             output_schema=output_schema,
             fanout_idx=fanout_idx,
+            instruction_router=instruction_router,
         )
 
         try:
@@ -707,6 +716,9 @@ def create_dispatch_closures(
         bug13_count = _bug13_stats.get("suppress_count", 0)
         if bug13_count > 0:
             delta[OBS_BUG13_SUPPRESS_COUNT] = bug13_count
+        # Restore parent's skill instruction after child dispatch
+        if _parent_skill_instruction is not None:
+            delta[DYN_SKILL_INSTRUCTION] = _parent_skill_instruction
         # Merge per-child summaries into delta
         delta.update(_acc_child_summaries)
         # Reset accumulators

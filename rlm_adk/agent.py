@@ -282,6 +282,7 @@ def create_rlm_orchestrator(
     repo_url: str | None = None,
     thinking_budget: int = 1024,
     retry_config: dict[str, Any] | None = None,
+    instruction_router: Any = None,
 ) -> RLMOrchestratorAgent:
     """Create the RLMOrchestratorAgent with the reasoning sub-agent."""
     reasoning = create_reasoning_agent(
@@ -317,6 +318,8 @@ def create_rlm_orchestrator(
     }
     if repo_url:
         kwargs["repo_url"] = repo_url
+    if instruction_router is not None:
+        kwargs["instruction_router"] = instruction_router
 
     return RLMOrchestratorAgent(**kwargs)
 
@@ -330,6 +333,7 @@ def create_child_orchestrator(
     thinking_budget: int = 512,
     output_schema: type | None = None,
     fanout_idx: int = 0,
+    instruction_router: Any = None,
 ) -> RLMOrchestratorAgent:
     """Create a child orchestrator for recursive dispatch at *depth* > 0.
 
@@ -369,6 +373,7 @@ def create_child_orchestrator(
         depth=depth,
         fanout_idx=fanout_idx,
         output_schema=output_schema,
+        instruction_router=instruction_router,
         sub_agents=[reasoning],
     )
 
@@ -455,6 +460,7 @@ def create_rlm_app(
     thinking_budget: int = 1024,
     langfuse: bool = False,
     sqlite_tracing: bool = True,
+    instruction_router: Any = None,
 ) -> App:
     """Create the full RLM ADK App with plugins wired in.
 
@@ -490,6 +496,7 @@ def create_rlm_app(
         dynamic_instruction=dynamic_instruction,
         repo_url=repo_url,
         thinking_budget=thinking_budget,
+        instruction_router=instruction_router,
     )
     resolved_plugins = plugins if plugins is not None else _default_plugins(
         langfuse=langfuse, sqlite_tracing=sqlite_tracing,
