@@ -156,6 +156,12 @@ Fixtures live in `tests_rlm_adk/fixtures/provider_fake/*.json`.
     "absent_key": { "$absent": true }
   },
 
+  "litellm_overrides": {
+    "config": {
+      "model": "openai/gpt-4o"
+    }
+  },
+
   "expected_contract": {
     "callers": ["reasoning", "worker", "reasoning"],
     "captured_requests": 3,
@@ -194,6 +200,7 @@ Used in `expected_state` and `expected_contract` values:
 | `$type` | Type check (`list`, `dict`, `str`, `int`, `float`, `bool`) |
 | `$contains` | Substring match on strings |
 | `$len_gte`, `$len_eq` | Length comparisons |
+| `$oneof` | Value matches at least one element in the provided list |
 | `$absent` | Key must not exist in state |
 
 Matchers compose: `_match_value()` and `_match_structure()` recurse into nested dicts and lists.
@@ -422,8 +429,11 @@ During fixture runs, the contract runner sets these environment variables:
 | `RLM_LLM_MAX_RETRIES` | `config.max_retries` (default `3`) |
 | `RLM_MAX_ITERATIONS` | `config.max_iterations` (default `5`) |
 | `RLM_REPL_TRACE` | `str(repl_trace_level)` |
+| `RLM_ADK_LITELLM` | `config.litellm_mode` (default `False`) |
+| `OPENAI_API_KEY` | (set if litellm is used) |
+| `OPENAI_API_BASE` | `server.base_url + "/v1"` (if litellm is used) |
 
-All overrides are restored to their original values after the run completes.
+All overrides are restored to their original values after the run completes. If LiteLLM mode is active, the `contract_runner.py` directs traffic to the `/v1/chat/completions` endpoint.
 
 ## Testing
 

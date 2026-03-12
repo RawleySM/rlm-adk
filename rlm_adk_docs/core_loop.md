@@ -130,13 +130,20 @@ On `CancelledError` or `Exception`: flushes accumulators, writes partial `LAST_R
 
 ---
 
-## 4. LocalREPL
+## 4. LocalREPL & Execution Engine
 
-**File:** `rlm_adk/repl/local_repl.py` (class at line 176)
+**Files:** `rlm_adk/repl/local_repl.py` and `rlm_adk/repl/ipython_executor.py`
 
-Persistent Python namespace with safe builtins and async LM dispatch hooks.
+Persistent Python namespace with safe builtins and async LM dispatch hooks. While `LocalREPL` manages the namespace and safe builtins, the actual execution of code is delegated to the `IPythonDebugExecutor` engine.
 
-### Constructor
+### IPythonDebugExecutor (`ipython_executor.py`)
+
+This backend engine handles the complex mechanics of execution:
+- **IPython Integration:** Supports rich IPython display outputs and magic commands (if enabled).
+- **Sync/Async Execution:** Manages the threading/event loop contexts for running sync code with timeouts vs. awaiting AST-rewritten async code.
+- **Debugpy Arming:** Configures `debugpy` attachments when triggered via `REPLDebugConfig` for step-through debugging.
+
+### LocalREPL Constructor
 
 ```python
 LocalREPL(depth: int = 1, sync_timeout: float | None = None)

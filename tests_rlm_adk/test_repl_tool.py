@@ -5,12 +5,22 @@ before the implementation exists.
 """
 
 import asyncio
-
-import pytest
+import hashlib
+import importlib
 from unittest.mock import MagicMock
 
-from rlm_adk.tools.repl_tool import REPLTool
+import pytest
+
 from rlm_adk.repl.local_repl import LocalREPL
+from rlm_adk.repl.skill_registry import _registry
+from rlm_adk.state import (
+    REPL_DID_EXPAND,
+    REPL_EXPANDED_CODE,
+    REPL_EXPANDED_CODE_HASH,
+    REPL_SKILL_EXPANSION_META,
+    depth_key,
+)
+from rlm_adk.tools.repl_tool import REPLTool
 
 
 def _make_tool_context(state=None):
@@ -39,6 +49,7 @@ class TestREPLToolDeclaration:
         assert "code" in props
         # google.genai.types.Schema uses .type (not .type_)
         from google.genai.types import Type
+
         assert props["code"].type == Type.STRING
 
     def test_declaration_requires_code(self, repl_tool):
@@ -144,9 +155,11 @@ class TestREPLToolExceptionSafety:
     async def test_cancelled_error_returns_stderr(self):
         repl = LocalREPL()
         tool = REPLTool(repl=repl)
+
         # Patch execute_code to raise CancelledError
         def raise_cancelled(code, **kw):
             raise asyncio.CancelledError()
+
         repl.execute_code = raise_cancelled
         tc = _make_tool_context()
         result = await tool.run_async(args={"code": "x = 1"}, tool_context=tc)
@@ -176,10 +189,17 @@ class TestREPLToolIPythonBackendContract:
     async def test_result_shape_with_ipython_backend(self, ipython_repl_tool):
         tc = _make_tool_context()
         result = await ipython_repl_tool.run_async(
-            args={"code": "print('ipython')"}, tool_context=tc,
+            args={"code": "print('ipython')"},
+            tool_context=tc,
         )
         # Contract: same keys as always
-        assert set(result.keys()) == {"stdout", "stderr", "variables", "llm_calls_made", "call_number"}
+        assert set(result.keys()) == {
+            "stdout",
+            "stderr",
+            "variables",
+            "llm_calls_made",
+            "call_number",
+        }
         assert "ipython" in result["stdout"]
         assert result["stderr"] == ""
         assert result["llm_calls_made"] is False
@@ -190,13 +210,15 @@ class TestREPLToolIPythonBackendContract:
         tc = _make_tool_context()
         await ipython_repl_tool.run_async(args={"code": "x = 99"}, tool_context=tc)
         result = await ipython_repl_tool.run_async(
-            args={"code": "print(x)"}, tool_context=tc,
+            args={"code": "print(x)"},
+            tool_context=tc,
         )
         assert "99" in result["stdout"]
 
     @pytest.mark.asyncio
     async def test_rewrite_telemetry_counters_on_async_path(self, ipython_repl_tool):
         """When the async path is taken, rewrite counters must still be written."""
+
         # Inject fake async llm_query functions so has_llm_calls triggers
         async def fake_llm_query_async(prompt, **kw):
             return "fake response"
@@ -205,7 +227,8 @@ class TestREPLToolIPythonBackendContract:
             return ["fake"] * len(prompts)
 
         ipython_repl_tool.repl.set_async_llm_query_fns(
-            fake_llm_query_async, fake_llm_query_batched_async,
+            fake_llm_query_async,
+            fake_llm_query_batched_async,
         )
         tc = _make_tool_context()
         result = await ipython_repl_tool.run_async(
@@ -215,6 +238,88 @@ class TestREPLToolIPythonBackendContract:
         assert result["llm_calls_made"] is True
         # Rewrite counter should have been incremented
         from rlm_adk.state import OBS_REWRITE_COUNT
+
         assert tc.state.get(OBS_REWRITE_COUNT, 0) >= 1
         # Verify the async path actually executed and returned the variable
         assert result["variables"].get("result") == "fake response"
+
+
+# ===========================================================================
+# GAP-2 / TEST-2: Skill expansion state key assertions
+# ===========================================================================
+
+
+@pytest.fixture
+def _register_ping():
+    """Register ping skill exports, clean up after."""
+    import rlm_adk.skills.repl_skills.ping as ping_mod
+
+    _registry.clear()
+    importlib.reload(ping_mod)
+    yield
+    _registry.clear()
+
+
+class TestREPLToolSkillExpansionState:
+    """Verify expansion state keys are written to tool_context.state."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_register_ping")
+    async def test_expansion_sets_all_state_keys(self):
+        repl = LocalREPL()
+        tool = REPLTool(repl=repl)
+        tc = _make_tool_context()
+        code = (
+            "from rlm_repl_skills.ping import PING_TERMINAL_PAYLOAD\nprint(PING_TERMINAL_PAYLOAD)\n"
+        )
+        await tool.run_async(args={"code": code}, tool_context=tc)
+        repl.cleanup()
+
+        # DID_EXPAND flag
+        assert tc.state.get(depth_key(REPL_DID_EXPAND, 0)) is True
+
+        # EXPANDED_CODE contains inlined source
+        expanded = tc.state.get(depth_key(REPL_EXPANDED_CODE, 0))
+        assert expanded is not None
+        assert "PING_TERMINAL_PAYLOAD" in expanded
+        # The synthetic import should be removed
+        assert "from rlm_repl_skills" not in expanded
+
+        # EXPANDED_CODE_HASH matches
+        expected_hash = hashlib.sha256(expanded.encode()).hexdigest()
+        assert tc.state.get(depth_key(REPL_EXPANDED_CODE_HASH, 0)) == expected_hash
+
+        # SKILL_EXPANSION_META has correct structure
+        meta = tc.state.get(depth_key(REPL_SKILL_EXPANSION_META, 0))
+        assert isinstance(meta, dict)
+        assert "PING_TERMINAL_PAYLOAD" in meta["symbols"]
+        assert "rlm_repl_skills.ping" in meta["modules"]
+
+    @pytest.mark.asyncio
+    async def test_no_expansion_leaves_keys_unset(self):
+        repl = LocalREPL()
+        tool = REPLTool(repl=repl)
+        tc = _make_tool_context()
+        await tool.run_async(args={"code": "x = 42"}, tool_context=tc)
+        repl.cleanup()
+
+        assert depth_key(REPL_DID_EXPAND, 0) not in tc.state
+        assert depth_key(REPL_EXPANDED_CODE, 0) not in tc.state
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_register_ping")
+    async def test_expansion_with_depth_scoping(self):
+        repl = LocalREPL()
+        tool = REPLTool(repl=repl, depth=2)
+        tc = _make_tool_context()
+        code = (
+            "from rlm_repl_skills.ping import PING_TERMINAL_PAYLOAD\nprint(PING_TERMINAL_PAYLOAD)\n"
+        )
+        await tool.run_async(args={"code": code}, tool_context=tc)
+        repl.cleanup()
+
+        # Depth-scoped keys should use depth=2
+        assert tc.state.get(depth_key(REPL_DID_EXPAND, 2)) is True
+        assert depth_key(REPL_EXPANDED_CODE, 2) in tc.state
+        # Depth=0 keys should NOT be set
+        assert depth_key(REPL_DID_EXPAND, 0) not in tc.state

@@ -2,7 +2,7 @@
 
 # Polya Topology Engine (Dynamic Instruction Injection)
 
-**Status:** Planned — research complete (`ai_docs/codebase_documentation_research/progressive_disclosure_patterns.md`, `rlm_adk_docs/codex_polya_workflow.md`)
+**Status:** Partially Implemented — metadata pipeline (`TraceReader`), topology tracking (`depth` / `fanout_idx`), and skill loading exist, but automated topology switching via reasoning loop is planned. (`ai_docs/codebase_documentation_research/progressive_disclosure_patterns.md`, `rlm_adk_docs/codex_polya_workflow.md`)
 
 **What it does:** Every agent run is structured as a Polya-inspired workflow: **Understand → Plan → Implement → Reflect**. The topology (how these phases map to agent turns and recursion depth) is configured per-task via dynamic instructions.
 
