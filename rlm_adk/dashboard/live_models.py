@@ -97,6 +97,13 @@ class LiveContextSelection:
 
 
 @dataclass(frozen=True)
+class LiveSessionSummary:
+    user_query: str
+    registered_skills: list[tuple[str, str]] = field(default_factory=list)
+    registered_plugins: list[tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class LiveChildSummary:
     parent_depth: int
     depth: int

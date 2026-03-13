@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rlm_adk.agent import _package_dir
+from rlm_adk.agent import _default_plugins, _package_dir
 from rlm_adk.dashboard.live_models import (
     LiveChildSummary,
     LiveContextBannerItem,
@@ -23,10 +23,12 @@ from rlm_adk.dashboard.live_models import (
     LiveRunSnapshot,
     LiveRunState,
     LiveRunStats,
+    LiveSessionSummary,
     LiveStateItem,
     LiveToolEvent,
     LiveWatermark,
 )
+from rlm_adk.skills import POLYA_NARRATIVE_SKILL, REPOMIX_SKILL
 from rlm_adk.state import (
     DEPTH_SCOPED_KEYS,
     DYN_REPO_URL,
@@ -200,6 +202,24 @@ class LiveDashboardLoader:
                 sessions.append(session_id)
         return sessions
 
+    def session_summary(self, session_id: str | None) -> LiveSessionSummary:
+        if not session_id:
+            return LiveSessionSummary(user_query="")
+        cache = self._cache_by_session.get(session_id)
+        trace_row = cache.trace_row if cache and cache.trace_row else {}
+        sse_rows = cache.sse_rows if cache else []
+        user_query = (
+            self._latest_session_text(sse_rows, "root_prompt")
+            or str(trace_row.get("root_prompt_preview") or "")
+        )
+        return LiveSessionSummary(
+            user_query=user_query,
+            registered_skills=self._registered_skills(),
+            registered_plugins=self._registered_plugins(
+                has_context_snapshots=bool(cache and cache.snapshot_rows),
+            ),
+        )
+
     def load_session(
         self,
         session_id: str,
@@ -349,6 +369,55 @@ class LiveDashboardLoader:
 
         return item.display_value_preview or item.raw_key
 
+    @staticmethod
+    def _latest_session_text(sse_rows: list[dict[str, Any]], key: str) -> str:
+        for row in reversed(sse_rows):
+            if row.get("state_key") != key:
+                continue
+            value = _parse_jsonish(
+                row.get("value_type", "str"),
+                row.get("value_text"),
+                row.get("value_json"),
+                row.get("value_int"),
+                row.get("value_float"),
+            )
+            text = _display_text(value).strip()
+            if text:
+                return text
+        return ""
+
+    @staticmethod
+    def _registered_skills() -> list[tuple[str, str]]:
+        return [
+            (
+                REPOMIX_SKILL.frontmatter.name,
+                REPOMIX_SKILL.frontmatter.description,
+            ),
+            (
+                POLYA_NARRATIVE_SKILL.frontmatter.name,
+                POLYA_NARRATIVE_SKILL.frontmatter.description,
+            ),
+        ]
+
+    @staticmethod
+    def _registered_plugins(
+        *,
+        has_context_snapshots: bool,
+    ) -> list[tuple[str, str]]:
+        plugins = {type(plugin).__name__: type(plugin).__doc__ or "" for plugin in _default_plugins()}
+        if has_context_snapshots:
+            plugins.setdefault(
+                "ContextWindowSnapshotPlugin",
+                "Captures the exact model-facing request chunks and outputs.",
+            )
+        return sorted(
+            (
+                name,
+                " ".join(description.strip().split()),
+            )
+            for name, description in plugins.items()
+        )
+
     def _refresh_trace_row(self, cache: _SessionCache, session_id: str) -> None:
         if not self._db_path.exists():
             return
@@ -356,7 +425,8 @@ class LiveDashboardLoader:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 """
-                SELECT trace_id, session_id, status, start_time, end_time, total_calls
+                SELECT trace_id, session_id, app_name, status, start_time, end_time,
+                       total_calls, config_json, root_prompt_preview
                 FROM traces
                 WHERE session_id = ?
                 ORDER BY start_time DESC

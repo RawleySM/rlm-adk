@@ -13,6 +13,7 @@ from rlm_adk.dashboard.live_models import (
     LiveInvocationNode,
     LivePane,
     LiveRunState,
+    LiveSessionSummary,
 )
 
 
@@ -184,6 +185,17 @@ class LiveDashboardController:
         )
         self.state.context_viewer_open = True
 
+    def open_text_viewer(self, *, label: str, text: str, raw_key: str = "session") -> None:
+        normalized = text.strip()
+        self.state.context_selection = LiveContextSelection(
+            label=label,
+            raw_key=raw_key,
+            scope="tool_variable",
+            source_kind="tool_variable",
+            text=normalized or f"No {label} captured.",
+        )
+        self.state.context_viewer_open = True
+
     def close_context_viewer(self) -> None:
         self.state.context_selection = None
         self.state.context_viewer_open = False
@@ -255,6 +267,9 @@ class LiveDashboardController:
             if node is not None:
                 nodes.append(node)
         return nodes
+
+    def session_summary(self) -> LiveSessionSummary:
+        return self.loader.session_summary(self.state.selected_session_id)
 
     def selected_invocation(self, pane: LivePane | None) -> LiveInvocation | None:
         if pane is None or not pane.invocations:

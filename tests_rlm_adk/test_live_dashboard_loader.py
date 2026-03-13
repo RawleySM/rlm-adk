@@ -194,6 +194,22 @@ def live_sources(tmp_path):
             5,
             "reasoning_agent",
             10.0,
+            "root_prompt",
+            "request_meta",
+            0,
+            None,
+            "str",
+            None,
+            None,
+            "Build the live page",
+            None,
+        ),
+        (
+            "sse_7",
+            "trace_live",
+            6,
+            "reasoning_agent",
+            10.0,
             "obs:child_summary",
             "obs_dispatch",
             1,
@@ -424,6 +440,24 @@ def test_live_loader_builds_root_and_child_panes(live_sources):
     assert any(item.raw_key == "skill_instruction" and item.present for item in banner_items)
     assert child_pane.reasoning_visible_text == "Child answer"
     assert child_pane.request_chunks[0].text == "Inspect shard A"
+
+
+def test_live_loader_session_summary_uses_session_query_and_registered_metadata(live_sources):
+    db_path, snapshots_path, outputs_path = live_sources
+    loader = LiveDashboardLoader(
+        traces_db_path=str(db_path),
+        snapshots_path=str(snapshots_path),
+        outputs_path=str(outputs_path),
+    )
+
+    loader.load_session("sess_live")
+    summary = loader.session_summary("sess_live")
+
+    assert summary.user_query == "Build the live page"
+    assert any(name == "repomix-repl-helpers" for name, _ in summary.registered_skills)
+    assert any(name == "polya-narrative" for name, _ in summary.registered_skills)
+    assert any(name == "ObservabilityPlugin" for name, _ in summary.registered_plugins)
+    assert any(name == "SqliteTracingPlugin" for name, _ in summary.registered_plugins)
 
 
 @pytest.mark.asyncio

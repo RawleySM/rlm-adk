@@ -129,6 +129,7 @@ async def live_dashboard_page() -> None:
     @ui.refreshable
     def header_section() -> None:
         run_state = controller.state.run_state
+        session_summary = controller.session_summary()
         with ui.element("div").classes("live-dashboard").style(
             "position: sticky; top: 0; z-index: 50; width: 100%; "
             "padding: 0.9rem 1rem; border-bottom: 1px solid var(--border-1); "
@@ -178,6 +179,42 @@ async def live_dashboard_page() -> None:
                         _metric_chip("model calls", str(total_calls))
                         _metric_chip("active depth", str(active_depth))
                         _metric_chip("active children", str(active_children))
+            with ui.element("div").style(
+                "margin-top: 0.85rem; display: flex; flex-direction: column; "
+                "gap: 0.55rem; min-width: 0; padding: 0.75rem 0.85rem; "
+                "border-radius: 16px; border: 1px solid var(--border-1); "
+                "background: rgba(26,35,56,0.52);"
+            ):
+                _session_meta_row(
+                    "User Query",
+                    [
+                        (
+                            _truncate_chip_text(session_summary.user_query, fallback="No query captured"),
+                            session_summary.user_query or "No query captured.",
+                            "user-query",
+                        )
+                    ],
+                    controller=controller,
+                    refresh_viewer=text_panel_body,
+                )
+                _session_meta_row(
+                    "Registered Skills",
+                    [
+                        (name, description, f"skill:{name}")
+                        for name, description in session_summary.registered_skills
+                    ],
+                    controller=controller,
+                    refresh_viewer=text_panel_body,
+                )
+                _session_meta_row(
+                    "Registered Plugins",
+                    [
+                        (name, description or name, f"plugin:{name}")
+                        for name, description in session_summary.registered_plugins
+                    ],
+                    controller=controller,
+                    refresh_viewer=text_panel_body,
+                )
 
     @ui.refreshable
     def invocation_section() -> None:
@@ -280,6 +317,65 @@ def _metric_chip(label: str, value: str) -> None:
         ui.label(value).style("color: var(--text-0); font-size: 0.74rem;")
 
 
+def _truncate_chip_text(text: str, *, fallback: str, limit: int = 108) -> str:
+    cleaned = " ".join(text.split())
+    if not cleaned:
+        return fallback
+    return cleaned if len(cleaned) <= limit else f"{cleaned[: limit - 1].rstrip()}…"
+
+
+def _session_meta_row(
+    label: str,
+    items: list[tuple[str, str, str]],
+    *,
+    controller: LiveDashboardController,
+    refresh_viewer,
+) -> None:
+    with ui.element("div").style(
+        "display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.55rem; min-width: 0;"
+    ):
+        ui.label(label).style(
+            "min-width: 9rem; color: var(--text-1); font-size: 0.74rem; "
+            "text-transform: uppercase; letter-spacing: 0.08em; padding-top: 0.3rem;"
+        )
+        with ui.element("div").style(
+            "display: flex; flex-wrap: wrap; gap: 0.45rem; min-width: 0; flex: 1;"
+        ):
+            for chip_label, chip_text, raw_key in items:
+                _session_chip(
+                    chip_label,
+                    chip_text,
+                    raw_key=raw_key,
+                    controller=controller,
+                    refresh_viewer=refresh_viewer,
+                )
+
+
+def _session_chip(
+    label: str,
+    text: str,
+    *,
+    raw_key: str,
+    controller: LiveDashboardController,
+    refresh_viewer,
+) -> None:
+    with ui.element("div").style(
+        "display: inline-flex; align-items: center; min-width: 0; cursor: pointer; "
+        "padding: 0.32rem 0.68rem; border-radius: 999px; "
+        "border: 1px solid var(--border-1); background: rgba(230,237,247,0.06);"
+    ).on(
+        "click.stop",
+        lambda _e: _open_text_viewer(
+            controller,
+            refresh_viewer,
+            label,
+            text,
+            raw_key,
+        ),
+    ):
+        ui.label(label).style("color: var(--text-0); font-size: 0.78rem;").tooltip(text)
+
+
 def _handle_auto_follow(
     value: bool,
     controller: LiveDashboardController,
@@ -321,6 +417,17 @@ def _open_repl_output_viewer(
         text=text,
         label=label,
     )
+    refresh_viewer.refresh()
+
+
+def _open_text_viewer(
+    controller: LiveDashboardController,
+    refresh_viewer,
+    label: str,
+    text: str,
+    raw_key: str,
+) -> None:
+    controller.open_text_viewer(label=label, text=text, raw_key=raw_key)
     refresh_viewer.refresh()
 
 
