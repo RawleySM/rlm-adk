@@ -190,11 +190,3 @@ You are designing tasks where the model should first prove:
 
 That is the benchmark.
 
-## Final instruction
-
-Brainstorm benchmark tasks that force UNDERSTAND-phase honesty.
-
-The ideal task is one where:
-- a careless model would push ahead,
-- a competent model would pause,
-- and a strong model would output a retrieval order that correctly identifies the non-derivable missing context required for real understanding.
