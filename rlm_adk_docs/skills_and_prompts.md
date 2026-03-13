@@ -162,7 +162,119 @@ else:
 
 ---
 
-## 7. How to Add a New Skill
+## 7. polya-narrative Skill
+
+**File:** `rlm_adk/skills/polya_narrative_skill.py`
+
+A source-expandable REPL skill that orchestrates iterative narrative refinement using the Polya problem-solving loop: **Understand → Plan → Implement → Reflect**. Unlike the repomix skill (which injects utility functions into `repl.globals`), polya-narrative uses source expansion because its implementation calls `llm_query()` and `llm_query_batched()`, which must be visible to the AST rewriter.
+
+### Dual Registration
+
+The skill registers itself through **two** mechanisms simultaneously:
+
+1. **ADK Skill discovery** — `POLYA_NARRATIVE_SKILL` (a `google.adk.skills.models.Skill` with `Frontmatter`) is appended to `static_instruction` via `build_polya_skill_instruction_block()` in `create_reasoning_agent()`. This gives the reasoning agent an `<available_skills>` XML block describing the skill's purpose and usage.
+
+2. **Source-expandable REPL exports** — 12 `ReplSkillExport` entries registered at import time under the synthetic module `rlm_repl_skills.polya_narrative`. When the model writes `from rlm_repl_skills.polya_narrative import run_polya_narrative`, the skill registry inlines all source transitively.
+
+### Topology: Vertical Fanout with Sequential Spine
+
+The Polya loop implements a **hybrid topology** — a sequential spine of four phases per cycle, with one phase (IMPLEMENT) using horizontal fanout:
+
+```
+                         ┌──────────────────────────────────┐
+                         │   Parent REPL (depth 0)          │
+                         │   run_polya_narrative(story)      │
+                         └──────────────┬───────────────────┘
+                                        │
+                    ┌───────────────── CYCLE N ──────────────────┐
+                    │                                            │
+          ┌─────────▼──────────┐                                 │
+          │  1. UNDERSTAND      │  llm_query()                   │
+          │  (sequential child) │  → 1 child at depth+1          │
+          └─────────┬──────────┘                                 │
+                    │                                            │
+          ┌─────────▼──────────┐                                 │
+          │  2. PLAN            │  llm_query()                   │
+          │  (sequential child) │  → 1 child at depth+1          │
+          └─────────┬──────────┘                                 │
+                    │                                            │
+                    │  extract_work_packets() → 3-5 packets      │
+                    │                                            │
+          ┌─────────▼──────────┐                                 │
+          │  3. IMPLEMENT       │  llm_query_batched()           │
+          │  (parallel fanout)  │  → K children at depth+1       │
+          │                     │    (semaphore-limited)          │
+          └─────────┬──────────┘                                 │
+                    │  merge implementations into narrative       │
+                    │                                            │
+          ┌─────────▼──────────┐                                 │
+          │  4. REFLECT         │  llm_query()                   │
+          │  (sequential child) │  → 1 child at depth+1          │
+          │                     │  emits VERDICT: COMPLETE/      │
+          │                     │        CONTINUE                │
+          └─────────┬──────────┘                                 │
+                    │                                            │
+                    ▼                                            │
+            COMPLETE? ──yes──► return PolyaNarrativeResult       │
+                │                                                │
+                no                                               │
+                │                                                │
+                └──────────── next cycle ────────────────────────┘
+```
+
+**Per-cycle dispatch pattern:**
+- 3 sequential `llm_query()` calls (UNDERSTAND, PLAN, REFLECT) — each spawns 1 child orchestrator at depth+1
+- 1 `llm_query_batched()` call (IMPLEMENT) — spawns 3-5 children concurrently at depth+1
+- Total children per cycle: 6-8
+
+**Depth consumption:** The skill runs inside a depth-0 REPL `execute_code` call. Each `llm_query` / `llm_query_batched` call spawns child orchestrators at depth+1. With `max_cycles=2` (default), total LLM calls are bounded: 2 cycles × (3 sequential + 3-5 batched) = 12-16 child dispatches.
+
+### Phase Details
+
+| Phase | Dispatch | Prompt Builder | What It Produces |
+|-------|----------|---------------|-----------------|
+| UNDERSTAND | `llm_query()` | `build_understand_prompt()` | Structured assessment: gaps, strengths, themes, technical details, user journey |
+| PLAN | `llm_query()` | `build_plan_prompt()` | 3-5 numbered work packets, each specifying section, content, tone, success criteria |
+| IMPLEMENT | `llm_query_batched()` | `build_implement_prompt()` | One enriched narrative section per work packet (concurrent) |
+| REFLECT | `llm_query()` | `build_reflect_prompt()` | Quality assessment (1-10 scale), `VERDICT: COMPLETE` (≥8) or `VERDICT: CONTINUE` |
+
+### Source Expansion Dependency Graph
+
+The `run_polya_narrative` function has transitive dependencies on all other exports. The skill registry topologically sorts them:
+
+```
+POLYA_UNDERSTAND_INSTRUCTIONS  ─┐
+POLYA_PLAN_INSTRUCTIONS         ├─► build_understand_prompt  ─┐
+POLYA_IMPLEMENT_INSTRUCTIONS    ├─► build_plan_prompt         ├─► run_polya_narrative
+POLYA_REFLECT_INSTRUCTIONS      ├─► build_implement_prompt    │
+                                ├─► build_reflect_prompt      │
+PolyaPhaseResult ───────────────┤                             │
+PolyaNarrativeResult ───────────┤                             │
+extract_work_packets ───────────┘─────────────────────────────┘
+```
+
+When the model writes `from rlm_repl_skills.polya_narrative import run_polya_narrative`, all 12 symbols are inlined in dependency order. The `llm_query()` and `llm_query_batched()` calls inside the expanded source are then visible to the AST rewriter for sync-to-async transformation.
+
+### Relationship to Polya Topology Engine (Vision)
+
+This skill is a **concrete, fixed-topology implementation** of the Polya cycle. It always uses the same hybrid topology (sequential spine + IMPLEMENT fanout). The planned [Polya Topology Engine](vision/polya_topology_engine.md) is a more general system that would dynamically select between horizontal, vertical, and hybrid topologies based on task classification. The polya-narrative skill serves as a working proof-of-concept for the vertical/hybrid pattern.
+
+### Result Type
+
+`PolyaNarrativeResult` — returned by `run_polya_narrative()`:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `.narrative` | `str` | Fully refined narrative text |
+| `.cycles_completed` | `int` | Number of cycles that ran |
+| `.verdict` | `str` | `"COMPLETE"` or `"CONTINUE"` |
+| `.phase_results` | `list[PolyaPhaseResult]` | Per-phase per-cycle artifacts |
+| `.final_reflection` | `str` | Last REFLECT phase output |
+| `.debug_log` | `list[str]` | Debug messages (when `emit_debug=True`) |
+
+---
+
+## 8. How to Add a New Skill
 
 ### Step 1: Define the Skill
 
@@ -206,7 +318,7 @@ The agent can now call `my_function()` directly in `execute_code` blocks -- no i
 
 ---
 
-## 8. Source-Expandable REPL Skills
+## 9. Source-Expandable REPL Skills
 
 **Files:** `rlm_adk/repl/skill_registry.py`, `rlm_adk/skills/repl_skills/ping.py`
 
@@ -305,7 +417,7 @@ The expansion inlines all six symbols (topologically sorted) into the submitted 
 
 ---
 
-## 9. Future: Dynamic Skill Activation
+## 10. Future: Dynamic Skill Activation
 
 The current skill system is static -- skills are compiled into the system prompt at agent creation time. A planned enhancement involves:
 
@@ -318,7 +430,7 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 
 ---
 
-## 10. Quick Reference
+## 11. Quick Reference
 
 | Component | File | Role |
 |-----------|------|------|
@@ -333,6 +445,9 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 | register_skill_export() | `rlm_adk/repl/skill_registry.py` | Module-level registration API |
 | expand_skill_imports() | `rlm_adk/repl/skill_registry.py` | Expansion entry point (called by REPLTool) |
 | DYN_SKILL_INSTRUCTION | `rlm_adk/state.py` | Dynamic skill instruction state key |
+| POLYA_NARRATIVE_SKILL | `rlm_adk/skills/polya_narrative_skill.py` | Skill definition + build function (Polya loop) |
+| build_polya_skill_instruction_block() | `rlm_adk/skills/polya_narrative_skill.py` | Returns XML discovery + instructions |
+| run_polya_narrative | `rlm_repl_skills.polya_narrative` (synthetic) | Main orchestrator: Understand→Plan→Implement→Reflect |
 | ping skill module | `rlm_adk/skills/repl_skills/ping.py` | First expandable skill (recursive ping) |
 
 ---
