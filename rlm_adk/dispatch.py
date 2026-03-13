@@ -30,6 +30,7 @@ from rlm_adk.callbacks.worker import _classify_error
 from rlm_adk.callbacks.worker_retry import _bug13_stats
 from rlm_adk.repl.trace import DataFlowTracker
 from rlm_adk.state import (
+    DYN_SKILL_INSTRUCTION,
     OBS_BUG13_SUPPRESS_COUNT,
     OBS_CHILD_DISPATCH_COUNT,
     OBS_CHILD_DISPATCH_LATENCY_MS,
@@ -38,15 +39,14 @@ from rlm_adk.state import (
     OBS_REASONING_RETRY_COUNT,
     OBS_REASONING_RETRY_DELAY_MS,
     OBS_STRUCTURED_OUTPUT_FAILURES,
-    REASONING_INPUT_TOKENS,
     REASONING_FINISH_REASON,
+    REASONING_INPUT_TOKENS,
     REASONING_OUTPUT_TOKENS,
     REASONING_PARSED_OUTPUT,
     REASONING_RAW_OUTPUT,
     REASONING_THOUGHT_TEXT,
     REASONING_THOUGHT_TOKENS,
     REASONING_VISIBLE_OUTPUT_TEXT,
-    DYN_SKILL_INSTRUCTION,
     child_obs_key,
     depth_key,
 )
@@ -74,6 +74,26 @@ def _preview_payload(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | Non
         return json.dumps(value, sort_keys=True)[:limit]
     except (TypeError, ValueError):
         return str(value)[:limit]
+
+
+def _persist_payload(value: Any) -> Any:
+    """Return a JSON-serializable full payload for persisted child summaries."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, list):
+        return [_persist_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [_persist_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _persist_payload(item)
+            for key, item in value.items()
+        }
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _safe_int(value: Any) -> int:
@@ -142,11 +162,12 @@ def create_dispatch_closures(
     _acc_child_error_counts: dict[str, int] = {}
     _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
+    _parent_fanout_idx = fanout_idx
 
     # Pre-compute parent's skill instruction for flush_fn restoration
     _parent_skill_instruction: str | None = None
     if instruction_router is not None:
-        _parent_skill_instruction = instruction_router(depth, fanout_idx)
+        _parent_skill_instruction = instruction_router(depth, _parent_fanout_idx)
 
     def _child_obs_value(
         child_state: dict[str, Any],
@@ -501,10 +522,14 @@ def create_dispatch_closures(
                 "model": target_model,
                 "depth": child_depth,
                 "fanout_idx": fanout_idx,
+                "parent_depth": depth,
+                "parent_fanout_idx": _parent_fanout_idx if depth > 0 else None,
                 "elapsed_ms": round(elapsed_ms, 2),
                 "error": _child_result.error if isinstance(_child_result, LLMResult) else True,
                 "error_category": _child_result.error_category if isinstance(_child_result, LLMResult) else None,
+                "prompt": prompt,
                 "prompt_preview": prompt[:500],
+                "result_text": str(_child_result) if _child_result is not None else None,
                 "result_preview": str(_child_result)[:500] if _child_result is not None else None,
                 "input_tokens": getattr(_child_result, "input_tokens", 0) if _child_result is not None else 0,
                 "output_tokens": getattr(_child_result, "output_tokens", 0) if _child_result is not None else 0,
@@ -512,11 +537,16 @@ def create_dispatch_closures(
                 "finish_reason": getattr(_child_result, "finish_reason", None) if _child_result is not None else None,
                 "error_message": _error_message,
                 "final_answer": _truncate_text(_child_result),
+                "visible_output_text": getattr(_child_result, "visible_text", None),
                 "visible_output_preview": _truncate_text(
                     getattr(_child_result, "visible_text", None),
                 ),
+                "thought_text": getattr(_child_result, "thought_text", None),
                 "thought_preview": _truncate_text(
                     getattr(_child_result, "thought_text", None),
+                ),
+                "raw_output": _persist_payload(
+                    getattr(_child_result, "raw_output", None),
                 ),
                 "raw_output_preview": _preview_payload(
                     getattr(_child_result, "raw_output", None),

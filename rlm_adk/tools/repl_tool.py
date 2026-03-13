@@ -16,7 +16,8 @@ import asyncio
 import hashlib
 import json
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai.types import FunctionDeclaration, Schema, Type
@@ -61,8 +62,8 @@ class REPLTool(BaseTool):
         repl: LocalREPL,
         *,
         max_calls: int = 60,
-        trace_holder: Optional[list] = None,
-        flush_fn: Optional[Callable[[], dict]] = None,
+        trace_holder: list | None = None,
+        flush_fn: Callable[[], dict] | None = None,
         depth: int = 0,
         fanout_idx: int = 0,
         summarization_threshold: int = 5000,
@@ -230,6 +231,8 @@ class REPLTool(BaseTool):
                 "has_output": False,
                 "total_llm_calls": total_llm_calls,
                 "stdout_preview": "",
+                "stdout": "",
+                "stderr": f"CancelledError: {exc}",
                 "cancelled": True,
             }
             return {
@@ -258,6 +261,8 @@ class REPLTool(BaseTool):
                 "has_output": False,
                 "total_llm_calls": total_llm_calls,
                 "stdout_preview": "",
+                "stdout": "",
+                "stderr": f"{type(exc).__name__}: {exc}",
             }
             return {
                 "stdout": "",
@@ -282,6 +287,8 @@ class REPLTool(BaseTool):
             "has_output": bool(result.stdout),
             "total_llm_calls": total_llm_calls,
             "stdout_preview": result.stdout[:500],
+            "stdout": result.stdout,
+            "stderr": result.stderr,
             "submitted_code_chars": len(code),
             "submitted_code_hash": code_hash,
         }

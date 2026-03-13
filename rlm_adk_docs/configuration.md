@@ -1,10 +1,10 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-13 -->
 
 # Configuration Reference
 
 Complete reference for RLM-ADK environment variables, agent factory functions, plugin wiring, model configuration, and project settings.
 
-Source files: `rlm_adk/agent.py`, `rlm_adk/dispatch.py`, `rlm_adk/state.py`, `pyproject.toml`.
+Source files: `rlm_adk/agent.py`, `rlm_adk/services.py`, `rlm_adk/dispatch.py`, `rlm_adk/state.py`, `pyproject.toml`.
 
 ---
 
@@ -78,7 +78,7 @@ All factories are in `rlm_adk/agent.py`. The call hierarchy is: `create_rlm_runn
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `create_rlm_runner(model, ...)` | `Runner` | Full entry point: App + plugins + session service + artifact service. Recommended for programmatic usage. |
-| `create_rlm_app(model, ...)` | `App` | App with root orchestrator and plugins. Used by ADK CLI via module-level `app` symbol. |
+| `create_rlm_app(model, ...)` | `App` | App with root orchestrator and plugins. Used by ADK CLI via module-level `app` symbol. Session/artifact services are not on the App; they come from the CLI via `services.py` URI flags or from `create_rlm_runner()`. |
 | `create_rlm_orchestrator(model, ...)` | `RLMOrchestratorAgent` | Orchestrator wrapping a reasoning agent with WorkerPool and REPL. |
 | `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator for recursive dispatch at depth > 0. Uses condensed static instruction, no repomix. |
 | `create_reasoning_agent(model, ...)` | `LlmAgent` | Configures the core LLM agent with instructions, planner, callbacks, and retry config. |
@@ -101,6 +101,7 @@ def create_rlm_runner(
     session_service: BaseSessionService | None = None,
     langfuse: bool = False,
     sqlite_tracing: bool = True,
+    instruction_router: Any = None,
 ) -> Runner
 ```
 
@@ -117,10 +118,14 @@ def create_child_orchestrator(
     max_iterations: int = 10,
     thinking_budget: int = 512,
     output_schema: type | None = None,
+    fanout_idx: int = 0,
+    instruction_router: Any = None,
 ) -> RLMOrchestratorAgent
 ```
 
 Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/repo docs). Depth-suffixed names: `child_orchestrator_d{depth}`, `reasoning_output@d{depth}`. Lower thinking budget (512 vs 1024) for cost control.
+
+`instruction_router: Any = None` is also accepted by `create_rlm_orchestrator()` and `create_rlm_app()`, and is threaded through the full factory chain to `create_dispatch_closures()`.
 
 ---
 
@@ -153,6 +158,46 @@ Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/rep
 | `MigrationPlugin` | Enabled if `RLM_POSTGRES_URL` exists | Manages database schema migrations |
 
 When `plugins=` is passed explicitly to `create_rlm_app()` or `create_rlm_runner()`, it overrides the default list entirely.
+
+---
+
+## 3.1 ADK CLI service registry
+
+**File:** `rlm_adk/services.py`
+
+When `adk run rlm_adk` or `adk web rlm_adk` is invoked, ADK CLI auto-discovers `rlm_adk/services.py` via `load_services_module()`. This module registers two custom service factories so the CLI-created Runner gets the same services that `create_rlm_runner()` provides programmatically.
+
+### Registered URI schemes
+
+| Scheme | Factory | Service created |
+|--------|---------|-----------------|
+| `sqlite://<db_path>` | `_rlm_session_factory` | `SqliteSessionService` with WAL mode + performance pragmas (delegates to `_default_session_service()` in `agent.py`). **Overrides ADK built-in.** |
+| `file://<root_dir>` | `_rlm_artifact_factory` | `FileArtifactService` with the given root directory. **Overrides ADK built-in.** |
+
+### Usage
+
+No CLI flags needed — `services.py` overrides the built-in `sqlite://` and `file://` schemes, so `adk run rlm_adk` automatically gets WAL-pragma'd sessions and file artifacts:
+
+```bash
+adk run rlm_adk
+```
+
+Explicit URIs still work if needed:
+
+```bash
+adk run rlm_adk \
+  --session_service_uri sqlite:///custom/path/session.db \
+  --artifact_service_uri file:///custom/path/artifacts
+```
+
+If no path is provided, each factory falls back to its default (`RLM_SESSION_DB` env var / `.adk/session.db` for sessions; `.adk/artifacts` for artifacts).
+
+### Design
+
+- **Overrides built-ins:** Registers under the default `sqlite` and `file` schemes so ADK CLI uses our factories without any CLI flags.
+- **No duplication:** `_rlm_session_factory` imports and delegates to `_default_session_service()` from `agent.py`, reusing the WAL pragma logic.
+- **Auto-registration:** `register_services()` is called at module import time. ADK CLI's `load_services_module()` triggers this import automatically.
+- **Programmatic entrypoint unchanged:** `create_rlm_runner()` continues to work independently of `services.py`.
 
 ---
 
@@ -316,6 +361,9 @@ The reasoning agent must be created with `include_contents="default"`. This tell
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-09 13:15** — `agent.py`: Added `fanout_idx: int = 0` parameter to `create_child_orchestrator()` for artifact filename disambiguation.
+- **2026-03-12** — `agent.py`: Added `instruction_router` parameter to `create_rlm_orchestrator()`, `create_child_orchestrator()`, and `create_rlm_app()`. Added `fanout_idx` to `create_child_orchestrator()`.
+- **2026-03-13** — `services.py`: New file. ADK CLI service registry overriding built-in `sqlite://` and `file://` schemes with WAL-pragma'd session and file artifact factories. No CLI flags needed. Added section 3.1 documenting service registry. `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()`.
+- **2026-03-13** — `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` via `build_polya_skill_instruction_block()` (same `include_repomix` guard as repomix).
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

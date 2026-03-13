@@ -36,7 +36,7 @@
 
 | Command | Entry | What It Does |
 |---------|-------|-------------|
-| `adk run rlm_adk` | CLI | Interactive agent session |
+| `adk run rlm_adk` | CLI | Interactive agent session — `services.py` overrides built-in `sqlite://` and `file://` schemes so WAL-pragma'd sessions and file artifacts work automatically |
 | `adk web rlm_adk` | Web UI | Browser-based session |
 | `create_rlm_runner(model)` | `rlm_adk/agent.py` | Programmatic Runner with services + plugins |
 | `create_rlm_app(model)` | `rlm_adk/agent.py` | App wrapper (no session/artifact service) |
@@ -122,7 +122,7 @@ Skills use YAML frontmatter for discovery. Code-based skills are auto-imported i
 
 ## Configuration
 
-Key env vars: `RLM_ADK_MODEL` (model), `RLM_MAX_ITERATIONS` (REPL call cap), `RLM_MAX_DEPTH` (recursion limit), `RLM_REPL_TRACE` (trace level 0/1/2). All plugin activation is env-var controlled.
+Key env vars: `RLM_ADK_MODEL` (model), `RLM_MAX_ITERATIONS` (REPL call cap), `RLM_MAX_DEPTH` (recursion limit), `RLM_REPL_TRACE` (trace level 0/1/2). All plugin activation is env-var controlled. `services.py` overrides the built-in `sqlite://` and `file://` schemes so `adk run` gets WAL-pragma'd sessions automatically.
 
 **Deep dive:** [configuration.md](configuration.md) — all env vars, factory function signatures, plugin wiring, pyproject.toml settings
 
@@ -155,6 +155,7 @@ Design philosophy: [vision/evolution_principles.md](vision/evolution_principles.
 | `rlm_adk/state.py` | State key constants, depth_key() |
 | `rlm_adk/callbacks/worker_retry.py` | Structured output self-healing, BUG-13 |
 | `rlm_adk/plugins/observability.py` | Token accounting plugin |
+| `rlm_adk/services.py` | ADK CLI service registry (WAL-pragma'd session + file artifacts) |
 | `rlm_adk/plugins/sqlite_tracing.py` | SQLite tracing plugin |
 | `rlm_adk/repl/skill_registry.py` | Synthetic REPL skill import expansion |
 | `rlm_adk/skills/repl_skills/ping.py` | First expandable skill module (recursive ping) |

@@ -1,10 +1,10 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-13 -->
 
 # Artifacts and Session Layer
 
 Reference for RLM-ADK's session persistence, state access patterns, and artifact system.
 
-Source files: `rlm_adk/agent.py`, `rlm_adk/artifacts.py`, `rlm_adk/state.py`, `rlm_adk/plugins/repl_tracing.py`, `rlm_adk/orchestrator.py`.
+Source files: `rlm_adk/agent.py`, `rlm_adk/services.py`, `rlm_adk/artifacts.py`, `rlm_adk/state.py`, `rlm_adk/plugins/repl_tracing.py`, `rlm_adk/orchestrator.py`.
 
 ---
 
@@ -43,6 +43,10 @@ The ADK `Runner` creates an `InvocationContext` per `run_async()` call containin
 - `ctx._invocation_context.agent` -- current agent (private API, used by callbacks)
 
 State survives process restarts (disk-backed). The session service supports rewind/replay via version tracking.
+
+### CLI service registration
+
+`rlm_adk/services.py` overrides the built-in `sqlite://` scheme with `_default_session_service()`, so `adk run rlm_adk` automatically gets WAL-pragma'd sessions — no CLI flags needed. See `configuration.md` section 3.1 for details.
 
 ---
 
@@ -114,6 +118,10 @@ Each artifact filename maps to a directory. Subsequent saves to the same filenam
 - `save_artifact()` returns the version number (int) of the saved artifact
 - `load_artifact(filename, version=None)` loads the latest version; pass an explicit version number to load a specific one
 - Versions are monotonically increasing integers starting at 0
+
+### CLI service registration
+
+`rlm_adk/services.py` overrides the built-in `file://` scheme, so `adk run rlm_adk` automatically uses `FileArtifactService` with the project's `.adk/artifacts` root — no CLI flags needed. See `configuration.md` section 3.1 for details.
 
 ---
 
@@ -211,6 +219,7 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-09 13:00** — `artifacts.py`: Wired `save_repl_code()` into `REPLTool.run_async()` for REPL code persistence. Fixed AR-CRIT-001 in `_update_save_tracking()` and `load_artifact()` — uses `ctx.state` (ADK State wrapper) instead of raw `ctx.session.state`.
 - **2026-03-09 14:00** — `artifacts.py`, `repl_tool.py`, `orchestrator.py`, `agent.py`, `dispatch.py`: Added `depth` and `fanout_idx` parameters to `save_repl_code()`, `save_repl_output()`, `save_repl_trace()`, `save_final_answer()`. Artifact filenames now use `d{depth}_f{fanout_idx}` prefix (e.g. `repl_code_d1_f2_iter_3_turn_0.py`) to prevent collisions between parent/child orchestrators and between batched siblings. REPLTool accepts `fanout_idx` and threads it alongside `depth` to artifact helpers. Orchestrator threads `fanout_idx` through to REPLTool and `save_final_answer()`. `create_child_orchestrator()` accepts and passes `fanout_idx`. `_run_child()` in dispatch threads `fanout_idx` to child creation.
+- **2026-03-13** — `services.py`: New file. ADK CLI service registry overrides built-in `sqlite://` and `file://` schemes so `adk run rlm_adk` gets WAL-pragma'd sessions and file artifacts automatically. Added CLI service registration notes to sections 1 and 3.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

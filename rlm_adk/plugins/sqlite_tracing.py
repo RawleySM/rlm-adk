@@ -15,7 +15,7 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.callback_context import CallbackContext
@@ -29,15 +29,19 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
-    DYN_SKILL_INSTRUCTION,
-    OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     CONTEXT_WINDOW_SNAPSHOT,
+    DYN_SKILL_INSTRUCTION,
     FINAL_ANSWER,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
+    OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
+    REASONING_PARSED_OUTPUT,
+    REASONING_RAW_OUTPUT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_VISIBLE_OUTPUT_TEXT,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,11 +84,19 @@ def _categorize_key(key: str) -> str:
         return "flow_control"
     if key.startswith("repl_submitted_code"):
         return "repl"
+    if key.startswith("repl_expanded_code"):
+        return "repl"
+    if key.startswith("repl_skill_expansion_meta"):
+        return "repl"
+    if key.startswith("repl_did_expand"):
+        return "repl"
     if key.startswith("last_repl_result"):
         return "repl"
+    if key.startswith("reasoning_"):
+        return "obs_reasoning"
     if key.startswith("cache:"):
         return "cache"
-    if key in ("request_id", "idempotency_key", "repo_url", "root_prompt"):
+    if key in ("request_id", "idempotency_key", "repo_url", "root_prompt", "skill_instruction"):
         return "request_meta"
     return "other"
 
@@ -96,13 +108,26 @@ _CURATED_PREFIXES = (
     "artifact_",
     "last_repl_result",
     "repl_submitted_code",
+    "repl_expanded_code",
+    "repl_skill_expansion_meta",
+    "repl_did_expand",
 )
 
 _CURATED_EXACT = {
     "iteration_count", "should_stop", "final_answer", "policy_violation",
-    "request_id", "idempotency_key",
+    "request_id", "idempotency_key", "repo_url", "root_prompt", "skill_instruction",
     "cache:hit_count", "cache:miss_count", "cache:last_hit_key",
     "worker_dispatch_count",
+    REASONING_VISIBLE_OUTPUT_TEXT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_RAW_OUTPUT,
+    REASONING_PARSED_OUTPUT,
+}
+
+_FULL_TEXT_SSE_KEYS = {
+    REASONING_VISIBLE_OUTPUT_TEXT,
+    REASONING_THOUGHT_TEXT,
+    REASONING_RAW_OUTPUT,
 }
 
 
@@ -129,12 +154,34 @@ def _typed_value(value: Any) -> tuple[str, int | None, float | None, str | None,
     if isinstance(value, float):
         return "float", None, value, None, None
     if isinstance(value, str):
-        return "str", None, None, value[:2000], None
+        return "str", None, None, value, None
     if isinstance(value, list):
-        return "list", None, None, None, json.dumps(value)
+        return "list", None, None, None, json.dumps(value, default=str)
     if isinstance(value, dict):
-        return "dict", None, None, None, json.dumps(value)
-    return "other", None, None, str(value)[:2000], None
+        return "dict", None, None, None, json.dumps(value, default=str)
+    return "other", None, None, str(value), None
+
+
+def _typed_value_for_key(
+    base_key: str,
+    value: Any,
+) -> tuple[str, int | None, float | None, str | None, str | None]:
+    """Return a typed row payload, preserving full text for live-inspection keys."""
+    if base_key in _FULL_TEXT_SSE_KEYS and isinstance(value, str):
+        return "str", None, None, value, None
+    return _typed_value(value)
+
+
+def _serialize_payload(value: Any) -> str | None:
+    """Serialize arbitrary telemetry payloads without truncation."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 # ---- Schema SQL ----
@@ -218,6 +265,9 @@ CREATE TABLE IF NOT EXISTS telemetry (
     repl_stderr_len     INTEGER,
     repl_trace_summary  TEXT,
     skill_instruction   TEXT,
+    result_payload      TEXT,
+    repl_stdout         TEXT,
+    repl_stderr         TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -280,8 +330,8 @@ class SqliteTracingPlugin(BasePlugin):
     ):
         super().__init__(name=name)
         self._db_path = Path(db_path)
-        self._conn: Optional[sqlite3.Connection] = None
-        self._trace_id: Optional[str] = None
+        self._conn: sqlite3.Connection | None = None
+        self._trace_id: str | None = None
         # Pending telemetry: callback/tool context id -> (telemetry_id, start_time)
         self._pending_model_telemetry: dict[int, tuple[str, float]] = {}
         self._pending_tool_telemetry: dict[int, tuple[str, float]] = {}
@@ -378,6 +428,9 @@ class SqliteTracingPlugin(BasePlugin):
                 ("repl_stderr_len", "INTEGER"),
                 ("repl_trace_summary", "TEXT"),
                 ("skill_instruction", "TEXT"),
+                ("result_payload", "TEXT"),
+                ("repl_stdout", "TEXT"),
+                ("repl_stderr", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -529,7 +582,7 @@ class SqliteTracingPlugin(BasePlugin):
         if not _should_capture(base_key):
             return
         category = _categorize_key(base_key)
-        vtype, vint, vfloat, vtext, vjson = _typed_value(value)
+        vtype, vint, vfloat, vtext, vjson = _typed_value_for_key(base_key, value)
         try:
             self._conn.execute(
                 """INSERT INTO session_state_events
@@ -563,7 +616,7 @@ class SqliteTracingPlugin(BasePlugin):
 
     async def before_run_callback(
         self, *, invocation_context: InvocationContext
-    ) -> Optional[types.Content]:
+    ) -> types.Content | None:
         """Create a new trace row for this invocation."""
         try:
             self._trace_id = uuid.uuid4().hex
@@ -708,7 +761,7 @@ class SqliteTracingPlugin(BasePlugin):
 
     async def before_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
-    ) -> Optional[types.Content]:
+    ) -> types.Content | None:
         """Track agent name for parent context (no span write)."""
         try:
             agent_name = getattr(agent, "name", "unknown")
@@ -719,7 +772,7 @@ class SqliteTracingPlugin(BasePlugin):
 
     async def after_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
-    ) -> Optional[types.Content]:
+    ) -> types.Content | None:
         """Pop agent from context stack."""
         try:
             if self._agent_span_stack:
@@ -732,13 +785,19 @@ class SqliteTracingPlugin(BasePlugin):
 
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
-    ) -> Optional[LlmResponse]:
+    ) -> LlmResponse | None:
         """Insert a telemetry row for model_call and store ID for pairing."""
         try:
             model = llm_request.model or "unknown"
             num_contents = len(llm_request.contents) if llm_request.contents else 0
             iteration = callback_context.state.get(ITERATION_COUNT, 0)
             agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
+            depth = getattr(
+                getattr(callback_context, "_invocation_context", None),
+                "agent",
+                None,
+            )
+            depth = self._coerce_int(getattr(depth, "_rlm_depth", 0))
 
             # Extract agent_type, prompt_chars, system_chars from context snapshot
             context_snapshot = callback_context.state.get(CONTEXT_WINDOW_SNAPSHOT)
@@ -768,6 +827,7 @@ class SqliteTracingPlugin(BasePlugin):
                 system_chars=system_chars,
                 call_number=call_number,
                 skill_instruction=skill_instruction,
+                depth=depth,
             )
             self._pending_model_telemetry[self._pending_key(callback_context)] = (
                 telemetry_id,
@@ -779,7 +839,7 @@ class SqliteTracingPlugin(BasePlugin):
 
     async def after_model_callback(
         self, *, callback_context: CallbackContext, llm_response: LlmResponse
-    ) -> Optional[LlmResponse]:
+    ) -> LlmResponse | None:
         """Update telemetry row with tokens, finish_reason, duration."""
         try:
             pending = self._pending_model_telemetry.pop(
@@ -851,7 +911,7 @@ class SqliteTracingPlugin(BasePlugin):
         callback_context: CallbackContext,
         llm_request: LlmRequest,
         error: Exception,
-    ) -> Optional[LlmResponse]:
+    ) -> LlmResponse | None:
         """Mark the pending model telemetry row as an error."""
         try:
             pending = self._pending_model_telemetry.pop(
@@ -883,13 +943,19 @@ class SqliteTracingPlugin(BasePlugin):
         tool: BaseTool,
         tool_args: dict[str, Any],
         tool_context: ToolContext,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Insert a telemetry row for tool_call."""
         try:
             tool_name = getattr(tool, "name", str(tool))
             telemetry_id = self._new_id()
             start_time = time.time()
             agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
+            tool_depth = self._coerce_int(getattr(tool, "_depth", 0))
+            iteration = None
+            state = getattr(tool_context, "state", None)
+            if hasattr(state, "get"):
+                depth_key_name = "iteration_count" if tool_depth == 0 else f"iteration_count@d{tool_depth}"
+                iteration = state.get(depth_key_name)
             self._insert_telemetry(
                 telemetry_id,
                 "tool_call",
@@ -897,6 +963,8 @@ class SqliteTracingPlugin(BasePlugin):
                 tool_name=tool_name,
                 tool_args_keys=json.dumps(list(tool_args.keys())),
                 agent_name=agent_name,
+                depth=tool_depth,
+                iteration=self._coerce_int(iteration) if iteration is not None else None,
             )
             self._pending_tool_telemetry[self._pending_key(tool_context)] = (
                 telemetry_id,
@@ -913,7 +981,7 @@ class SqliteTracingPlugin(BasePlugin):
         tool_args: dict[str, Any],
         tool_context: ToolContext,
         result: dict,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Update the tool telemetry row with result preview and duration."""
         try:
             tool_name = getattr(tool, "name", str(tool))
@@ -929,7 +997,10 @@ class SqliteTracingPlugin(BasePlugin):
                     "end_time": end_time,
                     "duration_ms": duration_ms,
                     "result_preview": str(result)[:500],
+                    "result_payload": _serialize_payload(result),
                 }
+                if isinstance(result, dict) and result.get("call_number") is not None:
+                    update_kwargs["call_number"] = self._coerce_int(result.get("call_number"))
                 # REPL enrichment
                 if tool_name == "execute_code" and isinstance(result, dict):
                     state = getattr(tool_context, "state", None)
@@ -969,6 +1040,8 @@ class SqliteTracingPlugin(BasePlugin):
                     )
                     update_kwargs["repl_stdout_len"] = len(stdout or "")
                     update_kwargs["repl_stderr_len"] = len(stderr or "")
+                    update_kwargs["repl_stdout"] = stdout or ""
+                    update_kwargs["repl_stderr"] = stderr or ""
                 self._update_telemetry(telemetry_id, **update_kwargs)
         except Exception as e:
             logger.warning("SqliteTracingPlugin: after_tool failed: %s", e)
@@ -978,7 +1051,7 @@ class SqliteTracingPlugin(BasePlugin):
 
     async def on_event_callback(
         self, *, invocation_context: InvocationContext, event: Event
-    ) -> Optional[Event]:
+    ) -> Event | None:
         """Capture curated state_delta keys as session_state_events rows."""
         try:
             now = time.time()

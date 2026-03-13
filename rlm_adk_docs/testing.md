@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-12 -->
 
 # Testing Infrastructure Reference
 
@@ -290,6 +290,22 @@ All tests in this file carry the `@pytest.mark.provider_fake_contract` marker.
 
 ---
 
+## Instruction Router E2E Tests
+
+**File:** `tests_rlm_adk/test_instruction_router_e2e.py`
+
+Tests the `instruction_router` feature end-to-end using the provider-fake infrastructure. Uses the `instruction_router_fanout.json` fixture to verify:
+
+- Instruction router is called with correct `(depth, fanout_idx)` arguments
+- `DYN_SKILL_INSTRUCTION` state key is populated in session state
+- Skill instruction propagates through to the `{skill_instruction?}` template placeholder
+- Parent skill instruction is restored by `flush_fn` after child dispatch
+- `SqliteTracingPlugin` captures `skill_instruction` in telemetry rows
+
+The fixture simulates a fanout dispatch scenario where the instruction router produces different instructions for different `(depth, fanout_idx)` combinations.
+
+---
+
 ## Marker System
 
 Defined in `pyproject.toml`:
@@ -414,6 +430,8 @@ Run with:
 
 Key replay fixtures: `recursive_ping.json` (3-layer recursive dispatch), `test_structured_pipeline.json` (structured output with `set_model_response()`), `test_recursive_security_audit.json`.
 
+Provider-fake fixtures include `instruction_router_fanout.json` for instruction router e2e coverage.
+
 ---
 
 ## Environment Overrides
@@ -463,6 +481,7 @@ The default marker filter is `-m "provider_fake_contract and not agent_challenge
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-10** — `fixtures.py`: Added `$oneof` matcher operator, `litellm_overrides` fixture section support with `_deep_merge`, and upgraded top-level checks (`final_answer`, `total_iterations`, `total_model_calls`) to use `_match_value()` for operator support. `contract_runner.py`: passes `litellm_mode` through to `check_expectations()`.
+- **2026-03-12** — Added `test_instruction_router_e2e.py` and `instruction_router_fanout.json` fixture for instruction router e2e coverage.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-09 -->
+<!-- validated: 2026-03-12 -->
 
 # Dispatch System and State Management
 
@@ -34,6 +34,8 @@ def create_dispatch_closures(
     trace_sink: list | None = None,
     depth: int = 0,
     max_depth: int = 3,        # overridden by RLM_MAX_DEPTH env var
+    instruction_router: Any = None,
+    fanout_idx: int = 0,
 ) -> tuple[llm_query_async, llm_query_batched_async, flush_fn]
 ```
 
@@ -41,7 +43,7 @@ The three closures share:
 
 - A `_child_semaphore` (`asyncio.Semaphore`, sized by `RLM_MAX_CONCURRENT_CHILDREN`, default 3).
 - Six local accumulators (see below).
-- References to `dispatch_config`, `ctx`, `call_log_sink`, `trace_sink`, `depth`, and `max_depth`.
+- References to `dispatch_config`, `ctx`, `call_log_sink`, `trace_sink`, `depth`, `max_depth`, `instruction_router`, and `fanout_idx`.
 
 REPLTool injects `llm_query_async` and `llm_query_batched_async` into the REPL namespace. User
 code calls `llm_query(prompt)`, the AST rewriter transforms it to `await llm_query_async(prompt)`,
@@ -72,6 +74,8 @@ through ADK-tracked channels.
 | `_acc_child_summaries` | `dict[str, dict]` | Per-child observability summary dicts |
 | `_acc_structured_output_failures` | `int` | Schema validation exhaustion count |
 
+When an `instruction_router` is provided, `create_dispatch_closures` pre-computes `_parent_skill_instruction = instruction_router(depth, fanout_idx)`. This cached value is used by `flush_fn` to restore the parent's skill instruction after child dispatch (preventing child state from clobbering the parent's `DYN_SKILL_INSTRUCTION`).
+
 ### How flush_fn works
 
 `flush_fn()` is called by REPLTool after each code execution. It:
@@ -94,6 +98,7 @@ channel. This means accumulated dispatch telemetry enters the event stream corre
 | `obs:structured_output_failures` | `_acc_structured_output_failures` | Only if > 0 |
 | `obs:bug13_suppress_count` | `_bug13_stats["suppress_count"]` | Only if > 0 |
 | `obs:child_summary@d{D}f{F}` | `_acc_child_summaries` | One per child |
+| `skill_instruction` (DYN_SKILL_INSTRUCTION) | `_parent_skill_instruction` | Only if instruction_router provided |
 
 Because flush resets accumulators, each REPL turn's state reflects only that turn's dispatch
 activity, not a running total.
@@ -301,6 +306,7 @@ All constants are defined in `rlm_adk/state.py`.
 | `REPO_URL` | `repo_url` |
 | `DYN_ROOT_PROMPT` | `root_prompt` |
 | `DYN_REPO_URL` | `repo_url` |
+| `DYN_SKILL_INSTRUCTION` | `skill_instruction` |
 
 ### Cache
 
@@ -478,6 +484,7 @@ This pattern is enforced in `dispatch.py` after each `llm_query_batched_async` c
 - **2026-03-09 12:55** — `dispatch.py`: Documented child context propagation — all children share parent's `InvocationContext` (same session_id, artifact_service). Artifact filename collisions identified for batched dispatch (`fanout_idx` not yet threaded to child REPLTool).
 - **2026-03-09 13:00** — `dispatch.py`: Added Args docstring to `_read_child_completion` function (child, child_depth, child_state, shared_state parameters).
 - **2026-03-09 14:00** — `dispatch.py`, `agent.py`: `_run_child()` now passes `fanout_idx` to `create_child_orchestrator()`, which threads it to `RLMOrchestratorAgent(fanout_idx=...)`. This enables depth+fanout artifact filename disambiguation (`d{depth}_f{fanout_idx}` prefix on all artifact filenames).
+- **2026-03-12** — `dispatch.py`, `state.py`: Added `instruction_router` and `fanout_idx` params to `create_dispatch_closures()`. flush_fn restores parent's `DYN_SKILL_INSTRUCTION` after child dispatch. Added `DYN_SKILL_INSTRUCTION` state key.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

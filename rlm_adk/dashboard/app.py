@@ -10,28 +10,28 @@ from __future__ import annotations
 from nicegui import ui
 from nicegui.events import KeyEventArguments
 
+# Register the live dashboard page before ui.run().
+from rlm_adk.dashboard import live_app as _live_app  # noqa: F401
+from rlm_adk.dashboard.components.api_usage import build_workers_panel
+from rlm_adk.dashboard.components.chunk_detail import (
+    render_chunk_detail,
+    render_worker_detail,
+)
+from rlm_adk.dashboard.components.color_legend import build_color_legend
+from rlm_adk.dashboard.components.context_bar import build_context_bar_options
+from rlm_adk.dashboard.components.header import build_header
+from rlm_adk.dashboard.components.navigator import build_navigator
+from rlm_adk.dashboard.components.output_panel import render_output_panel
+from rlm_adk.dashboard.components.summary_bar import build_summary_bar
+from rlm_adk.dashboard.components.token_charts import (
+    build_cumulative_chart_options,
+    build_iteration_breakdown_table,
+)
 from rlm_adk.dashboard.controller import (
     DashboardController,
     DashboardUI,
 )
 from rlm_adk.dashboard.data_loader import DashboardDataLoader
-from rlm_adk.dashboard.data_models import ChunkCategory
-
-from rlm_adk.dashboard.components.header import build_header
-from rlm_adk.dashboard.components.summary_bar import build_summary_bar
-from rlm_adk.dashboard.components.navigator import build_navigator
-from rlm_adk.dashboard.components.context_bar import build_context_bar_options
-from rlm_adk.dashboard.components.chunk_detail import (
-    render_chunk_detail,
-    render_worker_detail,
-)
-from rlm_adk.dashboard.components.token_charts import (
-    build_cumulative_chart_options,
-    build_iteration_breakdown_table,
-)
-from rlm_adk.dashboard.components.color_legend import build_color_legend
-from rlm_adk.dashboard.components.api_usage import build_workers_panel
-from rlm_adk.dashboard.components.output_panel import render_output_panel
 
 
 @ui.page("/dashboard")

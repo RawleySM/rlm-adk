@@ -6,7 +6,6 @@ RED/GREEN TDD: These tests define the target 3-table schema
 
 import json
 import sqlite3
-import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -81,7 +80,8 @@ class TestTelemetryColumns:
             "prompt_chars", "system_chars", "tool_name", "tool_args_keys",
             "result_preview", "repl_has_errors", "repl_has_output",
             "repl_llm_calls", "repl_stdout_len", "repl_stderr_len",
-            "repl_trace_summary",
+            "repl_trace_summary", "skill_instruction", "result_payload",
+            "repl_stdout", "repl_stderr",
             "status", "error_type", "error_message",
         ]
         assert columns == expected

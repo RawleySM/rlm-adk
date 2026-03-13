@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-10 -->
+<!-- validated: 2026-03-12 -->
 
 # RLM-ADK Core Loop Reference
 
@@ -22,6 +22,7 @@ The core loop: an LLM reasoning agent writes Python code, which executes in a sa
 | `repl` | `Any` | `None` | Pre-configured `LocalREPL` (optional) |
 | `depth` | `int` | `0` | Nesting depth (0 = root) |
 | `output_schema` | `Any` | `None` | Pydantic schema for structured output |
+| `instruction_router` | `Any` | `None` | `Callable[[int, int], str]` for dynamic skill instructions |
 
 The single entry point is `_run_async_impl(ctx) -> AsyncGenerator[Event, None]`.
 
@@ -36,10 +37,13 @@ The orchestrator does NOT manually iterate. It wires tools onto the reasoning ag
 ```
 1. Create LocalREPL (or reuse self.repl)
 2. Create dispatch closures -> (llm_query_async, llm_query_batched_async, flush_fn)
+   (passes instruction_router + fanout_idx for skill instruction routing)
 3. Inject async query fns + skill helpers into REPL globals
 4. Build REPLTool(repl, max_calls, flush_fn)
 5. Build SetModelResponseTool(output_schema)
 6. Wire both onto reasoning_agent.tools via object.__setattr__
+6b. If instruction_router: compute skill_instruction, write DYN_SKILL_INSTRUCTION to initial state,
+    wire before_agent_callback on reasoning_agent to seed callback_context.state
 7. Yield initial state delta Event (CURRENT_DEPTH, ITERATION_COUNT, REQUEST_ID)
 8. Yield user Content Event with root_prompt
 9. Delegate: async for event in reasoning_agent.run_async(ctx): yield event
@@ -476,6 +480,9 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 - **2026-03-09 13:15** — `repl_tool.py`: Added `fanout_idx` to `REPLTool.__init__()`, threaded to `save_repl_code()` with depth and fanout_idx.
 - **2026-03-09 13:15** — `agent.py`: Added `fanout_idx` to `create_child_orchestrator()`, passed to `RLMOrchestratorAgent`.
 - **2026-03-10** — `repl_tool.py`: Documented skill import expansion pass (step 4) in REPL execution pipeline.
+- **2026-03-12** — `orchestrator.py`: Added `instruction_router` field to `RLMOrchestratorAgent`. `_run_async_impl` now seeds `DYN_SKILL_INSTRUCTION` into initial state and wires `before_agent_callback` for skill instruction propagation.
+- **2026-03-13** — `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()` (pass-through to `create_rlm_app()`). New `services.py` registers CLI service factories; does not affect the core loop or factory chain.
+- **2026-03-13** — `orchestrator.py`: Side-effect import of polya_narrative skill moved from `skills.repl_skills.polya_narrative` to `skills.polya_narrative_skill`. `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` alongside repomix (under `include_repomix` guard).
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

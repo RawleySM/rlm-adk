@@ -240,11 +240,15 @@ def create_reasoning_agent(
             )
         )
 
-    # Append repomix skill instructions to static instruction (parent only)
+    # Append skill instructions to static instruction (parent only)
     if include_repomix:
         from rlm_adk.skills.repomix_skill import build_skill_instruction_block
 
         static_instruction = static_instruction + "\n" + build_skill_instruction_block()
+
+        from rlm_adk.skills.polya_narrative_skill import build_polya_skill_instruction_block
+
+        static_instruction = static_instruction + "\n" + build_polya_skill_instruction_block()
 
     gcc = _build_generate_content_config(retry_config) if not litellm_active else None
 
@@ -523,6 +527,7 @@ def create_rlm_runner(
     session_service: BaseSessionService | None = None,
     langfuse: bool = False,
     sqlite_tracing: bool = True,
+    instruction_router: Any = None,
 ) -> Runner:
     """Create the full RLM ADK Runner: App + plugins + services.
 
@@ -587,6 +592,7 @@ def create_rlm_runner(
         thinking_budget=thinking_budget,
         langfuse=langfuse,
         sqlite_tracing=sqlite_tracing,
+        instruction_router=instruction_router,
     )
 
     # Resolve session service: explicit > default factory

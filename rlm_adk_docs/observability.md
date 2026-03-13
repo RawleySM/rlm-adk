@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-10 -->
+<!-- validated: 2026-03-13 -->
 
 # Observability and Plugin Reference
 
@@ -115,6 +115,7 @@ evolving columns.
 | repl_has_errors, repl_has_output | INT (bool) | REPL enrichment flags |
 | repl_llm_calls, stdout_len, stderr_len | INT | REPL metrics |
 | repl_trace_summary | TEXT (JSON) | Embedded trace summary |
+| skill_instruction | TEXT | Active skill instruction text at time of model call |
 | status, error_type, error_message | TEXT | Error tracking |
 
 #### `session_state_events` table -- one row per curated state key change
@@ -142,6 +143,10 @@ Only state keys matching curated prefixes are captured: `obs:`, `artifact_`,
 `iteration_count`, `should_stop`, `final_answer`, `request_id`, and cache
 counters. Keys with `@d{N}` or `@d{N}f{M}` suffixes are parsed into
 `key_depth` and `key_fanout` columns.
+
+### Skill Instruction Capture
+
+The `skill_instruction` telemetry column captures `callback_context.state[DYN_SKILL_INSTRUCTION]` at `before_model_callback` time, recording which skill instruction was active for each model call. This enables per-call attribution of instruction routing decisions.
 
 ### REPL Enrichment
 
@@ -486,6 +491,7 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-10** — Added section 9 (Skill Expansion Observability Keys) documenting REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH, REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND.
+- **2026-03-12** — `sqlite_tracing.py`: Added `skill_instruction` column to telemetry table, captured from `DYN_SKILL_INSTRUCTION` state key at `before_model_callback`.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-10 -->
+<!-- validated: 2026-03-12 -->
 
 # Skills & Prompt System
 
@@ -32,6 +32,7 @@ RLM_DYNAMIC_INSTRUCTION = textwrap.dedent("""\
 Repository URL: {repo_url?}
 Original query: {root_prompt?}
 Additional context: {test_context?}
+Skill instruction: {skill_instruction?}
 """)
 ```
 
@@ -43,6 +44,19 @@ This is set as `LlmAgent(instruction=...)`. ADK replaces `{var?}` placeholders w
 3. `reasoning_before_model` callback merges the resolved dynamic instruction into `system_instruction`
 
 **This is the PRIMARY EXTENSION POINT** for future features. To add task-specific priming (e.g., Polya topology hints, domain-specific guidance), add new `{var?}` placeholders here and write values to session state before the reasoning loop begins.
+
+### Instruction Router
+
+The `instruction_router` is a `Callable[[int, int], str]` (taking `depth` and `fanout_idx`) that produces per-agent skill instructions. When provided to the orchestrator:
+
+1. The orchestrator calls `instruction_router(depth, fanout_idx)` to get the skill instruction text
+2. The result is written to session state as `DYN_SKILL_INSTRUCTION` (`skill_instruction`)
+3. ADK's template engine resolves `{skill_instruction?}` from state into the dynamic instruction
+4. A `before_agent_callback` is wired onto the reasoning agent to seed the skill instruction into `callback_context.state` before the first model call
+
+After child dispatch, `flush_fn` restores the parent's skill instruction to prevent child dispatch from clobbering the parent's `DYN_SKILL_INSTRUCTION` value.
+
+The instruction router is threaded through the entire dispatch chain: `create_rlm_app` → `create_rlm_orchestrator` → `RLMOrchestratorAgent` → `create_dispatch_closures` → `create_child_orchestrator`.
 
 ---
 
@@ -318,6 +332,7 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 | SkillRegistry | `rlm_adk/repl/skill_registry.py` | Synthetic import expansion registry |
 | register_skill_export() | `rlm_adk/repl/skill_registry.py` | Module-level registration API |
 | expand_skill_imports() | `rlm_adk/repl/skill_registry.py` | Expansion entry point (called by REPLTool) |
+| DYN_SKILL_INSTRUCTION | `rlm_adk/state.py` | Dynamic skill instruction state key |
 | ping skill module | `rlm_adk/skills/repl_skills/ping.py` | First expandable skill (recursive ping) |
 
 ---
@@ -352,6 +367,8 @@ object.__setattr__(self.reasoning_agent, "tools", [repl_tool])
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-10** — Added section 8 (Source-Expandable REPL Skills) documenting skill registry, expansion contract, and ping skill module.
+- **2026-03-12** — `prompts.py`, `orchestrator.py`, `state.py`, `dispatch.py`: Instruction router feature — `{skill_instruction?}` placeholder in dynamic instruction, `DYN_SKILL_INSTRUCTION` state key, `before_agent_callback` seeding, flush_fn parent restoration.
+- **2026-03-13** — Moved `skills/repl_skills/polya_narrative.py` → `skills/polya_narrative_skill.py`. Added ADK `Skill` object (`POLYA_NARRATIVE_SKILL`) with `Frontmatter` + `instructions` following the repomix pattern. Added `build_polya_skill_instruction_block()` for XML discovery injection. `skills/__init__.py` now exports `POLYA_NARRATIVE_SKILL`. Skill is now discoverable by the reasoning agent via `<available_skills>` XML in static instruction — no instruction_router needed for depth-0 activation.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

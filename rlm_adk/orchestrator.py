@@ -276,6 +276,7 @@ class RLMOrchestratorAgent(BaseAgent):
         repl.globals["shard_repo"] = shard_repo
 
         # Register expandable REPL skill modules (side-effect imports)
+        import rlm_adk.skills.polya_narrative_skill  # noqa: F401
         import rlm_adk.skills.repl_skills.ping  # noqa: F401
 
         # Create REPLTool with flush_fn for dispatch accumulator flushing
