@@ -16,6 +16,8 @@ import io
 import logging
 import os
 import sys
+import time
+import tracemalloc
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +38,7 @@ class REPLDebugConfig:
     debugpy_port: int = 5678
     debugpy_wait: bool = False
     ipython_embed: bool = False
+    xmode: str = "Context"  # "Verbose" | "Context" | "Minimal"
 
     @classmethod
     def from_env(cls) -> REPLDebugConfig:
@@ -48,6 +51,7 @@ class REPLDebugConfig:
             debugpy_port=int(os.environ.get("RLM_REPL_DEBUGPY_PORT", "5678")),
             debugpy_wait=os.environ.get("RLM_REPL_DEBUGPY_WAIT", "0") == "1",
             ipython_embed=os.environ.get("RLM_REPL_IPYTHON_EMBED", "0") == "1",
+            xmode=os.environ.get("RLM_REPL_XMODE", "Context"),
         )
 
 
@@ -91,6 +95,11 @@ class IPythonDebugExecutor:
             shell_cls = _try_import_ipython()
             if shell_cls is not None:
                 self._shell = shell_cls.instance()
+                # Apply traceback mode (Verbose/Context/Minimal)
+                try:
+                    self._shell.InteractiveTB.set_mode(mode=self._config.xmode)
+                except Exception:
+                    pass
             else:
                 # IPython unavailable, fall back to exec
                 self._use_ipython = False
@@ -135,15 +144,54 @@ class IPythonDebugExecutor:
             sys.stdout, sys.stderr = stdout_buf, stderr_buf
 
             if self._use_ipython and self._shell is not None:
-                self._execute_via_ipython(code, namespace)
+                # Temporarily suppress IPython's own traceback printing;
+                # we will format it ourselves so normal stdout is preserved.
+                shell = self._shell
+                orig_showtraceback = shell.showtraceback
+                _captured_tb_args: list[tuple] = []
+
+                def _capture_showtraceback(*args, **kwargs):
+                    """Intercept IPython's showtraceback to capture the
+                    formatted traceback text without polluting stdout."""
+                    _captured_tb_args.append((args, kwargs))
+
+                shell.showtraceback = _capture_showtraceback
+                try:
+                    success, ipy_result = self._execute_via_ipython(code, namespace)
+                finally:
+                    shell.showtraceback = orig_showtraceback
+
+                stdout = stdout_buf.getvalue()
+                stderr = stderr_buf.getvalue()
+                if not success:
+                    error = ipy_result.error_in_exec or ipy_result.error_before_exec
+                    # Format the traceback using IPython's InteractiveTB
+                    # which respects the configured xmode (Verbose/Context/Minimal)
+                    tb_text = ""
+                    if error is not None:
+                        try:
+                            stb = shell.InteractiveTB.structured_traceback(
+                                type(error), error, error.__traceback__,
+                            )
+                            tb_text = "\n".join(stb)
+                        except Exception:
+                            tb_text = f"\n{type(error).__name__}: {error}"
+                    if tb_text:
+                        stderr = stderr + tb_text
+                    elif error is not None:
+                        stderr = stderr + f"\n{type(error).__name__}: {error}"
+
+                    if self._config.debug and self._config.ipython_embed:
+                        self._embed_on_exception(namespace, error)
+
+                return stdout, stderr, success
             else:
                 exec(code, namespace, namespace)
 
-            stdout = stdout_buf.getvalue()
-            stderr = stderr_buf.getvalue()
+                stdout = stdout_buf.getvalue()
+                stderr = stderr_buf.getvalue()
 
-            # Handle embed on success (no-op if not enabled)
-            return stdout, stderr, True
+                return stdout, stderr, True
 
         except Exception as e:
             stdout = stdout_buf.getvalue()
@@ -159,24 +207,45 @@ class IPythonDebugExecutor:
 
     def _execute_via_ipython(
         self, code: str, namespace: dict[str, Any],
-    ) -> None:
+    ) -> tuple[bool, Any]:
         """Execute code using IPython's run_cell machinery.
 
         Uses IPython as an execution engine (NOT as an interactive shell).
         The shell's user_ns is temporarily set to our namespace.
+
+        Returns:
+            (success, result) where result is the IPython ExecutionResult.
+            On error, IPython has already printed the formatted traceback
+            to the captured stdout stream (including local vars in Verbose mode).
+            The caller should move that output to stderr.
         """
         shell = self._shell
         # Save and swap namespace
         old_ns = shell.user_ns
+        # Ensure IPython internal keys exist in the namespace to prevent
+        # KeyError from output caching (e.g. _oh, _ih, _dh).
+        for key in ("_oh", "_ih", "_dh", "_", "__", "___"):
+            if key not in namespace:
+                if key == "_oh":
+                    namespace[key] = {}
+                elif key in ("_ih", "_dh"):
+                    namespace[key] = []
+                else:
+                    namespace[key] = ""
         shell.user_ns = namespace
 
         try:
             result = shell.run_cell(code, silent=False, store_history=False)
-            # Propagate exceptions from the cell
-            if result.error_in_exec is not None:
-                raise result.error_in_exec
-            if result.error_before_exec is not None:
-                raise result.error_before_exec
+            error = result.error_in_exec or result.error_before_exec
+            # Capture the last expression value (Feature 3).
+            # result.result holds the value of the last expression in the cell
+            # (e.g. `42 + 1` yields 43). Store it in the namespace as _last_expr
+            # so it's available for data flow tracking without explicit print().
+            if error is None and result.result is not None:
+                namespace["_last_expr"] = result.result
+            else:
+                namespace["_last_expr"] = None
+            return (error is None, result)
         finally:
             shell.user_ns = old_ns
 
@@ -250,6 +319,58 @@ class IPythonDebugExecutor:
             embed(user_ns=namespace, banner1=f"Debug: {type(exc).__name__}: {exc}")
         except (ImportError, TypeError):
             pass
+
+    # ── Trace callbacks (Feature 2) ──────────────────────────────────────
+
+    def register_trace_callbacks(self, trace: Any, trace_level: int) -> tuple[Any, Any]:
+        """Register IPython pre_run_cell / post_run_cell callbacks for tracing.
+
+        Replaces the old code-injection approach (TRACE_HEADER/FOOTER) with
+        IPython event callbacks.  This preserves correct line numbers in error
+        tracebacks because no code is prepended/appended to user code.
+
+        Args:
+            trace: REPLTrace instance to populate with timing/memory data.
+            trace_level: 0=off, 1=timing, 2=timing+tracemalloc.
+
+        Returns:
+            (pre_cb, post_cb) — the registered callback callables, needed by
+            ``unregister_trace_callbacks`` for cleanup.
+        """
+        _mem_was_tracing = [False]
+
+        def _pre_run_cell(info=None):
+            trace.start_time = time.perf_counter()
+            if trace_level >= 2:
+                _mem_was_tracing[0] = tracemalloc.is_tracing()
+                if not _mem_was_tracing[0]:
+                    tracemalloc.start()
+
+        def _post_run_cell(result=None):
+            if trace_level >= 2:
+                if not _mem_was_tracing[0]:
+                    _current, _peak = tracemalloc.get_traced_memory()
+                    trace.peak_memory_bytes = _peak
+                    tracemalloc.stop()
+            trace.end_time = time.perf_counter()
+
+        if self._shell is not None:
+            self._shell.events.register("pre_run_cell", _pre_run_cell)
+            self._shell.events.register("post_run_cell", _post_run_cell)
+
+        return _pre_run_cell, _post_run_cell
+
+    def unregister_trace_callbacks(self, pre_cb: Any, post_cb: Any) -> None:
+        """Unregister previously registered trace callbacks."""
+        if self._shell is not None:
+            try:
+                self._shell.events.unregister("pre_run_cell", pre_cb)
+            except ValueError:
+                pass
+            try:
+                self._shell.events.unregister("post_run_cell", post_cb)
+            except ValueError:
+                pass
 
     def cleanup(self) -> None:
         """Release executor resources.

@@ -1,7 +1,5 @@
 """Phase 2 tests: child orchestrator factory (create_child_orchestrator)."""
 
-import pytest
-
 from rlm_adk.agent import create_child_orchestrator, create_reasoning_agent
 
 
@@ -66,3 +64,42 @@ class TestChildOrchestratorFactory:
         agent = create_reasoning_agent(model="gemini-test")
         si = agent.static_instruction
         assert "repomix" in si.lower() or "probe_repo" in si
+
+    def test_parent_reasoning_agent_can_limit_prompt_visible_skills(self):
+        agent = create_reasoning_agent(
+            model="gemini-test",
+            enabled_skills=["polya-narrative"],
+        )
+        si = agent.static_instruction
+        assert "polya-narrative" in si
+        assert "## repomix-repl-helpers" not in si
+        assert "## polya-understand" not in si
+
+    def test_child_reasoning_agent_include_contents_none(self):
+        """Child agents (depth > 0) must use include_contents='none' so they
+        only see the current turn's prompt, not the parent's full history."""
+        child = create_child_orchestrator(
+            model="gemini-test", depth=1, prompt="child query"
+        )
+        assert child.reasoning_agent.include_contents == "none"
+
+    def test_child_reasoning_agent_include_contents_none_deep(self):
+        """Deeper children (depth > 1) also get include_contents='none'."""
+        child = create_child_orchestrator(
+            model="gemini-test", depth=3, prompt="deep child query"
+        )
+        assert child.reasoning_agent.include_contents == "none"
+
+    def test_root_reasoning_agent_include_contents_default(self):
+        """Root agents (depth 0) must keep include_contents='default'."""
+        agent = create_reasoning_agent(model="gemini-test")
+        assert agent.include_contents == "default"
+
+    def test_create_rlm_orchestrator_persists_enabled_skills(self):
+        from rlm_adk.agent import create_rlm_orchestrator
+
+        orchestrator = create_rlm_orchestrator(
+            model="gemini-test",
+            enabled_skills=["polya-understand"],
+        )
+        assert orchestrator.enabled_skills == ("polya-understand",)

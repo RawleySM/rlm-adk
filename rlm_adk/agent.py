@@ -23,15 +23,16 @@ with plugins, session service, and artifact service already wired.
 import logging
 import os
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.apps.app import App
+from google.adk.artifacts import BaseArtifactService, FileArtifactService
 from google.adk.planners import BuiltInPlanner
 from google.adk.plugins.base_plugin import BasePlugin
-from google.adk.artifacts import BaseArtifactService, FileArtifactService
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
 from google.genai import types
@@ -42,6 +43,10 @@ from rlm_adk.dispatch import WorkerPool
 from rlm_adk.orchestrator import RLMOrchestratorAgent
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
+from rlm_adk.skills import (
+    build_enabled_skill_instruction_blocks,
+    normalize_enabled_skill_names,
+)
 from rlm_adk.utils.prompts import (
     RLM_CHILD_STATIC_INSTRUCTION,
     RLM_DYNAMIC_INSTRUCTION,
@@ -195,8 +200,10 @@ def create_reasoning_agent(
     tools: list | None = None,
     output_schema: type | None = None,
     include_repomix: bool = True,
+    enabled_skills: Iterable[str] | None = None,
     name: str = "reasoning_agent",
     output_key: str = "reasoning_output",
+    include_contents: str = "default",
 ) -> LlmAgent:
     """Create the ReasoningAgent (main LLM for depth=0 reasoning).
 
@@ -242,13 +249,8 @@ def create_reasoning_agent(
 
     # Append skill instructions to static instruction (parent only)
     if include_repomix:
-        from rlm_adk.skills.repomix_skill import build_skill_instruction_block
-
-        static_instruction = static_instruction + "\n" + build_skill_instruction_block()
-
-        from rlm_adk.skills.polya_narrative_skill import build_polya_skill_instruction_block
-
-        static_instruction = static_instruction + "\n" + build_polya_skill_instruction_block()
+        for block in build_enabled_skill_instruction_blocks(enabled_skills):
+            static_instruction = static_instruction + "\n" + block
 
     gcc = _build_generate_content_config(retry_config) if not litellm_active else None
 
@@ -262,7 +264,7 @@ def create_reasoning_agent(
         static_instruction=static_instruction,
         # ADK manages tool call/response history. Tools are wired at
         # runtime by the orchestrator.
-        include_contents="default",
+        include_contents=include_contents,
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
         output_key=output_key,
@@ -287,14 +289,17 @@ def create_rlm_orchestrator(
     thinking_budget: int = 1024,
     retry_config: dict[str, Any] | None = None,
     instruction_router: Any = None,
+    enabled_skills: Iterable[str] | None = None,
 ) -> RLMOrchestratorAgent:
     """Create the RLMOrchestratorAgent with the reasoning sub-agent."""
+    resolved_enabled_skills = normalize_enabled_skill_names(enabled_skills)
     reasoning = create_reasoning_agent(
         model,
         static_instruction=static_instruction,
         dynamic_instruction=dynamic_instruction,
         thinking_budget=thinking_budget,
         retry_config=retry_config,
+        enabled_skills=resolved_enabled_skills,
     )
 
     # Default WorkerPool if none provided
@@ -318,6 +323,7 @@ def create_rlm_orchestrator(
         "persistent": persistent,
         "worker_pool": worker_pool,
         "repl": repl,
+        "enabled_skills": resolved_enabled_skills,
         "sub_agents": [reasoning],
     }
     if repo_url:
@@ -362,6 +368,7 @@ def create_child_orchestrator(
         name=f"child_reasoning_d{depth}",
         output_key=f"reasoning_output@d{depth}",
         output_schema=output_schema,
+        include_contents="none",
     )
 
     if worker_pool is None:
@@ -425,8 +432,8 @@ def _default_plugins(
     _cloud_env = os.getenv("RLM_ADK_CLOUD_OBS", "").lower() in ("1", "true", "yes")
     if _cloud_env:
         try:
-            from rlm_adk.plugins.google_cloud_tracing import GoogleCloudTracingPlugin
             from rlm_adk.plugins.google_cloud_analytics import GoogleCloudAnalyticsPlugin
+            from rlm_adk.plugins.google_cloud_tracing import GoogleCloudTracingPlugin
             plugins.append(GoogleCloudTracingPlugin())
             plugins.append(GoogleCloudAnalyticsPlugin())
         except ImportError:
@@ -465,6 +472,7 @@ def create_rlm_app(
     langfuse: bool = False,
     sqlite_tracing: bool = True,
     instruction_router: Any = None,
+    enabled_skills: Iterable[str] | None = None,
 ) -> App:
     """Create the full RLM ADK App with plugins wired in.
 
@@ -501,6 +509,7 @@ def create_rlm_app(
         repo_url=repo_url,
         thinking_budget=thinking_budget,
         instruction_router=instruction_router,
+        enabled_skills=enabled_skills,
     )
     resolved_plugins = plugins if plugins is not None else _default_plugins(
         langfuse=langfuse, sqlite_tracing=sqlite_tracing,
@@ -528,6 +537,7 @@ def create_rlm_runner(
     langfuse: bool = False,
     sqlite_tracing: bool = True,
     instruction_router: Any = None,
+    enabled_skills: Iterable[str] | None = None,
 ) -> Runner:
     """Create the full RLM ADK Runner: App + plugins + services.
 
@@ -593,6 +603,7 @@ def create_rlm_runner(
         langfuse=langfuse,
         sqlite_tracing=sqlite_tracing,
         instruction_router=instruction_router,
+        enabled_skills=enabled_skills,
     )
 
     # Resolve session service: explicit > default factory

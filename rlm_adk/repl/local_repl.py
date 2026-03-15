@@ -24,10 +24,6 @@ from typing import Any, Callable
 from rlm_adk.repl.ipython_executor import IPythonDebugExecutor, REPLDebugConfig
 from rlm_adk.repl.trace import (
     REPLTrace,
-    TRACE_HEADER,
-    TRACE_HEADER_MEMORY,
-    TRACE_FOOTER,
-    TRACE_FOOTER_MEMORY,
 )
 from rlm_adk.types import REPLResult, RLMChatCompletion
 
@@ -286,31 +282,46 @@ class LocalREPL:
         Returns (stdout, stderr, success) where success=True means no exception.
         Side-effects: updates self.locals on success, self._last_exec_error on failure.
         Delegates actual execution to the IPythonDebugExecutor.
+
+        Trace timing and optional tracemalloc are handled via IPython event
+        callbacks (pre_run_cell / post_run_cell) instead of code injection,
+        so user code line numbers are never shifted in error tracebacks.
         """
         trace_level = int(os.environ.get("RLM_REPL_TRACE", "0"))
 
         with _EXEC_LOCK, self._temp_cwd():
             combined = {**self.globals, **self.locals}
 
-            if trace is not None:
-                combined["_rlm_trace"] = trace
-                if trace_level >= 2:
-                    instrumented = TRACE_HEADER_MEMORY + "\n" + code + "\n" + TRACE_FOOTER_MEMORY
-                else:
-                    instrumented = TRACE_HEADER + "\n" + code + "\n" + TRACE_FOOTER
-            else:
-                instrumented = code
+            # Register trace callbacks instead of injecting header/footer code
+            pre_cb = post_cb = None
+            if trace is not None and trace_level >= 1:
+                pre_cb, post_cb = self._executor.register_trace_callbacks(
+                    trace, trace_level,
+                )
 
-            stdout, stderr, success = self._executor.execute_sync(instrumented, combined)
+            try:
+                stdout, stderr, success = self._executor.execute_sync(code, combined)
+            finally:
+                if pre_cb is not None:
+                    self._executor.unregister_trace_callbacks(pre_cb, post_cb)
 
             if success:
                 # Update locals with new variables (underscore filter hides _rlm_*)
                 for key, value in combined.items():
                     if key not in self.globals and not key.startswith("_"):
                         self.locals[key] = value
+                # Capture the last expression result (Feature 3) from IPython.
+                # _last_expr is set by _execute_via_ipython when run_cell returns
+                # a non-None result.result (the value of the last expression).
+                last_expr = combined.get("_last_expr")
+                if last_expr is not None:
+                    self.locals["_last_expr"] = last_expr
+                else:
+                    self.locals.pop("_last_expr", None)
                 self._last_exec_error = None
             else:
                 self._last_exec_error = stderr.strip().split("\n")[-1] if stderr.strip() else None
+                self.locals.pop("_last_expr", None)
 
             return stdout, stderr, success
 
