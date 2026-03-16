@@ -119,8 +119,9 @@ class TestObsAfterRunArtifactStats:
         from rlm_adk.plugins.observability import ObservabilityPlugin
 
         plugin = ObservabilityPlugin()
+        # AR-CRIT-001: artifact saves are accumulated on the plugin instance
+        plugin._artifact_saves_acc = 2
         state = {
-            OBS_ARTIFACT_SAVES: 2,
             OBS_ARTIFACT_BYTES_SAVED: 4096,
         }
         ctx = _make_invocation_context(state)

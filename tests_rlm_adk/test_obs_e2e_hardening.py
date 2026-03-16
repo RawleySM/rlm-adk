@@ -243,10 +243,10 @@ class TestObsTotalExecutionTime:
     async def test_execution_time_not_in_final_state(self, tmp_path: Path):
         """Document: OBS_TOTAL_EXECUTION_TIME does NOT appear in final_state.
 
-        Written by after_run_callback to invocation_context.session.state,
-        but InMemorySessionService.get_session returns a pre-after_run snapshot.
-        SqliteTracingPlugin captures it in its own after_run_callback since
-        both plugins share the same invocation_context.session.state reference.
+        AR-CRIT-001: after_run_callback stores execution time on the plugin
+        instance (not session state) since invocation_context.session.state
+        writes bypass delta tracking. SqliteTracingPlugin reads it from the
+        plugin instance or computes it independently.
         """
         result = await _run(self.FIXTURE, tmp_path)
         assert result.contract.passed, result.contract.diagnostics()
