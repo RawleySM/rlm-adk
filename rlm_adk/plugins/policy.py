@@ -44,6 +44,10 @@ class PolicyPlugin(BasePlugin):
     ):
         super().__init__(name=name)
         self._blocked_patterns = [re.compile(p) for p in (blocked_patterns or [])]
+        # AR-CRIT-001: pending values stashed by on_user_message_callback,
+        # persisted via delta-tracked callback_context in before_agent_callback.
+        self._pending_request_id: str | None = None
+        self._pending_idempotency_key: str | None = None
 
     async def on_user_message_callback(
         self,
@@ -51,12 +55,15 @@ class PolicyPlugin(BasePlugin):
         invocation_context: InvocationContext,
         user_message: types.Content,
     ) -> Optional[types.Content]:
-        """Generate request_id and idempotency_key for the invocation."""
-        state = invocation_context.session.state
+        """Capture user message for idempotency key generation.
 
+        AR-CRIT-001: on_user_message_callback only receives invocation_context
+        (no callback_context), so we cannot write to delta-tracked state here.
+        We stash the computed values on the plugin instance and persist them in
+        before_agent_callback which has a properly-wired callback_context.
+        """
         # Generate unique request ID
-        request_id = f"req-{uuid.uuid4().hex[:12]}"
-        state[REQUEST_ID] = request_id
+        self._pending_request_id = f"req-{uuid.uuid4().hex[:12]}"
 
         # Generate idempotency key from message content
         message_text = ""
@@ -68,11 +75,30 @@ class PolicyPlugin(BasePlugin):
         user_id = invocation_context.session.user_id or ""
         session_id = invocation_context.session.id or ""
         idem_source = f"{user_id}:{session_id}:{message_text}"
-        state[IDEMPOTENCY_KEY] = (
+        self._pending_idempotency_key = (
             f"idem-{hashlib.sha256(idem_source.encode()).hexdigest()[:16]}"
         )
 
-        logger.debug("[%s] Policy: request initialized", request_id)
+        logger.debug("[%s] Policy: request initialized (pending)", self._pending_request_id)
+        return None
+
+    async def before_agent_callback(
+        self,
+        *,
+        agent: Any,
+        callback_context: CallbackContext,
+    ) -> Optional[types.Content]:
+        """Persist pending request_id and idempotency_key via delta-tracked state.
+
+        This fires on every agent entry, but we only write the pending values
+        once (the first time after on_user_message_callback stashes them).
+        """
+        if self._pending_request_id is not None:
+            callback_context.state[REQUEST_ID] = self._pending_request_id
+            self._pending_request_id = None
+        if self._pending_idempotency_key is not None:
+            callback_context.state[IDEMPOTENCY_KEY] = self._pending_idempotency_key
+            self._pending_idempotency_key = None
         return None
 
     async def before_model_callback(

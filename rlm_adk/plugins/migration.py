@@ -19,16 +19,10 @@ import os
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.plugins.base_plugin import BasePlugin
-
-from rlm_adk.state import (
-    MIGRATION_ERROR,
-    MIGRATION_STATUS,
-    MIGRATION_TIMESTAMP,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +79,12 @@ class MigrationPlugin(BasePlugin):
 
         self._enabled = False
         self._engine = None
+        # AR-CRIT-001: after_run_callback has no delta-tracked channel
+        # (no callback_context), so migration status is stored on the
+        # plugin instance for programmatic access / logging only.
+        self.last_status: str | None = None
+        self.last_error: str | None = None
+        self.last_timestamp: float | None = None
 
         if not self._postgres_url:
             logger.warning(
@@ -232,11 +232,13 @@ class MigrationPlugin(BasePlugin):
             # Upsert to PostgreSQL
             await self._upsert_to_postgres(session_data, events_data)
 
-            # Update migration tracking
+            # Update migration tracking on the plugin instance.
+            # AR-CRIT-001: invocation_context.session.state writes bypass
+            # delta tracking — store on instance instead.
             elapsed = time.time() - start_time
-            state = invocation_context.session.state
-            state[MIGRATION_STATUS] = "completed"
-            state[MIGRATION_TIMESTAMP] = time.time()
+            self.last_status = "completed"
+            self.last_timestamp = time.time()
+            self.last_error = None
 
             logger.info(
                 "MigrationPlugin: migrated session %s (%d events) in %.2fs",
@@ -260,11 +262,10 @@ class MigrationPlugin(BasePlugin):
                 session_id,
                 e,
             )
-            try:
-                invocation_context.session.state[MIGRATION_STATUS] = "failed"
-                invocation_context.session.state[MIGRATION_ERROR] = str(e)
-            except Exception:
-                pass
+            # AR-CRIT-001: store on instance, not session state.
+            self.last_status = "failed"
+            self.last_error = str(e)
+            self.last_timestamp = time.time()
 
     def _read_session_from_sqlite(
         self, app_name: str, user_id: str, session_id: str
