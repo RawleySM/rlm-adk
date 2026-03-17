@@ -416,8 +416,8 @@ Create a `BasePlugin` subclass and wire it in `_default_plugins()` (`rlm_adk/age
 | `create_reasoning_agent(model, ...)` | `LlmAgent` | Main reasoning sub-agent with callbacks, planner, and config |
 | `create_rlm_orchestrator(model, ...)` | `RLMOrchestratorAgent` | Root orchestrator with reasoning agent + worker pool |
 | `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator with condensed instructions |
-| `create_rlm_app(model, ...)` | `App` | Full ADK App with plugins |
-| `create_rlm_runner(model, ...)` | `Runner` | App + session service + artifact service |
+| `create_rlm_app(model, ...)` | `App` | Full ADK App with plugins. The module-level `app` symbol is what `adk run` discovers. |
+| `create_rlm_runner(model, ...)` | `Runner` | App + session service + artifact service. For programmatic/test use — the ADK CLI (`adk run rlm_adk`) is the primary entrypoint and wires services via `services.py` instead. |
 
 ### Root vs child differences
 
@@ -429,7 +429,7 @@ Create a `BasePlugin` subclass and wire it in `_default_plugins()` (`rlm_adk/age
 | `thinking_budget` | 1024 | 512 |
 | `output_key` | `"reasoning_output"` | `"reasoning_output@d{depth}"` |
 
-The module-level `app` symbol in `rlm_adk/agent.py` (line 544) is discovered by `adk run rlm_adk` and `adk web`.
+The module-level `app` symbol in `rlm_adk/agent.py` (line 544) is discovered by the ADK CLI (`adk run rlm_adk` and `adk web`). The CLI is the primary entrypoint — `services.py` auto-registers custom service factories so all plugins, sessions, and artifacts are wired with zero flags.
 
 ---
 

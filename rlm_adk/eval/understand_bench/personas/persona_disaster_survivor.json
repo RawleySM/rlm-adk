@@ -1,0 +1,51 @@
+{
+  "persona_id": "disaster_survivor",
+  "persona_name": "The Disaster Survivor",
+  "difficulty_tier": "medium",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Married Filing Jointly",
+    "spouse": {
+      "name": "Taylor Stanhope",
+      "ssn_last4": "6637"
+    },
+    "dependents": [
+      {"name": "Nora Stanhope", "relationship": "daughter", "age": 7, "ssn_last4": "1128"},
+      {"name": "Owen Stanhope", "relationship": "son", "age": 4, "ssn_last4": "3345"}
+    ]
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Haworth Inc.",
+      "ein": "38-1122334",
+      "wages": 72000.00,
+      "federal_withholding": 10080.00,
+      "state_withholding": 2880.00,
+      "description": "Rawley - manufacturing process engineer"
+    },
+    {
+      "type": "W-2",
+      "employer": "Bronson Healthcare",
+      "ein": "38-2233445",
+      "wages": 56000.00,
+      "federal_withholding": 7280.00,
+      "state_withholding": 2240.00,
+      "description": "Taylor - registered nurse"
+    }
+  ],
+  "life_events": [
+    "Home at 11626 Bass Rd damaged in August 2025 severe storms (FEMA-declared disaster DR-4800-MI)",
+    "Received FEMA Individual Assistance",
+    "Filed insurance claim and received partial payout",
+    "Temporary housing in rental while repairs completed"
+  ],
+  "filing_complexity": "medium-high",
+  "primary_gap_types": ["DOCUMENT", "THIRD_PARTY_RECORD", "REGULATORY_REFERENCE"],
+  "gap_rationale": "Disaster-related tax benefits are time-sensitive and rule-specific. Agent cannot reconstruct FEMA assistance amounts or insurance payout amounts from other records.",
+  "exercise_categories": ["document", "third_party", "regulatory"]
+}

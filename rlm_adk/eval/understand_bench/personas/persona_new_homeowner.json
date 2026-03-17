@@ -1,0 +1,54 @@
+{
+  "persona_id": "new_homeowner",
+  "persona_name": "The New Homeowner",
+  "difficulty_tier": "medium",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Married Filing Jointly",
+    "spouse": {
+      "name": "Jordan Stanhope",
+      "ssn_last4": "5523"
+    },
+    "dependents": [
+      {"name": "Avery Stanhope", "relationship": "daughter", "age": 3, "ssn_last4": "8891"}
+    ]
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Steelcase Inc.",
+      "ein": "38-4567890",
+      "wages": 87000.00,
+      "federal_withholding": 14790.00,
+      "state_withholding": 3480.00,
+      "description": "Rawley - product engineer"
+    },
+    {
+      "type": "W-2",
+      "employer": "Perrigo Company",
+      "ein": "38-5678901",
+      "wages": 61000.00,
+      "federal_withholding": 8540.00,
+      "state_withholding": 2440.00,
+      "description": "Jordan - quality assurance analyst"
+    },
+    {
+      "type": "rental_income",
+      "property_address": "742 Maple St, Middleville, MI 49333",
+      "gross_rent": 18000.00,
+      "description": "Prior primary residence converted to rental in April 2025"
+    }
+  ],
+  "life_events": [
+    "Purchased 11626 Bass Rd as primary residence (April 2025)",
+    "Converted prior home at 742 Maple St to rental property (April 2025)"
+  ],
+  "filing_complexity": "medium-high",
+  "primary_gap_types": ["HISTORICAL_RECORD", "COMPUTATIONAL_PREREQ"],
+  "gap_rationale": "Multi-hop: agent must realize it needs the original purchase records for 742 Maple St, then compute adjusted basis, then derive depreciation schedule for the rental conversion.",
+  "exercise_categories": ["historical", "computational"]
+}

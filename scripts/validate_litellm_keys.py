@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Load .env from project root (two levels up from scripts/)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_ENV_FILE = _PROJECT_ROOT / "rlm_adk" / ".env"
+_ENV_FILE = _PROJECT_ROOT / ".env"
 
 from dotenv import load_dotenv  # noqa: E402
 

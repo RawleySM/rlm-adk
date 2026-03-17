@@ -7,6 +7,8 @@ calls ``ui.run()``.
 
 from __future__ import annotations
 
+import os
+
 from nicegui import ui
 from nicegui.events import KeyEventArguments
 
@@ -32,6 +34,7 @@ from rlm_adk.dashboard.controller import (
     DashboardUI,
 )
 from rlm_adk.dashboard.data_loader import DashboardDataLoader
+from rlm_adk.plugins.dashboard_auto_launch import DASHBOARD_ACTIVE_ENV
 
 
 @ui.page("/dashboard")
@@ -276,6 +279,7 @@ def launch_dashboard(
         from rlm_adk.dashboard import launch_dashboard
         launch_dashboard()
     """
+    os.environ[DASHBOARD_ACTIVE_ENV] = "1"
     ui.run(
         host=host,
         port=port,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from rlm_adk.dashboard.live_loader import LiveDashboardLoader
@@ -15,6 +16,12 @@ from rlm_adk.dashboard.live_models import (
     LiveRunState,
     LiveSessionSummary,
 )
+from rlm_adk.dashboard.run_service import (
+    default_replay_fixture,
+    list_replay_fixtures,
+    prepare_replay_launch,
+)
+from rlm_adk.skills import DEFAULT_ENABLED_SKILL_NAMES, normalize_enabled_skill_names
 
 
 @dataclass(frozen=True)
@@ -36,17 +43,71 @@ class LiveDashboardController:
     def __init__(self, loader: LiveDashboardLoader):
         self.loader = loader
         self.state = LiveDashboardState()
+        self.state.selected_skills = list(DEFAULT_ENABLED_SKILL_NAMES)
+        self._launch_task: asyncio.Task | None = None
+
+    def _refresh_available_sessions(self) -> None:
+        session_labels = self.loader.list_session_labels()
+        self.state.available_sessions = [session_id for session_id, _label in session_labels]
+        self.state.available_session_labels = {
+            session_id: label for session_id, label in session_labels
+        }
 
     async def initialize(self) -> None:
-        self.state.available_sessions = self.loader.list_sessions()
+        self.state.available_replay_fixtures = list_replay_fixtures()
+        if not self.state.replay_path:
+            self.state.replay_path = default_replay_fixture(
+                self.state.available_replay_fixtures
+            )
+        self._refresh_available_sessions()
         if self.state.available_sessions and not self.state.selected_session_id:
             await self.select_session(self.state.available_sessions[0])
 
     async def refresh_sessions(self) -> None:
-        sessions = self.loader.list_sessions()
-        self.state.available_sessions = sessions
+        self._refresh_available_sessions()
+        sessions = self.state.available_sessions
         if not self.state.selected_session_id and sessions:
             await self.select_session(sessions[0])
+
+    def set_replay_path(self, replay_path: str) -> None:
+        self.state.replay_path = replay_path
+        self.state.launch_error = None
+
+    def set_selected_skills(self, selected_skills: list[str]) -> None:
+        self.state.selected_skills = list(normalize_enabled_skill_names(selected_skills))
+        self.state.launch_error = None
+
+    async def launch_replay(self) -> str | None:
+        if self.state.launch_in_progress:
+            return None
+
+        try:
+            handle = await prepare_replay_launch(
+                self.state.replay_path,
+                enabled_skills=self.state.selected_skills,
+            )
+        except Exception as exc:
+            self.state.launch_error = str(exc)
+            self.state.last_error = str(exc)
+            return None
+        self.state.launch_in_progress = True
+        self.state.launch_error = None
+        self.state.launched_session_id = handle.session_id
+        if handle.session_id not in self.state.available_sessions:
+            self.state.available_sessions = [handle.session_id, *self.state.available_sessions]
+        self.state.available_session_labels.setdefault(handle.session_id, handle.session_id)
+        await self.select_session(handle.session_id)
+        self._launch_task = asyncio.create_task(self._run_launch(handle))
+        return handle.session_id
+
+    async def _run_launch(self, handle) -> None:
+        try:
+            await handle.run()
+        except Exception as exc:
+            self.state.launch_error = str(exc)
+            self.state.last_error = str(exc)
+        finally:
+            self.state.launch_in_progress = False
 
     async def select_session(self, session_id: str) -> None:
         self.state.selected_session_id = session_id

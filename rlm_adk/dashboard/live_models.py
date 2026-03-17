@@ -318,9 +318,16 @@ class LiveRunSnapshot:
 @dataclass
 class LiveDashboardState:
     available_sessions: list[str] = field(default_factory=list)
+    available_session_labels: dict[str, str] = field(default_factory=dict)
+    available_replay_fixtures: list[str] = field(default_factory=list)
     selected_session_id: str | None = None
     snapshot: LiveRunSnapshot | None = None
     run_state: LiveRunState | None = None
+    replay_path: str = ""
+    selected_skills: list[str] = field(default_factory=list)
+    launch_in_progress: bool = False
+    launch_error: str | None = None
+    launched_session_id: str | None = None
     active_pane_id: str | None = None
     selected_fanouts_by_parent_depth: dict[int, int] = field(default_factory=dict)
     selected_invocation_id_by_pane: dict[str, str] = field(default_factory=dict)

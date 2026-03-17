@@ -4,6 +4,8 @@
   <file name="ast_rewriter.py"/>
   <file name="local_repl.py"/>
   <file name="__init__.py"/>
+  <file name="ipython_executor.py"/>
+  <file name="skill_registry.py"/>
   <file name="trace.py"/>
 </repository_structure>
 <repository_files>
@@ -273,12 +275,9 @@ import uuid
 from contextlib import contextmanager
 from typing import Any, Callable
 
+from rlm_adk.repl.ipython_executor import IPythonDebugExecutor, REPLDebugConfig
 from rlm_adk.repl.trace import (
     REPLTrace,
-    TRACE_HEADER,
-    TRACE_HEADER_MEMORY,
-    TRACE_FOOTER,
-    TRACE_FOOTER_MEMORY,
 )
 from rlm_adk.types import REPLResult, RLMChatCompletion
 
@@ -433,7 +432,12 @@ class LocalREPL:
     injected by the orchestrator.
     &quot;&quot;&quot;
 
-    def __init__(self, depth: int = 1, sync_timeout: float | None = None):
+    def __init__(
+        self,
+        depth: int = 1,
+        sync_timeout: float | None = None,
+        executor_config: REPLDebugConfig | None = None,
+    ):
         self.depth = depth
         self.sync_timeout = sync_timeout if sync_timeout is not None else float(
             os.environ.get(&quot;RLM_REPL_SYNC_TIMEOUT&quot;, &quot;30&quot;)
@@ -442,6 +446,10 @@ class LocalREPL:
         self.original_cwd = os.getcwd()
         self._pending_llm_calls: list[RLMChatCompletion] = []
         self._last_exec_error: str | None = None
+
+        # Execution backend
+        self._executor_config = executor_config or REPLDebugConfig.from_env()
+        self._executor = IPythonDebugExecutor(config=self._executor_config)
 
         # Setup globals and locals
         self.globals: dict[str, Any] = {
@@ -527,38 +535,49 @@ class LocalREPL:
 
         Returns (stdout, stderr, success) where success=True means no exception.
         Side-effects: updates self.locals on success, self._last_exec_error on failure.
+        Delegates actual execution to the IPythonDebugExecutor.
+
+        Trace timing and optional tracemalloc are handled via IPython event
+        callbacks (pre_run_cell / post_run_cell) instead of code injection,
+        so user code line numbers are never shifted in error tracebacks.
         &quot;&quot;&quot;
         trace_level = int(os.environ.get(&quot;RLM_REPL_TRACE&quot;, &quot;0&quot;))
 
-        with _EXEC_LOCK, self._capture_output() as (stdout_buf, stderr_buf), self._temp_cwd():
+        with _EXEC_LOCK, self._temp_cwd():
+            combined = {**self.globals, **self.locals}
+
+            # Register trace callbacks instead of injecting header/footer code
+            pre_cb = post_cb = None
+            if trace is not None and trace_level &gt;= 1:
+                pre_cb, post_cb = self._executor.register_trace_callbacks(
+                    trace, trace_level,
+                )
+
             try:
-                combined = {**self.globals, **self.locals}
+                stdout, stderr, success = self._executor.execute_sync(code, combined)
+            finally:
+                if pre_cb is not None:
+                    self._executor.unregister_trace_callbacks(pre_cb, post_cb)
 
-                if trace is not None:
-                    combined[&quot;_rlm_trace&quot;] = trace
-                    if trace_level &gt;= 2:
-                        instrumented = TRACE_HEADER_MEMORY + &quot;\n&quot; + code + &quot;\n&quot; + TRACE_FOOTER_MEMORY
-                    else:
-                        instrumented = TRACE_HEADER + &quot;\n&quot; + code + &quot;\n&quot; + TRACE_FOOTER
-                else:
-                    instrumented = code
-
-                exec(instrumented, combined, combined)
-
+            if success:
                 # Update locals with new variables (underscore filter hides _rlm_*)
                 for key, value in combined.items():
                     if key not in self.globals and not key.startswith(&quot;_&quot;):
                         self.locals[key] = value
-
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue()
+                # Capture the last expression result (Feature 3) from IPython.
+                # _last_expr is set by _execute_via_ipython when run_cell returns
+                # a non-None result.result (the value of the last expression).
+                last_expr = combined.get(&quot;_last_expr&quot;)
+                if last_expr is not None:
+                    self.locals[&quot;_last_expr&quot;] = last_expr
+                else:
+                    self.locals.pop(&quot;_last_expr&quot;, None)
                 self._last_exec_error = None
-                return stdout, stderr, True
-            except Exception as e:
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue() + f&quot;\n{type(e).__name__}: {e}&quot;
-                self._last_exec_error = f&quot;{type(e).__name__}: {e}&quot;
-                return stdout, stderr, False
+            else:
+                self._last_exec_error = stderr.strip().split(&quot;\n&quot;)[-1] if stderr.strip() else None
+                self.locals.pop(&quot;_last_expr&quot;, None)
+
+            return stdout, stderr, success
 
     def execute_code(self, code: str, trace: REPLTrace | None = None) -&gt; REPLResult:
         &quot;&quot;&quot;Execute code synchronously in the sandboxed namespace.
@@ -618,7 +637,12 @@ class LocalREPL:
         return _cwd_open
 
     async def execute_code_async(
-        self, code: str, repl_exec_fn: Any, trace: REPLTrace | None = None,
+        self,
+        code: str,
+        repl_exec_fn: Any = None,
+        trace: REPLTrace | None = None,
+        *,
+        compiled: Any = None,
     ) -&gt; REPLResult:
         &quot;&quot;&quot;Execute AST-rewritten async code.
 
@@ -628,8 +652,12 @@ class LocalREPL:
 
         Args:
             code: The original code (before AST rewriting -- for reference/logging)
-            repl_exec_fn: The compiled async function from AST rewriter
+            repl_exec_fn: Legacy: pre-extracted async function from AST rewriter.
+                Deprecated in favor of ``compiled``.
             trace: Optional REPLTrace accumulator for this code block
+            compiled: Compiled code object containing async def _repl_exec().
+                When provided, the executor installs and runs _repl_exec from
+                the compiled code object, replacing the old exec()-in-REPLTool path.
         &quot;&quot;&quot;
         start_time = time.perf_counter()
         self._pending_llm_calls.clear()
@@ -655,8 +683,18 @@ class LocalREPL:
                 trace.start_time = time.perf_counter()
                 trace.execution_mode = &quot;async&quot;
 
-            # Run the async _repl_exec function
-            new_locals = await repl_exec_fn()
+            if compiled is not None:
+                # New path: delegate to executor for the async wrapper.
+                # capture=False because we already redirect sys.stdout/stderr.
+                ns = {**self.globals, **self.locals}
+                _, _, new_locals = await self._executor.execute_async(
+                    compiled, ns, capture=False,
+                )
+            elif repl_exec_fn is not None:
+                # Legacy path: caller already extracted the async function
+                new_locals = await repl_exec_fn()
+            else:
+                raise ValueError(&quot;Either compiled or repl_exec_fn must be provided&quot;)
 
             if trace is not None:
                 trace.end_time = time.perf_counter()
@@ -697,11 +735,14 @@ class LocalREPL:
         )
 
     def cleanup(self) -&gt; None:
-        &quot;&quot;&quot;Clean up temp directory and reset state.&quot;&quot;&quot;
+        &quot;&quot;&quot;Clean up temp directory, executor, and reset state.&quot;&quot;&quot;
         try:
             shutil.rmtree(self.temp_dir)
         except Exception:
             pass
+        if self._executor is not None:
+            self._executor.cleanup()
+            self._executor = None
         self.globals.clear()
         self.locals.clear()
 
@@ -724,6 +765,631 @@ class LocalREPL:
     
   
     <content>&quot;&quot;&quot;RLM ADK REPL - Local REPL execution and AST rewriting.&quot;&quot;&quot;</content>
+    
+
+  </file>
+  <file>
+    
+  
+    <path>ipython_executor.py</path>
+    
+  
+    <content>&quot;&quot;&quot;IPython/debugpy-backed execution backend for LocalREPL.
+
+Provides a lightweight execution engine that:
+- Owns the actual code execution (sync and async)
+- Optionally uses IPython's InteractiveShell for execution
+- Optionally arms debugpy for remote debugging
+- Never activates interactive features unless explicitly enabled
+- Falls back to raw exec() if IPython is unavailable
+
+No ADK-specific behavior lives here.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import io
+import logging
+import os
+import sys
+import time
+import tracemalloc
+from dataclasses import dataclass
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class REPLDebugConfig:
+    &quot;&quot;&quot;Configuration for the IPython/debugpy execution backend.
+
+    All interactive features default to OFF for safety in CI/tests.
+    &quot;&quot;&quot;
+
+    backend: str = &quot;ipython&quot;  # &quot;exec&quot; | &quot;ipython&quot;
+    debug: bool = False
+    debugpy_enabled: bool = False
+    debugpy_host: str = &quot;127.0.0.1&quot;
+    debugpy_port: int = 5678
+    debugpy_wait: bool = False
+    ipython_embed: bool = False
+    xmode: str = &quot;Context&quot;  # &quot;Verbose&quot; | &quot;Context&quot; | &quot;Minimal&quot;
+
+    @classmethod
+    def from_env(cls) -&gt; REPLDebugConfig:
+        &quot;&quot;&quot;Create config from environment variables.&quot;&quot;&quot;
+        return cls(
+            backend=os.environ.get(&quot;RLM_REPL_BACKEND&quot;, &quot;ipython&quot;),
+            debug=os.environ.get(&quot;RLM_REPL_DEBUG&quot;, &quot;0&quot;) == &quot;1&quot;,
+            debugpy_enabled=os.environ.get(&quot;RLM_REPL_DEBUGPY&quot;, &quot;0&quot;) == &quot;1&quot;,
+            debugpy_host=os.environ.get(&quot;RLM_REPL_DEBUGPY_HOST&quot;, &quot;127.0.0.1&quot;),
+            debugpy_port=int(os.environ.get(&quot;RLM_REPL_DEBUGPY_PORT&quot;, &quot;5678&quot;)),
+            debugpy_wait=os.environ.get(&quot;RLM_REPL_DEBUGPY_WAIT&quot;, &quot;0&quot;) == &quot;1&quot;,
+            ipython_embed=os.environ.get(&quot;RLM_REPL_IPYTHON_EMBED&quot;, &quot;0&quot;) == &quot;1&quot;,
+            xmode=os.environ.get(&quot;RLM_REPL_XMODE&quot;, &quot;Context&quot;),
+        )
+
+
+def _try_import_ipython():
+    &quot;&quot;&quot;Lazily import IPython's InteractiveShell. Returns None if unavailable.&quot;&quot;&quot;
+    try:
+        from IPython.core.interactiveshell import InteractiveShell
+        return InteractiveShell
+    except (ImportError, TypeError):
+        return None
+
+
+def _try_import_debugpy():
+    &quot;&quot;&quot;Lazily import debugpy. Returns None if unavailable.&quot;&quot;&quot;
+    try:
+        import debugpy
+        return debugpy
+    except (ImportError, TypeError):
+        return None
+
+
+class IPythonDebugExecutor:
+    &quot;&quot;&quot;Execution engine that delegates to IPython or raw exec().
+
+    Responsibilities:
+    - Execute sync code and capture stdout/stderr
+    - Execute compiled async wrapper code objects
+    - Optionally arm debugpy (only when explicitly enabled)
+    - Optionally open embedded IPython shell on exceptions (only when enabled)
+    - Surface stdout, stderr, exception text, and namespace updates
+    &quot;&quot;&quot;
+
+    def __init__(self, config: REPLDebugConfig | None = None):
+        self._config = config or REPLDebugConfig()
+        self._shell = None  # Lazy-initialized IPython shell
+        self._debugpy_armed = False
+        self._use_ipython = self._config.backend == &quot;ipython&quot;
+
+        # Attempt to get IPython if backend=ipython
+        if self._use_ipython:
+            shell_cls = _try_import_ipython()
+            if shell_cls is not None:
+                self._shell = shell_cls.instance()
+                # Apply traceback mode (Verbose/Context/Minimal)
+                try:
+                    self._shell.InteractiveTB.set_mode(mode=self._config.xmode)
+                except Exception:
+                    pass
+            else:
+                # IPython unavailable, fall back to exec
+                self._use_ipython = False
+
+        # Arm debugpy if explicitly enabled
+        if self._config.debugpy_enabled:
+            self._arm_debugpy()
+
+    def _arm_debugpy(self) -&gt; None:
+        &quot;&quot;&quot;Arm debugpy for remote debugging if enabled and available.&quot;&quot;&quot;
+        debugpy = _try_import_debugpy()
+        if debugpy is None:
+            return
+        try:
+            debugpy.listen((self._config.debugpy_host, self._config.debugpy_port))
+            self._debugpy_armed = True
+            if self._config.debugpy_wait:
+                debugpy.wait_for_client()
+        except Exception as e:
+            logger.warning(
+                &quot;Failed to arm debugpy on %s:%s: %s&quot;,
+                self._config.debugpy_host, self._config.debugpy_port, e,
+            )
+
+    def execute_sync(
+        self, code: str, namespace: dict[str, Any],
+    ) -&gt; tuple[str, str, bool]:
+        &quot;&quot;&quot;Execute code synchronously, capturing stdout/stderr.
+
+        Args:
+            code: Python source code to execute.
+            namespace: Combined globals+locals namespace. Modified in-place.
+
+        Returns:
+            (stdout, stderr, success) where success=True means no exception.
+        &quot;&quot;&quot;
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+
+        try:
+            sys.stdout, sys.stderr = stdout_buf, stderr_buf
+
+            if self._use_ipython and self._shell is not None:
+                # Temporarily suppress IPython's own traceback printing;
+                # we will format it ourselves so normal stdout is preserved.
+                shell = self._shell
+                orig_showtraceback = shell.showtraceback
+                _captured_tb_args: list[tuple] = []
+
+                def _capture_showtraceback(*args, **kwargs):
+                    &quot;&quot;&quot;Intercept IPython's showtraceback to capture the
+                    formatted traceback text without polluting stdout.&quot;&quot;&quot;
+                    _captured_tb_args.append((args, kwargs))
+
+                shell.showtraceback = _capture_showtraceback
+                try:
+                    success, ipy_result = self._execute_via_ipython(code, namespace)
+                finally:
+                    shell.showtraceback = orig_showtraceback
+
+                stdout = stdout_buf.getvalue()
+                stderr = stderr_buf.getvalue()
+                if not success:
+                    error = ipy_result.error_in_exec or ipy_result.error_before_exec
+                    # Format the traceback using IPython's InteractiveTB
+                    # which respects the configured xmode (Verbose/Context/Minimal)
+                    tb_text = &quot;&quot;
+                    if error is not None:
+                        try:
+                            stb = shell.InteractiveTB.structured_traceback(
+                                type(error), error, error.__traceback__,
+                            )
+                            tb_text = &quot;\n&quot;.join(stb)
+                        except Exception:
+                            tb_text = f&quot;\n{type(error).__name__}: {error}&quot;
+                    if tb_text:
+                        stderr = stderr + tb_text
+                    elif error is not None:
+                        stderr = stderr + f&quot;\n{type(error).__name__}: {error}&quot;
+
+                    if self._config.debug and self._config.ipython_embed:
+                        self._embed_on_exception(namespace, error)
+
+                return stdout, stderr, success
+            else:
+                exec(code, namespace, namespace)
+
+                stdout = stdout_buf.getvalue()
+                stderr = stderr_buf.getvalue()
+
+                return stdout, stderr, True
+
+        except Exception as e:
+            stdout = stdout_buf.getvalue()
+            stderr = stderr_buf.getvalue() + f&quot;\n{type(e).__name__}: {e}&quot;
+
+            # Optionally open embedded shell on exception
+            if self._config.debug and self._config.ipython_embed:
+                self._embed_on_exception(namespace, e)
+
+            return stdout, stderr, False
+        finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
+
+    def _execute_via_ipython(
+        self, code: str, namespace: dict[str, Any],
+    ) -&gt; tuple[bool, Any]:
+        &quot;&quot;&quot;Execute code using IPython's run_cell machinery.
+
+        Uses IPython as an execution engine (NOT as an interactive shell).
+        The shell's user_ns is temporarily set to our namespace.
+
+        Returns:
+            (success, result) where result is the IPython ExecutionResult.
+            On error, IPython has already printed the formatted traceback
+            to the captured stdout stream (including local vars in Verbose mode).
+            The caller should move that output to stderr.
+        &quot;&quot;&quot;
+        shell = self._shell
+        # Save and swap namespace
+        old_ns = shell.user_ns
+        # Ensure IPython internal keys exist in the namespace to prevent
+        # KeyError from output caching (e.g. _oh, _ih, _dh).
+        for key in (&quot;_oh&quot;, &quot;_ih&quot;, &quot;_dh&quot;, &quot;_&quot;, &quot;__&quot;, &quot;___&quot;):
+            if key not in namespace:
+                if key == &quot;_oh&quot;:
+                    namespace[key] = {}
+                elif key in (&quot;_ih&quot;, &quot;_dh&quot;):
+                    namespace[key] = []
+                else:
+                    namespace[key] = &quot;&quot;
+        shell.user_ns = namespace
+
+        try:
+            result = shell.run_cell(code, silent=False, store_history=False)
+            error = result.error_in_exec or result.error_before_exec
+            # Capture the last expression value (Feature 3).
+            # result.result holds the value of the last expression in the cell
+            # (e.g. `42 + 1` yields 43). Store it in the namespace as _last_expr
+            # so it's available for data flow tracking without explicit print().
+            if error is None and result.result is not None:
+                namespace[&quot;_last_expr&quot;] = result.result
+            else:
+                namespace[&quot;_last_expr&quot;] = None
+            return (error is None, result)
+        finally:
+            shell.user_ns = old_ns
+
+    async def execute_async(
+        self, compiled: Any, namespace: dict[str, Any],
+        *, capture: bool = True,
+    ) -&gt; tuple[str, str, dict[str, Any] | None]:
+        &quot;&quot;&quot;Execute a compiled async wrapper (from AST rewriter).
+
+        The compiled code object should define an async function `_repl_exec`
+        which returns locals().
+
+        Args:
+            compiled: Compiled code object containing async def _repl_exec().
+            namespace: Combined globals+locals namespace.
+            capture: If True, capture stdout/stderr. If False, assume the
+                caller already redirected stdout/stderr (e.g. LocalREPL).
+
+        Returns:
+            (stdout, stderr, new_locals) where new_locals is the return value
+            of _repl_exec(), or None on exception.
+        &quot;&quot;&quot;
+        if capture:
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = stdout_buf, stderr_buf
+        else:
+            stdout_buf = stderr_buf = None
+            old_stdout = old_stderr = None
+
+        try:
+            # Install the async wrapper into the namespace
+            exec(compiled, namespace)
+            repl_exec_fn = namespace[&quot;_repl_exec&quot;]
+
+            # Run the async function
+            new_locals = await repl_exec_fn()
+
+            if capture and stdout_buf is not None and stderr_buf is not None:
+                return stdout_buf.getvalue(), stderr_buf.getvalue(), (
+                    new_locals if isinstance(new_locals, dict) else None
+                )
+            return &quot;&quot;, &quot;&quot;, new_locals if isinstance(new_locals, dict) else None
+
+        except Exception as e:
+            if self._config.debug and self._config.ipython_embed:
+                self._embed_on_exception(namespace, e)
+            if capture:
+                # When capturing, return error info instead of re-raising
+                stdout = stdout_buf.getvalue() if stdout_buf else &quot;&quot;
+                stderr = (stderr_buf.getvalue() if stderr_buf else &quot;&quot;) + f&quot;\n{type(e).__name__}: {e}&quot;
+                return stdout, stderr, None
+            # When not capturing, re-raise so the caller's handler captures it
+            raise
+        finally:
+            if capture and old_stdout is not None:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+
+    def _embed_on_exception(
+        self, namespace: dict[str, Any], exc: Exception,
+    ) -&gt; None:
+        &quot;&quot;&quot;Optionally open an embedded IPython shell for debugging.
+
+        Only called when both debug and ipython_embed are enabled.
+        &quot;&quot;&quot;
+        if not self._config.ipython_embed:
+            return
+        try:
+            from IPython import embed
+            embed(user_ns=namespace, banner1=f&quot;Debug: {type(exc).__name__}: {exc}&quot;)
+        except (ImportError, TypeError):
+            pass
+
+    # ── Trace callbacks (Feature 2) ──────────────────────────────────────
+
+    def register_trace_callbacks(self, trace: Any, trace_level: int) -&gt; tuple[Any, Any]:
+        &quot;&quot;&quot;Register IPython pre_run_cell / post_run_cell callbacks for tracing.
+
+        Replaces the old code-injection approach (TRACE_HEADER/FOOTER) with
+        IPython event callbacks.  This preserves correct line numbers in error
+        tracebacks because no code is prepended/appended to user code.
+
+        Args:
+            trace: REPLTrace instance to populate with timing/memory data.
+            trace_level: 0=off, 1=timing, 2=timing+tracemalloc.
+
+        Returns:
+            (pre_cb, post_cb) — the registered callback callables, needed by
+            ``unregister_trace_callbacks`` for cleanup.
+        &quot;&quot;&quot;
+        _mem_was_tracing = [False]
+
+        def _pre_run_cell(info=None):
+            trace.start_time = time.perf_counter()
+            if trace_level &gt;= 2:
+                _mem_was_tracing[0] = tracemalloc.is_tracing()
+                if not _mem_was_tracing[0]:
+                    tracemalloc.start()
+
+        def _post_run_cell(result=None):
+            if trace_level &gt;= 2:
+                if not _mem_was_tracing[0]:
+                    _current, _peak = tracemalloc.get_traced_memory()
+                    trace.peak_memory_bytes = _peak
+                    tracemalloc.stop()
+            trace.end_time = time.perf_counter()
+
+        if self._shell is not None:
+            self._shell.events.register(&quot;pre_run_cell&quot;, _pre_run_cell)
+            self._shell.events.register(&quot;post_run_cell&quot;, _post_run_cell)
+
+        return _pre_run_cell, _post_run_cell
+
+    def unregister_trace_callbacks(self, pre_cb: Any, post_cb: Any) -&gt; None:
+        &quot;&quot;&quot;Unregister previously registered trace callbacks.&quot;&quot;&quot;
+        if self._shell is not None:
+            try:
+                self._shell.events.unregister(&quot;pre_run_cell&quot;, pre_cb)
+            except ValueError:
+                pass
+            try:
+                self._shell.events.unregister(&quot;post_run_cell&quot;, post_cb)
+            except ValueError:
+                pass
+
+    def cleanup(self) -&gt; None:
+        &quot;&quot;&quot;Release executor resources.
+
+        Does NOT destroy the InteractiveShell singleton since other executors
+        (e.g. parent REPL in recursive dispatch) may still reference it.
+        We only drop our local reference.
+        &quot;&quot;&quot;
+        self._shell = None
+        self._debugpy_armed = False</content>
+    
+
+  </file>
+  <file>
+    
+  
+    <path>skill_registry.py</path>
+    
+  
+    <content>&quot;&quot;&quot;Skill registry for source-expandable REPL imports.
+
+Manages ReplSkillExport entries and expands synthetic
+``from rlm_repl_skills.&lt;mod&gt; import &lt;sym&gt;`` imports into inline source
+before the AST rewriter runs.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ReplSkillExport:
+    module: str
+    name: str
+    source: str
+    requires: list[str] = field(default_factory=list)
+    kind: str = &quot;function&quot;
+
+
+@dataclass
+class ExpandedSkillCode:
+    original_code: str
+    expanded_code: str
+    expanded_symbols: list[str] = field(default_factory=list)
+    expanded_modules: list[str] = field(default_factory=list)
+    did_expand: bool = False
+
+
+class SkillRegistry:
+    def __init__(self) -&gt; None:
+        self._exports: dict[str, dict[str, ReplSkillExport]] = {}
+
+    def register(self, export: ReplSkillExport) -&gt; None:
+        mod_exports = self._exports.setdefault(export.module, {})
+        mod_exports[export.name] = export
+
+    def resolve(self, module: str, names: list[str]) -&gt; list[ReplSkillExport]:
+        mod_exports = self._exports.get(module)
+        if mod_exports is None:
+            raise RuntimeError(
+                f&quot;Unknown synthetic module: {module!r}. &quot;
+                f&quot;Available modules: {sorted(self._exports.keys())}&quot;
+            )
+        results = []
+        for name in names:
+            export = mod_exports.get(name)
+            if export is None:
+                raise RuntimeError(
+                    f&quot;Unknown symbol {name!r} in module {module!r}. &quot;
+                    f&quot;Available symbols: {sorted(mod_exports.keys())}&quot;
+                )
+            results.append(export)
+        return results
+
+    def expand(self, code: str) -&gt; ExpandedSkillCode:
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return ExpandedSkillCode(original_code=code, expanded_code=code, did_expand=False)
+
+        # Find synthetic ImportFrom nodes
+        synthetic_imports: list[tuple[str, list[str], ast.ImportFrom]] = []
+        for node in tree.body:
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith(&quot;rlm_repl_skills.&quot;)
+            ):
+                names = [alias.name for alias in node.names]
+                synthetic_imports.append((node.module, names, node))
+
+        if not synthetic_imports:
+            return ExpandedSkillCode(original_code=code, expanded_code=code, did_expand=False)
+
+        # Resolve all requested exports and their dependencies
+        requested: dict[str, ReplSkillExport] = {}
+        modules_seen: set[str] = set()
+        for module, names, _ in synthetic_imports:
+            modules_seen.add(module)
+            for export in self.resolve(module, names):
+                requested[export.name] = export
+
+        # Collect all dependencies transitively
+        all_exports: dict[str, ReplSkillExport] = {}
+        queue = list(requested.values())
+        while queue:
+            export = queue.pop(0)
+            if export.name in all_exports:
+                continue
+            all_exports[export.name] = export
+            # Resolve dependencies from the same module
+            for dep_name in export.requires:
+                if dep_name not in all_exports:
+                    mod_exports = self._exports.get(export.module, {})
+                    dep = mod_exports.get(dep_name)
+                    if dep is None:
+                        raise RuntimeError(
+                            f&quot;Dependency {dep_name!r} required by {export.name!r} &quot;
+                            f&quot;not found in module {export.module!r}&quot;
+                        )
+                    queue.append(dep)
+
+        # Topological sort by requires
+        sorted_exports = self._topo_sort(all_exports)
+
+        # Check for name conflicts with user-defined names
+        user_names = self._collect_user_defined_names(tree, synthetic_imports)
+        for export in sorted_exports:
+            if export.name in user_names:
+                raise RuntimeError(
+                    f&quot;Name conflict: skill export {export.name!r} conflicts with &quot;
+                    f&quot;user-defined name in submitted code&quot;
+                )
+
+        # Build expanded source
+        # 1. Normal imports first
+        normal_lines: list[str] = []
+        code_lines: list[str] = []
+        synthetic_nodes = {id(node) for _, _, node in synthetic_imports}
+        first_non_import_idx = None
+
+        for i, node in enumerate(tree.body):
+            if id(node) in synthetic_nodes:
+                continue
+            if first_non_import_idx is None and not isinstance(node, (ast.Import, ast.ImportFrom)):
+                first_non_import_idx = i
+            source_segment = ast.get_source_segment(code, node)
+            if source_segment is not None:
+                if first_non_import_idx is None:
+                    normal_lines.append(source_segment)
+                else:
+                    code_lines.append(source_segment)
+            else:
+                # Fallback: use line ranges
+                start = node.lineno - 1
+                end = node.end_lineno if node.end_lineno else node.lineno
+                segment = &quot;\n&quot;.join(code.splitlines()[start:end])
+                if first_non_import_idx is None:
+                    normal_lines.append(segment)
+                else:
+                    code_lines.append(segment)
+
+        # 2. Skill source blocks (deduplicated, topo-sorted)
+        skill_blocks: list[str] = []
+        for export in sorted_exports:
+            skill_blocks.append(f&quot;# --- skill: {export.module}.{export.name} ---&quot;)
+            skill_blocks.append(export.source)
+
+        # 3. Assemble: normal imports, skill blocks, remaining code
+        parts = []
+        if normal_lines:
+            parts.append(&quot;\n&quot;.join(normal_lines))
+        if skill_blocks:
+            parts.append(&quot;\n&quot;.join(skill_blocks))
+        if code_lines:
+            parts.append(&quot;\n&quot;.join(code_lines))
+
+        expanded_code = &quot;\n\n&quot;.join(parts)
+
+        return ExpandedSkillCode(
+            original_code=code,
+            expanded_code=expanded_code,
+            expanded_symbols=[e.name for e in sorted_exports],
+            expanded_modules=sorted(modules_seen),
+            did_expand=True,
+        )
+
+    def _topo_sort(self, exports: dict[str, ReplSkillExport]) -&gt; list[ReplSkillExport]:
+        &quot;&quot;&quot;Topological sort of exports by requires dependencies.&quot;&quot;&quot;
+        visited: set[str] = set()
+        result: list[ReplSkillExport] = []
+
+        def visit(name: str) -&gt; None:
+            if name in visited:
+                return
+            visited.add(name)
+            export = exports[name]
+            for dep in export.requires:
+                if dep in exports:
+                    visit(dep)
+            result.append(export)
+
+        for name in exports:
+            visit(name)
+        return result
+
+    def _collect_user_defined_names(
+        self,
+        tree: ast.Module,
+        synthetic_imports: list[tuple[str, list[str], ast.ImportFrom]],
+    ) -&gt; set[str]:
+        &quot;&quot;&quot;Collect names defined by user code (excluding synthetic imports).&quot;&quot;&quot;
+        synthetic_nodes = {id(node) for _, _, node in synthetic_imports}
+        names: set[str] = set()
+        for node in tree.body:
+            if id(node) in synthetic_nodes:
+                continue
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.ClassDef):
+                names.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+        return names
+
+    def clear(self) -&gt; None:
+        self._exports.clear()
+
+
+# Module-level singleton
+_registry = SkillRegistry()
+
+
+def register_skill_export(export: ReplSkillExport) -&gt; None:
+    _registry.register(export)
+
+
+def expand_skill_imports(code: str) -&gt; ExpandedSkillCode:
+    return _registry.expand(code)</content>
     
 
   </file>
@@ -939,9 +1605,9 @@ except Exception:
   </file>
 </repository_files>
 <statistics>
-  <total_files>4</total_files>
-  <total_chars>30999</total_chars>
+  <total_files>6</total_files>
+  <total_chars>55986</total_chars>
   <total_tokens>0</total_tokens>
-  <generated_at>2026-03-10 10:45:03</generated_at>
+  <generated_at>2026-03-15 07:37:23</generated_at>
 </statistics>
 </repository>

@@ -1,0 +1,23 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/catalog.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "Skill"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "Skill",
+      "usages": [
+        {
+          "context": "variable:skill",
+          "line": 28
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) Skill\n```\n---\nComplete skill representation including frontmatter, instructions, and resources.\n\nA skill combines:\n- L1: Frontmatter for discovery (name, description).\n- L2: Instructions from SKILL.md body, loaded when skill is triggered.\n- L3: Resources including additional instructions, assets, and scripts,\nloaded as needed.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;frontmatter: Parsed skill frontmatter from SKILL.md.  \n&nbsp;&nbsp;&nbsp;&nbsp;instructions: L2 skill content: markdown instruction from SKILL.md body.  \n&nbsp;&nbsp;&nbsp;&nbsp;resources: L3 skill content: additional instructions, assets, and scripts."
+      }
+    }
+  ]
+}

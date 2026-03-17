@@ -1,0 +1,33 @@
+{
+  "persona_id": "first_time_efiler",
+  "persona_name": "The First-Time E-Filer",
+  "difficulty_tier": "easy",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Single",
+    "dependents": []
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Meijer Inc.",
+      "ein": "38-0123456",
+      "wages": 41500.00,
+      "federal_withholding": 4565.00,
+      "state_withholding": 1660.00,
+      "description": "Store management trainee, first full year of employment"
+    }
+  ],
+  "life_events": [
+    "First time filing electronically (filed paper return last year)",
+    "Graduated from Grand Valley State University in 2024"
+  ],
+  "filing_complexity": "low",
+  "primary_gap_types": ["CREDENTIAL"],
+  "gap_rationale": "The simplest possible return, yet still requires prior-year AGI or IP PIN for e-file authentication. The agent cannot guess these values.",
+  "exercise_categories": ["credential"]
+}

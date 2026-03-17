@@ -2,6 +2,10 @@
 .env
 .gemini/.env
 
+# OAuth credentials
+client_secret.json
+token.json
+
 # Python
 __pycache__/
 *.egg-info/
@@ -19,3 +23,4 @@ rlm_adk/.adk/
 
 # Debug config
 rlm_adk_debug.yaml
+rlm_adk/eval/understand_bench/corpus/

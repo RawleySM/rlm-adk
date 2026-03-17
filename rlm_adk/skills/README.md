@@ -1,49 +1,136 @@
 # Skills
 
-Skills are domain-specific helper functions pre-loaded into the REPL
-so the reasoning agent can call them with zero imports. Each skill has
-two integration surfaces:
+Skills are domain-specific helper functions available to the reasoning
+agent inside the REPL.  There are **two distinct injection mechanisms**
+and each determines whether usage examples should show an import.
 
-1. **Runtime globals** -- the actual Python functions injected into
-   `repl.globals` by the orchestrator (`orchestrator.py:129-134`).
-2. **Prompt instructions** -- an ADK `Skill` object whose `.instructions`
-   markdown is appended to the reasoning agent's `static_instruction`
-   via `build_skill_instruction_block()` (`agent.py`).
+## Two injection mechanisms
 
-The model sees the instructions in its system prompt and the functions
-are available when ```` ```repl ```` blocks execute.
+### Kind 1: Globals-injected (no import needed)
+
+Functions injected directly into `repl.globals` by the orchestrator at
+startup.  The model calls them by bare name — no import statement.
+
+**Examples:** `probe_repo()`, `pack_repo()`, `shard_repo()`, `llm_query()`,
+`llm_query_batched()`, `LLMResult`, `FINAL_VAR`, `SHOW_VARS`.
+
+Usage example in instructions:
+```repl
+info = probe_repo("https://github.com/org/repo")
+print(info.total_tokens)
+```
+
+### Kind 2: Source-expandable (synthetic import required)
+
+Functions registered as `ReplSkillExport` objects in the `SkillRegistry`
+singleton at import time.  They are **not** pre-loaded into REPL globals.
+Instead, the model writes a synthetic import:
+
+```repl
+from rlm_repl_skills.polya_narrative import run_polya_narrative
+result = run_polya_narrative(story, max_cycles=2)
+```
+
+The `REPLTool` intercepts the `from rlm_repl_skills.*` import before
+execution, resolves it via the registry, topologically sorts all
+transitive `requires` dependencies, and **replaces the import statement
+with the inlined source code** of the function and its dependencies.
+The synthetic import is removed from the output — it is a trigger, not
+a real Python import.
+
+This mechanism avoids injecting large function bodies into every REPL
+call.  The source only expands when the model explicitly imports it.
+
+**Examples:** `run_polya_narrative()`, `run_polya_understand()`,
+`run_recursive_ping()`.
+
+### Both mechanisms share prompt instructions
+
+Both kinds use ADK `Skill` objects whose `.instructions` markdown is
+appended to the reasoning agent's `static_instruction` via
+`build_*_instruction_block()` (wired through `catalog.py`).  The model
+sees these instructions in its system prompt.
+
+### Import rule for usage examples
+
+| Injection kind | Example shows import? | Why |
+|---|---|---|
+| Globals-injected | **No** — bare name call | Already in `repl.globals` |
+| Source-expandable | **Yes** — `from rlm_repl_skills.<mod> import <fn>` | Import triggers source expansion |
 
 ## Directory layout
 
 ```
 rlm_adk/skills/
-  __init__.py              # Re-exports helpers + REPOMIX_SKILL
+  __init__.py              # Re-exports helpers + skill objects
+  catalog.py               # PROMPT_SKILL_REGISTRY, build_enabled_skill_instruction_blocks()
   repomix_helpers.py       # probe_repo, pack_repo, shard_repo implementations
-  repomix_skill.py         # Skill definition + build_skill_instruction_block()
+  repomix_skill.py         # Skill definition (globals-injected)
+  polya_narrative_skill.py # Skill definition + source-expandable exports
+  polya_understand.py      # Skill definition + source-expandable exports
+  repl_skills/
+    __init__.py
+    ping.py                # Source-expandable exports only (no Skill object)
   README.md                # This file
 ```
 
 ## How a skill reaches the REPL
 
-```
-agent.py
-  create_reasoning_agent()
-    build_skill_instruction_block()
-      format_skills_as_xml([REPOMIX_SKILL.frontmatter])   # XML discovery tag
-      + REPOMIX_SKILL.instructions                         # full markdown docs
-    -> appended to static_instruction for LlmAgent
+### Prompt injection (both kinds)
 
+```
+catalog.py
+  PROMPT_SKILL_REGISTRY = {name: PromptSkillRegistration(...)}
+  build_enabled_skill_instruction_blocks(enabled_skills)
+    -> list of XML discovery + instruction strings
+
+agent.py
+  create_reasoning_agent(enabled_skills=...)
+    for block in build_enabled_skill_instruction_blocks(enabled_skills):
+        static_instruction += block
+    -> appended to LlmAgent(static_instruction=...)
+```
+
+### Globals injection (Kind 1)
+
+```
 orchestrator.py
   _run_async_impl()
     repl = LocalREPL(depth=1)
-    llm_query_async, llm_query_batched_async = create_dispatch_closures(...)
-    repl.set_async_llm_query_fns(...)              # dispatch closures first
-    repl.globals["probe_repo"]  = probe_repo       # then skill helpers
+    llm_query_async, llm_query_batched_async, flush_fn = create_dispatch_closures(...)
+    repl.set_async_llm_query_fns(...)              # dispatch closures
+    repl.globals["probe_repo"]  = probe_repo       # skill helpers
     repl.globals["pack_repo"]   = pack_repo
     repl.globals["shard_repo"]  = shard_repo
+    repl.globals["LLMResult"]   = LLMResult
 ```
 
-When the model emits a ```` ```repl ```` block the orchestrator checks
+### Source expansion (Kind 2)
+
+```
+orchestrator.py
+  _run_async_impl()
+    import rlm_adk.skills.polya_narrative_skill    # side-effect: registers exports
+    import rlm_adk.skills.repl_skills.ping         # side-effect: registers exports
+
+repl/skill_registry.py
+  _registry = SkillRegistry()                      # process-global singleton
+  register_skill_export(ReplSkillExport(...))       # called at import time
+
+tools/repl_tool.py  (per execute_code call)
+  expansion = expand_skill_imports(code)            # intercept before execution
+    -> ast.parse(code)
+    -> find ImportFrom nodes matching "rlm_repl_skills.*"
+    -> resolve via _registry.resolve(module, names)
+    -> walk requires graph transitively
+    -> topological sort (dependencies first)
+    -> replace import with inlined source blocks
+  exec_code = expansion.expanded_code
+```
+
+### AST rewriting (both kinds)
+
+When the model emits a ```` ```repl ```` block the `REPLTool` checks
 whether it contains `llm_query` / `llm_query_batched` calls. If so the
 AST rewriter (`repl/ast_rewriter.py`):
 
@@ -54,6 +141,9 @@ AST rewriter (`repl/ast_rewriter.py`):
 
 The rewritten code runs via `execute_code_async`. Blocks without LM
 calls take the sync path through `execute_code`.
+
+Source expansion happens **before** AST rewriting, so `llm_query()`
+calls inside expanded skill source are correctly rewritten to async.
 
 REPL locals persist across iterations within a single invocation, so a
 variable assigned in iteration 1 is available in iteration 2.
@@ -198,29 +288,62 @@ in `test_provider_fake_e2e.py` to get automatic validation of:
 
 ## Adding a new skill
 
+Choose the injection mechanism based on function size and frequency:
+
+- **Globals-injected** — best for small, frequently-used helpers that
+  should always be available (like `probe_repo`).
+- **Source-expandable** — best for large functions with many dependencies
+  that are only needed occasionally (like `run_polya_narrative`).
+
+### Path A: Globals-injected skill
+
 1. **Create the helper module** in `rlm_adk/skills/` (e.g.
    `my_skill_helpers.py`) with the functions to inject.
 
 2. **Create the skill definition** (e.g. `my_skill.py`) using
    `google.adk.skills.models.Skill` and `Frontmatter`. Write a
-   `build_*_instruction_block()` function that returns the XML
-   discovery block + instructions string.
+   `build_*_instruction_block()` function.
 
 3. **Inject helpers into REPL globals** in `orchestrator.py` alongside
    the existing repomix helpers.
 
-4. **Append instructions to the system prompt** by calling your build
-   function in `agent.py:create_reasoning_agent()`.
+4. **Register in `catalog.py`** — add to `PROMPT_SKILL_REGISTRY`.
 
 5. **Export from `__init__.py`** so tests can import cleanly.
 
-6. **Write coverage tests** following the pattern in
+6. **Usage examples must NOT show imports** — the functions are globals.
+
+### Path B: Source-expandable skill
+
+1. **Create the skill file** (e.g. `my_skill.py`) with both:
+   - An ADK `Skill` object + `build_*_instruction_block()` for prompt
+     instructions.
+   - `ReplSkillExport` registrations via `register_skill_export()` at
+     module level (side-effect at import time). Store function source
+     as string constants. Use `requires=[...]` for dependency ordering.
+
+2. **Import the module** in `orchestrator.py` for the side-effect
+   registration (the import seeds the `SkillRegistry` singleton).
+
+3. **Register in `catalog.py`** — add to `PROMPT_SKILL_REGISTRY`.
+
+4. **Usage examples MUST show the synthetic import**:
+   ```repl
+   from rlm_repl_skills.my_module import my_function
+   result = my_function(args)
+   ```
+   This import is the trigger for source expansion — without it the
+   function does not exist in the REPL namespace.
+
+### Common steps (both paths)
+
+5. **Write coverage tests** following the pattern in
    `test_skill_helper_e2e.py::TestSkillInstructionCoverage`:
    - Instructions have `>= N` repl blocks
    - All helpers appear in examples
    - All blocks parse as valid Python
 
-7. **Write a provider-fake fixture** and an e2e test that validates
+6. **Write a provider-fake fixture** and an e2e test that validates
    per-iteration REPL snapshots.
 
-8. **Register** the fixture in `_LLM_QUERY_FIXTURE_NAMES`.
+7. **Register** the fixture in `_LLM_QUERY_FIXTURE_NAMES`.

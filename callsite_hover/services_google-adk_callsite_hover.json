@@ -1,0 +1,50 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/services.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "FileArtifactService",
+    "ServiceRegistry",
+    "get_service_registry"
+  ],
+  "call_sites": [
+    {
+      "symbol": "FileArtifactService",
+      "instances": [
+        {
+          "name": null,
+          "line": 53
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass FileArtifactService(root_dir: Path | str)\n```\n---\nInitializes the file-based artifact service.\n\nArgs:  \n&nbsp;&nbsp;root\\_dir: The directory that will contain artifact data."
+      }
+    },
+    {
+      "symbol": "get_service_registry",
+      "instances": [
+        {
+          "name": "registry",
+          "line": 64
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(function) def get_service_registry() -> ServiceRegistry\n```\n---\nGets the singleton ServiceRegistry instance, initializing it if needed."
+      }
+    }
+  ],
+  "type_annotations": [
+    {
+      "symbol": "ServiceRegistry",
+      "usages": [
+        {
+          "context": "param:registry",
+          "line": 56
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) ServiceRegistry\n```\n---\nRegistry for custom service URI schemes."
+      }
+    }
+  ]
+}

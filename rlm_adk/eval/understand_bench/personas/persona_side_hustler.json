@@ -1,0 +1,38 @@
+{
+  "persona_id": "side_hustler",
+  "persona_name": "The Side-Hustler",
+  "difficulty_tier": "easy",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Single",
+    "dependents": []
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Great Lakes Software LLC",
+      "ein": "38-1234567",
+      "wages": 78500.00,
+      "federal_withholding": 12560.00,
+      "state_withholding": 3139.50,
+      "description": "Full-time software engineer, Michigan employer"
+    },
+    {
+      "type": "1099-NEC",
+      "payer": "Various clients",
+      "amount": 24300.00,
+      "description": "Freelance software consulting started mid-year (July)"
+    }
+  ],
+  "life_events": [
+    "Started freelancing mid-year (July 2025)"
+  ],
+  "filing_complexity": "low-medium",
+  "primary_gap_types": ["THIRD_PARTY_RECORD"],
+  "gap_rationale": "A weak agent will compute SE tax without checking whether quarterly estimated tax payments were made. Bank statements show 'EST TAX PMT' transactions hinting at payments, but the authoritative IRS payment record is absent.",
+  "exercise_categories": ["third_party", "computational"]
+}

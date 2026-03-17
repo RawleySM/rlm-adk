@@ -1,0 +1,113 @@
+{
+  "case_id": "case_estimated_payments",
+  "task_name": "Estimated Payment Gap",
+  "difficulty": "easy",
+  "persona_id": "side_hustler",
+  "broad_objective": "Prepare a federal and Michigan state tax return for a single filer with W-2 employment and mid-year freelance income, including Schedule C and Schedule SE.",
+
+  "provided_context_dict": {
+    "taxpayer_intake.md": "# Taxpayer Intake Notes\n## Session: 2026-02-22, 2:30 PM\n## Preparer: Auto-captured from video call transcript\n\n**Client:** Rawley Stanhope\n**Phone:** (616) 555-0173\n**Email:** rawley.stanhope@gmail.com\n\n---\n\n### Employment & Income Overview\n\nRawley works full-time as a software engineer at Great Lakes Software\nLLC in Grand Rapids. He's been there since 2022 and his salary is\naround $78,500. They withhold federal and state taxes from every\npaycheck -- he said his pay stubs look normal and he hasn't changed\nhis W-4 this year.\n\nStarting in July 2025, he picked up some freelance software consulting\nwork on the side. Mostly building small web apps and doing code reviews\nfor a couple of startups he found through a friend. He invoiced them\ndirectly and got paid via direct deposit. He said the total came out to\nabout $24,300 for the year. One of the clients sent a 1099-NEC.\n\nHe works from his apartment for the freelance stuff -- no dedicated\noffice, just his desk in the living room. He drove to client sites a\nfew times for in-person meetings and kept a mileage log.\n\n### Estimated Tax Payments\n\nWhen I asked about estimated tax payments, Rawley said: \"Yeah, I think\nI made some quarterly payments. My buddy who freelances told me I\nshould, so I sent in a couple payments through the IRS Direct Pay\nwebsite. I think it was $2,000 each time -- once in September and once\nin December. I should have the confirmation emails somewhere but I'm\nnot sure where.\"\n\nHe wasn't sure if the payments actually posted or what dates the IRS\nrecorded. He mentioned he might have also set one up for January but\ncouldn't remember if he actually went through with it.\n\n### Deductions & Credits\n\nRawley doesn't itemize -- standard deduction. No student loan interest,\nno HSA, no retirement contributions outside of work. He asked about\nthe home office deduction but his setup probably doesn't qualify for\nthe exclusive-use test since his desk is in his living room.\n\nHe does have business expenses for the freelancing:\n- Adobe Creative Cloud subscription ($55/month from July on = ~$330)\n- GitHub Pro ($4/month = ~$24)\n- A new external monitor he bought for $380 in August\n- Mileage for client visits (he has a log)\n\n### Health Insurance\n\nCovered under Great Lakes Software's employer plan all year. No gaps,\nno marketplace.\n\n### Other Notes\n\n- Single, no dependents\n- Renting at 11626 Bass Rd, Middleville, MI 49333\n- Wants refund via direct deposit to Chase checking\n- Filed electronically last year, has prior-year AGI available\n- No crypto, no rental property, no investment income beyond a\n  savings account with negligible interest\n",
+
+    "w2_great_lakes.json": {
+      "form_type": "W-2",
+      "tax_year": 2025,
+      "employer": {
+        "name": "Great Lakes Software LLC",
+        "ein": "38-1234567",
+        "address": {
+          "street": "250 Monroe Ave NW, Suite 400",
+          "city": "Grand Rapids",
+          "state": "MI",
+          "zip": "49503"
+        }
+      },
+      "employee": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "4418",
+        "address": {
+          "street": "11626 Bass Rd",
+          "city": "Middleville",
+          "state": "MI",
+          "zip": "49333"
+        }
+      },
+      "box_1_wages": 78500.00,
+      "box_2_federal_tax_withheld": 12560.00,
+      "box_3_social_security_wages": 78500.00,
+      "box_4_social_security_tax_withheld": 4867.00,
+      "box_5_medicare_wages": 78500.00,
+      "box_6_medicare_tax_withheld": 1138.25,
+      "box_12": [
+        {"code": "D", "amount": 3925.00, "description": "401(k) elective deferral"}
+      ],
+      "box_13_statutory_employee": false,
+      "box_13_retirement_plan": true,
+      "box_13_third_party_sick_pay": false,
+      "box_15_state": "MI",
+      "box_16_state_wages": 78500.00,
+      "box_17_state_tax_withheld": 3139.50
+    },
+
+    "1099_nec_freelance.json": {
+      "form_type": "1099-NEC",
+      "tax_year": 2025,
+      "payer": {
+        "name": "Lakeshore Digital Solutions Inc.",
+        "ein": "27-8901234",
+        "address": {
+          "street": "45 Ottawa Ave SW",
+          "city": "Grand Rapids",
+          "state": "MI",
+          "zip": "49503"
+        }
+      },
+      "recipient": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "4418",
+        "address": {
+          "street": "11626 Bass Rd",
+          "city": "Middleville",
+          "state": "MI",
+          "zip": "49333"
+        }
+      },
+      "box_1_nonemployee_compensation": 24300.00,
+      "box_4_federal_tax_withheld": 0.00
+    },
+
+    "bank_statement_2025.csv": "Date,Description,Amount,Balance\n2025-07-15,LAKESHORE DIGITAL SOLUTIONS PAYMENT,3200.00,14523.47\n2025-08-01,GREAT LAKES SOFTWARE LLC PAYROLL,2987.32,17510.79\n2025-08-12,LAKESHORE DIGITAL SOLUTIONS PAYMENT,4100.00,21610.79\n2025-08-15,ADOBE INC SUBSCRIPTION,-54.99,21555.80\n2025-09-01,GREAT LAKES SOFTWARE LLC PAYROLL,2987.32,24543.12\n2025-09-15,IRS USATAXPYMT 091525 XXXXXXXXX4418,-2000.00,22543.12\n2025-09-18,LAKESHORE DIGITAL SOLUTIONS PAYMENT,3800.00,26343.12\n2025-10-01,GREAT LAKES SOFTWARE LLC PAYROLL,2987.32,29330.44\n2025-10-22,LAKESHORE DIGITAL SOLUTIONS PAYMENT,4500.00,33830.44\n2025-11-01,GREAT LAKES SOFTWARE LLC PAYROLL,2987.32,36817.76\n2025-11-14,AMAZON MKTPLACE - EXTERNAL MONITOR,-379.99,36437.77\n2025-11-19,LAKESHORE DIGITAL SOLUTIONS PAYMENT,4200.00,40637.77\n2025-12-01,GREAT LAKES SOFTWARE LLC PAYROLL,2987.32,43625.09\n2025-12-15,IRS USATAXPYMT 121525 XXXXXXXXX4418,-2000.00,41625.09\n2025-12-20,LAKESHORE DIGITAL SOLUTIONS PAYMENT,4500.00,46125.09\n2026-01-02,GREAT LAKES SOFTWARE LLC PAYROLL,2987.32,49112.41\n",
+
+    "mileage_log.csv": "Date,Destination,Purpose,Miles\n2025-08-04,Lakeshore Digital office - Grand Rapids,Client kickoff meeting,38\n2025-08-22,Founders Brewing - Grand Rapids,Working session with Lakeshore team,36\n2025-09-10,Lakeshore Digital office - Grand Rapids,Sprint demo,38\n2025-10-03,TechSmith office - Okemos,Prospective client meeting,124\n2025-10-17,Lakeshore Digital office - Grand Rapids,Quarterly review,38\n2025-11-07,Lakeshore Digital office - Grand Rapids,Project handoff,38\n2025-12-05,Wealthy Theatre cowork - Grand Rapids,Client workshop,34\n",
+
+    "_manifest": [
+      {"filename": "taxpayer_intake.md", "type": "user_generated", "description": "Client intake questionnaire and call notes"},
+      {"filename": "w2_great_lakes.json", "type": "irs_form", "description": "W-2 Wage and Tax Statement from Great Lakes Software LLC"},
+      {"filename": "1099_nec_freelance.json", "type": "irs_form", "description": "1099-NEC from Lakeshore Digital Solutions Inc."},
+      {"filename": "bank_statement_2025.csv", "type": "third_party", "description": "Chase checking account statement Jul 2025 - Jan 2026"},
+      {"filename": "mileage_log.csv", "type": "user_generated", "description": "Business mileage log for freelance client visits"}
+    ]
+  },
+
+  "missing_artifacts": [
+    {
+      "category": "third_party",
+      "artifact_name": "IRS estimated tax payment record",
+      "source_authority": "IRS account transcript or IRS Direct Pay confirmation records",
+      "why_non_derivable": "Bank statement entries labeled 'IRS USATAXPYMT' suggest payments were initiated, but do not confirm the IRS received and applied them. Payment amounts, exact posting dates, and the tax year/quarter they were applied to can only be verified from IRS records. The taxpayer is also uncertain whether a January payment was completed.",
+      "detection_signal": "Bank statement shows two $2,000 debits to 'IRS USATAXPYMT' in September and December. Intake notes state 'I think I made some quarterly payments' and mention uncertainty about a possible January payment. No Form 1040-ES receipts or IRS confirmations are in the provided documents.",
+      "retrieval_method": "Request the taxpayer obtain an IRS account transcript for tax year 2025 via irs.gov/individuals/get-transcript (online or by mail), or locate the confirmation emails from IRS Direct Pay showing payment amounts, dates, and confirmation numbers.",
+      "blocks_downstream": ["Step 8: Apply Payments and Withholding"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": ["IRS estimated tax payment record"],
+
+  "why_context_tempts_premature_progress": "The bank statement clearly shows two $2,000 IRS payments, which a weak model will treat as confirmed estimated payments. Combined with the complete W-2, 1099-NEC, and business expenses, there is enough data to compute taxable income and SE tax. The temptation is to plug in the bank statement amounts directly and finalize the return.",
+
+  "what_bad_model_does": "Computes SE tax and uses bank statement entries as payment amounts without verifying against the authoritative IRS record",
+  "what_good_model_does": "Recognizes that bank statement entries suggest but do not confirm estimated payments; requests the taxpayer obtain an IRS account transcript to verify payment amounts, dates, and application",
+
+  "scoring_notes": "Full credit requires: (1) identifying that the bank statement IRS entries are not authoritative proof of estimated tax payments, (2) explaining the risk (payments may not have posted, may be applied to wrong quarter, or the possible January payment is unaccounted for), and (3) providing a concrete retrieval path (IRS account transcript or Direct Pay confirmation). Partial credit if the gap is noted but the model still uses the bank statement values as a fallback.",
+  "multi_hop_chain": null
+}
