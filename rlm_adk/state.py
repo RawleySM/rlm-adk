@@ -39,6 +39,15 @@ DYN_REPO_URL = "repo_url"
 DYN_ROOT_PROMPT = "root_prompt"
 DYN_SKILL_INSTRUCTION = "skill_instruction"
 
+# User-Provided Context Keys (session-scoped)
+USER_PROVIDED_CTX = "user_provided_ctx"
+USER_PROVIDED_CTX_EXCEEDED = "user_provided_ctx_exceeded"
+USR_PROVIDED_FILES_SERIALIZED = "usr_provided_files_serialized"
+USR_PROVIDED_FILES_UNSERIALIZED = "usr_provided_files_unserialized"
+
+# Dynamic Instruction State Key (for {user_ctx_manifest?} template injection)
+DYN_USER_CTX_MANIFEST = "user_ctx_manifest"
+
 # Caching Keys (session-scoped despite : separator)
 CACHE_STORE = "cache:store"
 CACHE_HIT_COUNT = "cache:hit_count"

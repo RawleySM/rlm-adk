@@ -38,6 +38,7 @@ from rlm_adk.state import (
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
+    DYN_USER_CTX_MANIFEST,
     FINAL_ANSWER,
     ITERATION_COUNT,
     OBS_REASONING_RETRY_COUNT,
@@ -55,6 +56,10 @@ from rlm_adk.state import (
     REQUEST_ID,
     ROOT_PROMPT,
     SHOULD_STOP,
+    USER_PROVIDED_CTX,
+    USER_PROVIDED_CTX_EXCEEDED,
+    USR_PROVIDED_FILES_SERIALIZED,
+    USR_PROVIDED_FILES_UNSERIALIZED,
     depth_key,
 )
 from rlm_adk.tools.repl_tool import REPLTool
@@ -345,6 +350,24 @@ class RLMOrchestratorAgent(BaseAgent):
                         "before_agent_callback",
                         _seed_skill_instruction,
                     )
+
+            # --- User-provided context directory ---
+            _ctx_dir = os.getenv("RLM_USER_CTX_DIR")
+            if _ctx_dir and os.path.isdir(_ctx_dir):
+                from rlm_adk.utils.user_context import load_user_context
+                _max_chars = int(os.getenv("RLM_USER_CTX_MAX_CHARS", "500000"))
+                uctx = load_user_context(_ctx_dir, _max_chars)
+                initial_state[USER_PROVIDED_CTX] = uctx.ctx
+                initial_state[USER_PROVIDED_CTX_EXCEEDED] = uctx.exceeded
+                initial_state[USR_PROVIDED_FILES_SERIALIZED] = uctx.serialized
+                initial_state[USR_PROVIDED_FILES_UNSERIALIZED] = uctx.unserialized
+                initial_state[DYN_USER_CTX_MANIFEST] = uctx.build_manifest()
+                # Pre-load context dict into REPL globals
+                repl.globals["user_ctx"] = uctx.ctx
+                logger.info(
+                    "User context loaded: %d files serialized, %d unserialized, %d total chars",
+                    len(uctx.serialized), len(uctx.unserialized), uctx.total_chars,
+                )
 
             # Yield initial state
             yield Event(
