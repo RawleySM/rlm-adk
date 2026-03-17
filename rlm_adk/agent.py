@@ -41,6 +41,7 @@ from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOpti
 from rlm_adk.callbacks.reasoning import reasoning_after_model, reasoning_before_model
 from rlm_adk.dispatch import WorkerPool
 from rlm_adk.orchestrator import RLMOrchestratorAgent
+from rlm_adk.plugins.dashboard_auto_launch import DashboardAutoLaunchPlugin
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.skills import (
@@ -80,8 +81,9 @@ def _resolve_model(model_str, tier=None):
     return create_litellm_model(logical_name)
 
 
-# Load repo-root .env so model and API key env vars are available.
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=False)
+# Load project-root .env so model and API key env vars are available.
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=False)
 
 
 def _project_root() -> Path:
@@ -408,7 +410,10 @@ def _default_plugins(
     available (Track B), it is silently skipped.
     """
     _debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
-    plugins: list[BasePlugin] = [ObservabilityPlugin(verbose=_debug_env)]
+    plugins: list[BasePlugin] = [
+        DashboardAutoLaunchPlugin(),
+        ObservabilityPlugin(verbose=_debug_env),
+    ]
     _sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")
     if sqlite_tracing or _sqlite_env:
         try:
@@ -473,6 +478,7 @@ def create_rlm_app(
     sqlite_tracing: bool = True,
     instruction_router: Any = None,
     enabled_skills: Iterable[str] | None = None,
+    retry_config: dict[str, Any] | None = None,
 ) -> App:
     """Create the full RLM ADK App with plugins wired in.
 
@@ -510,6 +516,7 @@ def create_rlm_app(
         thinking_budget=thinking_budget,
         instruction_router=instruction_router,
         enabled_skills=enabled_skills,
+        retry_config=retry_config,
     )
     resolved_plugins = plugins if plugins is not None else _default_plugins(
         langfuse=langfuse, sqlite_tracing=sqlite_tracing,
@@ -538,6 +545,7 @@ def create_rlm_runner(
     sqlite_tracing: bool = True,
     instruction_router: Any = None,
     enabled_skills: Iterable[str] | None = None,
+    retry_config: dict[str, Any] | None = None,
 ) -> Runner:
     """Create the full RLM ADK Runner: App + plugins + services.
 
@@ -604,6 +612,7 @@ def create_rlm_runner(
         sqlite_tracing=sqlite_tracing,
         instruction_router=instruction_router,
         enabled_skills=enabled_skills,
+        retry_config=retry_config,
     )
 
     # Resolve session service: explicit > default factory
