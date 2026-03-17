@@ -1,0 +1,99 @@
+{
+  "scenario_id": "repl_state_introspection",
+  "description": "Iteration 1: reasoning emits execute_code that prints _rlm_state['iteration_count'] and _rlm_state['current_depth']. Iteration 2: reasoning returns FINAL with the printed values. Tests that _rlm_state read-only snapshot is injected into REPL namespace.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "max_retries": 0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Iter 1: REPL code prints _rlm_state iteration_count and current_depth",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(f\"iter={_rlm_state['iteration_count']}\")\nprint(f\"depth={_rlm_state['current_depth']}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 230
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "Reasoning sees tool result with iter=1 and depth=0, returns FINAL",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The REPL state snapshot shows iteration_count=1 and current_depth=0.\n\nFINAL(State introspection succeeded: iter=1, depth=0)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 325
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "State introspection succeeded: iter=1, depth=0",
+    "total_iterations": 1,
+    "total_model_calls": 2
+  },
+  "expected_state": {
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {"$gt": 0},
+    "obs:total_input_tokens": {"$gt": 0},
+    "obs:total_output_tokens": {"$gt": 0}
+  },
+  "expected_contract": {
+    "callers": ["reasoning", "reasoning"],
+    "captured_requests": 2,
+    "events": {
+      "part_counts": {"function_call:execute_code": 1, "text": 3, "function_response:execute_code": 1}
+    },
+    "tool_results": {
+      "count": 1,
+      "stdout_contains": ["iter=1", "depth=0"]
+    }
+  }
+}

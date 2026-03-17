@@ -28,6 +28,8 @@ from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.skill_registry import expand_skill_imports
 from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
+    DEPTH_SCOPED_KEYS,
+    EXPOSED_STATE_KEYS,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
     OBS_CHILD_DISPATCH_COUNT,
@@ -39,6 +41,7 @@ from rlm_adk.state import (
     REPL_EXPANDED_CODE,
     REPL_EXPANDED_CODE_HASH,
     REPL_SKILL_EXPANSION_META,
+    REPL_STATE_SNAPSHOT,
     REPL_SUBMITTED_CODE,
     REPL_SUBMITTED_CODE_CHARS,
     REPL_SUBMITTED_CODE_HASH,
@@ -104,9 +107,7 @@ class REPLTool(BaseTool):
             ),
         )
 
-    async def run_async(
-        self, *, args: dict[str, Any], tool_context: ToolContext
-    ) -> dict:
+    async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> dict:
         code = args["code"]
 
         # OG-03 fix: persist submitted code for observability
@@ -181,6 +182,15 @@ class REPLTool(BaseTool):
             }
             tool_context.state[depth_key(REPL_DID_EXPAND, self._depth)] = True
 
+        # Build read-only state snapshot for REPL introspection
+        _state_snapshot: dict[str, Any] = {}
+        for key in EXPOSED_STATE_KEYS:
+            scoped = depth_key(key, self._depth) if key in DEPTH_SCOPED_KEYS else key
+            val = tool_context.state.get(scoped)
+            if val is not None:
+                _state_snapshot[key] = val  # Use unscoped key name for clean API
+        self.repl.globals[REPL_STATE_SNAPSHOT] = _state_snapshot
+
         try:
             if has_llm_calls(exec_code):
                 llm_calls_made = True
@@ -208,7 +218,9 @@ class REPLTool(BaseTool):
                 # Delegate compiled async wrapper to LocalREPL/executor.
                 # The executor installs _repl_exec into the namespace and runs it.
                 result = await self.repl.execute_code_async(
-                    code, trace=trace, compiled=compiled,
+                    code,
+                    trace=trace,
+                    compiled=compiled,
                 )
             else:
                 result = self.repl.execute_code(exec_code, trace=trace)
