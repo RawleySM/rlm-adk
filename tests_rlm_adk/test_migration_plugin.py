@@ -306,9 +306,8 @@ async def test_migration_plugin_after_run_skips_missing_session(tmp_path):
 
 @pytest.mark.asyncio
 async def test_migration_plugin_after_run_success_path(tmp_path):
-    """after_run_callback reads from SQLite, calls _upsert_to_postgres, and sets MIGRATION_STATUS."""
+    """after_run_callback reads from SQLite, calls _upsert_to_postgres, and sets migration status on plugin instance."""
     from rlm_adk.plugins.migration import MigrationPlugin
-    from rlm_adk.state import MIGRATION_STATUS, MIGRATION_TIMESTAMP
 
     db_path = str(tmp_path / "test.db")
     _create_test_db(db_path, sessions=1, events_per_session=3)
@@ -340,16 +339,16 @@ async def test_migration_plugin_after_run_success_path(tmp_path):
     assert session_data["id"] == "session_1"
     assert len(events_data) == 3
 
-    # Verify migration state was set
-    assert mock_ctx.session.state[MIGRATION_STATUS] == "completed"
-    assert MIGRATION_TIMESTAMP in mock_ctx.session.state
+    # AR-CRIT-001: migration status is stored on plugin instance (not session state)
+    assert plugin.last_status == "completed"
+    assert plugin.last_timestamp is not None
+    assert plugin.last_error is None
 
 
 @pytest.mark.asyncio
 async def test_migration_plugin_after_run_sets_failed_on_error(tmp_path):
-    """after_run_callback sets MIGRATION_STATUS='failed' when upsert raises."""
+    """after_run_callback sets last_status='failed' on plugin when upsert raises."""
     from rlm_adk.plugins.migration import MigrationPlugin
-    from rlm_adk.state import MIGRATION_ERROR, MIGRATION_STATUS
 
     db_path = str(tmp_path / "test.db")
     _create_test_db(db_path, sessions=1, events_per_session=1)
@@ -373,8 +372,9 @@ async def test_migration_plugin_after_run_sets_failed_on_error(tmp_path):
 
     await plugin.after_run_callback(invocation_context=mock_ctx)
 
-    assert mock_ctx.session.state[MIGRATION_STATUS] == "failed"
-    assert "pg down" in mock_ctx.session.state[MIGRATION_ERROR]
+    # AR-CRIT-001: status stored on plugin instance, not session state
+    assert plugin.last_status == "failed"
+    assert "pg down" in plugin.last_error
 
 
 @pytest.mark.skipif(
@@ -384,7 +384,7 @@ async def test_migration_plugin_after_run_sets_failed_on_error(tmp_path):
 @pytest.mark.asyncio
 async def test_migration_plugin_full_migration(tmp_path):
     """Full end-to-end migration from SQLite to Postgres (integration)."""
-    from rlm_adk.plugins.migration import MigrationPlugin, MIGRATION_STATUS
+    from rlm_adk.plugins.migration import MigrationPlugin
 
     db_path = str(tmp_path / "test.db")
     _create_test_db(db_path, sessions=1, events_per_session=5)
@@ -400,5 +400,6 @@ async def test_migration_plugin_full_migration(tmp_path):
 
     await plugin.after_run_callback(invocation_context=mock_ctx)
 
-    assert mock_ctx.session.state.get(MIGRATION_STATUS) == "completed"
+    # AR-CRIT-001: status stored on plugin instance, not session state
+    assert plugin.last_status == "completed"
     await plugin.close()

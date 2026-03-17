@@ -1,9 +1,9 @@
 """ContextWindowSnapshotPlugin - Captures full context window decomposition.
 
 Writes one JSONL line per LLM call, capturing the exact per-turn,
-per-agent context decomposition (mirroring reasoning_before_model and
-worker_before_model logic) with full text for every chunk and token
-counts from usage_metadata.
+per-agent context decomposition (mirroring reasoning_before_model
+logic) with full text for every chunk and token counts from
+usage_metadata.
 
 Opt-in: enabled when ``RLM_CONTEXT_SNAPSHOTS=1``.
 
@@ -12,7 +12,7 @@ Architecture note (ADK review correction):
     populated when before_model_callback runs.  We store a *reference*
     to the mutable LlmRequest in before_model_callback and decompose
     it in after_model_callback, by which point the agent callbacks
-    (reasoning_before_model / worker_before_model) have mutated the
+    (reasoning_before_model) have mutated the
     object in-place.
 
 Thread safety (ADK review correction):
@@ -81,8 +81,8 @@ class ContextWindowSnapshotPlugin(BasePlugin):
     ) -> Optional[LlmResponse]:
         """Store a mutable reference to the LlmRequest.
 
-        Agent callbacks (reasoning_before_model / worker_before_model) will
-        mutate this object in-place after all plugin callbacks complete.
+        Agent callbacks (reasoning_before_model) will mutate this object
+        in-place after all plugin callbacks complete.
         We read the mutated state in after_model_callback.
         """
         try:
@@ -447,9 +447,9 @@ class ContextWindowSnapshotPlugin(BasePlugin):
     ) -> list[dict[str, Any]]:
         """Decompose a worker agent's LlmRequest into chunks.
 
-        After worker_before_model has mutated the request:
-        - contents contains only the pending prompt (string or message list)
-        - No system_instruction for workers
+        Decompose a child agent's LlmRequest:
+        - contents contains the pending prompt (string or message list)
+        - No system_instruction for child agents
         """
         chunks: list[dict[str, Any]] = []
         contents = llm_request.contents or []

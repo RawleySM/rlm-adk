@@ -31,6 +31,7 @@ REASONING_PARSED_OUTPUT = "reasoning_parsed_output"
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
 ROOT_PROMPT = "root_prompt"
+ENABLED_SKILLS = "enabled_skills"
 
 # Dynamic Instruction State Keys (session-scoped for ADK instruction template resolution)
 # These match the {var?} placeholders in RLM_DYNAMIC_INSTRUCTION so ADK can
@@ -38,6 +39,15 @@ ROOT_PROMPT = "root_prompt"
 DYN_REPO_URL = "repo_url"
 DYN_ROOT_PROMPT = "root_prompt"
 DYN_SKILL_INSTRUCTION = "skill_instruction"
+
+# User-Provided Context Keys (session-scoped)
+USER_PROVIDED_CTX = "user_provided_ctx"
+USER_PROVIDED_CTX_EXCEEDED = "user_provided_ctx_exceeded"
+USR_PROVIDED_FILES_SERIALIZED = "usr_provided_files_serialized"
+USR_PROVIDED_FILES_UNSERIALIZED = "usr_provided_files_unserialized"
+
+# Dynamic Instruction State Key (for {user_ctx_manifest?} template injection)
+DYN_USER_CTX_MANIFEST = "user_ctx_manifest"
 
 # Caching Keys (session-scoped despite : separator)
 CACHE_STORE = "cache:store"
@@ -53,13 +63,10 @@ OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
 OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
 OBS_PER_ITERATION_TOKEN_BREAKDOWN = "obs:per_iteration_token_breakdown"
 INVOCATION_START_TIME = "invocation_start_time"
-REASONING_CALL_START = "reasoning_call_start"
 
 # Per-Invocation Token Accounting Keys
 REASONING_PROMPT_CHARS = "reasoning_prompt_chars"
 REASONING_SYSTEM_CHARS = "reasoning_system_chars"
-REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
-REASONING_CONTENT_COUNT = "reasoning_content_count"
 REASONING_INPUT_TOKENS = "reasoning_input_tokens"
 REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
 CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
@@ -110,6 +117,7 @@ def child_obs_key(depth: int, fanout_idx: int) -> str:
     """Return fanout-suffixed obs key: obs:child_summary@d{depth}f{fanout_idx}."""
     return f"obs:child_summary@d{depth}f{fanout_idx}"
 
+
 # API/Messaging Keys
 REQUEST_ID = "request_id"
 IDEMPOTENCY_KEY = "idempotency_key"
@@ -117,7 +125,6 @@ USER_LAST_SUCCESSFUL_CALL_ID = "user:last_successful_call_id"
 
 # Test Hook State Keys (session-scoped, written by test-only callbacks)
 CB_REASONING_CONTEXT = "cb_reasoning_context"
-CB_WORKER_CONTEXT = "cb_worker_context"
 CB_ORCHESTRATOR_CONTEXT = "cb_orchestrator_context"
 CB_TOOL_CONTEXT = "cb_tool_context"
 
@@ -142,9 +149,13 @@ MIGRATION_ERROR = "migration:error"
 
 
 DEPTH_SCOPED_KEYS: set[str] = {
-    MESSAGE_HISTORY, ITERATION_COUNT,
-    FINAL_ANSWER, LAST_REPL_RESULT, SHOULD_STOP,
-    REASONING_INPUT_TOKENS, REASONING_OUTPUT_TOKENS,
+    MESSAGE_HISTORY,
+    ITERATION_COUNT,
+    FINAL_ANSWER,
+    LAST_REPL_RESULT,
+    SHOULD_STOP,
+    REASONING_INPUT_TOKENS,
+    REASONING_OUTPUT_TOKENS,
     REASONING_SUMMARY,
     REASONING_FINISH_REASON,
     REASONING_VISIBLE_OUTPUT_TEXT,

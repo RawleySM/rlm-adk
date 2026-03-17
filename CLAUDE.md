@@ -21,6 +21,18 @@ ruff check rlm_adk/ tests_rlm_adk/
 ruff format --check rlm_adk/ tests_rlm_adk/
 ```
 
+## Testing
+
+```bash
+# Default test run (~28 contract tests, ~22s) — USE THIS
+.venv/bin/python -m pytest tests_rlm_adk/
+
+# Run specific test file(s) — USE THIS for TDD / focused work
+.venv/bin/python -m pytest tests_rlm_adk/test_your_file.py -x -q
+```
+
+**NEVER run `pytest -m ""`** for routine verification. The `-m ""` flag disables marker filtering and runs the **full 970+ test suite** (5+ minutes). It is reserved for pre-merge CI validation, not for development iteration or regression checks. For regression checking, run the default suite (no `-m` flag) plus your specific test file(s).
+
 ## State Mutation Rules (AR-CRIT-001)
 
 **NEVER** write `ctx.session.state[key] = value` in dispatch closures — this bypasses ADK event tracking. Correct mutation paths:

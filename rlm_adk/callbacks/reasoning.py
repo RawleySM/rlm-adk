@@ -1,9 +1,9 @@
 """Reasoning Agent callbacks.
 
 before_model_callback: Merges the ADK-resolved dynamic instruction into
-    system_instruction (from static_instruction).  Sets reasoning_call_start
-    timestamp and per-invocation token accounting.  ADK manages contents
-    (tool call/response history) via include_contents='default'.
+    system_instruction (from static_instruction).  Records per-invocation
+    token accounting.  ADK manages contents (tool call/response history)
+    via include_contents='default'.
 
 after_model_callback: Records per-invocation token accounting from
     usage_metadata.  The collapsed orchestrator reads the final answer
@@ -15,7 +15,6 @@ reasoning_test_state_hook: Test-only before_model_callback that writes a
     provider-fake fixtures to verify the state → systemInstruction path.
 """
 
-import time
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
@@ -28,10 +27,7 @@ from rlm_adk.state import (
     CB_TOOL_CONTEXT,
     CONTEXT_WINDOW_SNAPSHOT,
     ITERATION_COUNT,
-    REASONING_CALL_START,
-    REASONING_CONTENT_COUNT,
     REASONING_FINISH_REASON,
-    REASONING_HISTORY_MSG_COUNT,
     REASONING_INPUT_TOKENS,
     REASONING_OUTPUT_TOKENS,
     REASONING_PROMPT_CHARS,
@@ -122,8 +118,6 @@ def reasoning_before_model(
       4. Leaves contents as ADK manages them (include_contents='default')
       5. Records per-invocation token accounting
     """
-    callback_context.state[REASONING_CALL_START] = time.perf_counter()
-
     # --- Extract what ADK set ---
     static_si = _extract_system_instruction_text(llm_request)
     dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
@@ -155,8 +149,6 @@ def reasoning_before_model(
 
     callback_context.state[REASONING_PROMPT_CHARS] = total_prompt_chars
     callback_context.state[REASONING_SYSTEM_CHARS] = system_chars
-    callback_context.state[REASONING_CONTENT_COUNT] = content_count
-    callback_context.state[REASONING_HISTORY_MSG_COUNT] = content_count
     # Read depth tag set by orchestrator (default 0)
     _depth = _reasoning_depth(callback_context)
 

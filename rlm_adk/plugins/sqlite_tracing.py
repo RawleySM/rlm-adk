@@ -32,6 +32,7 @@ from rlm_adk.state import (
     CONTEXT_WINDOW_SNAPSHOT,
     DYN_SKILL_INSTRUCTION,
     FINAL_ANSWER,
+    INVOCATION_START_TIME,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
@@ -735,7 +736,11 @@ class SqliteTracingPlugin(BasePlugin):
                         state.get("request_id"),
                         state.get("repo_url"),
                         root_prompt[:500] if root_prompt else None,
-                        state.get("obs:total_execution_time"),
+                        # AR-CRIT-001: compute from INVOCATION_START_TIME
+                        # (delta-tracked) instead of reading untracked
+                        # obs:total_execution_time from session state.
+                        (time.time() - state.get(INVOCATION_START_TIME, 0))
+                        if state.get(INVOCATION_START_TIME) else None,
                         state.get("obs:child_dispatch_count"),
                         state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES),
                         json.dumps(state.get("obs:child_error_counts")) if state.get("obs:child_error_counts") else None,

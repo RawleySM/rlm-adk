@@ -9,12 +9,8 @@ Tests covering:
 from unittest.mock import MagicMock
 
 import pytest
-from google.adk.artifacts import InMemoryArtifactService
 
 from rlm_adk.plugins.observability import ObservabilityPlugin
-from rlm_adk.state import (
-    OBS_ARTIFACT_SAVES,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +78,7 @@ class TestObservabilityArtifactTracking:
     """FR-008: ObservabilityPlugin tracks artifact events."""
 
     async def test_on_event_tracks_artifact_delta(self):
-        """on_event_callback detects artifact_delta and tracks saves."""
+        """on_event_callback detects artifact_delta and accumulates on plugin instance."""
         plugin = ObservabilityPlugin()
         state = {}
         ctx = _make_invocation_context(state)
@@ -90,7 +86,8 @@ class TestObservabilityArtifactTracking:
 
         await plugin.on_event_callback(invocation_context=ctx, event=event)
 
-        assert state.get(OBS_ARTIFACT_SAVES, 0) == 1
+        # AR-CRIT-001: accumulated on plugin instance, not session state
+        assert plugin._artifact_saves_acc == 1
 
     async def test_on_event_tracks_multiple_artifact_deltas(self):
         """Multiple artifacts in one event are all counted."""
@@ -101,7 +98,7 @@ class TestObservabilityArtifactTracking:
 
         await plugin.on_event_callback(invocation_context=ctx, event=event)
 
-        assert state.get(OBS_ARTIFACT_SAVES, 0) == 2
+        assert plugin._artifact_saves_acc == 2
 
     async def test_on_event_accumulates_across_events(self):
         """Artifact save count accumulates across multiple events."""
@@ -115,13 +112,14 @@ class TestObservabilityArtifactTracking:
         await plugin.on_event_callback(invocation_context=ctx, event=event1)
         await plugin.on_event_callback(invocation_context=ctx, event=event2)
 
-        assert state.get(OBS_ARTIFACT_SAVES, 0) == 2
+        assert plugin._artifact_saves_acc == 2
 
     async def test_after_run_includes_artifact_stats(self):
         """after_run_callback logs artifact stats if present."""
         plugin = ObservabilityPlugin()
+        # Simulate prior accumulation from on_event_callback
+        plugin._artifact_saves_acc = 3
         state = {
-            OBS_ARTIFACT_SAVES: 3,
             "obs:artifact_bytes_saved": 15000,
         }
         ctx = _make_invocation_context(state)
@@ -138,6 +136,6 @@ class TestObservabilityArtifactTracking:
 
         await plugin.on_event_callback(invocation_context=ctx, event=event)
 
-        assert state.get(OBS_ARTIFACT_SAVES) is None
+        assert plugin._artifact_saves_acc == 0
 
 

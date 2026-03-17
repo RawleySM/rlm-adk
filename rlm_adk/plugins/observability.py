@@ -36,13 +36,11 @@ from rlm_adk.state import (
     OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
-    OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
     REASONING_PROMPT_CHARS,
     REASONING_SYSTEM_CHARS,
     REQUEST_ID,
-    USER_LAST_SUCCESSFUL_CALL_ID,
     obs_model_usage_key,
 )
 
@@ -59,6 +57,11 @@ class ObservabilityPlugin(BasePlugin):
     def __init__(self, *, name: str = "observability", verbose: bool = False):
         super().__init__(name=name)
         self._verbose = verbose
+        # AR-CRIT-001: accumulators for values that cannot be written via
+        # delta-tracked state in on_event_callback / after_run_callback.
+        self._artifact_saves_acc: int = 0
+        self._total_execution_time: float | None = None
+        self._last_successful_call_id: str | None = None
 
     async def before_agent_callback(
         self,
@@ -133,6 +136,11 @@ class ObservabilityPlugin(BasePlugin):
                         if val is not None:
                             state[sess_key] = val
                         break
+
+            # AR-CRIT-001: persist artifact saves accumulated by on_event_callback
+            # (which has no delta-tracked channel).
+            if self._artifact_saves_acc > 0:
+                state[OBS_ARTIFACT_SAVES] = self._artifact_saves_acc
 
             agent_name = getattr(agent, "name", "unknown")
             request_id = state.get(REQUEST_ID, "unknown")
@@ -280,10 +288,13 @@ class ObservabilityPlugin(BasePlugin):
                     len(event.actions.state_delta),
                 )
 
-            # Track artifact operations from event artifact_delta
+            # Track artifact operations from event artifact_delta.
+            # AR-CRIT-001: on_event_callback only has invocation_context
+            # (no callback_context), so we accumulate on the plugin instance.
+            # The value is re-persisted via after_agent_callback.
             if event.actions and event.actions.artifact_delta:
                 artifact_count = len(event.actions.artifact_delta)
-                state[OBS_ARTIFACT_SAVES] = state.get(OBS_ARTIFACT_SAVES, 0) + artifact_count
+                self._artifact_saves_acc += artifact_count
                 logger.debug(
                     "[%s] Event from '%s': %d artifact saves",
                     state.get(REQUEST_ID, "unknown"),
@@ -301,17 +312,23 @@ class ObservabilityPlugin(BasePlugin):
     ) -> None:
         """Record final execution summary."""
         try:
-            state = invocation_context.session.state
+            # AR-CRIT-001: after_run_callback only has invocation_context
+            # (no callback_context).  Reads are fine; writes must NOT go
+            # to invocation_context.session.state (bypasses delta tracking).
+            # We store computed values on the plugin instance for
+            # programmatic access and use them only for logging here.
+            state = invocation_context.session.state  # read-only usage below
             start_time = state.get(INVOCATION_START_TIME, 0)
+            total_time = 0.0
             if start_time:
                 total_time = time.time() - start_time
-                state[OBS_TOTAL_EXECUTION_TIME] = total_time
+            self._total_execution_time = total_time
 
             request_id = state.get(REQUEST_ID, "unknown")
 
-            # Store last successful call ID for cross-session reference
+            # Store last successful call ID on instance (not session state)
             if request_id != "unknown":
-                state[USER_LAST_SUCCESSFUL_CALL_ID] = request_id
+                self._last_successful_call_id = request_id
 
             breakdowns = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
             reasoning_calls = sum(
@@ -321,7 +338,7 @@ class ObservabilityPlugin(BasePlugin):
                 1 for b in breakdowns if b.get("agent_type") == "worker"
             )
 
-            artifact_saves = state.get(OBS_ARTIFACT_SAVES, 0)
+            artifact_saves = self._artifact_saves_acc
             artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
             child_dispatches = state.get(OBS_CHILD_DISPATCH_COUNT, 0)
             child_errors = state.get(OBS_CHILD_ERROR_COUNTS, {})
@@ -348,7 +365,7 @@ class ObservabilityPlugin(BasePlugin):
                 worker_calls,
                 state.get(OBS_TOTAL_INPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
-                state.get(OBS_TOTAL_EXECUTION_TIME, 0),
+                total_time,
                 answer_len,
             ]
 

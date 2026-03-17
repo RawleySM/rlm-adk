@@ -17,7 +17,6 @@ from rlm_adk.state import (
     INVOCATION_START_TIME,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
-    OBS_TOTAL_EXECUTION_TIME,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
     obs_model_usage_key,
@@ -176,8 +175,9 @@ class TestObservabilityTiming:
 
         await plugin.after_run_callback(invocation_context=inv_ctx)
 
-        assert OBS_TOTAL_EXECUTION_TIME in state
-        assert state[OBS_TOTAL_EXECUTION_TIME] >= 0.9
+        # AR-CRIT-001: execution time stored on plugin instance, not session state
+        assert plugin._total_execution_time is not None
+        assert plugin._total_execution_time >= 0.9
 
     @pytest.mark.asyncio
     async def test_before_agent_sets_start_time(self):
