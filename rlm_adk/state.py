@@ -39,6 +39,15 @@ DYN_REPO_URL = "repo_url"
 DYN_ROOT_PROMPT = "root_prompt"
 DYN_SKILL_INSTRUCTION = "skill_instruction"
 
+# User-Provided Context Keys (session-scoped)
+USER_PROVIDED_CTX = "user_provided_ctx"
+USER_PROVIDED_CTX_EXCEEDED = "user_provided_ctx_exceeded"
+USR_PROVIDED_FILES_SERIALIZED = "usr_provided_files_serialized"
+USR_PROVIDED_FILES_UNSERIALIZED = "usr_provided_files_unserialized"
+
+# Dynamic Instruction State Key (for {user_ctx_manifest?} template injection)
+DYN_USER_CTX_MANIFEST = "user_ctx_manifest"
+
 # Caching Keys (session-scoped despite : separator)
 CACHE_STORE = "cache:store"
 CACHE_HIT_COUNT = "cache:hit_count"
@@ -110,6 +119,7 @@ def child_obs_key(depth: int, fanout_idx: int) -> str:
     """Return fanout-suffixed obs key: obs:child_summary@d{depth}f{fanout_idx}."""
     return f"obs:child_summary@d{depth}f{fanout_idx}"
 
+
 # API/Messaging Keys
 REQUEST_ID = "request_id"
 IDEMPOTENCY_KEY = "idempotency_key"
@@ -142,9 +152,13 @@ MIGRATION_ERROR = "migration:error"
 
 
 DEPTH_SCOPED_KEYS: set[str] = {
-    MESSAGE_HISTORY, ITERATION_COUNT,
-    FINAL_ANSWER, LAST_REPL_RESULT, SHOULD_STOP,
-    REASONING_INPUT_TOKENS, REASONING_OUTPUT_TOKENS,
+    MESSAGE_HISTORY,
+    ITERATION_COUNT,
+    FINAL_ANSWER,
+    LAST_REPL_RESULT,
+    SHOULD_STOP,
+    REASONING_INPUT_TOKENS,
+    REASONING_OUTPUT_TOKENS,
     REASONING_SUMMARY,
     REASONING_FINISH_REASON,
     REASONING_VISIBLE_OUTPUT_TEXT,

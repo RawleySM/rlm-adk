@@ -17,19 +17,19 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
+from google.adk.tools.set_model_response_tool import SetModelResponseTool
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
-from google.adk.tools.set_model_response_tool import SetModelResponseTool
-
 from rlm_adk.artifacts import save_final_answer
 from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
-from rlm_adk.dispatch import WorkerPool, create_dispatch_closures
+from rlm_adk.dispatch import create_dispatch_closures
 from rlm_adk.repl.local_repl import LocalREPL
 from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
@@ -38,23 +38,28 @@ from rlm_adk.state import (
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
+    DYN_USER_CTX_MANIFEST,
     FINAL_ANSWER,
     ITERATION_COUNT,
     OBS_REASONING_RETRY_COUNT,
     OBS_REASONING_RETRY_DELAY_MS,
-    REPO_URL,
-    REASONING_PARSED_OUTPUT,
-    REASONING_RAW_OUTPUT,
-    REASONING_SUMMARY,
     REASONING_FINISH_REASON,
     REASONING_INPUT_TOKENS,
     REASONING_OUTPUT_TOKENS,
+    REASONING_PARSED_OUTPUT,
+    REASONING_RAW_OUTPUT,
+    REASONING_SUMMARY,
     REASONING_THOUGHT_TEXT,
     REASONING_THOUGHT_TOKENS,
     REASONING_VISIBLE_OUTPUT_TEXT,
+    REPO_URL,
     REQUEST_ID,
     ROOT_PROMPT,
     SHOULD_STOP,
+    USER_PROVIDED_CTX,
+    USER_PROVIDED_CTX_EXCEEDED,
+    USR_PROVIDED_FILES_SERIALIZED,
+    USR_PROVIDED_FILES_UNSERIALIZED,
     depth_key,
 )
 from rlm_adk.tools.repl_tool import REPLTool
@@ -79,6 +84,7 @@ def is_transient_error(exc: Exception) -> bool:
         return True
     try:
         import httpx as _httpx
+
         if isinstance(exc, (_httpx.ConnectError, _httpx.TimeoutException)):
             return True
     except ImportError:
@@ -216,9 +222,7 @@ class RLMOrchestratorAgent(BaseAgent):
     output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
     instruction_router: Any = None  # Callable[[int, int], str] | None
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Collapsed orchestrator -- delegates to reasoning_agent with REPLTool.
 
         CRIT-1: All state writes MUST yield Event with EventActions(state_delta).
@@ -250,7 +254,8 @@ class RLMOrchestratorAgent(BaseAgent):
         if self.worker_pool is not None:
             self.worker_pool.ensure_initialized()
             llm_query_async, llm_query_batched_async, flush_fn = create_dispatch_closures(
-                self.worker_pool, ctx,
+                self.worker_pool,
+                ctx,
                 call_log_sink=repl._pending_llm_calls,
                 trace_sink=trace_holder if trace_level > 0 else None,
                 depth=self.depth,
@@ -299,16 +304,16 @@ class RLMOrchestratorAgent(BaseAgent):
         # in worker_retry.py) handles retry suppression.
         schema = self.output_schema or ReasoningOutput
         set_model_response_tool = SetModelResponseTool(schema)
-        object.__setattr__(self.reasoning_agent, 'tools', [repl_tool, set_model_response_tool])
+        object.__setattr__(self.reasoning_agent, "tools", [repl_tool, set_model_response_tool])
         # Tag depth for telemetry (read by reasoning callbacks)
-        object.__setattr__(self.reasoning_agent, '_rlm_depth', self.depth)
+        object.__setattr__(self.reasoning_agent, "_rlm_depth", self.depth)
         # Ensure ADK manages tool call/response history
-        object.__setattr__(self.reasoning_agent, 'include_contents', 'default')
+        object.__setattr__(self.reasoning_agent, "include_contents", "default")
 
         # Wire structured output retry callbacks for set_model_response
         after_tool_cb, on_tool_error_cb = make_worker_tool_callbacks(max_retries=2)
-        object.__setattr__(self.reasoning_agent, 'after_tool_callback', after_tool_cb)
-        object.__setattr__(self.reasoning_agent, 'on_tool_error_callback', on_tool_error_cb)
+        object.__setattr__(self.reasoning_agent, "after_tool_callback", after_tool_cb)
+        object.__setattr__(self.reasoning_agent, "on_tool_error_callback", on_tool_error_cb)
 
         try:
             # Build initial state delta.
@@ -335,7 +340,9 @@ class RLMOrchestratorAgent(BaseAgent):
                     # to session state immediately (unlike EventActions state_delta
                     # which requires Runner processing to apply).
                     async def _seed_skill_instruction(
-                        *, callback_context, **_kw,
+                        *,
+                        callback_context,
+                        **_kw,
                     ):
                         callback_context.state[DYN_SKILL_INSTRUCTION] = _skill_text
                         return None
@@ -345,6 +352,69 @@ class RLMOrchestratorAgent(BaseAgent):
                         "before_agent_callback",
                         _seed_skill_instruction,
                     )
+
+            # --- User-provided context directory (Path A: env var) ---
+            _ctx_dir = os.getenv("RLM_USER_CTX_DIR")
+            if _ctx_dir and os.path.isdir(_ctx_dir):
+                from rlm_adk.utils.user_context import load_user_context
+
+                _max_chars = int(os.getenv("RLM_USER_CTX_MAX_CHARS", "500000"))
+                uctx = load_user_context(_ctx_dir, _max_chars)
+                initial_state[USER_PROVIDED_CTX] = uctx.ctx
+                initial_state[USER_PROVIDED_CTX_EXCEEDED] = uctx.exceeded
+                initial_state[USR_PROVIDED_FILES_SERIALIZED] = uctx.serialized
+                initial_state[USR_PROVIDED_FILES_UNSERIALIZED] = uctx.unserialized
+                initial_state[DYN_USER_CTX_MANIFEST] = uctx.build_manifest()
+                # Pre-load context dict into REPL globals
+                repl.globals["user_ctx"] = uctx.ctx
+                logger.info(
+                    "User context loaded: %d files serialized, %d unserialized, %d total chars",
+                    len(uctx.serialized),
+                    len(uctx.unserialized),
+                    uctx.total_chars,
+                )
+            # --- Path B: pre-seeded user_provided_ctx in session state ---
+            elif ctx.session.state.get(USER_PROVIDED_CTX):
+                _pre_seeded = ctx.session.state[USER_PROVIDED_CTX]
+                initial_state[USER_PROVIDED_CTX] = _pre_seeded
+                # Build manifest from the pre-seeded dict
+                _filenames = sorted(k for k in _pre_seeded if not k.startswith("_"))
+                _manifest_lines = [
+                    "Pre-loaded context variable: user_ctx (dict)",
+                    'Pre-loaded files (access via user_ctx["<filename>"]):',
+                ]
+                for _fn in _filenames:
+                    _content = _pre_seeded[_fn]
+                    if isinstance(_content, str):
+                        _chars = len(_content)
+                    else:
+                        import json as _json
+
+                        _chars = len(_json.dumps(_content, default=str))
+                    _manifest_lines.append(f"  - {_fn} ({_chars:,} chars)")
+                _manifest_lines.append(
+                    f"Total: {len(_filenames)} files, {len(_filenames)} pre-loaded"
+                )
+                _manifest_str = "\n".join(_manifest_lines)
+                initial_state[DYN_USER_CTX_MANIFEST] = _manifest_str
+                initial_state[USER_PROVIDED_CTX_EXCEEDED] = ctx.session.state.get(
+                    USER_PROVIDED_CTX_EXCEEDED,
+                    False,
+                )
+                initial_state[USR_PROVIDED_FILES_SERIALIZED] = ctx.session.state.get(
+                    USR_PROVIDED_FILES_SERIALIZED,
+                    _filenames,
+                )
+                initial_state[USR_PROVIDED_FILES_UNSERIALIZED] = ctx.session.state.get(
+                    USR_PROVIDED_FILES_UNSERIALIZED,
+                    [],
+                )
+                # Pre-load context dict into REPL globals
+                repl.globals["user_ctx"] = _pre_seeded
+                logger.info(
+                    "User context loaded from session state: %d files",
+                    len(_filenames),
+                )
 
             # Yield initial state
             yield Event(
@@ -381,26 +451,23 @@ class RLMOrchestratorAgent(BaseAgent):
                         http_code = getattr(exc, "code", None)
                         if transient:
                             err_detail = (
-                                f"retry exhausted after {attempt + 1} attempts "
-                                f"(code={http_code})"
+                                f"retry exhausted after {attempt + 1} attempts (code={http_code})"
                             )
                         else:
-                            err_detail = (
-                                f"non-retryable error (code={http_code})"
-                            )
-                        error_msg = (
-                            f"[RLM ERROR] {type(exc).__name__}: {err_detail}"
-                        )
+                            err_detail = f"non-retryable error (code={http_code})"
+                        error_msg = f"[RLM ERROR] {type(exc).__name__}: {err_detail}"
                         yield Event(
                             invocation_id=ctx.invocation_id,
                             author=self.name,
-                            actions=EventActions(state_delta={
-                                depth_key(FINAL_ANSWER, self.depth): error_msg,
-                                depth_key(SHOULD_STOP, self.depth): True,
-                            }),
+                            actions=EventActions(
+                                state_delta={
+                                    depth_key(FINAL_ANSWER, self.depth): error_msg,
+                                    depth_key(SHOULD_STOP, self.depth): True,
+                                }
+                            ),
                         )
                         raise
-                    delay = base_delay * (2 ** attempt)
+                    delay = base_delay * (2**attempt)
                     total_retry_delay_ms += round(delay * 1000)
                     print(
                         f"[RLM] transient error (attempt {attempt + 1}/{max_retries + 1}): "
@@ -409,7 +476,9 @@ class RLMOrchestratorAgent(BaseAgent):
                     )
                     logger.warning(
                         "Transient LLM error at attempt=%d: %s. Retrying in %.1fs",
-                        attempt + 1, exc, delay,
+                        attempt + 1,
+                        exc,
+                        delay,
                     )
                     await asyncio.sleep(delay)
 
@@ -443,13 +512,13 @@ class RLMOrchestratorAgent(BaseAgent):
                 depth_key(REASONING_RAW_OUTPUT, self.depth): completion["raw_output"],
             }
             if completion["parsed_output"] is not None:
-                reasoning_state_delta[depth_key(REASONING_PARSED_OUTPUT, self.depth)] = (
-                    completion["parsed_output"]
-                )
+                reasoning_state_delta[depth_key(REASONING_PARSED_OUTPUT, self.depth)] = completion[
+                    "parsed_output"
+                ]
             if completion["reasoning_summary"]:
-                reasoning_state_delta[depth_key(REASONING_SUMMARY, self.depth)] = (
-                    completion["reasoning_summary"]
-                )
+                reasoning_state_delta[depth_key(REASONING_SUMMARY, self.depth)] = completion[
+                    "reasoning_summary"
+                ]
             yield Event(
                 invocation_id=ctx.invocation_id,
                 author=self.name,
@@ -464,17 +533,21 @@ class RLMOrchestratorAgent(BaseAgent):
 
                 # Auto-save final answer as artifact
                 await save_final_answer(
-                    ctx, answer=final_answer,
-                    depth=self.depth, fanout_idx=self.fanout_idx,
+                    ctx,
+                    answer=final_answer,
+                    depth=self.depth,
+                    fanout_idx=self.fanout_idx,
                 )
 
                 yield Event(
                     invocation_id=ctx.invocation_id,
                     author=self.name,
-                    actions=EventActions(state_delta={
-                        depth_key(FINAL_ANSWER, self.depth): final_answer,
-                        depth_key(SHOULD_STOP, self.depth): True,
-                    }),
+                    actions=EventActions(
+                        state_delta={
+                            depth_key(FINAL_ANSWER, self.depth): final_answer,
+                            depth_key(SHOULD_STOP, self.depth): True,
+                        }
+                    ),
                 )
                 # Yield final content event
                 yield Event(
@@ -492,10 +565,12 @@ class RLMOrchestratorAgent(BaseAgent):
                 yield Event(
                     invocation_id=ctx.invocation_id,
                     author=self.name,
-                    actions=EventActions(state_delta={
-                        depth_key(FINAL_ANSWER, self.depth): exhausted_msg,
-                        depth_key(SHOULD_STOP, self.depth): True,
-                    }),
+                    actions=EventActions(
+                        state_delta={
+                            depth_key(FINAL_ANSWER, self.depth): exhausted_msg,
+                            depth_key(SHOULD_STOP, self.depth): True,
+                        }
+                    ),
                 )
                 yield Event(
                     invocation_id=ctx.invocation_id,
@@ -508,8 +583,8 @@ class RLMOrchestratorAgent(BaseAgent):
 
         finally:
             # Clean up reasoning_agent wiring
-            object.__setattr__(self.reasoning_agent, 'tools', [])
-            object.__setattr__(self.reasoning_agent, 'after_tool_callback', None)
-            object.__setattr__(self.reasoning_agent, 'on_tool_error_callback', None)
+            object.__setattr__(self.reasoning_agent, "tools", [])
+            object.__setattr__(self.reasoning_agent, "after_tool_callback", None)
+            object.__setattr__(self.reasoning_agent, "on_tool_error_callback", None)
             if not self.persistent:
                 repl.cleanup()
