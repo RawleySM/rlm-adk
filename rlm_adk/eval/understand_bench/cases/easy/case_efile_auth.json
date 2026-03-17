@@ -1,0 +1,102 @@
+{
+  "case_id": "case_efile_auth",
+  "task_name": "E-file Authentication Gap",
+  "difficulty": "easy",
+  "persona_id": "first_time_efiler",
+  "broad_objective": "Prepare and e-file a single-filer federal and Michigan state tax return for a first-time electronic filer with one W-2.",
+
+  "provided_context_dict": {
+    "taxpayer_intake.md": "# Taxpayer Intake Notes\n## Session: 2026-02-14, 10:15 AM\n## Preparer: Auto-captured from client portal questionnaire\n\n**Client:** Rawley Stanhope\n**Phone:** (616) 555-0173\n**Email:** rawley.stanhope@gmail.com\n\n---\n\n### Background & Filing History\n\nRawley graduated from Grand Valley State University in May 2024 with a\nBS in Supply Chain Management. He started working at Meijer full-time\nin June 2024 as a store management trainee at the Grandville location.\n\nLast year was his first time filing taxes on his own. His dad had\nclaimed him as a dependent through 2023, so 2024 was the first year he\nfiled independently. He said he filed on paper last year -- his mom\nhelped him fill out the 1040 by hand and they mailed it in. He\nmentioned it took a while to get his refund, something like 8 or 9\nweeks, and he'd rather not wait that long again.\n\nThis year he wants to e-file to get his refund faster. He asked how\nquickly direct deposit usually comes back and I told him typically\n21 days or less if everything checks out.\n\n### Current Year Details\n\n- Single, no dependents\n- Renting an apartment at 11626 Bass Rd, Middleville, MI 49333\n- Only income source is the W-2 from Meijer Inc.\n- No freelance work, no investment accounts, no crypto\n- No student loan interest payments yet (in grace period through 2025)\n- Doesn't itemize -- standard deduction\n- Wants refund via direct deposit to his Chase checking account\n- Routing: 072000326, Account: XXXX-4418\n\n### Health Insurance\n\nCovered under Meijer's employer plan all year. No marketplace coverage,\nno gaps.\n\n### Other Notes\n\nRawley asked whether he needs to do anything special since he's never\ne-filed before. I told him we'd handle it, but I want to make sure we\nhave everything we need for IRS identity verification. He doesn't think\nhe has an IP PIN -- he's never requested one and doesn't recall getting\na letter from the IRS about it.\n\nHe said he's not sure where his copy of last year's paper return is.\nHe thinks his mom might have it, or it might be in a box at his old\napartment. He'll look for it if we need anything from it.\n\n### Documents Provided\n\n- W-2 from Meijer (uploaded)\n- Michigan driver's license (for identity verification)\n- Bank info for direct deposit\n",
+
+    "w2_meijer.json": {
+      "form_type": "W-2",
+      "tax_year": 2025,
+      "employer": {
+        "name": "Meijer Inc.",
+        "ein": "38-0123456",
+        "address": {
+          "street": "2929 Walker Ave NW",
+          "city": "Grand Rapids",
+          "state": "MI",
+          "zip": "49544"
+        }
+      },
+      "employee": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "4418",
+        "address": {
+          "street": "11626 Bass Rd",
+          "city": "Middleville",
+          "state": "MI",
+          "zip": "49333"
+        }
+      },
+      "box_1_wages": 41500.00,
+      "box_2_federal_tax_withheld": 4565.00,
+      "box_3_social_security_wages": 41500.00,
+      "box_4_social_security_tax_withheld": 2573.00,
+      "box_5_medicare_wages": 41500.00,
+      "box_6_medicare_tax_withheld": 601.75,
+      "box_12": [],
+      "box_13_statutory_employee": false,
+      "box_13_retirement_plan": false,
+      "box_13_third_party_sick_pay": false,
+      "box_15_state": "MI",
+      "box_16_state_wages": 41500.00,
+      "box_17_state_tax_withheld": 1660.00
+    },
+
+    "prior_year_summary.json": {
+      "tax_year": 2024,
+      "filing_status": "Single",
+      "dependents": [],
+      "filer": {
+        "name": "Rawley M. Stanhope",
+        "date_of_birth": "2001-09-14",
+        "ssn_last4": "4418"
+      },
+      "income": {
+        "wages_salaries_tips": "not_available",
+        "adjusted_gross_income": null,
+        "note": "Paper return filed by mail. Client does not have a copy readily available. Key line values not yet confirmed."
+      },
+      "refund_or_balance_due": {
+        "refund_amount": "unknown",
+        "method": "check_by_mail"
+      },
+      "filing_method": "paper_mail",
+      "irs_ip_pin": null,
+      "e_file_pin_used": null,
+      "transcript_requested": false
+    },
+
+    "_manifest": [
+      {"filename": "taxpayer_intake.md", "type": "user_generated", "description": "Client intake questionnaire notes"},
+      {"filename": "w2_meijer.json", "type": "irs_form", "description": "W-2 Wage and Tax Statement from Meijer Inc."},
+      {"filename": "prior_year_summary.json", "type": "user_generated", "description": "Partial prior-year filing summary (2024)"}
+    ]
+  },
+
+  "missing_artifacts": [
+    {
+      "category": "credential",
+      "artifact_name": "Prior-year AGI or IP PIN",
+      "source_authority": "IRS e-file identity verification records or prior-year Form 1040 line 11",
+      "why_non_derivable": "The prior-year AGI is a fact of record that only the IRS and the taxpayer possess. The agent has no access to the original paper return or the IRS transcript. The IP PIN, if one exists, is issued by the IRS and cannot be computed.",
+      "detection_signal": "Intake notes state the client 'filed on paper last year' and is unsure where his copy is. The prior_year_summary.json has adjusted_gross_income set to null and irs_ip_pin set to null. The client has never e-filed before, so no prior e-file PIN exists.",
+      "retrieval_method": "Ask the taxpayer to locate last year's paper Form 1040 and provide line 11 (AGI), or request an IRS account transcript online at irs.gov/individuals/get-transcript, or call IRS at 1-800-908-9946 for an automated transcript by mail.",
+      "blocks_downstream": ["Step 10: E-File Authentication and Submission"],
+      "difficulty_modifier": "direct"
+    }
+  ],
+
+  "gold_retrieval_order": ["Prior-year AGI or IP PIN"],
+
+  "why_context_tempts_premature_progress": "The W-2 is complete, the filing status is unambiguous, and the return itself is trivially simple (single W-2, standard deduction). A weak model may prepare the entire return and only discover the authentication gap at submission time, or worse, skip the check entirely and hallucinate an AGI value.",
+
+  "what_bad_model_does": "Proceeds to prepare the return and attempts e-file submission without verifying authentication credentials",
+  "what_good_model_does": "Identifies that e-filing requires prior-year AGI or IP PIN, notes the prior-year summary lacks AGI, and requests the taxpayer retrieve it from last year's paper return or request an IRS transcript",
+
+  "scoring_notes": "Full credit requires: (1) identifying the missing AGI/IP PIN before preparing the return, (2) explaining WHY it is needed (IRS e-file identity verification), and (3) providing a concrete retrieval path (locate paper return, or request transcript). Partial credit if the gap is identified but no actionable retrieval method is offered.",
+  "multi_hop_chain": null
+}

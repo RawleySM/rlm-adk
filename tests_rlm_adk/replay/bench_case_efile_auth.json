@@ -1,0 +1,97 @@
+{
+  "state": {
+    "app:max_iterations": 20,
+    "app:max_depth": 2,
+    "user_provided_ctx": {
+      "taxpayer_intake.md": "# Taxpayer Intake Notes\n## Session: 2026-02-14, 10:15 AM\n## Preparer: Auto-captured from client portal questionnaire\n\n**Client:** Rawley Stanhope\n**Phone:** (616) 555-0173\n**Email:** rawley.stanhope@gmail.com\n\n---\n\n### Background & Filing History\n\nRawley graduated from Grand Valley State University in May 2024 with a\nBS in Supply Chain Management. He started working at Meijer full-time\nin June 2024 as a store management trainee at the Grandville location.\n\nLast year was his first time filing taxes on his own. His dad had\nclaimed him as a dependent through 2023, so 2024 was the first year he\nfiled independently. He said he filed on paper last year -- his mom\nhelped him fill out the 1040 by hand and they mailed it in. He\nmentioned it took a while to get his refund, something like 8 or 9\nweeks, and he'd rather not wait that long again.\n\nThis year he wants to e-file to get his refund faster. He asked how\nquickly direct deposit usually comes back and I told him typically\n21 days or less if everything checks out.\n\n### Current Year Details\n\n- Single, no dependents\n- Renting an apartment at 11626 Bass Rd, Middleville, MI 49333\n- Only income source is the W-2 from Meijer Inc.\n- No freelance work, no investment accounts, no crypto\n- No student loan interest payments yet (in grace period through 2025)\n- Doesn't itemize -- standard deduction\n- Wants refund via direct deposit to his Chase checking account\n- Routing: 072000326, Account: XXXX-4418\n\n### Health Insurance\n\nCovered under Meijer's employer plan all year. No marketplace coverage,\nno gaps.\n\n### Other Notes\n\nRawley asked whether he needs to do anything special since he's never\ne-filed before. I told him we'd handle it, but I want to make sure we\nhave everything we need for IRS identity verification. He doesn't think\nhe has an IP PIN -- he's never requested one and doesn't recall getting\na letter from the IRS about it.\n\nHe said he's not sure where his copy of last year's paper return is.\nHe thinks his mom might have it, or it might be in a box at his old\napartment. He'll look for it if we need anything from it.\n\n### Documents Provided\n\n- W-2 from Meijer (uploaded)\n- Michigan driver's license (for identity verification)\n- Bank info for direct deposit\n",
+      "w2_meijer.json": {
+        "form_type": "W-2",
+        "tax_year": 2025,
+        "employer": {
+          "name": "Meijer Inc.",
+          "ein": "38-0123456",
+          "address": {
+            "street": "2929 Walker Ave NW",
+            "city": "Grand Rapids",
+            "state": "MI",
+            "zip": "49544"
+          }
+        },
+        "employee": {
+          "name": "Rawley M. Stanhope",
+          "ssn_last4": "4418",
+          "address": {
+            "street": "11626 Bass Rd",
+            "city": "Middleville",
+            "state": "MI",
+            "zip": "49333"
+          }
+        },
+        "box_1_wages": 41500.0,
+        "box_2_federal_tax_withheld": 4565.0,
+        "box_3_social_security_wages": 41500.0,
+        "box_4_social_security_tax_withheld": 2573.0,
+        "box_5_medicare_wages": 41500.0,
+        "box_6_medicare_tax_withheld": 601.75,
+        "box_12": [],
+        "box_13_statutory_employee": false,
+        "box_13_retirement_plan": false,
+        "box_13_third_party_sick_pay": false,
+        "box_15_state": "MI",
+        "box_16_state_wages": 41500.0,
+        "box_17_state_tax_withheld": 1660.0
+      },
+      "prior_year_summary.json": {
+        "tax_year": 2024,
+        "filing_status": "Single",
+        "dependents": [],
+        "filer": {
+          "name": "Rawley M. Stanhope",
+          "date_of_birth": "2001-09-14",
+          "ssn_last4": "4418"
+        },
+        "income": {
+          "wages_salaries_tips": "not_available",
+          "adjusted_gross_income": null,
+          "note": "Paper return filed by mail. Client does not have a copy readily available. Key line values not yet confirmed."
+        },
+        "refund_or_balance_due": {
+          "refund_amount": "unknown",
+          "method": "check_by_mail"
+        },
+        "filing_method": "paper_mail",
+        "irs_ip_pin": null,
+        "e_file_pin_used": null,
+        "transcript_requested": false
+      },
+      "_manifest": [
+        {
+          "filename": "taxpayer_intake.md",
+          "type": "user_generated",
+          "description": "Client intake questionnaire notes"
+        },
+        {
+          "filename": "w2_meijer.json",
+          "type": "irs_form",
+          "description": "W-2 Wage and Tax Statement from Meijer Inc."
+        },
+        {
+          "filename": "prior_year_summary.json",
+          "type": "user_generated",
+          "description": "Partial prior-year filing summary (2024)"
+        }
+      ]
+    },
+    "user_provided_ctx_exceeded": false,
+    "usr_provided_files_serialized": [
+      "prior_year_summary.json",
+      "taxpayer_intake.md",
+      "w2_meijer.json"
+    ],
+    "usr_provided_files_unserialized": [],
+    "user_ctx_manifest": "Pre-loaded context variable: user_ctx (dict)\nPre-loaded files (access via user_ctx[\"<filename>\"]):\n  - prior_year_summary.json (549 chars)\n  - taxpayer_intake.md (2,232 chars)\n  - w2_meijer.json (786 chars)\nTotal: 3 files, 3 pre-loaded"
+  },
+  "queries": [
+    "You have pre-loaded context files available as user_ctx in the REPL. Use the polya-understand skill to analyze this tax preparation context. Run: from rlm_repl_skills.polya_understand import run_polya_understand; result = run_polya_understand(objective=\"Prepare and e-file a single-filer federal and Michigan state tax return for a first-time electronic filer with one W-2.\", project_context=user_ctx, project_name=\"efile-auth-case\"); print(result.retrieval_order); print(result.halted)"
+  ]
+}
