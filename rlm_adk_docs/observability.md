@@ -492,6 +492,7 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-10** — Added section 9 (Skill Expansion Observability Keys) documenting REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH, REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND.
 - **2026-03-12** — `sqlite_tracing.py`: Added `skill_instruction` column to telemetry table, captured from `DYN_SKILL_INSTRUCTION` state key at `before_model_callback`.
+- **2026-03-17** — `reasoning.py`: Removed 3 dead state writes (`REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`) — written but never read by any plugin or consumer.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

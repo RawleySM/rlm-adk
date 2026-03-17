@@ -31,6 +31,7 @@ REASONING_PARSED_OUTPUT = "reasoning_parsed_output"
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
 ROOT_PROMPT = "root_prompt"
+ENABLED_SKILLS = "enabled_skills"
 
 # Dynamic Instruction State Keys (session-scoped for ADK instruction template resolution)
 # These match the {var?} placeholders in RLM_DYNAMIC_INSTRUCTION so ADK can
@@ -62,13 +63,10 @@ OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
 OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
 OBS_PER_ITERATION_TOKEN_BREAKDOWN = "obs:per_iteration_token_breakdown"
 INVOCATION_START_TIME = "invocation_start_time"
-REASONING_CALL_START = "reasoning_call_start"
 
 # Per-Invocation Token Accounting Keys
 REASONING_PROMPT_CHARS = "reasoning_prompt_chars"
 REASONING_SYSTEM_CHARS = "reasoning_system_chars"
-REASONING_HISTORY_MSG_COUNT = "reasoning_history_msg_count"
-REASONING_CONTENT_COUNT = "reasoning_content_count"
 REASONING_INPUT_TOKENS = "reasoning_input_tokens"
 REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
 CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
@@ -127,7 +125,6 @@ USER_LAST_SUCCESSFUL_CALL_ID = "user:last_successful_call_id"
 
 # Test Hook State Keys (session-scoped, written by test-only callbacks)
 CB_REASONING_CONTEXT = "cb_reasoning_context"
-CB_WORKER_CONTEXT = "cb_worker_context"
 CB_ORCHESTRATOR_CONTEXT = "cb_orchestrator_context"
 CB_TOOL_CONTEXT = "cb_tool_context"
 

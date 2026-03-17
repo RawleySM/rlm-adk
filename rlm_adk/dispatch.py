@@ -26,7 +26,6 @@ from typing import Any
 from google.adk.agents.invocation_context import InvocationContext
 from pydantic import BaseModel
 
-from rlm_adk.callbacks.worker import _classify_error
 from rlm_adk.callbacks.worker_retry import _bug13_stats
 from rlm_adk.repl.trace import DataFlowTracker
 from rlm_adk.state import (
@@ -54,6 +53,48 @@ from rlm_adk.types import LLMResult, ModelUsageSummary, RLMChatCompletion, Usage
 
 logger = logging.getLogger(__name__)
 _CHILD_PREVIEW_LIMIT = 500
+
+
+def _classify_error(error: Exception) -> str:
+    """Classify an exception into an error category for observability."""
+    import json as _json_mod
+
+    code = getattr(error, "code", None)
+    # LiteLLM exceptions use status_code (int) instead of code (str).
+    # Fall back to status_code when code is missing or non-integer.
+    status_code = getattr(error, "status_code", None)
+    if (code is None or not isinstance(code, int)) and isinstance(status_code, int):
+        code = status_code
+    if isinstance(error, asyncio.TimeoutError):
+        return "TIMEOUT"
+    # Also detect litellm.Timeout which is not an asyncio.TimeoutError
+    try:
+        import litellm as _litellm_mod
+
+        if isinstance(error, _litellm_mod.Timeout):
+            return "TIMEOUT"
+    except ImportError:
+        pass
+    if code == 429:
+        return "RATE_LIMIT"
+    if code in (401, 403):
+        return "AUTH"
+    if code and isinstance(code, int) and code >= 500:
+        return "SERVER"
+    if code and isinstance(code, int) and code >= 400:
+        return "CLIENT"
+    if isinstance(error, (ConnectionError, OSError)):
+        return "NETWORK"
+    # Detect JSON parse / malformed response errors
+    if isinstance(error, (_json_mod.JSONDecodeError, ValueError)):
+        err_msg = str(error).lower()
+        if isinstance(error, _json_mod.JSONDecodeError) or "json" in err_msg:
+            return "PARSE_ERROR"
+    # Check error message for JSON-related patterns (e.g., wrapped exceptions)
+    err_str = str(error).lower()
+    if any(pat in err_str for pat in ("json", "malformed", "parse error", "decode")):
+        return "PARSE_ERROR"
+    return "UNKNOWN"
 
 
 def _truncate_text(value: Any, limit: int = _CHILD_PREVIEW_LIMIT) -> str | None:
@@ -386,7 +427,17 @@ def create_dispatch_closures(
 
         try:
             async with _child_semaphore:
-                async for _event in child.run_async(ctx):
+                # Branch isolation: give the child its own event-history
+                # branch so it doesn't see (or pollute) the parent's
+                # conversation history.  Same pattern as ParallelAgent.
+                child_ctx = ctx.model_copy()
+                branch_suffix = f"{ctx.agent.name}.{child.name}"
+                child_ctx.branch = (
+                    f"{ctx.branch}.{branch_suffix}"
+                    if ctx.branch
+                    else branch_suffix
+                )
+                async for _event in child.run_async(child_ctx):
                     actions = getattr(_event, "actions", None)
                     state_delta = getattr(actions, "state_delta", None)
                     if isinstance(state_delta, dict):
