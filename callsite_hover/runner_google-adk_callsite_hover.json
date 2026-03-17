@@ -1,0 +1,36 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ac62ba6e/rlm_adk/eval/understand_bench/runner.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "InMemoryArtifactService",
+    "InMemorySessionService"
+  ],
+  "call_sites": [
+    {
+      "symbol": "InMemorySessionService",
+      "instances": [
+        {
+          "name": null,
+          "line": 365
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass InMemorySessionService()\n```\n---\nAn in-memory implementation of the session service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
+      }
+    },
+    {
+      "symbol": "InMemoryArtifactService",
+      "instances": [
+        {
+          "name": null,
+          "line": 366
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass InMemoryArtifactService(\n    *,\n    artifacts: dict[str, list[_ArtifactEntry]] = dict\n)\n```\n---\nAn in-memory implementation of the artifact service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
+      }
+    }
+  ],
+  "type_annotations": []
+}

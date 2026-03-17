@@ -1,0 +1,52 @@
+{
+  "persona_id": "investor_trust",
+  "persona_name": "The Investor with Trust Income",
+  "difficulty_tier": "hard",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Single",
+    "dependents": []
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Consumers Energy",
+      "ein": "38-7890123",
+      "wages": 125000.00,
+      "federal_withholding": 25000.00,
+      "state_withholding": 5312.50,
+      "description": "Senior systems architect"
+    },
+    {
+      "type": "1099-composite",
+      "broker": "Charles Schwab",
+      "interest": 2340.00,
+      "dividends": 8900.00,
+      "qualified_dividends": 7200.00,
+      "short_term_gains": 3400.00,
+      "long_term_gains": 15600.00,
+      "description": "Brokerage account with mixed investments"
+    },
+    {
+      "type": "K-1",
+      "entity": "Stanhope Family Trust",
+      "ein": "38-8901234",
+      "ordinary_income": 12000.00,
+      "capital_gains": 8500.00,
+      "section_199a": true,
+      "description": "Irrevocable trust established by parents, distributes annually"
+    }
+  ],
+  "life_events": [
+    "Trust distributed capital gains and QBI for the first time",
+    "Sold several stock positions to rebalance portfolio"
+  ],
+  "filing_complexity": "high",
+  "primary_gap_types": ["CROSS_DOMAIN_LINK", "HISTORICAL_RECORD"],
+  "gap_rationale": "Classic multi-hop chain: K-1 → trust return (Form 1041) → UBIA carryforward → prior-year QBI election. Each retrieval unveils new retrieval needs. Also needs prior-year AMT credit carryforward.",
+  "exercise_categories": ["cross_domain", "historical"]
+}

@@ -1,0 +1,52 @@
+{
+  "low_usage": {
+    "five_hour_pct": 7.0,
+    "seven_day_pct": 6.0,
+    "resets_at": "2026-03-14T06:00:00Z",
+    "extra_usage_enabled": true,
+    "ts": 1710000000,
+    "handoff_requested": false,
+    "handoff_ready": false,
+    "tool_calls_since_request": 0
+  },
+  "medium_usage": {
+    "five_hour_pct": 55.0,
+    "seven_day_pct": 40.0,
+    "resets_at": "2026-03-14T06:00:00Z",
+    "extra_usage_enabled": true,
+    "ts": 1710000000,
+    "handoff_requested": false,
+    "handoff_ready": false,
+    "tool_calls_since_request": 0
+  },
+  "high_usage": {
+    "five_hour_pct": 85.0,
+    "seven_day_pct": 60.0,
+    "resets_at": "2026-03-14T06:00:00Z",
+    "extra_usage_enabled": true,
+    "ts": 1710000000,
+    "handoff_requested": false,
+    "handoff_ready": false,
+    "tool_calls_since_request": 0
+  },
+  "critical_usage": {
+    "five_hour_pct": 95.0,
+    "seven_day_pct": 80.0,
+    "resets_at": "2026-03-14T06:00:00Z",
+    "extra_usage_enabled": false,
+    "ts": 1710000000,
+    "handoff_requested": true,
+    "handoff_ready": false,
+    "tool_calls_since_request": 3
+  },
+  "handoff_ready": {
+    "five_hour_pct": 95.0,
+    "seven_day_pct": 80.0,
+    "resets_at": "2026-03-14T06:00:00Z",
+    "extra_usage_enabled": false,
+    "ts": 1710000000,
+    "handoff_requested": true,
+    "handoff_ready": true,
+    "tool_calls_since_request": 5
+  }
+}

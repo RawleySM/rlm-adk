@@ -51,6 +51,7 @@ All env vars are read at import time or factory call time. A `.env` file at the 
 | `RLM_REPL_DEBUG` | off | Enable interactive debugpy breakpoints (`1`/`true`/`yes`) |
 | `RLM_ADK_CLOUD_OBS` | off | Enable Google Cloud tracing and analytics plugins (`1`/`true`/`yes`) |
 | `RLM_CONTEXT_SNAPSHOTS` | off | Enable ContextWindowSnapshotPlugin (`1`/`true`/`yes`) |
+| `DASHBOARD_DEV` / `RLM_DASHBOARD_DEV` | off | When dashboard autolaunch is active, open the dashboard via `scripts/launch_dashboard_playwright_chrome.py` instead of a regular Chrome window. |
 
 ### Tracing and Storage
 
@@ -77,8 +78,8 @@ All factories are in `rlm_adk/agent.py`. The call hierarchy is: `create_rlm_runn
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `create_rlm_runner(model, ...)` | `Runner` | Full entry point: App + plugins + session service + artifact service. Recommended for programmatic usage. |
-| `create_rlm_app(model, ...)` | `App` | App with root orchestrator and plugins. Used by ADK CLI via module-level `app` symbol. Session/artifact services are not on the App; they come from the CLI via `services.py` URI flags or from `create_rlm_runner()`. |
+| `create_rlm_runner(model, ...)` | `Runner` | App + plugins + session service + artifact service. For programmatic and test use — the ADK CLI is the primary entrypoint (see section 3.1). |
+| `create_rlm_app(model, ...)` | `App` | App with root orchestrator and plugins. The module-level `app` symbol is what the ADK CLI discovers. Session/artifact services come from `services.py` (CLI) or from `create_rlm_runner()` (programmatic). |
 | `create_rlm_orchestrator(model, ...)` | `RLMOrchestratorAgent` | Orchestrator wrapping a reasoning agent with WorkerPool and REPL. |
 | `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator for recursive dispatch at depth > 0. Uses condensed static instruction, no repomix. |
 | `create_reasoning_agent(model, ...)` | `LlmAgent` | Configures the core LLM agent with instructions, planner, callbacks, and retry config. |

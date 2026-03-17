@@ -9,6 +9,7 @@ import re
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,12 +29,13 @@ from rlm_adk.dashboard.live_models import (
     LiveToolEvent,
     LiveWatermark,
 )
-from rlm_adk.skills import POLYA_NARRATIVE_SKILL, REPOMIX_SKILL
+from rlm_adk.skills import selected_skill_summaries
 from rlm_adk.state import (
     DEPTH_SCOPED_KEYS,
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
+    ENABLED_SKILLS,
     REASONING_PARSED_OUTPUT,
     REASONING_RAW_OUTPUT,
     REASONING_THOUGHT_TEXT,
@@ -188,19 +190,28 @@ class LiveDashboardLoader:
         )
 
     def list_sessions(self) -> list[str]:
+        return [session_id for session_id, _label in self.list_session_labels()]
+
+    def list_session_labels(self) -> list[tuple[str, str]]:
         if not self._db_path.exists():
             return []
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
-                "SELECT session_id FROM traces ORDER BY start_time DESC"
+                """
+                SELECT session_id,
+                       MIN(start_time) AS created_at,
+                       MAX(start_time) AS last_started_at
+                FROM traces
+                WHERE session_id IS NOT NULL AND session_id != ''
+                GROUP BY session_id
+                ORDER BY last_started_at DESC
+                """
             ).fetchall()
-        seen: set[str] = set()
-        sessions: list[str] = []
-        for (session_id,) in rows:
-            if session_id and session_id not in seen:
-                seen.add(session_id)
-                sessions.append(session_id)
-        return sessions
+        return [
+            (session_id, self._format_session_label(session_id, created_at))
+            for session_id, created_at, _last_started_at in rows
+            if session_id
+        ]
 
     def session_summary(self, session_id: str | None) -> LiveSessionSummary:
         if not session_id:
@@ -212,9 +223,12 @@ class LiveDashboardLoader:
             self._latest_session_text(sse_rows, "root_prompt")
             or str(trace_row.get("root_prompt_preview") or "")
         )
+        enabled_skills = self._latest_session_value(sse_rows, ENABLED_SKILLS)
+        if isinstance(enabled_skills, str):
+            enabled_skills = [enabled_skills]
         return LiveSessionSummary(
             user_query=user_query,
-            registered_skills=self._registered_skills(),
+            registered_skills=self._registered_skills(enabled_skills),
             registered_plugins=self._registered_plugins(
                 has_context_snapshots=bool(cache and cache.snapshot_rows),
             ),
@@ -371,6 +385,12 @@ class LiveDashboardLoader:
 
     @staticmethod
     def _latest_session_text(sse_rows: list[dict[str, Any]], key: str) -> str:
+        value = LiveDashboardLoader._latest_session_value(sse_rows, key)
+        text = _display_text(value).strip()
+        return text
+
+    @staticmethod
+    def _latest_session_value(sse_rows: list[dict[str, Any]], key: str) -> Any:
         for row in reversed(sse_rows):
             if row.get("state_key") != key:
                 continue
@@ -381,23 +401,16 @@ class LiveDashboardLoader:
                 row.get("value_int"),
                 row.get("value_float"),
             )
-            text = _display_text(value).strip()
-            if text:
-                return text
-        return ""
+            if value not in (None, "", [], {}):
+                return value
+        return None
 
     @staticmethod
-    def _registered_skills() -> list[tuple[str, str]]:
-        return [
-            (
-                REPOMIX_SKILL.frontmatter.name,
-                REPOMIX_SKILL.frontmatter.description,
-            ),
-            (
-                POLYA_NARRATIVE_SKILL.frontmatter.name,
-                POLYA_NARRATIVE_SKILL.frontmatter.description,
-            ),
-        ]
+    def _registered_skills(enabled_skills: Any = None) -> list[tuple[str, str]]:
+        try:
+            return selected_skill_summaries(enabled_skills)
+        except ValueError:
+            return selected_skill_summaries(None)
 
     @staticmethod
     def _registered_plugins(
@@ -441,6 +454,13 @@ class LiveDashboardLoader:
             cache.snapshot_rows.clear()
             cache.output_rows.clear()
             cache.watermark = LiveWatermark(trace_id=cache.trace_row["trace_id"])
+
+    @staticmethod
+    def _format_session_label(session_id: str, created_at: float | None) -> str:
+        if created_at is None:
+            return session_id
+        created_text = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d %H:%M:%S")
+        return f"{created_text} | {session_id}"
 
     def _refresh_telemetry(self, cache: _SessionCache) -> None:
         if not self._db_path.exists() or not cache.trace_row:

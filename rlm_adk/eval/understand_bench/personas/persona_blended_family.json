@@ -1,0 +1,50 @@
+{
+  "persona_id": "blended_family",
+  "persona_name": "The Blended Family",
+  "difficulty_tier": "medium",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Married Filing Jointly",
+    "spouse": {
+      "name": "Dana Ellsworth-Stanhope",
+      "ssn_last4": "4821"
+    },
+    "dependents": [
+      {"name": "Liam Stanhope", "relationship": "son", "age": 8, "ssn_last4": "3392"},
+      {"name": "Sophie Stanhope", "relationship": "daughter", "age": 5, "ssn_last4": "7714"},
+      {"name": "Marcus Ellsworth", "relationship": "nephew", "age": 14, "ssn_last4": "6109", "notes": "Moved in after sister's deployment in March 2025"}
+    ]
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Barry County Schools",
+      "ein": "38-2345678",
+      "wages": 52000.00,
+      "federal_withholding": 5980.00,
+      "state_withholding": 2080.00,
+      "description": "Rawley - school district IT administrator"
+    },
+    {
+      "type": "W-2",
+      "employer": "Spectrum Health",
+      "ein": "38-3456789",
+      "wages": 44000.00,
+      "federal_withholding": 4840.00,
+      "state_withholding": 1760.00,
+      "description": "Dana - medical records technician"
+    }
+  ],
+  "life_events": [
+    "Nephew Marcus moved in after sister's military deployment (March 2025)",
+    "Marcus attended Middleville schools for the remainder of the academic year"
+  ],
+  "filing_complexity": "medium",
+  "primary_gap_types": ["USER_ATTESTATION"],
+  "gap_rationale": "The nephew's dependency status requires residency and support attestation that no amount of tax knowledge can substitute. The rich family narrative tempts the agent to assume eligibility.",
+  "exercise_categories": ["user_attestation", "document"]
+}

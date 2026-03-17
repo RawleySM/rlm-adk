@@ -1,0 +1,461 @@
+{
+  "case_id": "case_k1_multi_hop",
+  "task_name": "K-1 Multi-Hop Chain",
+  "difficulty": "hard",
+  "persona_id": "investor_trust",
+  "broad_objective": "Prepare a federal and Michigan state tax return for a high-income single filer with W-2 wages, brokerage investment income, and K-1 pass-through income from an irrevocable family trust, including evaluation of QBI deduction eligibility and AMT credit carryforward.",
+
+  "provided_context_dict": {
+    "taxpayer_intake.md": "# Taxpayer Intake Notes\n## Session: 2026-02-22, 2:30 PM\n## Preparer: Auto-captured from client portal questionnaire\n\n**Client:** Rawley Stanhope\n**Phone:** (616) 555-0291\n**Email:** rawley.stanhope@gmail.com\n\n---\n\n### Background & Filing History\n\nRawley is a senior systems architect at Consumers Energy. He's been\nthere about six years now and his compensation has been steadily\nclimbing. He filed electronically last year and the year before.\nHe's been working with a CPA for the last few years because his\ntax situation got more complicated once the trust started making\ndistributions.\n\nHe mentioned that his parents set up this trust years ago -- the\nStanhope Family Trust. It's an irrevocable trust that his parents\nestablished sometime around 2015 or 2016. He said it holds a mix\nof rental properties and some small business interests, though he\nwasn't entirely sure of the details. The trust has been distributing\nincome to him for a few years now, but he said this is the first\nyear it distributed QBI. He specifically mentioned getting a K-1\nwith some \"Section 199A\" language on it and said his old CPA told\nhim it was important but he doesn't fully understand what it means.\n\n### Investment Activity\n\nRawley has a Schwab brokerage account that he's had since about 2019.\nThis year he sold several stock positions to rebalance his portfolio.\nHe said he moved out of some individual tech stocks and into broader\nindex funds. He thinks most of the sales were long-term holdings but\nsome were positions he'd picked up within the last year.\n\nHe mentioned that a couple of the stocks were inherited from his\ngrandmother and he's not sure what the cost basis is on those. He\nsaid Schwab might have it but he's not confident. He also has\nregular dividend income from the account and some interest from a\nmoney market sweep.\n\n### AMT History\n\nRawley brought up that he's been paying AMT the last few years. He\nsaid, \"I've been paying AMT the last few years, I think there's a\ncredit for that?\" He recalls his CPA mentioning something about a\nminimum tax credit that carries forward, but he doesn't know the\nexact amount. He said his prior-year return should have it somewhere\nbut he only has a partial copy -- he thinks the detailed worksheets\nare on his old CPA's portal and he hasn't been able to log in.\n\n### Current Year Details\n\n- Single, no dependents\n- Lives at 11626 Bass Rd, Middleville, MI 49333\n- Income sources: W-2 (Consumers Energy), Schwab brokerage, K-1\n  from Stanhope Family Trust\n- No cryptocurrency transactions\n- No foreign accounts or FBAR obligations\n- No charitable contributions over $250 (just small cash donations)\n- Wants refund via direct deposit to Schwab checking\n- Routing: 121202211, Account: XXXX-8837\n\n### Health Insurance\n\nCovered under Consumers Energy employer plan all year. No gaps.\n\n### Documents Provided\n\n- W-2 from Consumers Energy (uploaded)\n- Schwab composite 1099 (uploaded)\n- K-1 from Stanhope Family Trust (uploaded)\n- Schwab brokerage statement with transaction detail (uploaded)\n- Partial prior-year return (uploaded -- missing detailed worksheets)\n\n### Open Questions from Client\n\n1. \"What does the Section 199A stuff on my K-1 actually mean for me?\"\n2. \"Do I get a credit for the AMT I've been paying?\"\n3. \"Some of my Schwab sales say 'see supplemental' for cost basis --\n    is that a problem?\"\n4. \"My old CPA retired and I can't get into his portal. Is there\n    anything critical I need from prior years?\"\n",
+
+    "w2_consumers_energy.json": {
+      "form_type": "W-2",
+      "tax_year": 2025,
+      "employer": {
+        "name": "Consumers Energy Company",
+        "ein": "38-7890123",
+        "address": {
+          "street": "One Energy Plaza",
+          "city": "Jackson",
+          "state": "MI",
+          "zip": "49201"
+        }
+      },
+      "employee": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "8837",
+        "address": {
+          "street": "11626 Bass Rd",
+          "city": "Middleville",
+          "state": "MI",
+          "zip": "49333"
+        }
+      },
+      "box_1_wages": 125000.00,
+      "box_2_federal_tax_withheld": 25000.00,
+      "box_3_social_security_wages": 125000.00,
+      "box_4_social_security_tax_withheld": 7750.00,
+      "box_5_medicare_wages": 125000.00,
+      "box_6_medicare_tax_withheld": 1812.50,
+      "box_10_dependent_care_benefits": 0.00,
+      "box_11_nonqualified_plans": 0.00,
+      "box_12": [
+        {"code": "D", "amount": 8500.00, "description": "Elective deferrals under a section 401(k) plan"},
+        {"code": "DD", "amount": 14200.00, "description": "Cost of employer-sponsored health coverage"}
+      ],
+      "box_13_statutory_employee": false,
+      "box_13_retirement_plan": true,
+      "box_13_third_party_sick_pay": false,
+      "box_14_other": [
+        {"description": "UI/HC", "amount": 350.00}
+      ],
+      "box_15_state": "MI",
+      "box_16_state_wages": 125000.00,
+      "box_17_state_tax_withheld": 5312.50
+    },
+
+    "1099_composite_schwab.json": {
+      "form_type": "1099-COMPOSITE",
+      "tax_year": 2025,
+      "payer": {
+        "name": "Charles Schwab & Co., Inc.",
+        "ein": "94-1737782",
+        "address": {
+          "street": "211 Main Street",
+          "city": "San Francisco",
+          "state": "CA",
+          "zip": "94105"
+        }
+      },
+      "recipient": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "8837",
+        "account_number": "XXXX-4291"
+      },
+      "1099_INT": {
+        "box_1_interest_income": 2340.00,
+        "box_3_interest_on_us_savings_bonds": 0.00,
+        "box_4_federal_tax_withheld": 0.00,
+        "box_8_tax_exempt_interest": 0.00
+      },
+      "1099_DIV": {
+        "box_1a_total_ordinary_dividends": 8900.00,
+        "box_1b_qualified_dividends": 7200.00,
+        "box_2a_total_capital_gain_distributions": 1450.00,
+        "box_2b_unrecaptured_section_1250_gain": 0.00,
+        "box_3_nondividend_distributions": 0.00,
+        "box_4_federal_tax_withheld": 0.00,
+        "box_5_section_199A_dividends": 0.00,
+        "box_6_investment_expenses": 0.00,
+        "box_7_foreign_tax_paid": 312.00,
+        "box_8_foreign_country": "Various"
+      },
+      "1099_B": {
+        "summary": {
+          "short_term_covered_proceeds": 18750.00,
+          "short_term_covered_cost_basis": 15350.00,
+          "short_term_covered_gain_loss": 3400.00,
+          "long_term_covered_proceeds": 87200.00,
+          "long_term_covered_cost_basis": 71600.00,
+          "long_term_covered_gain_loss": 15600.00,
+          "long_term_noncovered_proceeds": 12400.00,
+          "long_term_noncovered_cost_basis": null,
+          "long_term_noncovered_gain_loss": null,
+          "noncovered_note": "Cost basis not reported to IRS. See supplemental statement."
+        },
+        "transactions": [
+          {
+            "description": "APPLE INC COM (AAPL)",
+            "date_acquired": "2022-03-15",
+            "date_sold": "2025-09-22",
+            "proceeds": 24500.00,
+            "cost_basis": 18200.00,
+            "gain_loss": 6300.00,
+            "term": "long_term",
+            "basis_reported_to_irs": true,
+            "wash_sale_loss_disallowed": 0.00
+          },
+          {
+            "description": "MICROSOFT CORP COM (MSFT)",
+            "date_acquired": "2021-07-08",
+            "date_sold": "2025-09-22",
+            "proceeds": 31200.00,
+            "cost_basis": 26400.00,
+            "gain_loss": 4800.00,
+            "term": "long_term",
+            "basis_reported_to_irs": true,
+            "wash_sale_loss_disallowed": 0.00
+          },
+          {
+            "description": "NVIDIA CORP COM (NVDA)",
+            "date_acquired": "2023-01-10",
+            "date_sold": "2025-10-15",
+            "proceeds": 19100.00,
+            "cost_basis": 14600.00,
+            "gain_loss": 4500.00,
+            "term": "long_term",
+            "basis_reported_to_irs": true,
+            "wash_sale_loss_disallowed": 0.00
+          },
+          {
+            "description": "TESLA INC COM (TSLA)",
+            "date_acquired": "2025-02-14",
+            "date_sold": "2025-08-30",
+            "proceeds": 9850.00,
+            "cost_basis": 7200.00,
+            "gain_loss": 2650.00,
+            "term": "short_term",
+            "basis_reported_to_irs": true,
+            "wash_sale_loss_disallowed": 0.00
+          },
+          {
+            "description": "PALANTIR TECHNOLOGIES INC (PLTR)",
+            "date_acquired": "2025-04-02",
+            "date_sold": "2025-11-18",
+            "proceeds": 8900.00,
+            "cost_basis": 8150.00,
+            "gain_loss": 750.00,
+            "term": "short_term",
+            "basis_reported_to_irs": true,
+            "wash_sale_loss_disallowed": 0.00
+          },
+          {
+            "description": "VANGUARD TOTAL INTL STOCK (VXUS)",
+            "date_acquired": "2020-11-20",
+            "date_sold": "2025-09-22",
+            "proceeds": 12400.00,
+            "cost_basis": 10400.00,
+            "gain_loss": 2000.00,
+            "term": "long_term",
+            "basis_reported_to_irs": true,
+            "wash_sale_loss_disallowed": 0.00
+          },
+          {
+            "description": "GENERAL ELECTRIC CO (GE) - INHERITED",
+            "date_acquired": "INHERITED",
+            "date_sold": "2025-06-10",
+            "proceeds": 8200.00,
+            "cost_basis": null,
+            "gain_loss": null,
+            "term": "long_term",
+            "basis_reported_to_irs": false,
+            "wash_sale_loss_disallowed": 0.00,
+            "note": "Noncovered security. Cost basis not reported to IRS. See supplemental statement or contact your tax advisor."
+          },
+          {
+            "description": "PROCTER & GAMBLE CO (PG) - INHERITED",
+            "date_acquired": "INHERITED",
+            "date_sold": "2025-06-10",
+            "proceeds": 4200.00,
+            "cost_basis": null,
+            "gain_loss": null,
+            "term": "long_term",
+            "basis_reported_to_irs": false,
+            "wash_sale_loss_disallowed": 0.00,
+            "note": "Noncovered security. Cost basis not reported to IRS. See supplemental statement or contact your tax advisor."
+          }
+        ]
+      }
+    },
+
+    "k1_stanhope_trust.json": {
+      "form_type": "Schedule K-1 (Form 1041)",
+      "tax_year": 2025,
+      "part_I_information_about_the_estate_or_trust": {
+        "entity_name": "Stanhope Family Trust",
+        "entity_ein": "38-8901234",
+        "entity_address": {
+          "street": "c/o Greenridge Fiduciary Services LLC",
+          "suite": "Suite 400",
+          "city": "Grand Rapids",
+          "state": "MI",
+          "zip": "49503"
+        },
+        "fiduciary_name": "Greenridge Fiduciary Services LLC",
+        "fiduciary_address": {
+          "street": "250 Monroe Ave NW",
+          "suite": "Suite 400",
+          "city": "Grand Rapids",
+          "state": "MI",
+          "zip": "49503"
+        },
+        "trust_type": "Complex trust",
+        "fiscal_year_end": "12/31",
+        "final_return": false,
+        "amended_return": false,
+        "domestic_trust": true
+      },
+      "part_II_information_about_the_beneficiary": {
+        "beneficiary_name": "Rawley M. Stanhope",
+        "beneficiary_ssn_last4": "8837",
+        "beneficiary_address": {
+          "street": "11626 Bass Rd",
+          "city": "Middleville",
+          "state": "MI",
+          "zip": "49333"
+        },
+        "beneficiary_type": "individual",
+        "foreign_beneficiary": false
+      },
+      "part_III_beneficiarys_share_of_current_year_income": {
+        "box_1_interest_income": 0.00,
+        "box_2a_ordinary_dividends": 0.00,
+        "box_2b_qualified_dividends": 0.00,
+        "box_3_net_short_term_capital_gain": 0.00,
+        "box_4a_net_long_term_capital_gain": 8500.00,
+        "box_4b_28_pct_rate_gain": 0.00,
+        "box_4c_unrecaptured_section_1250_gain": 1200.00,
+        "box_5_other_portfolio_and_nonbusiness_income": 0.00,
+        "box_6_ordinary_business_income": 12000.00,
+        "box_7_net_rental_real_estate_income": 0.00,
+        "box_8_other_rental_income": 0.00,
+        "box_9_directly_apportioned_deductions": {
+          "box_9a_depreciation": 0.00,
+          "box_9b_depletion": 0.00,
+          "box_9c_amortization": 0.00
+        },
+        "box_10_estate_tax_deduction": 0.00,
+        "box_11_final_year_deductions": {
+          "box_11a_excess_deductions": 0.00,
+          "box_11b_short_term_capital_loss_carryover": 0.00,
+          "box_11c_long_term_capital_loss_carryover": 0.00,
+          "box_11d_net_operating_loss_carryover": 0.00
+        },
+        "box_12_alternative_minimum_tax_adjustment": 0.00,
+        "box_13_credits_and_credit_recapture": {
+          "box_13a_low_income_housing_credit_sec42j5": 0.00,
+          "box_13b_low_income_housing_credit_other": 0.00,
+          "box_13c_qualified_rehabilitation_expenditures": 0.00,
+          "box_13d_other_credits": 0.00
+        },
+        "box_14_other_information": [
+          {
+            "code": "A",
+            "description": "Tax-exempt interest",
+            "amount": 0.00
+          },
+          {
+            "code": "B",
+            "description": "Foreign taxes paid",
+            "amount": 0.00
+          },
+          {
+            "code": "H",
+            "description": "Adjustment for section 1411 net investment income",
+            "amount": 20500.00,
+            "note": "Sum of Box 4a ($8,500) + Box 6 ($12,000). Used for Form 8960 computation."
+          }
+        ]
+      },
+      "box_20_section_199A_information": [
+        {
+          "code": "Z",
+          "description": "Section 199A information",
+          "data": {
+            "qualified_business_income": 12000.00,
+            "w2_wages": 0.00,
+            "ubia_of_qualified_property": "See Statement A",
+            "qualified_reit_dividends": 0.00,
+            "qualified_ptp_income": 0.00
+          },
+          "note": "QBI and related information from the trust. Beneficiary's share of Section 199A items. See trust's Form 1041 and attached QBI worksheets for computational detail."
+        },
+        {
+          "code": "AH",
+          "description": "UBIA of qualified property",
+          "data": {
+            "ubia_amount": "See attached statement or trust's QBI detail worksheet",
+            "property_description": "Rental and business property held by the trust"
+          },
+          "note": "The unadjusted basis immediately after acquisition of qualified property held by the trust. Required for W-2/UBIA limitation computation. Historical carryforward data required from trust records."
+        }
+      ],
+      "supplemental_information": {
+        "statement_a": "Section 199A Information: This K-1 reports the beneficiary's allocable share of qualified business income (QBI) under IRC Section 199A. The trust holds interests in qualified trades or businesses. The QBI deduction computation requires additional information from the trust's Form 1041 and associated QBI detail worksheets, which are maintained by the fiduciary. For UBIA of qualified property figures, contact Greenridge Fiduciary Services LLC.",
+        "trust_contact": {
+          "fiduciary": "Greenridge Fiduciary Services LLC",
+          "contact_person": "Margaret Chen, CPA",
+          "phone": "(616) 555-0488",
+          "email": "mchen@greenridgefiduciary.com"
+        }
+      },
+      "footnotes": [
+        "This K-1 is an allocative schedule reflecting the beneficiary's share of trust income, deductions, and credits. It does not constitute the trust's complete tax return.",
+        "For Section 199A QBI deduction purposes, the beneficiary should obtain the trust's QBI computation worksheets to properly calculate any applicable limitation under the W-2 wage/UBIA test.",
+        "Capital gains in Box 4a include gains from the disposition of trust assets. See the trust's Form 1041, Schedule D for full detail of transactions."
+      ]
+    },
+
+    "brokerage_statement_schwab.csv": "Account: XXXX-4291,Charles Schwab & Co.\nStatement Period: 01/01/2025 - 12/31/2025\nAccount Holder: Rawley M. Stanhope\n\nDate,Transaction Type,Description,Symbol,Quantity,Price,Amount,Cost Basis,Gain/Loss,Term\n2025-09-22,Sell,APPLE INC COM,AAPL,100,245.00,24500.00,18200.00,6300.00,Long-Term\n2025-09-22,Sell,MICROSOFT CORP COM,MSFT,75,416.00,31200.00,26400.00,4800.00,Long-Term\n2025-10-15,Sell,NVIDIA CORP COM,NVDA,140,136.43,19100.00,14600.00,4500.00,Long-Term\n2025-02-14,Buy,TESLA INC COM,TSLA,50,144.00,7200.00,,,\n2025-08-30,Sell,TESLA INC COM,TSLA,50,197.00,9850.00,7200.00,2650.00,Short-Term\n2025-04-02,Buy,PALANTIR TECHNOLOGIES INC,PLTR,350,23.29,8150.00,,,\n2025-11-18,Sell,PALANTIR TECHNOLOGIES INC,PLTR,350,25.43,8900.00,8150.00,750.00,Short-Term\n2025-09-22,Sell,VANGUARD TOTAL INTL STOCK,VXUS,200,62.00,12400.00,10400.00,2000.00,Long-Term\n2025-06-10,Sell,GENERAL ELECTRIC CO - INHERITED,GE,45,182.22,8200.00,N/A - see supplemental,N/A,Long-Term\n2025-06-10,Sell,PROCTER & GAMBLE CO - INHERITED,PG,25,168.00,4200.00,N/A - see supplemental,N/A,Long-Term\n2025-09-22,Buy,VANGUARD S&P 500 ETF,VOO,150,485.00,72750.00,,,\n2025-09-22,Buy,VANGUARD TOTAL INTL STOCK,VXUS,200,58.50,11700.00,,,\n2025-10-15,Buy,ISHARES CORE US AGG BOND,AGG,100,98.50,9850.00,,,\n\nDividend Income Summary:\nQualified Dividends: $7,200.00\nOrdinary Dividends: $8,900.00 (includes qualified)\nCapital Gain Distributions: $1,450.00\n\nInterest Income Summary:\nMoney Market Sweep Interest: $2,340.00\n\nForeign Tax Paid: $312.00 (various countries)\n\nYear-End Portfolio Value: $412,830.00\n",
+
+    "prior_year_partial.json": {
+      "form_type": "1040_partial",
+      "tax_year": 2024,
+      "filing_status": "Single",
+      "filer": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "8837"
+      },
+      "income_summary": {
+        "wages": 118000.00,
+        "interest": 1890.00,
+        "ordinary_dividends": 6200.00,
+        "qualified_dividends": 4800.00,
+        "capital_gains_schedule_d": 9200.00,
+        "k1_ordinary_income": 10500.00,
+        "k1_capital_gains": 6800.00,
+        "adjusted_gross_income": 152590.00
+      },
+      "deductions": {
+        "type": "standard",
+        "amount": 14600.00
+      },
+      "tax_computation": {
+        "taxable_income": 137990.00,
+        "regular_tax": 27112.00,
+        "AMT_paid": true,
+        "form_6251_filed": true,
+        "tentative_minimum_tax": 29350.00,
+        "AMT_amount": 2238.00,
+        "total_tax": 29350.00,
+        "note": "AMT triggered by combination of K-1 pass-through adjustments and capital gains. Detailed Form 6251 worksheet not available -- see prior preparer's records."
+      },
+      "credits": {
+        "foreign_tax_credit": 245.00,
+        "child_tax_credit": 0.00,
+        "other_credits": 0.00,
+        "note": "Prior-year Form 8801 (Credit for Prior Year Minimum Tax) was filed in TY2023. Carryforward amount not available in this partial extract."
+      },
+      "payments_and_refund": {
+        "federal_withholding": 23600.00,
+        "estimated_payments": 0.00,
+        "amount_owed": 5750.00,
+        "payment_method": "direct_debit"
+      },
+      "amt_history": {
+        "amt_paid_ty2022": true,
+        "amt_paid_ty2023": true,
+        "amt_paid_ty2024": true,
+        "form_8801_filed_ty2023": true,
+        "form_8801_filed_ty2024": true,
+        "amt_credit_carryforward_amount": null,
+        "note": "Client has paid AMT for three consecutive years. Form 8801 was filed in TY2023 and TY2024. The actual minimum tax credit carryforward amount is not available in this partial extract. Contact prior preparer (retired) or request IRS transcript."
+      },
+      "prior_preparer": {
+        "name": "David Kowalski, CPA",
+        "firm": "Kowalski Tax & Advisory",
+        "status": "Retired as of 2025-06",
+        "portal_access": "Client unable to access online portal"
+      }
+    },
+
+    "_manifest": [
+      {"filename": "taxpayer_intake.md", "type": "user_generated", "description": "Client intake questionnaire and conversation notes"},
+      {"filename": "w2_consumers_energy.json", "type": "irs_form", "description": "W-2 Wage and Tax Statement from Consumers Energy Company"},
+      {"filename": "1099_composite_schwab.json", "type": "third_party", "description": "Schwab composite 1099 (1099-INT, 1099-DIV, 1099-B)"},
+      {"filename": "k1_stanhope_trust.json", "type": "irs_form", "description": "Schedule K-1 (Form 1041) from Stanhope Family Trust"},
+      {"filename": "brokerage_statement_schwab.csv", "type": "third_party", "description": "Schwab brokerage transaction detail for tax year 2025"},
+      {"filename": "prior_year_partial.json", "type": "user_generated", "description": "Partial prior-year (2024) return summary -- missing detailed worksheets"}
+    ]
+  },
+
+  "missing_artifacts": [
+    {
+      "category": "cross_domain",
+      "artifact_name": "Trust Form 1041",
+      "source_authority": "Greenridge Fiduciary Services LLC, the fiduciary of the Stanhope Family Trust (EIN 38-8901234). The trust's Form 1041 is filed separately and maintained by the fiduciary.",
+      "why_non_derivable": "The K-1 is an allocative schedule reflecting the beneficiary's share of trust income. It does not contain the trust's own return, which holds the computational basis for how those allocations were determined -- including the trust's total income, deductions, distributable net income (DNI), and the allocation methodology. Without the 1041, the agent cannot verify that the K-1 amounts are correctly computed or reconcile pass-through figures.",
+      "detection_signal": "The K-1 references the trust entity (Stanhope Family Trust, EIN 38-8901234) and the fiduciary (Greenridge Fiduciary Services LLC), but the provided packet contains only the K-1 itself. The K-1 footnotes explicitly state it is 'an allocative schedule' and that 'the trust's Form 1041 and associated QBI detail worksheets' are maintained by the fiduciary. No Form 1041 appears in the manifest.",
+      "retrieval_method": "Contact Greenridge Fiduciary Services LLC (Margaret Chen, CPA, (616) 555-0488, mchen@greenridgefiduciary.com) and request a copy of the trust's 2025 Form 1041 and all associated schedules.",
+      "blocks_downstream": ["Step 6: Handle Special Situations - verify pass-through income amounts and trust allocation methodology"],
+      "difficulty_modifier": "multi-hop"
+    },
+    {
+      "category": "cross_domain",
+      "artifact_name": "QBI detail worksheet from trust",
+      "source_authority": "Greenridge Fiduciary Services LLC. The QBI detail worksheet is prepared as part of the trust's Form 1041 filing and accompanies the Section 199A computation at the trust level.",
+      "why_non_derivable": "The QBI deduction computation under IRC Section 199A requires a trust-level breakdown of qualified business income versus other income, identification of qualified trades or businesses, and application of the W-2 wage and UBIA limitations at the trust level before allocating the deduction to beneficiaries. The K-1 reports the beneficiary's share of QBI ($12,000) but does not provide the underlying detail needed to verify or compute the deduction.",
+      "detection_signal": "K-1 Box 20 code Z references 'Section 199A information' and reports QBI of $12,000 with W-2 wages of $0. The supplemental Statement A on the K-1 explicitly directs the beneficiary to obtain 'the trust's Form 1041 and associated QBI detail worksheets' from the fiduciary. No QBI worksheet appears in the provided packet.",
+      "retrieval_method": "Contact Greenridge Fiduciary Services LLC (Margaret Chen, CPA) and request the trust's Section 199A QBI detail worksheet, including the trust-level computation of qualified business income, W-2 wages, and UBIA for each qualified trade or business.",
+      "blocks_downstream": ["Step 6: Handle Special Situations - QBI deduction computation under Section 199A"],
+      "difficulty_modifier": "multi-hop"
+    },
+    {
+      "category": "historical",
+      "artifact_name": "UBIA carryforward schedule",
+      "source_authority": "Greenridge Fiduciary Services LLC and/or the trust's historical tax records. UBIA (unadjusted basis immediately after acquisition) is tracked cumulatively from the year qualified property was placed in service.",
+      "why_non_derivable": "UBIA of qualified property is a cumulative historical figure representing the original cost basis of qualified property at the time of acquisition, tracked over the depreciable life of the property. It cannot be reconstructed from current-year data alone. The K-1 Box 20 code AH references UBIA but states 'See attached statement or trust's QBI detail worksheet' without providing the actual figure. The UBIA amount is required for the W-2/UBIA limitation test under Section 199A(b)(2)(B).",
+      "detection_signal": "K-1 Box 20 code AH references 'UBIA of qualified property' but the data field contains 'See attached statement or trust's QBI detail worksheet' rather than a dollar amount. The trust holds rental and business property, making UBIA a material factor in the QBI limitation computation.",
+      "retrieval_method": "Contact Greenridge Fiduciary Services LLC (Margaret Chen, CPA) and request the UBIA carryforward schedule showing the unadjusted basis of all qualified property held by the trust, including acquisition dates and remaining depreciable periods.",
+      "blocks_downstream": ["Step 6: Handle Special Situations - QBI W-2 wage and UBIA limitation test under Section 199A(b)(2)(B)"],
+      "difficulty_modifier": "multi-hop"
+    },
+    {
+      "category": "historical",
+      "artifact_name": "Prior-year AMT credit carryforward amount",
+      "source_authority": "Prior-year Form 8801 (Credit for Prior Year Minimum Tax) as filed with the IRS, or IRS account transcript. The amount depends on multi-year AMT history from TY2022 through TY2024.",
+      "why_non_derivable": "The minimum tax credit carryforward under Form 8801 depends on the cumulative history of AMT paid in prior years, adjusted for credits already used. The prior_year_partial.json confirms that AMT was paid in TY2022, TY2023, and TY2024, and that Form 8801 was filed in TY2023 and TY2024, but the actual carryforward amount is null. The prior preparer has retired and the client cannot access the portal. The agent cannot compute the carryforward without the detailed Form 6251 and Form 8801 worksheets from prior years.",
+      "detection_signal": "The prior_year_partial.json shows AMT_paid: true for three consecutive years, form_8801_filed: true for TY2023 and TY2024, but amt_credit_carryforward_amount: null with a note stating the amount is 'not available in this partial extract.' The intake notes confirm the client knows AMT was paid but does not know the credit amount, and cannot access the prior preparer's portal.",
+      "retrieval_method": "Request an IRS account transcript (Form 4506-T or via irs.gov/individuals/get-transcript) covering TY2022-TY2024, which will show AMT amounts paid. Alternatively, contact the prior preparer's firm (Kowalski Tax & Advisory) to request archived Form 8801 worksheets, or reconstruct from the client's copies of prior-year Form 6251 if available.",
+      "blocks_downstream": ["Step 7: Compute Tax Liability - Form 8801 minimum tax credit computation"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": ["Trust Form 1041", "QBI detail worksheet from trust", "UBIA carryforward schedule", "Prior-year AMT credit carryforward amount"],
+
+  "why_context_tempts_premature_progress": "The K-1 provides specific dollar amounts for ordinary income ($12,000) and capital gains ($8,500), which look complete enough to report. The brokerage 1099 is detailed with individual transactions. A weak model will enter K-1 amounts directly without recognizing that the Section 199A and UBIA references in Box 20 open an entirely new retrieval surface that chains through the trust's own return.",
+
+  "what_bad_model_does": "Reports K-1 income at face value, ignores Box 20 codes Z and AH, skips the QBI deduction entirely or applies it without trust-level detail, and ignores the AMT credit carryforward opportunity despite clear signals in the prior-year partial return.",
+
+  "what_good_model_does": "Traces Box 20 codes Z and AH to their meaning under Section 199A, identifies the trust's Form 1041 as the authoritative source for the K-1 allocations, recognizes the multi-hop chain from K-1 to 1041 to QBI worksheet to UBIA carryforward, and separately identifies the AMT credit carryforward gap from the prior-year partial return.",
+
+  "scoring_notes": "Full credit requires identifying all four missing artifacts and articulating the multi-hop dependency chain. Partial credit for identifying the trust Form 1041 and QBI worksheet but missing the UBIA or AMT credit gaps. Minimal credit for identifying only the AMT credit gap (the most 'direct' of the four). The ordering of retrieval matters: the trust 1041 must be retrieved before the QBI worksheet can be meaningfully interpreted, and the QBI worksheet must be reviewed before the UBIA gap becomes apparent.",
+
+  "multi_hop_chain": [
+    "K-1 reveals trust entity (Stanhope Family Trust, EIN 38-8901234) -> need Form 1041 to verify pass-through allocations",
+    "Form 1041 + K-1 Box 20 code Z references Section 199A -> need QBI detail worksheet from trust to compute deduction",
+    "QBI worksheet references UBIA of qualified property (Box 20 code AH) -> need historical UBIA carryforward schedule",
+    "Prior-year partial shows AMT paid for 3 consecutive years with null carryforward amount -> need AMT credit carryforward for Form 8801"
+  ]
+}

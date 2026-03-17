@@ -1,0 +1,48 @@
+{
+  "persona_id": "multi_state_contractor",
+  "persona_name": "The Multi-State Contractor",
+  "difficulty_tier": "hard",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Single",
+    "dependents": []
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Wolverine Consulting Group",
+      "ein": "38-9012345",
+      "wages": 68000.00,
+      "federal_withholding": 10880.00,
+      "state_withholding": 2720.00,
+      "description": "Michigan-based IT consulting firm"
+    },
+    {
+      "type": "1099-NEC",
+      "payer": "BuckeyCorp Technologies",
+      "state": "Ohio",
+      "amount": 32000.00,
+      "description": "6-month on-site contract in Columbus, OH"
+    },
+    {
+      "type": "1099-NEC",
+      "payer": "Hoosier Health Systems",
+      "state": "Indiana",
+      "amount": 18500.00,
+      "description": "3-month contract in Indianapolis, IN"
+    }
+  ],
+  "life_events": [
+    "Traveled for contract work across state lines",
+    "Crossed filing thresholds in Ohio and Indiana",
+    "Maintained Michigan domicile throughout"
+  ],
+  "filing_complexity": "very-high",
+  "primary_gap_types": ["REGULATORY_REFERENCE", "THIRD_PARTY_RECORD", "DOCUMENT"],
+  "gap_rationale": "State tax rules are not derivable from federal knowledge. Agent must retrieve current-year OH and IN nexus rules, state-specific payment history, and state-issued withholding statements.",
+  "exercise_categories": ["regulatory", "third_party", "document"]
+}

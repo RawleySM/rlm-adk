@@ -39,6 +39,7 @@ from rlm_adk.state import (
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
     DYN_USER_CTX_MANIFEST,
+    ENABLED_SKILLS,
     FINAL_ANSWER,
     ITERATION_COUNT,
     OBS_REASONING_RETRY_COUNT,
@@ -221,6 +222,7 @@ class RLMOrchestratorAgent(BaseAgent):
     fanout_idx: int = 0
     output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
     instruction_router: Any = None  # Callable[[int, int], str] | None
+    enabled_skills: tuple[str, ...] = ()
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Collapsed orchestrator -- delegates to reasoning_agent with REPLTool.
@@ -307,8 +309,12 @@ class RLMOrchestratorAgent(BaseAgent):
         object.__setattr__(self.reasoning_agent, "tools", [repl_tool, set_model_response_tool])
         # Tag depth for telemetry (read by reasoning callbacks)
         object.__setattr__(self.reasoning_agent, "_rlm_depth", self.depth)
-        # Ensure ADK manages tool call/response history
-        object.__setattr__(self.reasoning_agent, "include_contents", "default")
+        # Ensure ADK manages tool call/response history at depth 0.
+        # Children (depth > 0) keep include_contents='none' set by
+        # create_child_orchestrator so they don't inherit parent session
+        # history through the shared InvocationContext.
+        if self.depth == 0:
+            object.__setattr__(self.reasoning_agent, "include_contents", "default")
 
         # Wire structured output retry callbacks for set_model_response
         after_tool_cb, on_tool_error_cb = make_worker_tool_callbacks(max_retries=2)
@@ -328,6 +334,8 @@ class RLMOrchestratorAgent(BaseAgent):
             if self.repo_url:
                 initial_state[REPO_URL] = self.repo_url
                 initial_state[DYN_REPO_URL] = self.repo_url
+            if self.depth == 0 and self.enabled_skills:
+                initial_state[ENABLED_SKILLS] = list(self.enabled_skills)
 
             if self.instruction_router is not None:
                 _skill_text = self.instruction_router(self.depth, self.fanout_idx)

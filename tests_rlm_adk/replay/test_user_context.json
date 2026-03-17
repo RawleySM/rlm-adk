@@ -1,0 +1,17 @@
+{
+  "state": {
+    "app:max_iterations": 3,
+    "app:max_depth": 1,
+    "user_provided_ctx": {
+      "sample_notes.txt": "Project kickoff meeting notes:\n- Timeline: Q3 2026\n- Budget: $50K\n- Team: 4 engineers",
+      "requirements.md": "# Requirements\n\n1. Must support UTF-8\n2. Max file size: 10MB\n3. Recursive directory scanning"
+    },
+    "user_provided_ctx_exceeded": false,
+    "usr_provided_files_serialized": ["sample_notes.txt", "requirements.md"],
+    "usr_provided_files_unserialized": [],
+    "user_ctx_manifest": "Pre-loaded context variable: user_ctx (dict)\nPre-loaded files (access via user_ctx[\"<filename>\"]):\n  - sample_notes.txt (93 chars)\n  - requirements.md (89 chars)\nTotal: 2 files, 2 pre-loaded"
+  },
+  "queries": [
+    "You have pre-loaded context files available as user_ctx in the REPL. Read and summarize the key points from the provided project documentation."
+  ]
+}

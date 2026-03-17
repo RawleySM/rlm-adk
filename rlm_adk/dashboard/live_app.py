@@ -10,6 +10,7 @@ from rlm_adk.dashboard.components.live_context_viewer import render_live_context
 from rlm_adk.dashboard.components.live_invocation_tree import render_live_invocation_tree
 from rlm_adk.dashboard.live_controller import LiveDashboardController, LiveDashboardUI
 from rlm_adk.dashboard.live_loader import LiveDashboardLoader
+from rlm_adk.skills import selected_skill_summaries
 
 _LIVE_PAGE_CSS = """
 <style>
@@ -145,7 +146,7 @@ async def live_dashboard_page() -> None:
                     ui.label("RLM Live Recursive Dashboard").style(
                         "color: var(--text-0); font-size: 1.35rem; font-weight: 800;"
                     )
-                    ui.label("Context-only live view").style(
+                    ui.label("Live view plus replay launch controls").style(
                         "color: var(--text-1); font-size: 0.82rem;"
                     )
 
@@ -185,6 +186,7 @@ async def live_dashboard_page() -> None:
                 "border-radius: 16px; border: 1px solid var(--border-1); "
                 "background: rgba(26,35,56,0.52);"
             ):
+                _launch_panel(controller, live_ui)
                 _session_meta_row(
                     "User Query",
                     [
@@ -198,7 +200,7 @@ async def live_dashboard_page() -> None:
                     refresh_viewer=text_panel_body,
                 )
                 _session_meta_row(
-                    "Registered Skills",
+                    "Skills in Prompt",
                     [
                         (name, description, f"skill:{name}")
                         for name, description in session_summary.registered_skills
@@ -259,7 +261,7 @@ async def live_dashboard_page() -> None:
 
     async def _poll() -> None:
         changed = await controller.poll()
-        if changed:
+        if changed or controller.state.launch_in_progress or controller.state.launch_error:
             live_ui.refresh_all()
 
     ui.timer(0.25, _poll)
@@ -275,13 +277,106 @@ def _session_selector(controller: LiveDashboardController, live_ui: LiveDashboar
     if not sessions:
         ui.label("No sessions found").style("color: var(--text-1);")
         return
+    session_options = {
+        session_id: controller.state.available_session_labels.get(session_id, session_id)
+        for session_id in sessions
+    }
     ui.select(
-        options=sessions,
+        options=session_options,
         value=controller.state.selected_session_id,
         label="Session",
         on_change=on_session_change,
         with_input=True,
-    ).style("min-width: 16rem;")
+    ).style("min-width: 28rem;")
+
+
+def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
+    skill_options = [name for name, _ in selected_skill_summaries(None)]
+    replay_options = controller.state.available_replay_fixtures
+
+    async def on_launch() -> None:
+        await controller.launch_replay()
+        live_ui.refresh_all()
+
+    with ui.element("div").style(
+        "display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; "
+        "padding-bottom: 0.75rem; margin-bottom: 0.2rem; "
+        "border-bottom: 1px solid var(--border-1);"
+    ):
+        ui.label("Launch Replay").style(
+            "color: var(--text-0); font-size: 0.86rem; font-weight: 700; "
+            "text-transform: uppercase; letter-spacing: 0.06em;"
+        )
+        with ui.element("div").style(
+            "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; min-width: 0;"
+        ):
+            replay_select = ui.select(
+                options=replay_options,
+                value=controller.state.replay_path or None,
+                label="Replay fixture",
+                with_input=False,
+                on_change=lambda e: controller.set_replay_path(str(e.value or "")),
+            )
+            replay_select.style("flex: 2 1 24rem; min-width: 18rem;")
+            if not replay_options:
+                replay_select.disable()
+            ui.select(
+                options=skill_options,
+                value=controller.state.selected_skills,
+                label="Prompt-visible skills",
+                multiple=True,
+                with_input=False,
+                on_change=lambda e: controller.set_selected_skills(list(e.value or [])),
+            ).style("flex: 1 1 18rem; min-width: 16rem;")
+            launch_button = ui.button(
+                "Launching..." if controller.state.launch_in_progress else "Launch Replay",
+                on_click=on_launch,
+            )
+            launch_button.props("unelevated")
+            launch_button.style(
+                "height: 3.5rem; padding: 0 1.1rem; "
+                "background: var(--accent-root); color: #05111d; font-weight: 700;"
+            )
+            if not controller.state.replay_path:
+                launch_button.disable()
+        if not replay_options:
+            ui.label("No replay fixtures found under tests_rlm_adk/replay/.").style(
+                "color: var(--accent-warning); font-size: 0.82rem;"
+            )
+        with ui.element("div").style(
+            "display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem;"
+        ):
+            if controller.state.replay_path:
+                with ui.element("div").style(
+                    "display: inline-flex; align-items: center; min-width: 0; "
+                    "padding: 0.32rem 0.68rem; border-radius: 999px; "
+                    "border: 1px solid var(--border-1); "
+                    "background: rgba(87,199,255,0.12);"
+                ):
+                    ui.label(controller.state.replay_path).style(
+                        "color: var(--text-0); font-size: 0.78rem;"
+                    )
+        with ui.element("div").style(
+            "display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem;"
+        ):
+            for name, description in selected_skill_summaries(controller.state.selected_skills):
+                with ui.element("div").style(
+                    "display: inline-flex; align-items: center; min-width: 0; "
+                    "padding: 0.32rem 0.68rem; border-radius: 999px; "
+                    "border: 1px solid var(--border-1); "
+                    "background: rgba(230,237,247,0.06);"
+                ):
+                    ui.label(name).style(
+                        "color: var(--text-0); font-size: 0.78rem;"
+                    ).tooltip(description)
+        if controller.state.launched_session_id:
+            ui.label(f"Latest launched session: {controller.state.launched_session_id}").style(
+                "color: var(--text-1); font-size: 0.78rem;"
+            )
+        if controller.state.launch_error:
+            ui.label(controller.state.launch_error).style(
+                "color: var(--accent-child); font-size: 0.82rem;"
+            )
 
 
 def _toggle(label: str, value: bool, on_change) -> None:

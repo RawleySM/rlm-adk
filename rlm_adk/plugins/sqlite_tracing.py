@@ -97,7 +97,14 @@ def _categorize_key(key: str) -> str:
         return "obs_reasoning"
     if key.startswith("cache:"):
         return "cache"
-    if key in ("request_id", "idempotency_key", "repo_url", "root_prompt", "skill_instruction"):
+    if key in (
+        "request_id",
+        "idempotency_key",
+        "repo_url",
+        "root_prompt",
+        "skill_instruction",
+        "enabled_skills",
+    ):
         return "request_meta"
     return "other"
 
@@ -116,7 +123,12 @@ _CURATED_PREFIXES = (
 
 _CURATED_EXACT = {
     "iteration_count", "should_stop", "final_answer", "policy_violation",
-    "request_id", "idempotency_key", "repo_url", "root_prompt", "skill_instruction",
+    "request_id",
+    "idempotency_key",
+    "repo_url",
+    "root_prompt",
+    "skill_instruction",
+    "enabled_skills",
     "cache:hit_count", "cache:miss_count", "cache:last_hit_key",
     "worker_dispatch_count",
     REASONING_VISIBLE_OUTPUT_TEXT,

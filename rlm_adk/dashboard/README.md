@@ -28,6 +28,116 @@ launch_dashboard(host="0.0.0.0", port=8080, reload=False)
 | `port`    | `8080`    | Listen port                        |
 | `reload`  | `False`   | NiceGUI hot-reload (dev mode)      |
 
+## Managed Launchers
+
+Two launcher scripts now support the dashboard outside the bare
+`python -m rlm_adk.dashboard` path:
+
+- [`scripts/launch_dashboard_chrome.sh`](/home/rawley-stanhope/dev/rlm-adk/scripts/launch_dashboard_chrome.sh)
+  manages the dashboard server lifecycle, reuses matching instances, and
+  restarts stale `rlm_adk.dashboard` processes when the dashboard code
+  fingerprint changes.
+- [`scripts/launch_dashboard_playwright_chrome.py`](/home/rawley-stanhope/dev/rlm-adk/scripts/launch_dashboard_playwright_chrome.py)
+  launches the dashboard in a Playwright-controlled Chrome dev-mode browser
+  so agents can inspect and interact with the live UI.
+
+The managed shell launcher writes instance metadata to
+`rlm_adk/.adk/dashboard_instance.json` and uses
+`rlm_adk/plugins/dashboard_auto_launch.py` to compute the dashboard
+fingerprint and choose whether to reuse, restart, or skip a process.
+
+### Managed Shell Launcher
+
+Basic invocation:
+
+```bash
+scripts/launch_dashboard_chrome.sh
+```
+
+What it does:
+
+- Starts the dashboard if no reusable instance exists
+- Reuses the current managed dashboard if the fingerprint matches
+- Replaces a stale `rlm_adk.dashboard` listener without killing unrelated
+  services on the port
+- Opens Chrome in a new window when a GUI/browser is available
+- When `DASHBOARD_DEV=1` or `RLM_DASHBOARD_DEV=1`, opens the dashboard through
+  `scripts/launch_dashboard_playwright_chrome.py` instead of a regular Chrome window
+
+### Playwright Chrome Dev Mode
+
+The Playwright launcher assumes the dashboard is already reachable, then opens
+it in a persistent Chrome context using `channel="chrome"`.
+
+Basic invocation:
+
+```bash
+.venv/bin/python scripts/launch_dashboard_playwright_chrome.py
+```
+
+Print the resolved configuration without launching:
+
+```bash
+.venv/bin/python scripts/launch_dashboard_playwright_chrome.py --print-config
+```
+
+What it does:
+
+- Verifies the dashboard is reachable, by default at
+  `http://127.0.0.1:8080/live`
+- Copies the selected Chrome profile into
+  `rlm_adk/.adk/chrome-dev-profile`
+- Launches a persistent Chrome context with Playwright
+- Enables remote debugging, by default on port `9222`
+- Prints a JSON summary that includes the dev profile path and CDP websocket
+  endpoint so another agent or tool can attach
+
+### Playwright Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RLM_DASHBOARD_URL` | `http://127.0.0.1:8080/live` | Dashboard URL to open |
+| `RLM_PLAYWRIGHT_CHROME_SOURCE_ROOT` | platform default Chrome user-data root | Source Chrome profile root to copy |
+| `RLM_PLAYWRIGHT_CHROME_PROFILE_DIR` | `Default` | Profile directory inside the source root |
+| `RLM_PLAYWRIGHT_CHROME_DEV_ROOT` | `rlm_adk/.adk/chrome-dev-profile` | Destination dev-mode profile root |
+| `RLM_PLAYWRIGHT_CHROME_REMOTE_DEBUGGING_PORT` | `9222` | Remote debugging port exposed by Chrome |
+| `RLM_PLAYWRIGHT_CHROME_HEADLESS` | unset / false | Set to `1` for headless mode |
+| `RLM_PLAYWRIGHT_CHROME_REFRESH_PROFILE` | unset / false | Set to `1` to recopy profile data before launch |
+
+Default source-profile locations are:
+
+- Linux: `~/.config/google-chrome`
+- macOS: `~/Library/Application Support/Google/Chrome`
+- Windows: `%LOCALAPPDATA%/Google/Chrome/User Data`
+
+### Profile and Auth Behavior
+
+The Playwright launcher is designed to preserve your primary Chrome session:
+
+- It does not point Playwright directly at your live Chrome user-data dir
+- It copies `Local State` and the chosen profile into a dev root first
+- It skips lock/cache artifacts such as `Singleton*`, `LOCK`, and cache dirs
+
+This means the dev browser can usually inherit your Google auth on the same
+machine without locking or mutating your main Chrome profile.
+
+### Remote Debugging and Agent Interaction
+
+The Playwright launcher enables Chrome remote debugging so agents can inspect
+or interact with the live dashboard through the launched dev-mode browser.
+The script prints the resolved `cdp_ws_endpoint` when available, which makes it
+possible for a follow-on agent or tool to attach to the browser session.
+
+### Caveats
+
+- If your Chrome auth changed after the dev profile was first copied, rerun
+  with `RLM_PLAYWRIGHT_CHROME_REFRESH_PROFILE=1` to refresh the copied data.
+- Some Chrome secrets are backed by the OS keyring. On the same machine and
+  same user account this usually works, but a copied profile may still require
+  a refresh or a fresh login.
+- The Playwright launcher does not start the dashboard for you; use the managed
+  shell launcher or another dashboard start path first.
+
 ## Data Sources
 
 The dashboard reads two JSONL files from the project root:

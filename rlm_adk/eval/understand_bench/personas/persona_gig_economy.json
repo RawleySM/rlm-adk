@@ -1,0 +1,55 @@
+{
+  "persona_id": "gig_economy",
+  "persona_name": "The Gig Economy Family",
+  "difficulty_tier": "hard",
+  "base_identity": {
+    "name": "Rawley Stanhope",
+    "address": "11626 Bass Rd, Middleville, MI 49333",
+    "state": "Michigan"
+  },
+  "household": {
+    "filing_status": "Head of Household",
+    "dependents": [
+      {"name": "Chloe Stanhope", "relationship": "daughter", "age": 19, "ssn_last4": "2247", "notes": "Sophomore at University of Michigan, received merit scholarship"},
+      {"name": "Ethan Stanhope", "relationship": "son", "age": 12, "ssn_last4": "9933"}
+    ]
+  },
+  "income_sources": [
+    {
+      "type": "W-2",
+      "employer": "Middleville Community Center",
+      "ein": "38-6789012",
+      "wages": 28000.00,
+      "federal_withholding": 2520.00,
+      "state_withholding": 1120.00,
+      "description": "Part-time recreation coordinator"
+    },
+    {
+      "type": "1099-NEC",
+      "payer": "DoorDash",
+      "amount": 19500.00,
+      "description": "Food delivery"
+    },
+    {
+      "type": "1099-NEC",
+      "payer": "Upwork Global Inc.",
+      "amount": 15200.00,
+      "description": "Freelance web development"
+    },
+    {
+      "type": "1099-K",
+      "payer": "Etsy Inc.",
+      "amount": 8700.00,
+      "description": "Handmade crafts sales"
+    }
+  ],
+  "life_events": [
+    "Changed Marketplace health insurance plans mid-year (June 2025)",
+    "Daughter received $12,000 merit scholarship from U of M",
+    "Son attended after-school childcare program"
+  ],
+  "filing_complexity": "high",
+  "primary_gap_types": ["DOCUMENT", "THIRD_PARTY_RECORD", "CROSS_DOMAIN_LINK"],
+  "gap_rationale": "Multiple interacting gaps: (1) Two 1095-A forms needed for two coverage periods, (2) scholarship breakdown needed to determine taxable portion, (3) 1095-A reconciliation reveals APTC repayment.",
+  "exercise_categories": ["document", "third_party", "cross_domain"]
+}

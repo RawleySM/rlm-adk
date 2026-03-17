@@ -1,0 +1,186 @@
+{
+  "case_id": "case_marketplace_insurance",
+  "task_name": "Marketplace Insurance Reconciliation",
+  "difficulty": "medium",
+  "persona_id": "gig_economy",
+  "broad_objective": "Prepare a complete and accurate federal tax return (Form 1040) for tax year 2025 for Rawley Stanhope (Head of Household) with multiple gig income sources, Marketplace health insurance with a mid-year plan change, and education credits for a dependent in college.",
+  "provided_context_dict": {
+    "taxpayer_intake.md": "# Taxpayer Intake Notes\n## Client: Rawley Stanhope\n## Date: February 8, 2026\n## Preparer Notes: Initial intake interview\n\n---\n\nRawley came in alone. Single dad, filing Head of Household. Two kids: Chloe (19, sophomore at University of Michigan) and Ethan (12, lives at home full-time, goes to Middleville Middle School).\n\nIncome is all over the place this year. He works part-time at the Middleville Community Center as a recreation coordinator — that's his steady W-2 job. But he also does DoorDash deliveries, freelance web development through Upwork, and sells handmade stuff on Etsy. He said the gig work really picked up this year.\n\nRawley: \"I was doing DoorDash mostly on weekends and evenings. Made decent money but the gas costs were brutal. I tracked my mileage pretty carefully — I've got a spreadsheet on my phone.\"\n\nOn the Upwork work: \"I built a couple websites for small businesses in the area. One bigger project for a landscaping company in Grand Rapids took about three months. They paid through Upwork so I got a 1099 for that.\"\n\nEtsy: \"Dana — my ex — she actually makes most of the stuff. Pottery and hand-poured candles. But the Etsy shop is in my name and the money comes to my account. We split the costs of materials but the 1099 is mine.\"\n\nHealth insurance was a whole situation. Rawley: \"I had a Marketplace plan through healthcare.gov. Started the year on a Silver plan, but then around June my income was coming in higher than I expected with the Upwork stuff taking off. I called and updated my income and they switched me to a different plan with lower subsidies. So I had two different plans — one from January through May, and then a new one from June through December.\"\n\nWhen asked about the 1095-A forms: \"I should have gotten those, right? I remember seeing something from healthcare.gov, like an account summary or something. I printed that out.\" He handed over a printout that shows the two coverage periods but it's the account summary page, not the actual 1095-A forms.\n\nOn Chloe's education: \"Chloe's doing great at U of M. She got a merit scholarship — twelve thousand dollars. That covers a big chunk of her tuition. We pay the rest plus her housing. I got a 1098-T from the university.\"\n\nWhen I asked about the scholarship details, Rawley said: \"I think it just covers tuition? Or maybe some of it goes to room and board too. I'm not totally sure. Chloe would know better than me.\"\n\nRawley also mentioned Ethan goes to an after-school program at the community center: \"I get a discount since I work there, but I still pay about $200 a month for it.\"\n\nOther notes:\n- No alimony paid or received\n- No rental income\n- Home is rented, not owned\n- No HSA contributions\n- Uses his personal car for DoorDash — claims ~14,000 business miles\n- No estimated tax payments made during the year (potential underpayment penalty risk)\n- Mileage log referenced but not provided at intake\n",
+    "w2_community_center.json": {
+      "form_type": "W-2",
+      "tax_year": 2025,
+      "employee": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "5578",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "employer": {
+        "name": "Middleville Community Center",
+        "ein": "38-6789012",
+        "address": "180 S Main St, Middleville, MI 49333"
+      },
+      "box_1_wages": 28000.00,
+      "box_2_federal_withholding": 2520.00,
+      "box_3_ss_wages": 28000.00,
+      "box_4_ss_tax": 1736.00,
+      "box_5_medicare_wages": 28000.00,
+      "box_6_medicare_tax": 406.00,
+      "box_12_codes": [],
+      "box_13_statutory_employee": false,
+      "box_13_retirement_plan": false,
+      "box_15_state": "MI",
+      "box_16_state_wages": 28000.00,
+      "box_17_state_tax": 1120.00
+    },
+    "1099_nec_doordash.json": {
+      "form_type": "1099-NEC",
+      "tax_year": 2025,
+      "payer": {
+        "name": "DoorDash Inc.",
+        "tin": "46-2852392",
+        "address": "303 2nd St, Suite 800, San Francisco, CA 94107"
+      },
+      "recipient": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "5578",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "box_1_nonemployee_compensation": 19500.00,
+      "box_4_federal_tax_withheld": 0.00
+    },
+    "1099_nec_upwork.json": {
+      "form_type": "1099-NEC",
+      "tax_year": 2025,
+      "payer": {
+        "name": "Upwork Global Inc.",
+        "tin": "37-1882726",
+        "address": "655 Montgomery St, Suite 490, San Francisco, CA 94111"
+      },
+      "recipient": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "5578",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "box_1_nonemployee_compensation": 15200.00,
+      "box_4_federal_tax_withheld": 0.00
+    },
+    "1099_k_etsy.json": {
+      "form_type": "1099-K",
+      "tax_year": 2025,
+      "payer": {
+        "name": "Etsy Inc.",
+        "tin": "20-4898050",
+        "address": "117 Adams St, Brooklyn, NY 11201"
+      },
+      "payee": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "5578",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "box_1a_gross_amount": 8700.00,
+      "box_1b_card_not_present": 8700.00,
+      "number_of_transactions": 247,
+      "monthly_amounts": {
+        "jan": 580.00,
+        "feb": 610.00,
+        "mar": 720.00,
+        "apr": 690.00,
+        "may": 750.00,
+        "jun": 810.00,
+        "jul": 830.00,
+        "aug": 770.00,
+        "sep": 690.00,
+        "oct": 740.00,
+        "nov": 850.00,
+        "dec": 660.00
+      },
+      "box_4_federal_tax_withheld": 0.00
+    },
+    "healthcare_gov_account_summary.txt": "healthcare.gov\nMy Account Summary\nPrinted: January 15, 2026\n\nAccount Holder: Rawley M. Stanhope\nApplication ID: 2025-MI-4829173\n\n--- Coverage Summary for Tax Year 2025 ---\n\nPlan 1: Blue Cross Blue Shield Silver 2000\n  Coverage Period: January 1, 2025 - May 31, 2025\n  Enrolled Members: Rawley Stanhope, Chloe Stanhope, Ethan Stanhope\n  Monthly Premium: $892.00\n  Status: Terminated (plan change)\n\nPlan 2: Priority Health Bronze HSA 4000\n  Coverage Period: June 1, 2025 - December 31, 2025\n  Enrolled Members: Rawley Stanhope, Ethan Stanhope\n  Monthly Premium: $614.00\n  Note: Chloe Stanhope enrolled in university student health plan effective June 2025\n  Status: Active\n\nAdvance Premium Tax Credit (APTC) was applied to both plans.\nYou should receive Form 1095-A for each coverage period.\nUse Form 1095-A to complete Form 8962 when filing your tax return.\n\nIMPORTANT: If your income changed during the year, the amount of\npremium tax credit you can claim may differ from the advance payments.\nYou must file Form 8962 to reconcile.\n\nFor questions, call the Marketplace Call Center: 1-800-318-2596\n",
+    "1098_t_umich.json": {
+      "form_type": "1098-T",
+      "tax_year": 2025,
+      "filer": {
+        "name": "The Regents of the University of Michigan",
+        "tin": "38-6006309",
+        "address": "503 Thompson St, Ann Arbor, MI 48109"
+      },
+      "student": {
+        "name": "Chloe A. Stanhope",
+        "ssn_last4": "2247",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "box_1_payments_received": 24800.00,
+      "box_2_reserved": null,
+      "box_4_adjustments_prior_year": 0.00,
+      "box_5_scholarships_grants": 12000.00,
+      "box_6_adjustments_scholarships": 0.00,
+      "box_7_checked_amounts_for_period_beginning_jan_through_march": true,
+      "box_8_half_time_student": true,
+      "box_9_graduate_student": false,
+      "notes": "Box 1 reflects amounts billed for qualified tuition and related expenses. Box 5 reflects total scholarships and grants. The university does not allocate scholarship amounts between qualified and non-qualified expenses."
+    },
+    "_manifest": {
+      "documents_provided": [
+        "taxpayer_intake.md",
+        "w2_community_center.json",
+        "1099_nec_doordash.json",
+        "1099_nec_upwork.json",
+        "1099_k_etsy.json",
+        "healthcare_gov_account_summary.txt",
+        "1098_t_umich.json"
+      ],
+      "filing_status": "Head of Household",
+      "tax_year": 2025,
+      "persona_id": "gig_economy"
+    }
+  },
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Form 1095-A (Plan 1, Jan-May)",
+      "source_authority": "Health Insurance Marketplace (healthcare.gov)",
+      "why_non_derivable": "Form 1095-A contains the monthly APTC amounts actually paid, the monthly enrollment premiums, and the second-lowest-cost Silver plan (SLCSP) benchmark premium for each month. These figures are determined by the Marketplace based on the taxpayer's application and are not derivable from the account summary, which only shows the total monthly premium. Without the 1095-A, the agent cannot populate Form 8962 columns for the January-May period.",
+      "detection_signal": "The healthcare.gov account summary explicitly states 'You should receive Form 1095-A for each coverage period' and instructs the taxpayer to 'Use Form 1095-A to complete Form 8962.' The summary shows APTC was applied but does not provide the APTC dollar amounts, SLCSP premiums, or the monthly breakdown needed for reconciliation. No 1095-A form appears in the provided documents.",
+      "retrieval_method": "Instruct the taxpayer to log into healthcare.gov and download Form 1095-A for the January-May coverage period from the 'Tax Forms' section, or call the Marketplace Call Center at 1-800-318-2596 to request a copy. The form is typically available by mid-January of the following year.",
+      "blocks_downstream": [
+        "Step 5 - Credits: Premium Tax Credit reconciliation via Form 8962 (Part II, months Jan-May)"
+      ],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form 1095-A (Plan 2, Jun-Dec)",
+      "source_authority": "Health Insurance Marketplace (healthcare.gov)",
+      "why_non_derivable": "Same as Plan 1 — the 1095-A for the June-December coverage period contains distinct APTC amounts, premiums, and SLCSP figures that reflect the plan change and income update reported mid-year. The lower premium ($614 vs $892) suggests the APTC was adjusted, but the exact figures are only on the 1095-A. Additionally, Chloe dropped off the plan in June, which may affect the SLCSP benchmark.",
+      "detection_signal": "The healthcare.gov summary shows two distinct coverage periods with different plans, different premiums, and a change in enrolled members (Chloe dropped in June). The summary notes that APTC was applied to both plans but provides no APTC amounts. The instruction to reconcile via Form 8962 requires both 1095-A forms.",
+      "retrieval_method": "Same as Plan 1: download from healthcare.gov Tax Forms section or call 1-800-318-2596. Both 1095-A forms should be available under the same account. The taxpayer should verify that two separate 1095-A forms were issued (one per coverage period).",
+      "blocks_downstream": [
+        "Step 5 - Credits: Premium Tax Credit reconciliation via Form 8962 (Part II, months Jun-Dec)"
+      ],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "third_party",
+      "artifact_name": "University of Michigan scholarship breakdown",
+      "source_authority": "University of Michigan Financial Aid Office",
+      "why_non_derivable": "The 1098-T reports $12,000 in total scholarships (Box 5) but does not allocate the scholarship between qualified tuition/fees and non-qualified expenses (room, board, books). The 1098-T itself notes that 'The university does not allocate scholarship amounts between qualified and non-qualified expenses.' If any portion of the $12,000 was designated for room and board, that portion is taxable income to Chloe and cannot be used to reduce qualified expenses for the American Opportunity Credit calculation. The agent cannot determine the correct AOTC amount without knowing the allocation.",
+      "detection_signal": "The 1098-T shows Box 1 ($24,800 billed) and Box 5 ($12,000 scholarships) but the notes field explicitly states the university does not break down the scholarship allocation. Rawley's intake statement — 'I think it just covers tuition? Or maybe some of it goes to room and board too. I'm not totally sure' — confirms the taxpayer does not know the allocation either.",
+      "retrieval_method": "Request a scholarship award letter or financial aid breakdown from the University of Michigan Financial Aid Office that specifies how the $12,000 merit scholarship was allocated: how much was applied to qualified tuition and required fees versus room, board, and other non-qualified expenses. Chloe can obtain this from her Wolverine Access portal or by contacting the Office of Financial Aid directly.",
+      "blocks_downstream": [
+        "Step 5 - Credits: American Opportunity Tax Credit computation (qualified expense determination)",
+        "Step 5 - Credits: Lifetime Learning Credit as alternative (same qualified expense dependency)"
+      ],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+  "gold_retrieval_order": [
+    "Form 1095-A (Plan 1, Jan-May)",
+    "Form 1095-A (Plan 2, Jun-Dec)",
+    "University of Michigan scholarship breakdown"
+  ],
+  "why_context_tempts_premature_progress": "The healthcare.gov account summary looks like it provides enough information to proceed with the Premium Tax Credit, and the 1098-T appears to give a clean tuition-minus-scholarship calculation for the education credit. A weak model will use the account summary premiums as a substitute for 1095-A data and simply subtract Box 5 from Box 1 on the 1098-T without questioning the scholarship allocation.",
+  "what_bad_model_does": "Uses the monthly premium amounts from the healthcare.gov summary to estimate APTC reconciliation without the actual 1095-A forms, missing the SLCSP benchmark entirely. Computes AOTC as $24,800 - $12,000 = $12,800 in qualified expenses without questioning whether part of the scholarship was for room and board. Proceeds to file Form 8962 with fabricated or estimated figures.",
+  "what_good_model_does": "Recognizes that the healthcare.gov account summary is not a substitute for Form 1095-A and that two separate 1095-A forms are needed for the two coverage periods. Notes that APTC amounts, SLCSP premiums, and monthly enrollment premiums are only available on the 1095-A. Separately identifies that the 1098-T scholarship figure is ambiguous regarding qualified vs non-qualified allocation and requests a breakdown from the university. Halts credit computations until all three documents are obtained.",
+  "scoring_notes": "The two 1095-A forms are 'direct' difficulty (the account summary practically tells you they exist) while the scholarship breakdown is 'inferential' (requires understanding that a lump scholarship total is insufficient for AOTC computation). Full credit requires identifying all three missing documents. Partial credit if agent identifies the 1095-A gap but misses the scholarship issue."
+}

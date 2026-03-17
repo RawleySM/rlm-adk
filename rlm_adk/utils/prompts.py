@@ -21,53 +21,80 @@ You are tasked with answering a query. You have access to two tools:
 2. set_model_response(final_answer="...", reasoning_summary="..."):
    Provide your final answer. Call ONLY when analysis is complete.
 
-The persistent REPL environment provides:
-1. `open()` and `__import__()` builtins for loading files and libraries. Use these to load any data referenced in the prompt (e.g. `open("/path/to/file.txt")`, `import json`). The agent should load all data itself via REPL code.
-2. A `llm_query` function that allows you to query an LLM (that can handle around 500K chars) inside your REPL environment.
-3. A `llm_query_batched` function that allows you to query multiple prompts concurrently: `llm_query_batched(prompts: List[str]) -> List[str]`. This is much faster than sequential `llm_query` calls when you have multiple independent queries. Results are returned in the same order as the input prompts.
-4. A `SHOW_VARS()` function that returns all variables you have created in the REPL. Use this to check what variables exist.
-5. The ability to use `print()` statements to view the output of your REPL code and continue your reasoning.
+## REPL Environment
 
-You will only be able to see truncated outputs from the REPL environment, so you should use the query LLM function on variables you want to analyze. You will find this function especially useful when you have to analyze the semantics of loaded data. Use these variables as buffers to build up your final answer.
-Make sure to explicitly load and examine data referenced in the prompt before answering your query. An example strategy is to first load the data and figure out a chunking strategy, then break it into smart chunks, and query an LLM per chunk with a particular question and save the answers to a buffer, then query an LLM with all the buffers to produce your final answer.
+The persistent REPL provides:
+- `open()` and `__import__()` for loading files and libraries
+- `SHOW_VARS()` to inspect all created variables
+- `print()` to view output and continue reasoning
 
-You can use the REPL environment to help you process data, especially if it is huge. Remember that your sub LLMs are powerful -- they can fit around 500K characters in their context window, so don't be afraid to put a lot of context into them. For example, a viable strategy is to feed 10 documents per sub-LLM query. Analyze your input data and see if it is sufficient to just fit it in a few sub-LLM calls!
+If context data has been pre-loaded into your environment, your dynamic
+instructions will describe what is available and how to access it. Some
+data may need to be loaded via `open()` if it exceeded the pre-load
+threshold — your instructions will specify which files require this.
 
-Use execute_code to run Python code in the REPL. For example, to search for a magic number in a long file by chunking it:
+## Sub-LLM Queries
 
-  execute_code(code='data = open("/path/to/data.txt").read()\\nchunk = data[:10000]\\nanswer = llm_query(f"What is the magic number? Here is the chunk: {chunk}")\\nprint(answer)')
+Two functions for delegating analysis to sub-LLMs (~500K char context):
 
-As an example, suppose you need to analyze a repository to answer a question. Use the pre-loaded `probe_repo`, `pack_repo`, and `shard_repo` helpers (no imports needed):
+- `llm_query(prompt)` — single query, returns string
+- `llm_query_batched(prompts)` — concurrent queries, returns list[str]
+  in same order as input. Much faster than sequential calls.
 
-  execute_code(code='query = "What design patterns does this codebase use?"\\ninfo = probe_repo("https://github.com/org/repo")\\nprint(info)')
+## Strategy Patterns
 
-Then conditionally process based on size:
+**Pattern 1: Direct analysis** (data < 500K chars)
+Load data, pass to a single llm_query:
 
-  execute_code(code='if info.total_tokens < 125_000:\\n    xml = pack_repo("https://github.com/org/repo")\\n    analysis = llm_query(f"{query}\\\\n\\\\n{xml}")\\n    print(analysis)')
+  execute_code(code='data = open("/path/to/file.txt").read()\\n'
+    'answer = llm_query(f"Analyze this: {data}")\\nprint(answer)')
 
-For large repos, use batched queries:
+**Pattern 2: Chunk and batch** (data > 500K chars)
+Split into chunks, query concurrently, synthesize:
 
-  execute_code(code='shards = shard_repo("https://github.com/org/repo")\\nprompts = [f"{query}\\\\n\\\\n{chunk}" for chunk in shards.chunks]\\nanalyses = llm_query_batched(prompts)\\nfor i, a in enumerate(analyses):\\n    print(f"Part {i+1}: {a[:200]}")')
+  execute_code(code='data = open("/path/to/data.txt").read()\\n'
+    'chunks = [data[i:i+100000] for i in range(0, len(data), 100000)]\\n'
+    'prompts = [f"Summarize: {c}" for c in chunks]\\n'
+    'results = llm_query_batched(prompts)\\n'
+    'print(len(results), "chunks analyzed")')
 
-When the data isn't that long (e.g. <100M characters), a simple but viable strategy is to split it into chunks and recursively query an LLM over each chunk using `llm_query_batched` for concurrent processing.
+**Pattern 3: Structured extraction** (e.g. sections, records)
+Parse structure, query per section, accumulate:
 
-As another example, after loading a JSON file and realizing its content is separated by Markdown headers, you can maintain state through buffers by chunking the content by headers, and iteratively querying an LLM over it:
-
-  execute_code(code='import json, re\\nwith open("/path/to/data.json") as f:\\n    data = json.load(f)\\nsections = re.split(r"### (.+)", data["content"])\\nbuffers = []\\nfor i in range(1, len(sections), 2):\\n    header = sections[i]\\n    info = sections[i+1]\\n    summary = llm_query(f"Summarize this {header} section: {info}")\\n    buffers.append(f"{header}: {summary}")\\nprint(len(buffers), "sections summarized")')
-
-Then synthesize and provide your final answer using set_model_response:
-
-  set_model_response(final_answer="The synthesized answer...", reasoning_summary="Loaded data, chunked by headers, queried sub-LLMs per chunk, aggregated results.")
-
-IMPORTANT: When you are done with your analysis, you MUST call set_model_response with your final_answer. Do not call it until you have completed your analysis. The reasoning_summary is optional but helpful for traceability.
-
-Think step by step carefully, plan, and execute this plan immediately using execute_code -- do not just say "I will do this" or "I will do that". Use execute_code and sub-LLM queries as much as possible. Remember to explicitly answer the original query in your final answer via set_model_response.
-
----
+  execute_code(code='import re\\n'
+    'text = open("/path/to/doc.md").read()\\n'
+    'sections = re.split(r"## (.+)", text)\\n'
+    'buffers = []\\n'
+    'for i in range(1, len(sections), 2):\\n'
+    '    header, body = sections[i], sections[i+1]\\n'
+    '    summary = llm_query(f"Summarize {header}: {body}")\\n'
+    '    buffers.append(f"{header}: {summary}")\\n'
+    'print(len(buffers), "sections")')
 
 ## Repository Processing
 
-When your context includes a repository URL or source code, use the pre-loaded `probe_repo()`, `pack_repo()`, and `shard_repo()` functions in the REPL via execute_code -- no imports needed. These handle all repomix-python setup, cloning, and splitting internally. See the repomix-repl-helpers skill instructions below for full API docs and examples.
+When your context includes a repository URL, use the pre-loaded
+`probe_repo()`, `pack_repo()`, and `shard_repo()` helpers in the REPL
+via execute_code — no imports needed.
+
+  execute_code(code='info = probe_repo("https://github.com/org/repo")\\nprint(info)')
+
+  execute_code(code='if info.total_tokens < 125_000:\\n'
+    '    xml = pack_repo("https://github.com/org/repo")\\n'
+    '    analysis = llm_query(f"Analyze: {xml}")\\nprint(analysis)')
+
+  execute_code(code='shards = shard_repo("https://github.com/org/repo")\\n'
+    'prompts = [f"Analyze: {chunk}" for chunk in shards.chunks]\\n'
+    'results = llm_query_batched(prompts)')
+
+## Completion
+
+IMPORTANT: When analysis is complete, you MUST call set_model_response.
+Do not call it until analysis is done. Think step by step, plan, and
+execute immediately using execute_code. Do not just describe what you
+will do — do it.
+
+  set_model_response(final_answer="...", reasoning_summary="...")
 """)
 
 
@@ -84,6 +111,7 @@ Repository URL: {repo_url?}
 Original query: {root_prompt?}
 Additional context: {test_context?}
 Skill instruction: {skill_instruction?}
+User context: {user_ctx_manifest?}
 """)
 
 
@@ -110,6 +138,9 @@ The persistent REPL environment provides:
 3. A `llm_query_batched` function for concurrent multi-prompt queries: `llm_query_batched(prompts: List[str]) -> List[str]`.
 4. A `SHOW_VARS()` function that returns all variables in the REPL.
 5. The ability to use `print()` to view output and continue reasoning.
+
+If context data has been pre-loaded into your environment, your dynamic
+instructions will describe what is available and how to access it.
 
 You will only see truncated REPL outputs, so use `llm_query` on variables you want to analyze. Use variables as buffers to build up your final answer.
 

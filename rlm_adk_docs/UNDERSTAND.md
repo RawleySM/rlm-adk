@@ -34,12 +34,14 @@
 
 ## Core Loop
 
+**Primary entrypoint: `adk run rlm_adk`** (ADK CLI). The CLI auto-discovers `rlm_adk/services.py`, which registers custom service factories so the CLI-created Runner gets WAL-pragma'd sessions and file artifacts with zero flags. All other entrypoints are for programmatic or testing use.
+
 | Command | Entry | What It Does |
 |---------|-------|-------------|
-| `adk run rlm_adk` | CLI | Interactive agent session — `services.py` overrides built-in `sqlite://` and `file://` schemes so WAL-pragma'd sessions and file artifacts work automatically |
-| `adk web rlm_adk` | Web UI | Browser-based session |
-| `create_rlm_runner(model)` | `rlm_adk/agent.py` | Programmatic Runner with services + plugins |
-| `create_rlm_app(model)` | `rlm_adk/agent.py` | App wrapper (no session/artifact service) |
+| **`adk run rlm_adk`** | **CLI (primary)** | Interactive agent session — `services.py` overrides built-in `sqlite://` and `file://` schemes so all services are wired automatically |
+| `adk web rlm_adk` | Web UI | Browser-based session (same service wiring as CLI) |
+| `create_rlm_runner(model)` | `rlm_adk/agent.py` | Programmatic Runner for tests and scripts — wires its own services independently of CLI |
+| `create_rlm_app(model)` | `rlm_adk/agent.py` | App wrapper (no session/artifact service — services come from CLI or `create_rlm_runner`) |
 
 ```
 RLMOrchestratorAgent (BaseAgent)

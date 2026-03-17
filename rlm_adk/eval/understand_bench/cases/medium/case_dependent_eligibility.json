@@ -1,0 +1,146 @@
+{
+  "case_id": "case_dependent_eligibility",
+  "task_name": "Dependent Eligibility Gap",
+  "difficulty": "medium",
+  "persona_id": "blended_family",
+  "broad_objective": "Prepare a complete and accurate federal tax return (Form 1040) for tax year 2025 for Rawley and Dana Stanhope (Married Filing Jointly) with three claimed dependents, including nephew Marcus who moved into the household mid-year.",
+  "provided_context_dict": {
+    "taxpayer_intake.md": "# Taxpayer Intake Notes\n## Client: Rawley & Dana Stanhope\n## Date: February 12, 2026\n## Preparer Notes: Initial intake interview\n\n---\n\nRawley and Dana came in together. Married, filing jointly as usual. They live at 11626 Bass Rd in Middleville. Rawley works for Barry County Schools as an IT administrator, Dana is over at Spectrum Health doing medical records.\n\nThey have two kids of their own — Liam, who's 8, and Sophie, who just turned 5 in November. Both kids live at home full-time, attend Middleville schools.\n\nThe big change this year is Marcus. He's Dana's nephew — her sister Tanya's boy. Tanya is in the Army and she got deployed overseas around March. Dana says it was \"around March, maybe the second or third week\" when Tanya shipped out. Marcus had been living with Tanya in Grand Rapids up until then.\n\nOnce Tanya deployed, Marcus came to stay with Rawley and Dana. Dana mentioned: \"He showed up with two suitcases and his Xbox. We got him enrolled at Middleville Middle School right away. He started there mid-March.\"\n\nRawley added: \"We've been covering everything for him — food, clothes, school supplies, his phone bill. Tanya sends a little money when she can but honestly most months it's been us paying for everything. He's a good kid, no trouble at all.\"\n\nDana said Marcus is 14 and has been going to school here ever since he moved in. He's on their car insurance now too. They mentioned he plays basketball for the school team and they've been driving him to practices and games.\n\nWhen asked about whether Marcus will continue living with them, Dana said: \"Tanya's deployment is supposed to end sometime next summer, maybe July or August 2026. So he'll probably go back then. But right now this is his home.\"\n\nRawley asked about claiming Marcus as a dependent: \"We figured since he's living with us and we're paying for everything, we should be able to claim him, right? That would help with the tax credit.\"\n\nI explained we'd need to verify the specific requirements. They seemed confident it should work out.\n\nOther notes:\n- No significant medical expenses mentioned\n- Standard deduction expected (no itemizing)\n- Both W-2 employees, no self-employment income\n- No retirement distributions\n- No investment income mentioned\n- Rawley's withholding may be slightly low based on quick review\n- They did not bring any formal documentation about Marcus's living arrangement\n- No power of attorney or guardianship paperwork was mentioned\n",
+    "w2_rawley_barry_county.json": {
+      "form_type": "W-2",
+      "tax_year": 2025,
+      "employee": {
+        "name": "Rawley M. Stanhope",
+        "ssn_last4": "5578",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "employer": {
+        "name": "Barry County Intermediate School District",
+        "ein": "38-2345678",
+        "address": "535 W Woodlawn Ave, Hastings, MI 49058"
+      },
+      "box_1_wages": 52000.00,
+      "box_2_federal_withholding": 5980.00,
+      "box_3_ss_wages": 52000.00,
+      "box_4_ss_tax": 3224.00,
+      "box_5_medicare_wages": 52000.00,
+      "box_6_medicare_tax": 754.00,
+      "box_12_codes": [
+        {"code": "DD", "amount": 6200.00}
+      ],
+      "box_13_statutory_employee": false,
+      "box_13_retirement_plan": true,
+      "box_15_state": "MI",
+      "box_16_state_wages": 52000.00,
+      "box_17_state_tax": 2080.00
+    },
+    "w2_dana_spectrum.json": {
+      "form_type": "W-2",
+      "tax_year": 2025,
+      "employee": {
+        "name": "Dana R. Ellsworth-Stanhope",
+        "ssn_last4": "4821",
+        "address": "11626 Bass Rd, Middleville, MI 49333"
+      },
+      "employer": {
+        "name": "Spectrum Health System",
+        "ein": "38-3456789",
+        "address": "100 Michigan St NE, Grand Rapids, MI 49503"
+      },
+      "box_1_wages": 44000.00,
+      "box_2_federal_withholding": 4840.00,
+      "box_3_ss_wages": 44000.00,
+      "box_4_ss_tax": 2728.00,
+      "box_5_medicare_wages": 44000.00,
+      "box_6_medicare_tax": 638.00,
+      "box_12_codes": [
+        {"code": "DD", "amount": 8400.00}
+      ],
+      "box_13_statutory_employee": false,
+      "box_13_retirement_plan": true,
+      "box_15_state": "MI",
+      "box_16_state_wages": 44000.00,
+      "box_17_state_tax": 1760.00
+    },
+    "dependent_info.json": {
+      "dependents": [
+        {
+          "name": "Liam A. Stanhope",
+          "date_of_birth": "2017-04-22",
+          "ssn_last4": "3392",
+          "relationship": "son",
+          "lived_with_taxpayer_all_year": true,
+          "is_student": true,
+          "school": "Middleville Elementary"
+        },
+        {
+          "name": "Sophie M. Stanhope",
+          "date_of_birth": "2020-11-08",
+          "ssn_last4": "7714",
+          "relationship": "daughter",
+          "lived_with_taxpayer_all_year": true,
+          "is_student": false,
+          "school": null
+        },
+        {
+          "name": "Marcus D. Ellsworth",
+          "date_of_birth": "2011-09-03",
+          "ssn_last4": "6109",
+          "relationship": "nephew",
+          "lived_with_taxpayer_all_year": false,
+          "is_student": true,
+          "school": "Middleville Middle School"
+        }
+      ]
+    },
+    "school_enrollment.pdf_text": "MIDDLEVILLE COMMUNITY SCHOOLS\nMiddleville Middle School\n221 W Main St, Middleville, MI 49333\nPhone: (269) 795-5643\n\n--- ENROLLMENT CONFIRMATION ---\n\nStudent Name: Marcus D. Ellsworth\nDate of Birth: September 3, 2011\nGrade: 8th\nEnrollment Date: March 15, 2025\nPrevious School: Congress Elementary/Middle, Grand Rapids, MI\n\nParent/Guardian on File: Dana Ellsworth-Stanhope (Aunt)\nEmergency Contact: Rawley Stanhope\nAddress on File: 11626 Bass Rd, Middleville, MI 49333\n\nImmunization records transferred: Yes\nTranscript received: Yes\n\nThis document confirms the enrollment of the above-named student\nat Middleville Middle School effective the date listed above.\n\nGenerated: January 28, 2026\nMiddleville Community Schools Student Records Office\n",
+    "_manifest": {
+      "documents_provided": [
+        "taxpayer_intake.md",
+        "w2_rawley_barry_county.json",
+        "w2_dana_spectrum.json",
+        "dependent_info.json",
+        "school_enrollment.pdf_text"
+      ],
+      "filing_status": "Married Filing Jointly",
+      "tax_year": 2025,
+      "persona_id": "blended_family"
+    }
+  },
+  "missing_artifacts": [
+    {
+      "category": "user_attestation",
+      "artifact_name": "Dependent residency calendar for Marcus",
+      "source_authority": "Taxpayer attestation with specific dates",
+      "why_non_derivable": "The IRS qualifying child test requires the dependent to have lived with the taxpayer for more than half the year (over 6 months). The intake notes say 'around March' and the school enrollment shows March 15. From March 15 to December 31 is approximately 9.5 months, which likely satisfies the test — but the agent cannot confirm the exact move-in date, whether there were any gaps in residency (e.g., summer visits to other relatives), or whether Marcus maintained a primary residence elsewhere. Only a taxpayer-attested residency calendar with specific dates can establish this.",
+      "detection_signal": "The intake notes say Marcus moved in 'around March' — the vagueness of this date is the key signal. The dependent_info.json shows lived_with_taxpayer_all_year is false. The school enrollment confirms March 15 enrollment but school enrollment is not equivalent to household residency.",
+      "retrieval_method": "Request a signed taxpayer statement specifying: (1) the exact date Marcus moved into the household, (2) confirmation he resided there continuously through December 31, 2025, (3) any periods he was temporarily absent (camps, visits to other family). This attestation should be on record in case of IRS inquiry.",
+      "blocks_downstream": [
+        "Step 5 - Credits: Child Tax Credit eligibility for Marcus",
+        "Step 5 - Credits: Dependency exemption / qualifying child determination"
+      ],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "user_attestation",
+      "artifact_name": "Support attestation for Marcus",
+      "source_authority": "Taxpayer attestation with financial details",
+      "why_non_derivable": "The intake notes mention 'we've been covering everything for him' and that Tanya 'sends a little money when she can,' but there is no documentation of actual support amounts. For a qualifying child under IRC 152(c), the child must not have provided more than half of their own support. For a qualifying relative under IRC 152(d), the taxpayer must provide more than half. Without a support worksheet documenting actual costs (housing, food, clothing, medical, education) and all sources of support (taxpayers, Tanya's contributions, any government benefits), the dependency claim cannot be substantiated.",
+      "detection_signal": "Rawley's statement 'we've been covering everything for him' and 'Tanya sends a little money when she can' are informal characterizations, not financial records. There are no receipts, bank statements, or support worksheets in the provided documents. The IRS Support Test requires actual figures, not narrative impressions.",
+      "retrieval_method": "Request a completed IRS-style support worksheet (Publication 501, Worksheet 2) documenting: (1) total support costs for Marcus in 2025 (lodging fair market value, food, clothing, education, medical, recreation), (2) amounts provided by Rawley and Dana, (3) amounts provided by Tanya, (4) any amounts from Marcus's own funds or government programs. Both Rawley/Dana and Tanya should attest to the figures.",
+      "blocks_downstream": [
+        "Step 5 - Credits: Child Tax Credit eligibility for Marcus",
+        "Step 5 - Credits: Dependency exemption / support test"
+      ],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+  "gold_retrieval_order": [
+    "Dependent residency calendar for Marcus",
+    "Support attestation for Marcus"
+  ],
+  "why_context_tempts_premature_progress": "The warm family narrative and school enrollment record make it feel obvious that Marcus qualifies as a dependent. A weak model won't realize that the IRS requires specific documentation of residency duration and financial support.",
+  "what_bad_model_does": "Assumes Marcus qualifies as a dependent based on the emotional family narrative and school enrollment alone. Proceeds directly to computing Child Tax Credit for three dependents without requesting residency or support documentation. May cite the school enrollment as 'proof' of residency.",
+  "what_good_model_does": "Recognizes that 'around March' is not a precise date and that school enrollment does not equal household residency. Identifies the need for a formal residency attestation with specific dates. Also recognizes that informal statements about covering expenses do not satisfy the IRS support test, and requests a support worksheet with actual figures. Flags both gaps before attempting to compute credits for Marcus.",
+  "scoring_notes": "Both missing artifacts are USER_ATTESTATION category with 'inferential' difficulty. The school enrollment is a deliberate red herring — it provides an official-looking document that appears to confirm residency but does not actually satisfy IRS requirements. Full credit requires identifying both the residency gap AND the support gap independently."
+}

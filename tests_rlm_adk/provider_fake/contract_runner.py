@@ -132,6 +132,10 @@ def _restore_env(saved: dict[str, str | None]) -> None:
 
 def _set_env(base_url: str, router: ScenarioRouter) -> None:
     """Set env vars to redirect SDK traffic to the fake server."""
+    # Disable LiteLLM so requests hit the Gemini fake server directly
+    os.environ.pop("RLM_ADK_LITELLM", None)
+    os.environ.pop("OPENAI_API_KEY", None)
+    os.environ.pop("OPENAI_API_BASE", None)
     os.environ["GOOGLE_GEMINI_BASE_URL"] = base_url
     os.environ["GEMINI_API_KEY"] = "fake-key-for-testing"
     os.environ.pop("GOOGLE_API_KEY", None)
