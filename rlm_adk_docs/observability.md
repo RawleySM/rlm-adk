@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-17 -->
+<!-- validated: 2026-03-18 -->
 
 # Observability and Plugin Reference
 
@@ -354,6 +354,60 @@ server exceptions lack the `.code` attribute.
 
 ---
 
+## 8.1 Per-Iteration vs Cumulative Dispatch Keys
+
+The dispatch keys written by `flush_fn()` in the worker obs path above come in two
+flavors: **per-iteration** and **cumulative**.
+
+### Per-iteration keys (reset each turn)
+
+After `flush_fn()` snapshots accumulators into `tool_context.state`, it resets them
+to zero. This means per-iteration keys reflect only the current REPL turn's dispatch
+activity. On a turn with no child dispatches, `obs:child_dispatch_count` is 0.
+
+### Cumulative keys (never reset)
+
+`flush_fn()` also maintains cumulative counterparts that add each turn's values to a
+running total. These are monotonically non-decreasing and never reset, providing a
+stable view across the entire session.
+
+### Mapping
+
+| Per-Iteration (resets each turn) | Cumulative (never resets) |
+|---|---|
+| `obs:child_dispatch_count` | `obs:child_dispatch_count_total` |
+| `obs:child_total_batch_dispatches` | `obs:child_batch_dispatches_total` |
+| `obs:child_error_counts` | `obs:child_error_counts_total` |
+| `obs:structured_output_failures` | `obs:structured_output_failures_total` |
+
+### Why cumulative keys exist
+
+The `_rlm_state` read-only snapshot is built **before** code execution in REPLTool
+(so that user code can inspect dispatch metrics from previous turns). Per-iteration
+keys oscillate: e.g. `obs:child_dispatch_count` follows 1 -> 0 -> 1 -> 0 when one
+child is dispatched per turn. This makes them unreliable for answering "how many total
+dispatches?" from within REPL code.
+
+Cumulative keys provide a stable, monotonically increasing view:
+`obs:child_dispatch_count_total` shows 0 -> 1 -> 1 -> 2 -> 2 for the same session.
+They are seeded to zero in the orchestrator's `initial_state` on turn 1, so they are
+**never absent** from session state.
+
+### Cumulative latency excluded
+
+`obs:child_dispatch_latency_ms` has no cumulative counterpart. Latency lists grow
+without bound and have no meaningful scalar sum, so accumulating them session-wide
+would produce unbounded memory growth.
+
+### Impact on SqliteTracingPlugin
+
+Both per-iteration and cumulative keys flow through `on_event_callback` and land in
+`session_state_events` rows. Cumulative keys appear as `key_category = "obs_dispatch"`
+with the `_total` suffix, enabling dashboard queries to read either the per-turn
+deltas or the running totals.
+
+---
+
 ## 9. Skill Expansion Observability Keys
 
 **Written by:** `REPLTool.run_async()` in `rlm_adk/tools/repl_tool.py`
@@ -494,6 +548,7 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 - **2026-03-12 16:05** — `sqlite_tracing.py`: Added `skill_instruction` column to telemetry table, captured from `DYN_SKILL_INSTRUCTION` state key at `before_model_callback`.
 - **2026-03-17 09:15** — `reasoning.py`: Removed 3 dead state writes (`REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`) — written but never read by any plugin or consumer.
 - **2026-03-17 13:48** — `sqlite_tracing.py`: Plugin updates merged with accumulated feature work.
+- **2026-03-18 00:00** — `observability.md`: Added section 8.1 "Per-Iteration vs Cumulative Dispatch Keys" documenting cumulative counters (`obs:*_total`), mapping table, `_rlm_state` oscillation rationale, and SqliteTracingPlugin impact.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

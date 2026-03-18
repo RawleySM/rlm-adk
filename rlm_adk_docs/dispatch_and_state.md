@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-12 -->
+<!-- validated: 2026-03-18 -->
 
 # Dispatch System and State Management
 
@@ -102,6 +102,56 @@ channel. This means accumulated dispatch telemetry enters the event stream corre
 
 Because flush resets accumulators, each REPL turn's state reflects only that turn's dispatch
 activity, not a running total.
+
+---
+
+## Per-Iteration vs Cumulative Keys
+
+Dispatch observability keys come in two flavors: **per-iteration** (reset after each REPL turn)
+and **cumulative** (monotonically non-decreasing across the entire session).
+
+### Per-iteration keys
+
+Written by `flush_fn()` and reset to zero after each snapshot. These reflect only the
+dispatch activity of the most recent REPL turn. Useful for per-step analysis and debugging.
+
+### Cumulative keys
+
+Written by `flush_fn()` but **never reset**. Each flush adds the current turn's values to the
+running total. These are monotonically non-decreasing across the session lifetime. Useful for
+dashboards, `_rlm_state` REPL introspection, and end-of-session summaries.
+
+### Mapping table
+
+| Per-Iteration (resets each turn) | Cumulative (never resets) |
+|---|---|
+| `obs:child_dispatch_count` | `obs:child_dispatch_count_total` |
+| `obs:child_total_batch_dispatches` | `obs:child_batch_dispatches_total` |
+| `obs:child_error_counts` | `obs:child_error_counts_total` |
+| `obs:structured_output_failures` | `obs:structured_output_failures_total` |
+
+### Why cumulative keys exist
+
+The `_rlm_state` read-only snapshot is built **before** code execution in REPLTool
+(so that user code can inspect dispatch metrics from the previous turn). Because per-iteration
+keys reset to zero after each flush, they oscillate across turns. For example, a session that
+dispatches one child per turn sees `obs:child_dispatch_count` follow the pattern 1 -> 0 -> 1 -> 0.
+This makes per-iteration keys unreliable for "how many total dispatches have occurred?" questions.
+
+Cumulative keys solve this by providing a stable, monotonically increasing view:
+`obs:child_dispatch_count_total` would show 0 -> 1 -> 1 -> 2 -> 2 for the same session.
+
+### Initialization
+
+Cumulative keys are seeded to zero in the orchestrator's `initial_state` on turn 1.
+This guarantees they are **never absent** from session state -- consumers can always read
+them without a `get(..., 0)` guard.
+
+### Cumulative latency excluded
+
+`obs:child_dispatch_latency_ms` has no cumulative counterpart. Latency lists grow
+without bound and have no meaningful scalar sum, so accumulating them across the entire
+session would produce unbounded memory growth with limited analytical value.
 
 ---
 
@@ -268,7 +318,7 @@ All constants are defined in `rlm_adk/state.py`.
 | `obs:litellm_last_call_cost` | `obs:litellm_last_call_cost` | LiteLLMCostTrackingPlugin |
 | `obs:litellm_total_cost` | `obs:litellm_total_cost` | LiteLLMCostTrackingPlugin |
 
-### Observability -- Dispatch
+### Observability -- Dispatch (Per-Iteration)
 
 | Constant | Key String | Written By |
 |----------|-----------|------------|
@@ -278,6 +328,15 @@ All constants are defined in `rlm_adk/state.py`.
 | `OBS_CHILD_ERROR_COUNTS` | `obs:child_error_counts` | flush_fn |
 | `OBS_STRUCTURED_OUTPUT_FAILURES` | `obs:structured_output_failures` | flush_fn |
 | `OBS_BUG13_SUPPRESS_COUNT` | `obs:bug13_suppress_count` | flush_fn |
+
+### Observability -- Dispatch (Cumulative)
+
+| Constant | Key String | Written By |
+|----------|-----------|------------|
+| `OBS_CHILD_DISPATCH_COUNT_TOTAL` | `obs:child_dispatch_count_total` | flush_fn |
+| `OBS_CHILD_BATCH_DISPATCHES_TOTAL` | `obs:child_batch_dispatches_total` | flush_fn |
+| `OBS_CHILD_ERROR_COUNTS_TOTAL` | `obs:child_error_counts_total` | flush_fn |
+| `OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL` | `obs:structured_output_failures_total` | flush_fn |
 
 ### Observability -- REPL / AST
 
@@ -488,6 +547,7 @@ This pattern is enforced in `dispatch.py` after each `llm_query_batched_async` c
 - **2026-03-15 15:42** — `dispatch.py`: Added branch isolation for child orchestrators via `ctx.model_copy()` + unique `branch` string (same pattern as ADK's `ParallelAgent`). Children no longer share the parent's event history, preventing context leakage across recursive layers.
 - **2026-03-17 10:05** — `dispatch.py`: Moved `_classify_error()` here from deleted `callbacks/worker.py` (sole live consumer). `state.py`: Removed dead constants `CB_WORKER_CONTEXT`, `REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`.
 - **2026-03-17 13:49** — `state.py`: Added `REPL_STATE_SNAPSHOT`, `EXPOSED_STATE_KEYS` frozenset (17 allowlisted keys for read-only REPL introspection). Enables provider-fake fixture code to inspect session state via `_rlm_state` dict.
+- **2026-03-18 00:00** — `dispatch_and_state.md`: Added "Per-Iteration vs Cumulative Keys" section documenting cumulative dispatch counters (`obs:*_total`), mapping table, initialization semantics, and rationale for `_rlm_state` introspection stability.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
