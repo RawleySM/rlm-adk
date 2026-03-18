@@ -100,6 +100,12 @@ OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
 OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
 OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
 
+# Cumulative Child Dispatch Observability Keys (never reset by flush_fn)
+OBS_CHILD_DISPATCH_COUNT_TOTAL = "obs:child_dispatch_count_total"
+OBS_CHILD_BATCH_DISPATCHES_TOTAL = "obs:child_batch_dispatches_total"
+OBS_CHILD_ERROR_COUNTS_TOTAL = "obs:child_error_counts_total"
+OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL = "obs:structured_output_failures_total"
+
 # REPL Submitted-Code Observability Keys
 REPL_SUBMITTED_CODE = "repl_submitted_code"
 REPL_SUBMITTED_CODE_PREVIEW = "repl_submitted_code_preview"
@@ -161,6 +167,9 @@ EXPOSED_STATE_KEYS: frozenset[str] = frozenset(
         OBS_CHILD_ERROR_COUNTS,
         OBS_CHILD_DISPATCH_LATENCY_MS,
         OBS_CHILD_TOTAL_BATCH_DISPATCHES,
+        OBS_CHILD_DISPATCH_COUNT_TOTAL,
+        OBS_CHILD_BATCH_DISPATCHES_TOTAL,
+        OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL,
         OBS_TOTAL_INPUT_TOKENS,
         OBS_TOTAL_OUTPUT_TOKENS,
         REASONING_INPUT_TOKENS,

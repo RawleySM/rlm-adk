@@ -182,7 +182,13 @@ class REPLTool(BaseTool):
             }
             tool_context.state[depth_key(REPL_DID_EXPAND, self._depth)] = True
 
-        # Build read-only state snapshot for REPL introspection
+        # Build read-only state snapshot for REPL introspection.
+        # This snapshot is taken BEFORE code execution, so per-iteration keys
+        # (e.g. obs:child_dispatch_count) reflect the PREVIOUS turn's values
+        # (reset to 0 by flush_fn after each turn).  Cumulative *_total keys
+        # (e.g. obs:child_dispatch_count_total) are monotonically non-decreasing
+        # and never reset, so they always show the running total across all
+        # prior turns.
         _state_snapshot: dict[str, Any] = {}
         for key in EXPOSED_STATE_KEYS:
             scoped = depth_key(key, self._depth) if key in DEPTH_SCOPED_KEYS else key

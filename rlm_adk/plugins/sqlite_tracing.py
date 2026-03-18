@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 # ---- Depth/fanout key parser ----
 
-_DEPTH_FANOUT_RE = re.compile(r'^(.+)@d(\d+)(?:f(\d+))?$')
+_DEPTH_FANOUT_RE = re.compile(r"^(.+)@d(\d+)(?:f(\d+))?$")
 
 
 def _parse_key(raw_key: str) -> tuple[str, int, int | None]:
@@ -64,6 +64,7 @@ def _parse_key(raw_key: str) -> tuple[str, int, int | None]:
 
 
 # ---- Key categorization ----
+
 
 def _categorize_key(key: str) -> str:
     """Categorize a state key for the session_state_events table."""
@@ -122,14 +123,19 @@ _CURATED_PREFIXES = (
 )
 
 _CURATED_EXACT = {
-    "iteration_count", "should_stop", "final_answer", "policy_violation",
+    "iteration_count",
+    "should_stop",
+    "final_answer",
+    "policy_violation",
     "request_id",
     "idempotency_key",
     "repo_url",
     "root_prompt",
     "skill_instruction",
     "enabled_skills",
-    "cache:hit_count", "cache:miss_count", "cache:last_hit_key",
+    "cache:hit_count",
+    "cache:miss_count",
+    "cache:last_hit_key",
     "worker_dispatch_count",
     REASONING_VISIBLE_OUTPUT_TEXT,
     REASONING_THOUGHT_TEXT,
@@ -155,6 +161,7 @@ def _should_capture(base_key: str) -> bool:
 
 
 # ---- Value typing helper ----
+
 
 def _typed_value(value: Any) -> tuple[str, int | None, float | None, str | None, str | None]:
     """Return (value_type, value_int, value_float, value_text, value_json)."""
@@ -473,16 +480,11 @@ class SqliteTracingPlugin(BasePlugin):
         try:
             for table, expected_cols in _EXPECTED_COLUMNS.items():
                 existing = {
-                    row[1]
-                    for row in self._conn.execute(
-                        f"PRAGMA table_info({table})"
-                    ).fetchall()
+                    row[1] for row in self._conn.execute(f"PRAGMA table_info({table})").fetchall()
                 }
                 for col_name, col_def in expected_cols:
                     if col_name not in existing:
-                        self._conn.execute(
-                            f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}"
-                        )
+                        self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
             self._conn.commit()
         except Exception as e:
             logger.warning("SqliteTracingPlugin: schema migration failed: %s", e)
@@ -673,9 +675,7 @@ class SqliteTracingPlugin(BasePlugin):
             logger.warning("SqliteTracingPlugin: before_run failed: %s", e)
         return None
 
-    async def after_run_callback(
-        self, *, invocation_context: InvocationContext
-    ) -> None:
+    async def after_run_callback(self, *, invocation_context: InvocationContext) -> None:
         """Finalize the trace row with summary stats and enriched columns."""
         try:
             if self._conn is not None and self._trace_id is not None:
@@ -686,7 +686,7 @@ class SqliteTracingPlugin(BasePlugin):
                 model_usage: dict[str, Any] = {}
                 for k, v in state.items():
                     if k.startswith("obs:model_usage:") and isinstance(v, dict):
-                        model_name = k[len("obs:model_usage:"):]
+                        model_name = k[len("obs:model_usage:") :]
                         model_usage[model_name] = v
 
                 root_prompt = state.get("root_prompt", "")
@@ -698,7 +698,7 @@ class SqliteTracingPlugin(BasePlugin):
 
                 # Compute max depth reached from telemetry agent_name patterns
                 max_depth_reached = 0
-                depth_re = re.compile(r'_d(\d+)')
+                depth_re = re.compile(r"_d(\d+)")
                 rows = self._conn.execute(
                     "SELECT DISTINCT agent_name FROM telemetry WHERE trace_id = ? AND agent_name IS NOT NULL",
                     (self._trace_id,),
@@ -752,18 +752,39 @@ class SqliteTracingPlugin(BasePlugin):
                         # (delta-tracked) instead of reading untracked
                         # obs:total_execution_time from session state.
                         (time.time() - state.get(INVOCATION_START_TIME, 0))
-                        if state.get(INVOCATION_START_TIME) else None,
-                        state.get("obs:child_dispatch_count"),
-                        state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES),
-                        json.dumps(state.get("obs:child_error_counts")) if state.get("obs:child_error_counts") else None,
-                        state.get("obs:structured_output_failures"),
+                        if state.get(INVOCATION_START_TIME)
+                        else None,
+                        state.get(
+                            "obs:child_dispatch_count_total", state.get("obs:child_dispatch_count")
+                        ),
+                        state.get(
+                            "obs:child_batch_dispatches_total",
+                            state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES),
+                        ),
+                        json.dumps(
+                            state.get("obs:child_error_counts_total")
+                            or state.get("obs:child_error_counts")
+                        )
+                        if (
+                            state.get("obs:child_error_counts_total")
+                            or state.get("obs:child_error_counts")
+                        )
+                        else None,
+                        state.get(
+                            "obs:structured_output_failures_total",
+                            state.get("obs:structured_output_failures"),
+                        ),
                         state.get("obs:finish_safety_count"),
                         state.get("obs:finish_recitation_count"),
                         state.get("obs:finish_max_tokens_count"),
-                        json.dumps(state.get("obs:tool_invocation_summary")) if state.get("obs:tool_invocation_summary") else None,
+                        json.dumps(state.get("obs:tool_invocation_summary"))
+                        if state.get("obs:tool_invocation_summary")
+                        else None,
                         state.get("obs:artifact_saves"),
                         state.get("obs:artifact_bytes_saved"),
-                        json.dumps(state.get("obs:per_iteration_token_breakdown")) if state.get("obs:per_iteration_token_breakdown") else None,
+                        json.dumps(state.get("obs:per_iteration_token_breakdown"))
+                        if state.get("obs:per_iteration_token_breakdown")
+                        else None,
                         json.dumps(model_usage) if model_usage else None,
                         prompt_hash,
                         max_depth_reached,
@@ -882,7 +903,11 @@ class SqliteTracingPlugin(BasePlugin):
 
             finish_reason = None
             if llm_response.finish_reason:
-                finish_reason = llm_response.finish_reason.name if hasattr(llm_response.finish_reason, "name") else str(llm_response.finish_reason)
+                finish_reason = (
+                    llm_response.finish_reason.name
+                    if hasattr(llm_response.finish_reason, "name")
+                    else str(llm_response.finish_reason)
+                )
 
             end_time = time.time()
 
@@ -971,7 +996,9 @@ class SqliteTracingPlugin(BasePlugin):
             iteration = None
             state = getattr(tool_context, "state", None)
             if hasattr(state, "get"):
-                depth_key_name = "iteration_count" if tool_depth == 0 else f"iteration_count@d{tool_depth}"
+                depth_key_name = (
+                    "iteration_count" if tool_depth == 0 else f"iteration_count@d{tool_depth}"
+                )
                 iteration = state.get(depth_key_name)
             self._insert_telemetry(
                 telemetry_id,
