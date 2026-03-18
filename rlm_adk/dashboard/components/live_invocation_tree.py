@@ -87,9 +87,7 @@ def _render_child_row(
     on_select_iteration,
     on_open_repl_output,
 ) -> None:
-    with ui.element("div").style(
-        "display: flex; align-items: stretch; gap: 1rem; min-width: 0;"
-    ):
+    with ui.element("div").style("display: flex; align-items: stretch; gap: 1rem; min-width: 0;"):
         _repl_panel(node, on_open_repl_output=on_open_repl_output)
         with ui.element("div").style("flex: 1; min-width: 0;"):
             _render_node(
@@ -132,11 +130,12 @@ def _iteration_rail(node: LiveInvocationNode, *, on_select_iteration) -> None:
             weight = "700" if active else "500"
             label = f"|{invocation.iteration}|"
             ui.label(label).style(
-                f"color: {color}; font-size: 0.88rem; font-weight: {weight}; "
-                "cursor: pointer;"
+                f"color: {color}; font-size: 0.88rem; font-weight: {weight}; cursor: pointer;"
             ).on(
                 "click.stop",
-                lambda _e, pane_id=node.pane_id, invocation_id=invocation.invocation_id: on_select_iteration(
+                lambda _e,
+                pane_id=node.pane_id,
+                invocation_id=invocation.invocation_id: on_select_iteration(
                     pane_id,
                     invocation_id,
                 ),
@@ -182,15 +181,16 @@ def _repl_panel(node: LiveInvocationNode, *, on_open_repl_output) -> None:
                 "color: var(--accent-warning); font-size: 0.72rem; "
                 "font-weight: 700; letter-spacing: 0.08em;"
             )
-            if node.parent_code_text.strip():
-                _action_chip(
-                    "code",
-                    lambda: on_open_repl_output(
-                        node.invocation.invocation_id,
-                        node.parent_code_text,
-                        f"code:{node.invocation.agent_name}",
-                    ),
-                )
+            _action_chip(
+                "code",
+                lambda: on_open_repl_output(
+                    node.invocation.invocation_id,
+                    node.parent_code_text
+                    if node.parent_code_text.strip()
+                    else "No code captured yet",
+                    f"code:{node.invocation.agent_name}",
+                ),
+            )
             _action_chip(
                 "stdout",
                 lambda: on_open_repl_output(
@@ -216,21 +216,26 @@ def _context_chip(
     *,
     on_open_context,
 ) -> None:
-    token_text = (
-        f"{item.token_count} tok"
-        if item.token_count_is_exact
-        else f"~{item.token_count} tok"
-    )
+    if item.token_count == 0 and not item.display_value_preview:
+        token_text = "n/a"
+    elif item.token_count_is_exact:
+        token_text = f"{item.token_count} tok"
+    else:
+        token_text = f"~{item.token_count} tok"
     bg = "rgba(126,240,160,0.16)" if item.present else "rgba(159,176,209,0.08)"
     border = "var(--accent-active)" if item.present else "var(--border-1)"
     text = "var(--accent-active)" if item.present else "var(--text-1)"
-    chip = ui.element("div").style(
-        "display: inline-flex; align-items: center; min-width: 0; cursor: pointer; "
-        f"background: {bg}; border: 1px solid {border}; border-radius: 999px; "
-        "padding: 0.3rem 0.62rem;"
-    ).on(
-        "click.stop",
-        lambda _e: on_open_context(invocation, item, lineage),
+    chip = (
+        ui.element("div")
+        .style(
+            "display: inline-flex; align-items: center; min-width: 0; cursor: pointer; "
+            f"background: {bg}; border: 1px solid {border}; border-radius: 999px; "
+            "padding: 0.3rem 0.62rem;"
+        )
+        .on(
+            "click.stop",
+            lambda _e: on_open_context(invocation, item, lineage),
+        )
     )
     with chip:
         ui.label(f"{item.label} ({token_text})").style(
@@ -239,11 +244,13 @@ def _context_chip(
 
 
 def _action_chip(label: str, on_click) -> None:
-    with ui.element("div").style(
-        "display: inline-flex; align-items: center; border-radius: 999px; cursor: pointer; "
-        "padding: 0.28rem 0.62rem; border: 1px solid var(--accent-warning); "
-        "background: rgba(255,209,102,0.12);"
-    ).on("click.stop", lambda _e: on_click()):
-        ui.label(label).style(
-            "color: var(--accent-warning); font-size: 0.78rem; font-weight: 700;"
+    with (
+        ui.element("div")
+        .style(
+            "display: inline-flex; align-items: center; border-radius: 999px; cursor: pointer; "
+            "padding: 0.28rem 0.62rem; border: 1px solid var(--accent-warning); "
+            "background: rgba(255,209,102,0.12);"
         )
+        .on("click.stop", lambda _e: on_click())
+    ):
+        ui.label(label).style("color: var(--accent-warning); font-size: 0.78rem; font-weight: 700;")

@@ -51,7 +51,9 @@ _DEPTH_RE = re.compile(r"_d(\d+)")
 _PROMPT_VAR_RE = re.compile(r"{([^}?]+)\??}")
 
 _BANNER_DYNAMIC_KEYS = [DYN_REPO_URL, DYN_ROOT_PROMPT, DYN_SKILL_INSTRUCTION]
-_KNOWN_DYNAMIC_KEYS = list(dict.fromkeys(_BANNER_DYNAMIC_KEYS + _PROMPT_VAR_RE.findall(RLM_DYNAMIC_INSTRUCTION)))
+_KNOWN_DYNAMIC_KEYS = list(
+    dict.fromkeys(_BANNER_DYNAMIC_KEYS + _PROMPT_VAR_RE.findall(RLM_DYNAMIC_INSTRUCTION))
+)
 _KNOWN_STATE_KEYS = sorted(DEPTH_SCOPED_KEYS)
 
 
@@ -219,9 +221,8 @@ class LiveDashboardLoader:
         cache = self._cache_by_session.get(session_id)
         trace_row = cache.trace_row if cache and cache.trace_row else {}
         sse_rows = cache.sse_rows if cache else []
-        user_query = (
-            self._latest_session_text(sse_rows, "root_prompt")
-            or str(trace_row.get("root_prompt_preview") or "")
+        user_query = self._latest_session_text(sse_rows, "root_prompt") or str(
+            trace_row.get("root_prompt_preview") or ""
         )
         enabled_skills = self._latest_session_value(sse_rows, ENABLED_SKILLS)
         if isinstance(enabled_skills, str):
@@ -272,7 +273,6 @@ class LiveDashboardLoader:
             return []
 
         context_chunks = self._context_request_chunks(invocation, lineage=lineage)
-        request_text = "\n".join(chunk.text for chunk in context_chunks)
         total_request_chars = sum(chunk.char_count for chunk in context_chunks)
         total_request_tokens = sum(chunk.token_count for chunk in context_chunks)
 
@@ -291,9 +291,7 @@ class LiveDashboardLoader:
             )
 
         state_lookup = {
-            item.base_key: item
-            for item in invocation.state_items
-            if item.depth == invocation.depth
+            item.base_key: item for item in invocation.state_items if item.depth == invocation.depth
         }
         banner_items: list[LiveContextBannerItem] = []
 
@@ -327,14 +325,18 @@ class LiveDashboardLoader:
             if item is not None:
                 display_text = _display_text(item.value)
                 preview = display_text[:240]
-                present = preview[:80] in request_text if preview else False
-                if not present and key in {REPL_SUBMITTED_CODE, REPL_EXPANDED_CODE}:
-                    present = bool(preview and invocation.repl_submission)
+                present = bool(display_text)
                 token_count = _estimate_token_count(
                     display_text,
                     total_request_chars,
                     total_request_tokens,
                 )
+            if (
+                not display_text
+                and key == REASONING_VISIBLE_OUTPUT_TEXT
+                and bool(invocation.tool_events)
+            ):
+                preview = "(tool call \u2014 no text output)"
             banner_items.append(
                 LiveContextBannerItem(
                     label=self._depth_scoped_label(key, invocation.depth),
@@ -417,7 +419,9 @@ class LiveDashboardLoader:
         *,
         has_context_snapshots: bool,
     ) -> list[tuple[str, str]]:
-        plugins = {type(plugin).__name__: type(plugin).__doc__ or "" for plugin in _default_plugins()}
+        plugins = {
+            type(plugin).__name__: type(plugin).__doc__ or "" for plugin in _default_plugins()
+        }
         if has_context_snapshots:
             plugins.setdefault(
                 "ContextWindowSnapshotPlugin",
@@ -503,9 +507,7 @@ class LiveDashboardLoader:
             "error_message",
         ]
         available_columns = self._table_columns("telemetry")
-        selected_columns = [
-            column for column in preferred_columns if column in available_columns
-        ]
+        selected_columns = [column for column in preferred_columns if column in available_columns]
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
@@ -564,9 +566,7 @@ class LiveDashboardLoader:
         if not path.exists():
             return
         offset = (
-            cache.watermark.snapshot_offset
-            if kind == "snapshot"
-            else cache.watermark.output_offset
+            cache.watermark.snapshot_offset if kind == "snapshot" else cache.watermark.output_offset
         )
         if previous_offset is not None and previous_offset < offset:
             offset = previous_offset
@@ -602,9 +602,7 @@ class LiveDashboardLoader:
         child_summaries = self._build_child_summaries(sse_rows)
         fanout_by_snapshot = self._match_child_summaries(snapshots, child_summaries)
         state_by_depth = self._latest_state_by_depth(sse_rows)
-        outputs_by_key = {
-            self._event_key(row): row for row in outputs
-        }
+        outputs_by_key = {self._event_key(row): row for row in outputs}
         tool_events_by_depth = self._tool_events_by_depth(telemetry)
         model_events_by_depth = defaultdict(list)
         for row in telemetry:
@@ -639,7 +637,14 @@ class LiveDashboardLoader:
             )
 
         if not pane_invocations and trace_row:
-            status = self._normalize_status(trace_row.get("status"), total_calls=trace_row.get("total_calls", 0))
+            telemetry_model_count = sum(
+                1 for r in cache.telemetry_rows if r.get("event_type") == "model_call"
+            )
+            status = self._normalize_status(
+                trace_row.get("status"),
+                total_calls=trace_row.get("total_calls", 0),
+                telemetry_model_count=telemetry_model_count,
+            )
             return LiveRunSnapshot(
                 session_id=session_id,
                 trace_id=trace_row.get("trace_id"),
@@ -652,15 +657,15 @@ class LiveDashboardLoader:
         panes: list[LivePane] = []
         pane_map: dict[str, LivePane] = {}
         active_candidate: str | None = None
-        ordered_keys = sorted(pane_invocations.keys(), key=lambda item: (item[0], item[1] is None, item[1] or -1))
+        ordered_keys = sorted(
+            pane_invocations.keys(), key=lambda item: (item[0], item[1] is None, item[1] or -1)
+        )
 
         for depth, fanout_idx in ordered_keys:
             invocations = pane_invocations[(depth, fanout_idx)]
             latest = invocations[-1]
             child_options = child_summaries.get(depth + 1, [])
-            sibling_fanouts = [
-                child for child in child_options if child.parent_depth == depth
-            ]
+            sibling_fanouts = [child for child in child_options if child.parent_depth == depth]
             status = latest.status
             if status == "completed" and trace_row.get("status") == "running":
                 status = "idle"
@@ -682,7 +687,9 @@ class LiveDashboardLoader:
                 thought_tokens=sum(inv.thought_tokens for inv in invocations),
                 elapsed_ms=sum(inv.elapsed_ms for inv in invocations),
                 latest_event_time=max(inv.raw_payload.get("timestamp", 0.0) for inv in invocations),
-                parent_pane_id=_pane_id(depth - 1, fanout_idx if depth > 1 else None) if depth > 0 else None,
+                parent_pane_id=_pane_id(depth - 1, fanout_idx if depth > 1 else None)
+                if depth > 0
+                else None,
                 request_chunks=latest.request_chunks,
                 state_items=latest.state_items,
                 child_summaries=latest.child_summaries,
@@ -711,17 +718,28 @@ class LiveDashboardLoader:
                 active_candidate = pane.pane_id
 
         stats = LiveRunStats(
-            total_live_model_calls=sum(1 for row in telemetry if row.get("event_type") == "model_call"),
+            total_live_model_calls=sum(
+                1 for row in telemetry if row.get("event_type") == "model_call"
+            ),
             active_depth=pane_map[active_candidate].depth if active_candidate else 0,
             active_children=len(
                 [
                     child
-                    for child in child_summaries.get((pane_map[active_candidate].depth if active_candidate else 0) + 1, [])
+                    for child in child_summaries.get(
+                        (pane_map[active_candidate].depth if active_candidate else 0) + 1, []
+                    )
                     if child.status == "running"
                 ]
             ),
         )
-        status = self._normalize_status(trace_row.get("status"), total_calls=trace_row.get("total_calls", 0))
+        telemetry_model_count = sum(
+            1 for r in cache.telemetry_rows if r.get("event_type") == "model_call"
+        )
+        status = self._normalize_status(
+            trace_row.get("status"),
+            total_calls=trace_row.get("total_calls", 0),
+            telemetry_model_count=telemetry_model_count,
+        )
         return LiveRunSnapshot(
             session_id=session_id,
             trace_id=trace_row.get("trace_id"),
@@ -767,7 +785,9 @@ class LiveDashboardLoader:
                     elapsed_ms=float(payload.get("elapsed_ms") or 0.0),
                     prompt=str(payload.get("prompt") or payload.get("prompt_preview") or ""),
                     prompt_preview=str(payload.get("prompt_preview") or ""),
-                    result_text=str(payload.get("result_text") or payload.get("result_preview") or ""),
+                    result_text=str(
+                        payload.get("result_text") or payload.get("result_preview") or ""
+                    ),
                     final_answer=str(payload.get("final_answer") or ""),
                     visible_output_text=str(
                         payload.get("visible_output_text")
@@ -776,9 +796,7 @@ class LiveDashboardLoader:
                     ),
                     visible_output_preview=str(payload.get("visible_output_preview") or ""),
                     thought_text=str(
-                        payload.get("thought_text")
-                        or payload.get("thought_preview")
-                        or ""
+                        payload.get("thought_text") or payload.get("thought_preview") or ""
                     ),
                     thought_preview=str(payload.get("thought_preview") or ""),
                     raw_output=payload.get("raw_output"),
@@ -819,7 +837,9 @@ class LiveDashboardLoader:
                         continue
                     prompt_text = _chunk_text(snapshot.get("chunks", []))
                     prompt_preview = summary.prompt_preview.strip()
-                    if prompt_preview and (prompt_preview[:120] in prompt_text or prompt_text[:120] in prompt_preview):
+                    if prompt_preview and (
+                        prompt_preview[:120] in prompt_text or prompt_text[:120] in prompt_preview
+                    ):
                         matched_idx = idx
                         break
                 if matched_idx is None and candidates:
@@ -934,9 +954,7 @@ class LiveDashboardLoader:
                 REASONING_PARSED_OUTPUT,
             }
         }
-        matching_children = [
-            child for child in child_summaries if child.parent_depth == depth
-        ]
+        matching_children = [child for child in child_summaries if child.parent_depth == depth]
         tool_payload = (relevant_tools[-1].payload or {}) if relevant_tools else {}
         repl_stdout = str(tool_payload.get("stdout") or "")
         repl_stderr = str(tool_payload.get("stderr") or "")
@@ -974,8 +992,16 @@ class LiveDashboardLoader:
             request_chunks=chunks,
             state_items=state_items,
             child_summaries=matching_children,
-            repl_submission=str(latest_repl.get(REPL_SUBMITTED_CODE).value if latest_repl.get(REPL_SUBMITTED_CODE) else ""),
-            repl_expanded_code=str(latest_repl.get(REPL_EXPANDED_CODE).value if latest_repl.get(REPL_EXPANDED_CODE) else ""),
+            repl_submission=str(
+                latest_repl.get(REPL_SUBMITTED_CODE).value
+                if latest_repl.get(REPL_SUBMITTED_CODE)
+                else ""
+            ),
+            repl_expanded_code=str(
+                latest_repl.get(REPL_EXPANDED_CODE).value
+                if latest_repl.get(REPL_EXPANDED_CODE)
+                else ""
+            ),
             repl_stdout=repl_stdout,
             repl_stderr=repl_stderr,
             reasoning_visible_text=str(
@@ -1007,7 +1033,10 @@ class LiveDashboardLoader:
     def _build_request_chunks(self, snapshot: dict[str, Any]) -> list[LiveRequestChunk]:
         chunks: list[LiveRequestChunk] = []
         total_tokens = _safe_int(snapshot.get("input_tokens"))
-        total_chars = sum(_safe_int(chunk.get("char_count"), len(chunk.get("text", ""))) for chunk in snapshot.get("chunks", []))
+        total_chars = sum(
+            _safe_int(chunk.get("char_count"), len(chunk.get("text", "")))
+            for chunk in snapshot.get("chunks", [])
+        )
         for chunk in snapshot.get("chunks", []):
             text = chunk.get("text", "")
             char_count = _safe_int(chunk.get("char_count"), len(text))
@@ -1090,9 +1119,7 @@ class LiveDashboardLoader:
             repl_stdout_len=_safe_int(row.get("repl_stdout_len")),
             repl_stderr_len=_safe_int(row.get("repl_stderr_len")),
             repl_trace_summary=(
-                json.loads(row["repl_trace_summary"])
-                if row.get("repl_trace_summary")
-                else None
+                json.loads(row["repl_trace_summary"]) if row.get("repl_trace_summary") else None
             ),
             payload=payload if payload else None,
         )
@@ -1106,12 +1133,15 @@ class LiveDashboardLoader:
         )
 
     @staticmethod
-    def _normalize_status(status: str | None, *, total_calls: Any) -> str:
+    def _normalize_status(
+        status: str | None, *, total_calls: Any, telemetry_model_count: int = 0
+    ) -> str:
         if status == "completed":
             return "completed"
         if status == "error":
             return "error"
-        return "running" if _safe_int(total_calls) > 0 else "idle"
+        effective_calls = _safe_int(total_calls) or telemetry_model_count
+        return "running" if effective_calls > 0 else "idle"
 
     @staticmethod
     def _format_token_suffix(token_count: int, exact: bool) -> str:
@@ -1154,7 +1184,7 @@ class LiveDashboardLoader:
             if label and label in text:
                 for line in text.splitlines():
                     if line.startswith(label):
-                        return line[len(label):].strip()
+                        return line[len(label) :].strip()
         return ""
 
     def _table_columns(self, table_name: str) -> set[str]:
