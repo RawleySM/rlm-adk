@@ -180,15 +180,16 @@ def _repl_panel(node: LiveInvocationNode, *, on_open_repl_output) -> None:
                 "color: var(--accent-warning); font-size: 0.72rem; "
                 "font-weight: 700; letter-spacing: 0.08em;"
             )
-            if node.parent_code_text.strip():
-                _action_chip(
-                    "code",
-                    lambda: on_open_repl_output(
-                        node.invocation.invocation_id,
-                        node.parent_code_text,
-                        f"code:{node.invocation.agent_name}",
-                    ),
-                )
+            _action_chip(
+                "code",
+                lambda: on_open_repl_output(
+                    node.invocation.invocation_id,
+                    node.parent_code_text
+                    if node.parent_code_text.strip()
+                    else "No code captured yet",
+                    f"code:{node.invocation.agent_name}",
+                ),
+            )
             _action_chip(
                 "stdout",
                 lambda: on_open_repl_output(
@@ -214,9 +215,12 @@ def _context_chip(
     *,
     on_open_context,
 ) -> None:
-    token_text = (
-        f"{item.token_count} tok" if item.token_count_is_exact else f"~{item.token_count} tok"
-    )
+    if item.token_count == 0 and not item.display_value_preview:
+        token_text = "n/a"
+    elif item.token_count_is_exact:
+        token_text = f"{item.token_count} tok"
+    else:
+        token_text = f"~{item.token_count} tok"
     bg = "rgba(126,240,160,0.16)" if item.present else "rgba(159,176,209,0.08)"
     border = "var(--accent-active)" if item.present else "var(--border-1)"
     text = "var(--accent-active)" if item.present else "var(--text-1)"
