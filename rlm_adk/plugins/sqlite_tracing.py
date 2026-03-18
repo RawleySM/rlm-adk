@@ -14,6 +14,7 @@ import re
 import sqlite3
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -497,6 +498,59 @@ class SqliteTracingPlugin(BasePlugin):
     def _pending_key(obj: Any) -> int:
         """Return a stable in-process key for pairing before/after callbacks."""
         return id(obj)
+
+    def make_telemetry_finalizer(self) -> "Callable[[int, dict], None]":
+        """Create a closure that finalizes pending tool telemetry rows.
+
+        The returned callable uses the same ``id(tool_context)`` key as
+        ``_pending_key()`` to look up the pending telemetry row inserted by
+        ``before_tool_callback``.  REPLTool calls this at every return path
+        so that tool rows are finalized even when ADK's ``after_tool_callback``
+        does not fire (GAP-06).
+
+        The finalizer is idempotent: if ``after_tool_callback`` already
+        consumed the pending entry, the finalizer is a no-op.
+        """
+        pending = self._pending_tool_telemetry
+        update = self._update_telemetry
+        coerce_int = self._coerce_int
+
+        def _finalize(tool_context_id: int, result: dict) -> None:
+            entry = pending.pop(tool_context_id, None)
+            if entry is None:
+                return  # Already finalized by after_tool_callback
+            telemetry_id, start_time = entry
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+            update_kwargs: dict[str, Any] = {
+                "end_time": end_time,
+                "duration_ms": duration_ms,
+                "result_preview": str(result)[:500],
+                "result_payload": _serialize_payload(result),
+            }
+            if isinstance(result, dict) and result.get("call_number") is not None:
+                update_kwargs["call_number"] = coerce_int(result.get("call_number"))
+            # REPL enrichment from result dict
+            if isinstance(result, dict):
+                stdout = result.get("stdout")
+                stderr = result.get("stderr")
+                update_kwargs["repl_has_errors"] = int(bool(result.get("has_errors") or stderr))
+                update_kwargs["repl_has_output"] = int(
+                    bool(result.get("has_output") or stdout or result.get("output"))
+                )
+                update_kwargs["repl_llm_calls"] = coerce_int(
+                    result.get("total_llm_calls", 1 if result.get("llm_calls_made") else 0)
+                )
+                update_kwargs["repl_stdout_len"] = len(stdout or "")
+                update_kwargs["repl_stderr_len"] = len(stderr or "")
+                update_kwargs["repl_stdout"] = stdout or ""
+                update_kwargs["repl_stderr"] = stderr or ""
+            try:
+                update(telemetry_id, **update_kwargs)
+            except Exception as e:
+                logger.warning("SqliteTracingPlugin: telemetry finalizer failed: %s", e)
+
+        return _finalize
 
     @staticmethod
     def _coerce_int(value: Any, default: int = 0) -> int:

@@ -30,6 +30,8 @@ from rlm_adk.callbacks.worker_retry import _bug13_stats
 from rlm_adk.repl.trace import DataFlowTracker
 from rlm_adk.state import (
     DYN_SKILL_INSTRUCTION,
+    ITERATION_COUNT,
+    LAST_REPL_RESULT,
     OBS_BUG13_SUPPRESS_COUNT,
     OBS_CHILD_BATCH_DISPATCHES_TOTAL,
     OBS_CHILD_DISPATCH_COUNT,
@@ -50,6 +52,7 @@ from rlm_adk.state import (
     REASONING_THOUGHT_TEXT,
     REASONING_THOUGHT_TOKENS,
     REASONING_VISIBLE_OUTPUT_TEXT,
+    REPL_SUBMITTED_CODE,
     child_obs_key,
     depth_key,
 )
@@ -204,6 +207,7 @@ def create_dispatch_closures(
     _acc_child_error_counts: dict[str, int] = {}
     _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
+    _acc_child_depth_state: dict[str, Any] = {}
     _parent_fanout_idx = fanout_idx
 
     # Cumulative accumulators — never reset by flush_fn (monotonically non-decreasing)
@@ -211,6 +215,21 @@ def create_dispatch_closures(
     _cum_child_batch_dispatches = 0
     _cum_child_error_counts: dict[str, int] = {}
     _cum_structured_output_failures = 0
+
+    # Keys to propagate from child state deltas for dashboard visibility (GAP-02).
+    # These depth-scoped keys are written by child agents via callback_context.state
+    # or tool_context.state but never reach the parent event stream because child
+    # agents run in isolated invocation contexts.
+    _CHILD_PROPAGATION_KEYS = (
+        REASONING_VISIBLE_OUTPUT_TEXT,
+        REASONING_THOUGHT_TEXT,
+        REASONING_INPUT_TOKENS,
+        REASONING_OUTPUT_TOKENS,
+        REASONING_FINISH_REASON,
+        REPL_SUBMITTED_CODE,
+        LAST_REPL_RESULT,
+        ITERATION_COUNT,
+    )
 
     # Pre-compute parent's skill instruction for flush_fn restoration
     _parent_skill_instruction: str | None = None
@@ -645,6 +664,16 @@ def create_dispatch_closures(
                     "events": structured_events,
                 },
             }
+            # GAP-02 fix: propagate child depth-scoped state keys into
+            # _acc_child_depth_state so flush_fn can push them into
+            # tool_context.state (which fires state_delta events visible
+            # to SqliteTracingPlugin).
+            child_depth = depth + 1
+            for base_key in _CHILD_PROPAGATION_KEYS:
+                scoped_key = depth_key(base_key, child_depth)
+                if scoped_key in _child_state:
+                    _acc_child_depth_state[scoped_key] = _child_state[scoped_key]
+
             # Clean up child's REPL
             if hasattr(child, "repl") and child.repl is not None and not child.persistent:
                 try:
@@ -817,12 +846,17 @@ def create_dispatch_closures(
             delta[DYN_SKILL_INSTRUCTION] = _parent_skill_instruction
         # Merge per-child summaries into delta
         delta.update(_acc_child_summaries)
+        # GAP-02: merge child depth-scoped state keys so they propagate
+        # through tool_context.state -> event state_delta -> SqliteTracingPlugin
+        if _acc_child_depth_state:
+            delta.update(_acc_child_depth_state)
         # Reset per-iteration accumulators (cumulative accumulators are NOT reset)
         _acc_child_dispatches = 0
         _acc_child_batch_dispatches = 0
         _acc_child_latencies.clear()
         _acc_child_error_counts.clear()
         _acc_child_summaries.clear()
+        _acc_child_depth_state.clear()
         _acc_structured_output_failures = 0
         return delta
 
