@@ -42,8 +42,11 @@ from rlm_adk.state import (
     ENABLED_SKILLS,
     FINAL_ANSWER,
     ITERATION_COUNT,
+    OBS_CHILD_BATCH_DISPATCHES_TOTAL,
+    OBS_CHILD_DISPATCH_COUNT_TOTAL,
     OBS_REASONING_RETRY_COUNT,
     OBS_REASONING_RETRY_DELAY_MS,
+    OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL,
     REASONING_FINISH_REASON,
     REASONING_INPUT_TOKENS,
     REASONING_OUTPUT_TOKENS,
@@ -323,6 +326,11 @@ class RLMOrchestratorAgent(BaseAgent):
                 CURRENT_DEPTH: self.depth,
                 depth_key(ITERATION_COUNT, self.depth): 0,
                 REQUEST_ID: str(uuid.uuid4()),
+                # Seed cumulative dispatch counters so they are present (not
+                # ABSENT) in _rlm_state from the very first REPL turn.
+                OBS_CHILD_DISPATCH_COUNT_TOTAL: 0,
+                OBS_CHILD_BATCH_DISPATCHES_TOTAL: 0,
+                OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL: 0,
             }
             if self.root_prompt:
                 initial_state[ROOT_PROMPT] = self.root_prompt

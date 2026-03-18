@@ -31,13 +31,17 @@ from rlm_adk.repl.trace import DataFlowTracker
 from rlm_adk.state import (
     DYN_SKILL_INSTRUCTION,
     OBS_BUG13_SUPPRESS_COUNT,
+    OBS_CHILD_BATCH_DISPATCHES_TOTAL,
     OBS_CHILD_DISPATCH_COUNT,
+    OBS_CHILD_DISPATCH_COUNT_TOTAL,
     OBS_CHILD_DISPATCH_LATENCY_MS,
     OBS_CHILD_ERROR_COUNTS,
+    OBS_CHILD_ERROR_COUNTS_TOTAL,
     OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     OBS_REASONING_RETRY_COUNT,
     OBS_REASONING_RETRY_DELAY_MS,
     OBS_STRUCTURED_OUTPUT_FAILURES,
+    OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL,
     REASONING_FINISH_REASON,
     REASONING_INPUT_TOKENS,
     REASONING_OUTPUT_TOKENS,
@@ -126,10 +130,7 @@ def _persist_payload(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_persist_payload(item) for item in value]
     if isinstance(value, dict):
-        return {
-            str(key): _persist_payload(item)
-            for key, item in value.items()
-        }
+        return {str(key): _persist_payload(item) for key, item in value.items()}
     try:
         json.dumps(value)
         return value
@@ -204,6 +205,12 @@ def create_dispatch_closures(
     _acc_child_summaries: dict[str, dict] = {}
     _acc_structured_output_failures = 0
     _parent_fanout_idx = fanout_idx
+
+    # Cumulative accumulators — never reset by flush_fn (monotonically non-decreasing)
+    _cum_child_dispatches = 0
+    _cum_child_batch_dispatches = 0
+    _cum_child_error_counts: dict[str, int] = {}
+    _cum_structured_output_failures = 0
 
     # Pre-compute parent's skill instruction for flush_fn restoration
     _parent_skill_instruction: str | None = None
@@ -321,7 +328,9 @@ def create_dispatch_closures(
                     decoded = None
                 if isinstance(decoded, dict):
                     parsed_payload = decoded
-                    text = str(decoded.get("final_answer", "") or "") or _serialize_child_payload(decoded)
+                    text = str(decoded.get("final_answer", "") or "") or _serialize_child_payload(
+                        decoded
+                    )
                 else:
                     text = raw
             else:
@@ -331,7 +340,9 @@ def create_dispatch_closures(
         if not text and isinstance(structured, dict):
             parsed_payload = dict(structured)
             raw_payload = structured
-            text = str(structured.get("final_answer", "") or "") or _serialize_child_payload(structured)
+            text = str(structured.get("final_answer", "") or "") or _serialize_child_payload(
+                structured
+            )
 
         if text.startswith("[RLM ERROR]"):
             error = True
@@ -348,29 +359,18 @@ def create_dispatch_closures(
             "raw_output": raw_payload,
             "reasoning_summary": normalized.get("reasoning_summary"),
             "visible_output_text": (
-                _read(REASONING_VISIBLE_OUTPUT_TEXT)
-                or normalized.get("visible_output_text")
+                _read(REASONING_VISIBLE_OUTPUT_TEXT) or normalized.get("visible_output_text")
             ),
-            "thought_text": (
-                _read(REASONING_THOUGHT_TEXT)
-                or normalized.get("thought_text")
-            ),
+            "thought_text": (_read(REASONING_THOUGHT_TEXT) or normalized.get("thought_text")),
             "finish_reason": _read(REASONING_FINISH_REASON) or normalized.get("finish_reason"),
             "input_tokens": _read(REASONING_INPUT_TOKENS) or normalized.get("input_tokens"),
             "output_tokens": _read(REASONING_OUTPUT_TOKENS) or normalized.get("output_tokens"),
             "thoughts_tokens": (
-                _read(REASONING_THOUGHT_TOKENS)
-                or normalized.get("thoughts_tokens")
+                _read(REASONING_THOUGHT_TOKENS) or normalized.get("thoughts_tokens")
             ),
-            "reasoning_retry_count": _safe_int(
-                child_state.get(OBS_REASONING_RETRY_COUNT, 0)
-            ),
-            "reasoning_retry_delay_ms": _safe_int(
-                child_state.get(OBS_REASONING_RETRY_DELAY_MS, 0)
-            ),
-            "nested_child_dispatch_count": _safe_int(
-                child_state.get(OBS_CHILD_DISPATCH_COUNT, 0)
-            ),
+            "reasoning_retry_count": _safe_int(child_state.get(OBS_REASONING_RETRY_COUNT, 0)),
+            "reasoning_retry_delay_ms": _safe_int(child_state.get(OBS_REASONING_RETRY_DELAY_MS, 0)),
+            "nested_child_dispatch_count": _safe_int(child_state.get(OBS_CHILD_DISPATCH_COUNT, 0)),
             "nested_child_batch_dispatches": _safe_int(
                 child_state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES, 0)
             ),
@@ -387,7 +387,7 @@ def create_dispatch_closures(
         fanout_idx: int,
     ) -> LLMResult:
         """Spawn a child orchestrator for a single sub-query."""
-        nonlocal _acc_structured_output_failures
+        nonlocal _acc_structured_output_failures, _cum_structured_output_failures
         # Preserve the raw model object for create_child_orchestrator so that
         # _resolve_model()'s CRIT-1 check can pass LiteLlm objects through
         # unchanged.  Use str() only for logging / dict keys / LLMResult.model.
@@ -432,11 +432,7 @@ def create_dispatch_closures(
                 # conversation history.  Same pattern as ParallelAgent.
                 child_ctx = ctx.model_copy()
                 branch_suffix = f"{ctx.agent.name}.{child.name}"
-                child_ctx.branch = (
-                    f"{ctx.branch}.{branch_suffix}"
-                    if ctx.branch
-                    else branch_suffix
-                )
+                child_ctx.branch = f"{ctx.branch}.{branch_suffix}" if ctx.branch else branch_suffix
                 async for _event in child.run_async(child_ctx):
                     actions = getattr(_event, "actions", None)
                     state_delta = getattr(actions, "state_delta", None)
@@ -444,9 +440,7 @@ def create_dispatch_closures(
                         _child_state.update(state_delta)
 
             child_depth = depth + 1
-            completion = _read_child_completion(
-                child, child_depth, _child_state, shared_state
-            )
+            completion = _read_child_completion(child, child_depth, _child_state, shared_state)
             answer = completion["text"]
 
             elapsed_ms = (time.perf_counter() - child_start) * 1000
@@ -464,6 +458,7 @@ def create_dispatch_closures(
                 error_category = completion.get("error_category")
                 if is_error and error_category == "SCHEMA_VALIDATION_EXHAUSTED":
                     _acc_structured_output_failures += 1
+                    _cum_structured_output_failures += 1
                 _child_result = LLMResult(
                     answer,
                     error=is_error,
@@ -483,6 +478,7 @@ def create_dispatch_closures(
             else:
                 if output_schema is not None:
                     _acc_structured_output_failures += 1
+                    _cum_structured_output_failures += 1
                 error_text = (
                     "[Child structured output validation exhausted before producing a result]"
                     if output_schema is not None
@@ -501,11 +497,18 @@ def create_dispatch_closures(
         except Exception as e:
             elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error("Child dispatch error at depth %d: %s", depth + 1, e)
-            cat = "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else (
-                _classify_error(e) if (hasattr(e, "code") or hasattr(e, "status_code")) else "UNKNOWN"
+            cat = (
+                "SCHEMA_VALIDATION_EXHAUSTED"
+                if output_schema is not None
+                else (
+                    _classify_error(e)
+                    if (hasattr(e, "code") or hasattr(e, "status_code"))
+                    else "UNKNOWN"
+                )
             )
             if cat == "SCHEMA_VALIDATION_EXHAUSTED":
                 _acc_structured_output_failures += 1
+                _cum_structured_output_failures += 1
             _error_message = str(e)
             _child_result = LLMResult(
                 f"Error: {e}",
@@ -529,28 +532,19 @@ def create_dispatch_closures(
                 structured_obs.get("retry_count") if isinstance(structured_obs, dict) else 0
             )
             structured_events = (
-                list(structured_obs.get("events", []))
-                if isinstance(structured_obs, dict)
-                else []
+                list(structured_obs.get("events", [])) if isinstance(structured_obs, dict) else []
             )
             parsed_output = (
                 getattr(_child_result, "parsed", None)
                 if isinstance(_child_result, LLMResult)
                 else None
             )
-            if (
-                not isinstance(parsed_output, dict)
-                and isinstance(structured_result, dict)
-            ):
+            if not isinstance(parsed_output, dict) and isinstance(structured_result, dict):
                 parsed_output = dict(structured_result)
             validated_structured_result = (
                 dict(structured_result)
                 if isinstance(structured_result, dict)
-                else (
-                    dict(parsed_output)
-                    if isinstance(parsed_output, dict)
-                    else None
-                )
+                else (dict(parsed_output) if isinstance(parsed_output, dict) else None)
             )
             if output_schema is None:
                 structured_outcome = "not_applicable"
@@ -561,9 +555,7 @@ def create_dispatch_closures(
             ):
                 structured_outcome = "retry_exhausted"
             elif isinstance(parsed_output, dict):
-                structured_outcome = (
-                    "retry_recovered" if structured_retries > 0 else "validated"
-                )
+                structured_outcome = "retry_recovered" if structured_retries > 0 else "validated"
             elif structured_attempts > 0:
                 structured_outcome = "incomplete"
             else:
@@ -577,15 +569,25 @@ def create_dispatch_closures(
                 "parent_fanout_idx": _parent_fanout_idx if depth > 0 else None,
                 "elapsed_ms": round(elapsed_ms, 2),
                 "error": _child_result.error if isinstance(_child_result, LLMResult) else True,
-                "error_category": _child_result.error_category if isinstance(_child_result, LLMResult) else None,
+                "error_category": _child_result.error_category
+                if isinstance(_child_result, LLMResult)
+                else None,
                 "prompt": prompt,
                 "prompt_preview": prompt[:500],
                 "result_text": str(_child_result) if _child_result is not None else None,
                 "result_preview": str(_child_result)[:500] if _child_result is not None else None,
-                "input_tokens": getattr(_child_result, "input_tokens", 0) if _child_result is not None else 0,
-                "output_tokens": getattr(_child_result, "output_tokens", 0) if _child_result is not None else 0,
-                "thought_tokens": getattr(_child_result, "thoughts_tokens", 0) if _child_result is not None else 0,
-                "finish_reason": getattr(_child_result, "finish_reason", None) if _child_result is not None else None,
+                "input_tokens": getattr(_child_result, "input_tokens", 0)
+                if _child_result is not None
+                else 0,
+                "output_tokens": getattr(_child_result, "output_tokens", 0)
+                if _child_result is not None
+                else 0,
+                "thought_tokens": getattr(_child_result, "thoughts_tokens", 0)
+                if _child_result is not None
+                else 0,
+                "finish_reason": getattr(_child_result, "finish_reason", None)
+                if _child_result is not None
+                else None,
                 "error_message": _error_message,
                 "final_answer": _truncate_text(_child_result),
                 "visible_output_text": getattr(_child_result, "visible_text", None),
@@ -681,7 +683,9 @@ def create_dispatch_closures(
         if current_trace is not None:
             elapsed_ms = (time.perf_counter() - call_start) * 1000
             current_trace.record_llm_end(
-                call_index, results[0], elapsed_ms,
+                call_index,
+                results[0],
+                elapsed_ms,
                 error=results[0].error if isinstance(results[0], LLMResult) else False,
                 input_tokens=getattr(results[0], "input_tokens", 0),
                 output_tokens=getattr(results[0], "output_tokens", 0),
@@ -720,11 +724,14 @@ def create_dispatch_closures(
         else:
             batch_start_index = 0
 
-        # Update local accumulators
+        # Update local accumulators (per-iteration and cumulative)
         nonlocal _acc_child_dispatches, _acc_child_batch_dispatches
+        nonlocal _cum_child_dispatches, _cum_child_batch_dispatches
         _acc_child_dispatches += k
+        _cum_child_dispatches += k
         if k > 1:
             _acc_child_batch_dispatches += 1
+            _cum_child_batch_dispatches += 1
 
         if k > 1:
             print(
@@ -733,10 +740,7 @@ def create_dispatch_closures(
             )
 
         # Run all children concurrently (semaphore limits actual concurrency)
-        tasks = [
-            _run_child(p, model, output_schema, idx)
-            for idx, p in enumerate(prompts)
-        ]
+        tasks = [_run_child(p, model, output_schema, idx) for idx, p in enumerate(prompts)]
         results = await asyncio.gather(*tasks)
         all_results = list(results)
 
@@ -744,32 +748,35 @@ def create_dispatch_closures(
         dispatch_elapsed_ms = (time.perf_counter() - dispatch_start) * 1000
         _acc_child_latencies.append(round(dispatch_elapsed_ms, 2))
 
-        # Accumulate errors
+        # Accumulate errors (per-iteration and cumulative)
         for r in all_results:
             if r.error:
                 cat = r.error_category or "UNKNOWN"
                 _acc_child_error_counts[cat] = _acc_child_error_counts.get(cat, 0) + 1
+                _cum_child_error_counts[cat] = _cum_child_error_counts.get(cat, 0) + 1
 
         # Record trace entries
         if current_trace is not None and _record_trace_entries:
             batch_elapsed = dispatch_elapsed_ms
             for idx, r in enumerate(all_results):
                 ci = batch_start_index + idx
-                current_trace.llm_calls.append({
-                    "index": ci,
-                    "type": "batch" if k > 1 else "single",
-                    "batch_size": k,
-                    "elapsed_ms": round(batch_elapsed, 2),
-                    "prompt_len": len(prompts[idx]),
-                    "response_len": len(r),
-                    "input_tokens": getattr(r, "input_tokens", 0),
-                    "output_tokens": getattr(r, "output_tokens", 0),
-                    "thoughts_tokens": getattr(r, "thoughts_tokens", 0),
-                    "model": r.model if isinstance(r, LLMResult) else None,
-                    "finish_reason": getattr(r, "finish_reason", None),
-                    "error": r.error if isinstance(r, LLMResult) else False,
-                    "error_category": r.error_category if isinstance(r, LLMResult) else None,
-                })
+                current_trace.llm_calls.append(
+                    {
+                        "index": ci,
+                        "type": "batch" if k > 1 else "single",
+                        "batch_size": k,
+                        "elapsed_ms": round(batch_elapsed, 2),
+                        "prompt_len": len(prompts[idx]),
+                        "response_len": len(r),
+                        "input_tokens": getattr(r, "input_tokens", 0),
+                        "output_tokens": getattr(r, "output_tokens", 0),
+                        "thoughts_tokens": getattr(r, "thoughts_tokens", 0),
+                        "model": r.model if isinstance(r, LLMResult) else None,
+                        "finish_reason": getattr(r, "finish_reason", None),
+                        "error": r.error if isinstance(r, LLMResult) else False,
+                        "error_category": r.error_category if isinstance(r, LLMResult) else None,
+                    }
+                )
             if _data_flow is not None:
                 for idx in range(k):
                     _data_flow.register_response(
@@ -793,6 +800,14 @@ def create_dispatch_closures(
             delta[OBS_CHILD_ERROR_COUNTS] = dict(_acc_child_error_counts)
         if _acc_structured_output_failures > 0:
             delta[OBS_STRUCTURED_OUTPUT_FAILURES] = _acc_structured_output_failures
+        # Cumulative counters — monotonically non-decreasing, never reset
+        delta[OBS_CHILD_DISPATCH_COUNT_TOTAL] = _cum_child_dispatches
+        if _cum_child_batch_dispatches > 0:
+            delta[OBS_CHILD_BATCH_DISPATCHES_TOTAL] = _cum_child_batch_dispatches
+        if _cum_child_error_counts:
+            delta[OBS_CHILD_ERROR_COUNTS_TOTAL] = dict(_cum_child_error_counts)
+        if _cum_structured_output_failures > 0:
+            delta[OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL] = _cum_structured_output_failures
         # BUG-13 monkey-patch invocation count
         bug13_count = _bug13_stats.get("suppress_count", 0)
         if bug13_count > 0:
@@ -802,7 +817,7 @@ def create_dispatch_closures(
             delta[DYN_SKILL_INSTRUCTION] = _parent_skill_instruction
         # Merge per-child summaries into delta
         delta.update(_acc_child_summaries)
-        # Reset accumulators
+        # Reset per-iteration accumulators (cumulative accumulators are NOT reset)
         _acc_child_dispatches = 0
         _acc_child_batch_dispatches = 0
         _acc_child_latencies.clear()
