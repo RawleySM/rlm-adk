@@ -169,6 +169,7 @@ async def test_rlm_state_dispatch_count_timing(tmp_path: Path):
     if turn1_state:
         print(f"    iteration_count = {turn1_state.get('iteration_count')}")
         print(f"    obs:child_dispatch_count = {turn1_state.get('obs:child_dispatch_count', 'ABSENT')}")
+        print(f"    obs:child_dispatch_count_total = {turn1_state.get('obs:child_dispatch_count_total', 'ABSENT')}")
         print(f"    last_repl_result = {'PRESENT' if 'last_repl_result' in turn1_state else 'ABSENT'}")
     else:
         print(f"    (could not parse _rlm_state)")
@@ -180,6 +181,7 @@ async def test_rlm_state_dispatch_count_timing(tmp_path: Path):
     if turn2_state:
         print(f"    iteration_count = {turn2_state.get('iteration_count')}")
         print(f"    obs:child_dispatch_count = {turn2_state.get('obs:child_dispatch_count', 'ABSENT')}")
+        print(f"    obs:child_dispatch_count_total = {turn2_state.get('obs:child_dispatch_count_total', 'ABSENT')}")
         print(f"    obs:rewrite_count = {turn2_state.get('obs:rewrite_count', 'ABSENT')}")
         print(f"    last_repl_result = {'PRESENT' if 'last_repl_result' in turn2_state else 'ABSENT'}")
     else:
@@ -187,10 +189,12 @@ async def test_rlm_state_dispatch_count_timing(tmp_path: Path):
 
     # Final state
     final_dispatch = result.final_state.get("obs:child_dispatch_count")
+    final_dispatch_total = result.final_state.get("obs:child_dispatch_count_total")
     final_iter = result.final_state.get("iteration_count")
     print(f"\n  Final state:")
     print(f"    iteration_count = {final_iter}")
     print(f"    obs:child_dispatch_count = {final_dispatch}")
+    print(f"    obs:child_dispatch_count_total = {final_dispatch_total}")
 
     # ASSERTIONS
     # iteration_count should be correct at each turn
@@ -219,6 +223,26 @@ async def test_rlm_state_dispatch_count_timing(tmp_path: Path):
     # Final state: turn 2 flushed with 0 dispatches
     print(f"  TIMING CHECK: Final obs:child_dispatch_count = {final_dispatch}")
     print(f"    (Expected: 0, because turn 2 had no dispatches)")
+
+    # === CUMULATIVE DISPATCH COUNT ASSERTIONS ===
+
+    # Turn 1: obs:child_dispatch_count_total should be present (seeded in initial_state), value 0
+    if turn1_state:
+        turn1_total = turn1_state.get("obs:child_dispatch_count_total")
+        assert turn1_total is not None, "obs:child_dispatch_count_total should be present on turn 1 (seeded in initial_state)"
+        assert turn1_total == 0, f"Turn 1 obs:child_dispatch_count_total should be 0, got {turn1_total}"
+        print(f"\n  CUMULATIVE CHECK: Turn 1 obs:child_dispatch_count_total = {turn1_total} (PASS: present and 0)")
+
+    # Turn 2: cumulative dispatch count should be 1 (turn 1 dispatched one child)
+    if turn2_state:
+        turn2_total = turn2_state.get("obs:child_dispatch_count_total")
+        assert turn2_total == 1, f"Turn 2 obs:child_dispatch_count_total should be 1, got {turn2_total}"
+        print(f"  CUMULATIVE CHECK: Turn 2 obs:child_dispatch_count_total = {turn2_total} (PASS: cumulative=1)")
+
+    # Final state: cumulative count equals total dispatches across all iterations
+    final_total = result.final_state.get("obs:child_dispatch_count_total")
+    assert final_total == 1, f"Final obs:child_dispatch_count_total should be 1, got {final_total}"
+    print(f"  CUMULATIVE CHECK: Final obs:child_dispatch_count_total = {final_total} (PASS: total=1)")
 
     assert result.contract.passed, result.contract.diagnostics()
     print(f"\n  Contract PASS")

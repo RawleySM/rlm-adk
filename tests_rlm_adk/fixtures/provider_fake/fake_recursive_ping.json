@@ -256,6 +256,7 @@
     "obs:child_dispatch_count": {
       "$gte": 0
     },
+    "obs:child_dispatch_count_total": 1,
     "obs:child_error_counts": {
       "$absent": true
     },
