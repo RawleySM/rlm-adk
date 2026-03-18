@@ -1,0 +1,178 @@
+{
+  "metadata": {
+    "skill_name": "voice-to-prompt",
+    "skill_path": "/home/rawley-stanhope/dev/rlm-adk/.claude/skills/voice-to-prompt",
+    "executor_model": "claude-opus-4-6",
+    "analyzer_model": "claude-opus-4-6",
+    "timestamp": "2026-03-17T16:30:00Z",
+    "evals_run": ["rate-limit-retry", "worker-health-skill", "ast-rewriter-double-await"],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_name": "rate-limit-retry",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 12,
+      "total": 12,
+      "tokens": 78215,
+      "time_seconds": 355.8,
+      "expectations": [
+        {"text": "Correctly identifies rlm_adk/dispatch.py", "passed": true},
+        {"text": "Correctly identifies worker_retry.py and distinguishes from 429 problem", "passed": true},
+        {"text": "References _classify_error with line number", "passed": true},
+        {"text": "Mentions sqlite_tracing.py and ObservabilityPlugin", "passed": true},
+        {"text": "Includes line numbers in appendix", "passed": true},
+        {"text": "Preserves original transcription verbatim", "passed": true},
+        {"text": "Adds testing steps", "passed": true},
+        {"text": "Mentions AR-CRIT-001 / accumulator pattern", "passed": true},
+        {"text": "Delegation blockquote with TDD + showboat", "passed": true},
+        {"text": "Teammate spawn format per step", "passed": true},
+        {"text": "Provider-Fake Fixture & TDD section", "passed": true},
+        {"text": "Showboat demo reference", "passed": true}
+      ]
+    },
+    {
+      "eval_name": "rate-limit-retry",
+      "configuration": "without_skill",
+      "pass_rate": 0.667,
+      "passed": 8,
+      "total": 12,
+      "tokens": 93551,
+      "time_seconds": 211.3,
+      "expectations": [
+        {"text": "Correctly identifies rlm_adk/dispatch.py", "passed": true},
+        {"text": "Correctly identifies worker_retry.py and distinguishes from 429 problem", "passed": true},
+        {"text": "References _classify_error with line number", "passed": true},
+        {"text": "Mentions sqlite_tracing.py and ObservabilityPlugin", "passed": true},
+        {"text": "Includes line numbers in appendix", "passed": true},
+        {"text": "Preserves original transcription verbatim", "passed": true},
+        {"text": "Adds testing steps", "passed": true},
+        {"text": "Mentions AR-CRIT-001 / accumulator pattern", "passed": true},
+        {"text": "Delegation blockquote with TDD + showboat", "passed": false},
+        {"text": "Teammate spawn format per step", "passed": false},
+        {"text": "Provider-Fake Fixture & TDD section", "passed": false},
+        {"text": "Showboat demo reference", "passed": false}
+      ]
+    },
+    {
+      "eval_name": "worker-health-skill",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 12,
+      "total": 12,
+      "tokens": 63330,
+      "time_seconds": 201.8,
+      "expectations": [
+        {"text": "Identifies ping.py as template", "passed": true},
+        {"text": "Identifies skill_registry.py for auto-discovery", "passed": true},
+        {"text": "References DispatchConfig in dispatch.py", "passed": true},
+        {"text": "References skills/catalog.py", "passed": true},
+        {"text": "Includes line numbers in appendix", "passed": true},
+        {"text": "Preserves original transcription", "passed": true},
+        {"text": "Adds testing steps", "passed": true},
+        {"text": "Notes source expansion / AST rewriter interaction", "passed": true},
+        {"text": "Delegation blockquote with TDD + showboat", "passed": true},
+        {"text": "Teammate spawn format per step", "passed": true},
+        {"text": "Provider-Fake Fixture & TDD section", "passed": true},
+        {"text": "Showboat demo reference", "passed": true}
+      ]
+    },
+    {
+      "eval_name": "worker-health-skill",
+      "configuration": "without_skill",
+      "pass_rate": 0.583,
+      "passed": 7,
+      "total": 12,
+      "tokens": 87678,
+      "time_seconds": 161.5,
+      "expectations": [
+        {"text": "Identifies ping.py as template", "passed": true},
+        {"text": "Identifies skill_registry.py for auto-discovery", "passed": true},
+        {"text": "References DispatchConfig in dispatch.py", "passed": true},
+        {"text": "References skills/catalog.py", "passed": true},
+        {"text": "Includes line numbers in appendix", "passed": true},
+        {"text": "Preserves original transcription", "passed": false},
+        {"text": "Adds testing steps", "passed": true},
+        {"text": "Notes source expansion / AST rewriter interaction", "passed": true},
+        {"text": "Delegation blockquote with TDD + showboat", "passed": false},
+        {"text": "Teammate spawn format per step", "passed": false},
+        {"text": "Provider-Fake Fixture & TDD section", "passed": false},
+        {"text": "Showboat demo reference", "passed": false}
+      ]
+    },
+    {
+      "eval_name": "ast-rewriter-double-await",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 12,
+      "total": 12,
+      "tokens": 58460,
+      "time_seconds": 156.6,
+      "expectations": [
+        {"text": "Identifies ast_rewriter.py", "passed": true},
+        {"text": "References LlmCallRewriter class", "passed": true},
+        {"text": "References _promote_functions_to_async", "passed": true},
+        {"text": "References _PromotedCallAwaiter", "passed": true},
+        {"text": "Includes line numbers in appendix", "passed": true},
+        {"text": "Preserves original transcription", "passed": true},
+        {"text": "Adds test scenarios", "passed": true},
+        {"text": "References rewrite_for_async entry point", "passed": true},
+        {"text": "Delegation blockquote with TDD + showboat", "passed": true},
+        {"text": "Teammate spawn format per step", "passed": true},
+        {"text": "Provider-Fake Fixture & TDD section", "passed": true},
+        {"text": "Showboat demo reference", "passed": true}
+      ]
+    },
+    {
+      "eval_name": "ast-rewriter-double-await",
+      "configuration": "without_skill",
+      "pass_rate": 0.667,
+      "passed": 8,
+      "total": 12,
+      "tokens": 63363,
+      "time_seconds": 159.3,
+      "expectations": [
+        {"text": "Identifies ast_rewriter.py", "passed": true},
+        {"text": "References LlmCallRewriter class", "passed": true},
+        {"text": "References _promote_functions_to_async", "passed": true},
+        {"text": "References _PromotedCallAwaiter", "passed": true},
+        {"text": "Includes line numbers in appendix", "passed": true},
+        {"text": "Preserves original transcription", "passed": true},
+        {"text": "Adds test scenarios", "passed": true},
+        {"text": "References rewrite_for_async entry point", "passed": true},
+        {"text": "Delegation blockquote with TDD + showboat", "passed": false},
+        {"text": "Teammate spawn format per step", "passed": false},
+        {"text": "Provider-Fake Fixture & TDD section", "passed": false},
+        {"text": "Showboat demo reference", "passed": false}
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "mean_pass_rate": 1.0,
+      "stddev_pass_rate": 0.0,
+      "mean_tokens": 66668,
+      "mean_time_seconds": 238.1
+    },
+    "without_skill": {
+      "mean_pass_rate": 0.639,
+      "stddev_pass_rate": 0.040,
+      "mean_tokens": 81531,
+      "mean_time_seconds": 177.4
+    },
+    "delta": {
+      "pass_rate": "+0.361",
+      "time_seconds": "+60.7",
+      "tokens": "-14863"
+    }
+  },
+  "notes": [
+    "100% pass rate with skill (36/36) vs 63.9% without (23/36). The gap widened from iteration 1 (+17.9%) to iteration 2 (+36.1%) because the 4 new v2 assertions (delegation, teammate spawn, fixture/TDD, showboat) are structurally impossible without the skill.",
+    "The 4 new format_v2 assertions (delegation directive, teammate spawn, provider-fake TDD, showboat demo) pass 100% with-skill and 0% without. These are non-discriminating in the sense that they test skill-specific template features, not codebase understanding.",
+    "The 8 base assertions (file refs, code refs, format, gap-filling, domain knowledge) pass at 100% with-skill and ~96% without (only worker-health-without_skill missed original_preserved). Both configurations have strong codebase understanding.",
+    "Token usage is LOWER with the skill in iteration 2 (66.7K vs 81.5K, delta -14.9K). The Polya-first methodology and structured template appear to reduce exploration overhead. This reverses the iteration 1 trend (+715 tokens with skill).",
+    "Duration is ~61s longer with skill due to reading Polya reference, repomix XML, and structured template generation. The time tradeoff is acceptable given the quality improvement.",
+    "The worker-health-without_skill run is the weakest baseline (58.3%), missing both original_preserved and all 4 v2 assertions. The rate-limit and ast-rewriter baselines both score 66.7% (missing only v2 assertions)."
+  ]
+}

@@ -1,0 +1,317 @@
+{
+  "scenario_id": "fake_polya_t4_debate",
+  "description": "Provider-fake fixture for T4 adversarial debate. Root reasoning emits execute_code importing and calling run_polya_understand_t4_debate. Workers handle optimist (calls 1-2), critic (calls 3-4), and judge (calls 5-6). Root reasoning finalizes with set_model_response (call 7).",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "initial_state": {
+      "app:max_depth": 3
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Root reasoning emits execute_code that imports and calls run_polya_understand_t4_debate.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from rlm_repl_skills.polya_understand_t4_debate import run_polya_understand_t4_debate\n\nresult = run_polya_understand_t4_debate(\n    objective=\"Validate auth module context.\",\n    project_context={\"auth.py\": \"class Auth: pass\", \"tests.py\": \"def test_auth(): pass\"},\n    emit_debug=False,\n)\nprint(result)\nprint(result.verdict)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 200,
+          "totalTokenCount": 500
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Optimist worker emits execute_code.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "response = \"ASSETS: auth.py, tests.py\\nLINKS: tests.py imports auth.py\\nCOVERAGE_MAP: auth module fully covered by tests\\nREADINESS_CASE: All core auth functionality is present with test coverage.\"\nprint(response)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 250,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 330
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Optimist worker finalizes with set_model_response.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "ASSETS: auth.py, tests.py\nLINKS: tests.py imports auth.py\nCOVERAGE_MAP: auth module fully covered by tests\nREADINESS_CASE: All core auth functionality is present with test coverage.",
+                      "reasoning_summary": "optimist advocate case"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Critic worker emits execute_code.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "response = \"GAPS: Missing authentication flow documentation\\nRISKS: No error handling visible in auth module\\nAMBIGUITIES: Unclear what Auth class methods should exist\\nBLOCKERS: No credential management visible\\nRETRIEVAL_NEEDS: auth_spec.md, credential_config.yaml\"\nprint(response)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 250,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 330
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Critic worker finalizes with set_model_response.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "GAPS: Missing authentication flow documentation\nRISKS: No error handling visible in auth module\nAMBIGUITIES: Unclear what Auth class methods should exist\nBLOCKERS: No credential management visible\nRETRIEVAL_NEEDS: auth_spec.md, credential_config.yaml",
+                      "reasoning_summary": "critic advocate case"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "worker",
+      "note": "Judge worker emits execute_code.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "response = \"VERDICT: CONDITIONAL\\nUNDERSTANDING: The auth module has basic structure and tests but lacks documentation and credential management.\\nRETRIEVAL_ORDER:\\n1. auth_spec.md\\n2. credential_config.yaml\\nCONFIDENCE_MAP: code=HIGH, tests=MEDIUM, docs=LOW\\nADJUDICATION: The critic correctly identified missing documentation and credential management. The optimist's point about test coverage is valid but insufficient for safe refactoring.\"\nprint(response)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 350,
+          "candidatesTokenCount": 120,
+          "totalTokenCount": 470
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 6,
+      "caller": "worker",
+      "note": "Judge worker finalizes with set_model_response.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "VERDICT: CONDITIONAL\nUNDERSTANDING: The auth module has basic structure and tests but lacks documentation and credential management.\nRETRIEVAL_ORDER:\n1. auth_spec.md\n2. credential_config.yaml\nCONFIDENCE_MAP: code=HIGH, tests=MEDIUM, docs=LOW\nADJUDICATION: The critic correctly identified missing documentation and credential management. The optimist's point about test coverage is valid but insufficient for safe refactoring.",
+                      "reasoning_summary": "judge verdict CONDITIONAL"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 380
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "reasoning",
+      "note": "Root reasoning finalizes with set_model_response containing the debate verdict.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "T4 Debate verdict: CONDITIONAL. Missing: auth_spec.md, credential_config.yaml. Can proceed with caveats.",
+                      "reasoning_summary": "T4 adversarial debate completed with CONDITIONAL verdict"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 440
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "T4 Debate verdict: CONDITIONAL. Missing: auth_spec.md, credential_config.yaml. Can proceed with caveats.",
+    "total_iterations": 1,
+    "total_model_calls": 8
+  },
+  "expected_state": {
+    "reasoning_summary": "T4 adversarial debate completed with CONDITIONAL verdict",
+    "last_repl_result": {
+      "$not_none": true
+    },
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    }
+  },
+  "expected_contract": {
+    "callers": {
+      "sequence": ["reasoning", "worker", "worker", "worker", "worker", "worker", "worker", "reasoning"],
+      "counts": {
+        "reasoning": 2,
+        "worker": 6
+      },
+      "count": 8
+    },
+    "captured_requests": {
+      "count": 8
+    }
+  }
+}

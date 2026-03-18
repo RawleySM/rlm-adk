@@ -1,0 +1,19 @@
+{
+  "eval_id": 1,
+  "eval_name": "rate-limit-retry",
+  "prompt": "ok so I need to uh change the dispatch thing so that when a child agent hits a rate limit it actually backs off properly instead of just failing immediately. Right now I think the retry logic in the worker callback isn't catching 429s from the genai client correctly because it's checking the wrong attribute on the exception. Also the error classification function in dispatch dot py needs to handle that case. Oh and make sure the observability stuff picks it up too so I can see it in the traces database.",
+  "assertions": [
+    {"id": "correct_dispatch_file", "text": "Correctly identifies rlm_adk/dispatch.py as the file containing error classification", "type": "file_reference"},
+    {"id": "correct_retry_file", "text": "Correctly identifies rlm_adk/callbacks/worker_retry.py and distinguishes it from the 429 retry problem", "type": "file_reference"},
+    {"id": "classify_error_function", "text": "References _classify_error function in dispatch.py with line number", "type": "code_reference"},
+    {"id": "observability_path", "text": "Mentions sqlite_tracing.py and ObservabilityPlugin for traces database pipeline", "type": "code_reference"},
+    {"id": "line_numbers_present", "text": "Includes specific line numbers in an appendix or reference table", "type": "format"},
+    {"id": "original_preserved", "text": "Preserves the original transcription verbatim in a blockquote or clearly marked section", "type": "format"},
+    {"id": "testing_consideration", "text": "Adds testing steps or test cases not in the original transcription", "type": "gap_filling"},
+    {"id": "ar_crit_001", "text": "Mentions AR-CRIT-001 or state mutation rules / accumulator pattern since dispatch is involved", "type": "domain_knowledge"},
+    {"id": "delegation_directive", "text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "type": "format_v2"},
+    {"id": "teammate_spawn_format", "text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "type": "format_v2"},
+    {"id": "provider_fake_fixture_tdd", "text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "type": "format_v2"},
+    {"id": "showboat_demo", "text": "Mentions `uvx showboat` demo documentation for proving changes work", "type": "format_v2"}
+  ]
+}

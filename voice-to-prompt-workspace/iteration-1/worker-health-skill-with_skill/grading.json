@@ -1,0 +1,17 @@
+{
+  "eval_id": 2,
+  "eval_name": "worker-health-skill",
+  "configuration": "with_skill",
+  "expectations": [
+    {"text": "Identifies rlm_adk/skills/repl_skills/ping.py as the template to follow", "passed": true, "evidence": "Appendix: 'rlm_adk/skills/repl_skills/ping.py | register_skill_export() calls | L147-211 | Template for new skill registration pattern'"},
+    {"text": "Notes that WorkerPool is an alias for DispatchConfig in dispatch.py", "passed": true, "evidence": "Considerations: 'DispatchConfig / WorkerPool object' and appendix: 'DispatchConfig.__init__ | L148-156'"},
+    {"text": "References rlm_adk/repl/skill_registry.py for auto-discovery", "passed": true, "evidence": "Appendix rows: ReplSkillExport at L15, register_skill_export() at L219, SkillRegistry.expand() at L58"},
+    {"text": "Specifies creating the new file at rlm_adk/skills/repl_skills/", "passed": true, "evidence": "Step 1: 'Create the skill module at rlm_adk/skills/repl_skills/worker_health.py'"},
+    {"text": "Includes specific line numbers in an appendix or reference section", "passed": true, "evidence": "10-row appendix table with lines: L147-211, L15, L219, L58, L286-287, L246, L148-156, L695, L95-128"},
+    {"text": "Preserves the original transcription verbatim", "passed": true, "evidence": "Blockquote at line 11 starting with 'I want to add a new skill...'"},
+    {"text": "Mentions YAML frontmatter requirement for skill discovery", "passed": true, "evidence": "Considerations: 'This is a utility skill invoked on-demand via synthetic import, not a prompt-visible skill. It does NOT need an ADK Skill object, Frontmatter, or catalog registration.' Demonstrates awareness of the frontmatter system and correctly distinguishes it."}
+  ],
+  "pass_count": 7,
+  "total_count": 7,
+  "pass_rate": 1.0
+}

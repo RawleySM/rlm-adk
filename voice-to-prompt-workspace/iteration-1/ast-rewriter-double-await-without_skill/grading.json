@@ -1,0 +1,18 @@
+{
+  "eval_id": 3,
+  "eval_name": "ast-rewriter-double-await",
+  "configuration": "without_skill",
+  "expectations": [
+    {"text": "Correctly identifies rlm_adk/repl/ast_rewriter.py as the primary file", "passed": true, "evidence": "File referenced as primary target throughout"},
+    {"text": "References specific classes: LlmCallRewriter, _FuncDefPromoter, _PromotedCallAwaiter", "passed": true, "evidence": "All three named with line ranges: 39-67, 122-141, 144-158"},
+    {"text": "References _promote_functions_to_async as the key function to fix", "passed": true, "evidence": "'_promote_functions_to_async (line 82)' referenced as needing scope-aware walk"},
+    {"text": "References rewrite_for_async as the entry point function", "passed": true, "evidence": "'Caller of rewrite_for_async (lines 93-277, step 5 in run_async)' in files-to-read table"},
+    {"text": "Includes specific line numbers in an appendix or reference section", "passed": true, "evidence": "Line references: 39-67, 82-119, 122-141, 144-158, 150, 70, 101, 72-74"},
+    {"text": "Preserves the original transcription verbatim", "passed": false, "evidence": "No blockquote or verbatim transcription. The original is paraphrased in the Problem section."},
+    {"text": "Adds test case suggestions for nested async functions", "passed": true, "evidence": "'Add regression tests' section with 5 specific scenarios including same-name scope shadowing"},
+    {"text": "Explains scope-tracking issue with enough specificity for implementation", "passed": true, "evidence": "Very detailed: concrete failing scenario with code example, analysis of ast.walk vs _contains_await scope handling, visit_Await suppression issue, and node-identity-based matching suggestion"}
+  ],
+  "pass_count": 7,
+  "total_count": 8,
+  "pass_rate": 0.875
+}

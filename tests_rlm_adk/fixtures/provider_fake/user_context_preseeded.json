@@ -1,0 +1,109 @@
+{
+  "scenario_id": "user_context_preseeded",
+  "description": "Path B user context: pre-seeded user_provided_ctx in initial_state is injected into REPL globals as user_ctx and manifest is built into session state. Proves the dict is accessible in REPL code (not just session state) and that the manifest builder ran.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 3,
+    "retry_delay": 0.0,
+    "initial_state": {
+      "user_provided_ctx": {
+        "notes.txt": "meeting notes here",
+        "spec.md": "# Spec\nproject details"
+      }
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "REPL code reads user_ctx dict injected by Path B and prints notes.txt content",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(user_ctx[\"notes.txt\"])"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 180
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "Reasoning sees REPL output and returns FINAL with the extracted content",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The user context contains meeting notes.\n\nFINAL(meeting notes here)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 220
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "meeting notes here",
+    "total_iterations": 1,
+    "total_model_calls": 2
+  },
+  "expected_state": {
+    "user_provided_ctx": {"$not_none": true},
+    "user_ctx_manifest": {"$contains": "notes.txt"},
+    "usr_provided_files_serialized": {"$type": "list", "$not_empty": true},
+    "user_provided_ctx_exceeded": false
+  },
+  "expected_contract": {
+    "callers": ["reasoning", "reasoning"],
+    "captured_requests": 2,
+    "events": {
+      "part_counts": {"text": 3, "function_call:execute_code": 1, "function_response:execute_code": 1},
+      "part_sequence": [
+        {"kind": "text"},
+        {"kind": "function_call", "name": "execute_code"},
+        {"kind": "function_response", "name": "execute_code"},
+        {"kind": "text"},
+        {"kind": "text"}
+      ]
+    },
+    "tool_results": {
+      "count": 1,
+      "stdout_contains": ["meeting notes here"]
+    }
+  }
+}

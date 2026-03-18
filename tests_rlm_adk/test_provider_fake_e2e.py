@@ -5,7 +5,7 @@ persistence, and tracing:
 
 - **Group A**: Contract validation — parametrized over all fixture JSON files.
 - **Group B**: Plugin + artifact integration — observability state, artifact
-  persistence via InMemoryArtifactService.
+  persistence via FileArtifactService.
 - **Group C**: Tracing integration — SqliteTracingPlugin DB assertions,
   REPL trace events in the event stream.
 """
@@ -21,7 +21,6 @@ from rlm_adk.state import (
     ARTIFACT_SAVE_COUNT,
     FINAL_ANSWER,
 )
-
 from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
 from tests_rlm_adk.provider_fake.contract_runner import (
     PluginContractResult,
@@ -284,6 +283,7 @@ async def _run_with_plugins(
         fixture_path,
         traces_db_path=traces_db,
         repl_trace_level=1,
+        tmpdir=str(tmp_path),
     )
 
 
@@ -325,7 +325,7 @@ async def test_observability_state_happy_path(tmp_path: Path):
 
 @pytest.mark.agent_challenge
 async def test_artifact_persistence_happy_path(tmp_path: Path):
-    """InMemoryArtifactService stores final_answer.md artifact."""
+    """FileArtifactService stores final_answer.md artifact on disk."""
     result = await _run_with_plugins("agent_challenge/happy_path_single_iteration", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
@@ -350,7 +350,7 @@ async def test_artifact_persistence_happy_path(tmp_path: Path):
 
 @pytest.mark.agent_challenge
 async def test_artifact_persistence_multi_iteration(tmp_path: Path):
-    """InMemoryArtifactService stores code/output artifacts for worker fixtures."""
+    """FileArtifactService stores code/output artifacts for worker fixtures on disk."""
     result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
@@ -564,3 +564,111 @@ async def test_save_captured_requests_to_json(tmp_path: Path):
     loaded = json.loads(out.read_text())
     assert len(loaded) == len(result.captured_requests)
     assert loaded[0]["systemInstruction"] == result.captured_requests[0]["systemInstruction"]
+
+
+# ===========================================================================
+# GROUP F: User-provided context (Path B) integration
+# ===========================================================================
+
+
+@pytest.mark.provider_fake_contract
+async def test_user_context_preseeded_manifest_and_repl(tmp_path: Path):
+    """Path B user context: manifest, state keys, and REPL globals are wired."""
+    result = await _run_with_plugins("user_context_preseeded", tmp_path)
+
+    assert result.contract.passed, result.contract.diagnostics()
+
+    state = result.final_state
+
+    # Manifest contains both file names
+    manifest = state.get("user_ctx_manifest", "")
+    assert "notes.txt" in manifest, f"Manifest missing notes.txt: {manifest!r}"
+    assert "spec.md" in manifest, f"Manifest missing spec.md: {manifest!r}"
+
+    # user_provided_ctx has exactly 2 keys
+    ctx = state.get("user_provided_ctx")
+    assert ctx is not None, "user_provided_ctx not in state"
+    assert len(ctx) == 2, f"Expected 2 keys in user_provided_ctx, got {len(ctx)}"
+
+    # exceeded flag is False
+    assert state.get("user_provided_ctx_exceeded") is False, (
+        f"Expected False, got {state.get('user_provided_ctx_exceeded')!r}"
+    )
+
+    # REPL stdout contains the content from user_ctx["notes.txt"]
+    tool_results = []
+    for event in result.events:
+        content = getattr(event, "content", None)
+        if content is None:
+            continue
+        for part in getattr(content, "parts", []):
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "name", "") == "execute_code":
+                response_data = getattr(fr, "response", None)
+                if isinstance(response_data, dict):
+                    tool_results.append(response_data)
+
+    assert len(tool_results) >= 1, "No execute_code tool results found"
+    stdout_texts = [tr.get("stdout", "") for tr in tool_results]
+    assert any("meeting notes here" in s for s in stdout_texts), (
+        f"REPL stdout should contain 'meeting notes here', got: {stdout_texts}"
+    )
+
+
+# ===========================================================================
+# GROUP G: Persistent services verification
+# ===========================================================================
+
+
+@pytest.mark.provider_fake_contract
+async def test_artifacts_persisted_to_disk(tmp_path: Path):
+    """FileArtifactService writes artifact files to disk, not just memory."""
+    result = await _run_with_plugins("fake_recursive_ping", tmp_path)
+
+    assert result.contract.passed, result.contract.diagnostics()
+    assert result.artifact_root is not None
+    artifact_root = Path(result.artifact_root)
+
+    # Artifact root directory should exist on disk
+    assert artifact_root.exists(), f"artifact_root does not exist: {artifact_root}"
+
+    # Collect all files written under the artifact root
+    artifact_files = list(artifact_root.rglob("*"))
+    artifact_files = [f for f in artifact_files if f.is_file()]
+    print(f"  artifact_root={artifact_root}")
+    print(f"  artifact files ({len(artifact_files)}):")
+    for f in artifact_files:
+        print(f"    {f.relative_to(artifact_root)} ({f.stat().st_size} bytes)")
+
+    # At least one artifact file should have been written
+    assert len(artifact_files) > 0, (
+        f"No artifact files found under {artifact_root}"
+    )
+
+
+@pytest.mark.provider_fake_contract
+async def test_session_db_persisted_to_disk(tmp_path: Path):
+    """SqliteSessionService writes a real SQLite DB with session data."""
+    result = await _run_with_plugins("fake_recursive_ping", tmp_path)
+
+    assert result.contract.passed, result.contract.diagnostics()
+    assert result.session_db_path is not None
+
+    db_path = Path(result.session_db_path)
+    assert db_path.exists(), f"session DB does not exist: {db_path}"
+    assert db_path.stat().st_size > 0, f"session DB is empty: {db_path}"
+
+    # Verify it's a valid SQLite DB with session data
+    conn = sqlite3.connect(str(db_path))
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert len(tables) > 0, f"No tables in session DB, got: {tables}"
+        print(f"  session_db={db_path}")
+        print(f"  tables: {sorted(tables)}")
+    finally:
+        conn.close()

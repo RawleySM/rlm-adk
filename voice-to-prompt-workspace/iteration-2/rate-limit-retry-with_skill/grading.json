@@ -1,0 +1,22 @@
+{
+  "eval_id": 1,
+  "eval_name": "rate-limit-retry",
+  "configuration": "with_skill",
+  "expectations": [
+    {"text": "Correctly identifies rlm_adk/dispatch.py as the file containing error classification", "passed": true, "evidence": "dispatch.py referenced throughout; _classify_error() at L58, exception handler at L504-505, _run_child() at L428-516 in appendix"},
+    {"text": "Correctly identifies rlm_adk/callbacks/worker_retry.py and distinguishes it from the 429 retry problem", "passed": true, "evidence": "Appendix row: WorkerRetryPlugin at L79. Considerations section: 'WorkerRetryPlugin handles structured output validation retries (set_model_response), not HTTP error retries. It is unrelated to the 429 retry problem.'"},
+    {"text": "References _classify_error function in dispatch.py with line number", "passed": true, "evidence": "Appendix: '_classify_error()' at L58 with relevance 'Error classification function -- already handles 429 correctly'"},
+    {"text": "Mentions sqlite_tracing.py and ObservabilityPlugin for traces database pipeline", "passed": true, "evidence": "Step 3 traces full pipeline: ObservabilityPlugin.after_run_callback (L344), SqliteTracingPlugin child_error_counts column (L223, L728, L758), session_report.py (L264-271)"},
+    {"text": "Includes specific line numbers in an appendix or reference table", "passed": true, "evidence": "18-row appendix table with line numbers: L58, L504-505, L428-516, L203, L783, L197, L76, L72, L99, L344, L223/L728/L758, L264-271, L109, L79, L29-234"},
+    {"text": "Preserves the original transcription verbatim in a blockquote", "passed": true, "evidence": "Line 11: blockquote starting 'ok so I need to uh change the dispatch thing...' matches original verbatim"},
+    {"text": "Adds testing steps or test cases not in the original transcription", "passed": true, "evidence": "Step 5: full Test-Contract teammate with 2 new fixtures (child_429_retry_success.json, child_429_retry_exhausted.json) plus TDD sequence with 9 red/green steps"},
+    {"text": "Mentions AR-CRIT-001 or state mutation rules / accumulator pattern since dispatch is involved", "passed": true, "evidence": "Step 1: 'AR-CRIT-001 compliance: use the local accumulator pattern -- never write ctx.session.state directly in the dispatch closure.' Also in Considerations section."},
+    {"text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "passed": true, "evidence": "Line 15: '> **Delegation:** Assign each numbered step below to an Agent Team teammate. Each teammate implements their step using red/green TDD and documents the change with a demo via `uvx showboat --help`.'"},
+    {"text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "passed": true, "evidence": "5 steps: Retry-Agent, Classify-Guard, Obs-Trace, Batch-Retry, Test-Contract -- all formatted as 'Spawn a `X` teammate to [action]'"},
+    {"text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "passed": true, "evidence": "Full section with 2 fixtures (child_429_retry_success.json, child_429_retry_exhausted.json), 4 essential requirements each, 9-step TDD sequence"},
+    {"text": "Mentions `uvx showboat` demo documentation for proving changes work", "passed": true, "evidence": "Line 86: 'Demo: Run `uvx showboat` to generate an executable demo document proving the retry, backoff timing, and observability pipeline work end-to-end.'"}
+  ],
+  "pass_count": 12,
+  "total_count": 12,
+  "pass_rate": 1.0
+}

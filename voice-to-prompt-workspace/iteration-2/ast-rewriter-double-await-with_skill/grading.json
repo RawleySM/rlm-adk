@@ -1,0 +1,22 @@
+{
+  "eval_id": 3,
+  "eval_name": "ast-rewriter-double-await",
+  "configuration": "with_skill",
+  "expectations": [
+    {"text": "Identifies rlm_adk/repl/ast_rewriter.py as the file to modify", "passed": true, "evidence": "Referenced throughout; appendix has 10 entries for ast_rewriter.py with specific items and line numbers"},
+    {"text": "References LlmCallRewriter class as the bug site for double-await", "passed": true, "evidence": "Step 1: 'add a visit_Await method to LlmCallRewriter in rlm_adk/repl/ast_rewriter.py (class at line 39)'. Appendix: LlmCallRewriter at L39."},
+    {"text": "References _promote_functions_to_async function for the AsyncFunctionDef gap", "passed": true, "evidence": "Step 2: 'make _promote_functions_to_async (line 82) aware of user-written AsyncFunctionDef nodes'. Appendix: L82."},
+    {"text": "References _PromotedCallAwaiter class for scope-tracking fixes", "passed": true, "evidence": "Step 3: 'add scope awareness to _PromotedCallAwaiter and _FuncDefPromoter'. Appendix: _PromotedCallAwaiter at L144, visit_Await at L150."},
+    {"text": "Includes specific line numbers in an appendix or reference table", "passed": true, "evidence": "13-row appendix table: L15, L39, L55, L70, L82, L122, L144, L150, L154, L161, L26, L185, L189"},
+    {"text": "Preserves the original transcription verbatim in a blockquote", "passed": true, "evidence": "Line 11: blockquote 'the ast rewriter is breaking on nested async functions...'"},
+    {"text": "Adds comprehensive test cases for nested async scenarios not in the original transcription", "passed": true, "evidence": "Step 4: AST-Test teammate with 8+ test scenarios including double-await, user-written async def, name shadowing, nested scopes, end-to-end execution"},
+    {"text": "References rewrite_for_async as the public entry point that must not change signature", "passed": true, "evidence": "Considerations: 'Backward compatibility: The rewrite_for_async function\\'s public signature and return type (ast.Module) must not change.' Appendix: rewrite_for_async at L161."},
+    {"text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "passed": true, "evidence": "Line 15: '> **Delegation:** Assign each numbered step below to an Agent Team teammate. Each teammate implements their step using red/green TDD and documents the change with a demo via `uvx showboat --help`.'"},
+    {"text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "passed": true, "evidence": "5 steps: Rewriter-Guard, Promotion-Scope, Scope-Tracker, AST-Test, Regression-Runner -- all 'Spawn a `X` teammate to [action]'"},
+    {"text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "passed": true, "evidence": "Full section: fixture nested_async_helper.json, 3 essential requirements (async helper double-await, pre-awaited call, return value propagation), 6-step TDD sequence"},
+    {"text": "Mentions `uvx showboat` demo documentation for proving changes work", "passed": true, "evidence": "Line 72: 'Demo: Run `uvx showboat` to generate an executable demo document proving the implementation works end-to-end.'"}
+  ],
+  "pass_count": 12,
+  "total_count": 12,
+  "pass_rate": 1.0
+}

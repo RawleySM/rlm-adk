@@ -145,7 +145,6 @@
       "obs:child_summary@d1f0": {
         "error": true,
         "error_category": "UNKNOWN",
-        "finish_reason": null,
         "prompt_preview": "Analyze data",
         "result_preview": {
           "$contains": "Expecting value"

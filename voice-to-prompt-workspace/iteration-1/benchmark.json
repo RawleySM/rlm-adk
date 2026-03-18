@@ -1,0 +1,151 @@
+{
+  "metadata": {
+    "skill_name": "voice-to-prompt",
+    "skill_path": "/home/rawley-stanhope/dev/rlm-adk/.claude/skills/voice-to-prompt",
+    "executor_model": "claude-opus-4-6",
+    "analyzer_model": "claude-opus-4-6",
+    "timestamp": "2026-03-17T15:10:00Z",
+    "evals_run": ["rate-limit-retry", "worker-health-skill", "ast-rewriter-double-await"],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_name": "rate-limit-retry",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 8,
+      "total": 8,
+      "tokens": 89080,
+      "time_seconds": 255.9,
+      "expectations": [
+        {"text": "Correctly identifies rlm_adk/dispatch.py", "passed": true, "evidence": "dispatch.py referenced throughout with _classify_error() at L58"},
+        {"text": "Correctly identifies rlm_adk/callbacks/worker_retry.py", "passed": true, "evidence": "worker_retry.py at L79 in appendix; correctly distinguished from transport retry"},
+        {"text": "References _classify_error function", "passed": true, "evidence": "_classify_error() at L58 in appendix"},
+        {"text": "Mentions SqliteTracingPlugin or ObservabilityPlugin", "passed": true, "evidence": "Both referenced in appendix"},
+        {"text": "Includes specific line numbers in appendix", "passed": true, "evidence": "13-row appendix with L58, L167, L383, L501, L783, L76, L72, L99, L50, L318, L223, L79"},
+        {"text": "Preserves original transcription verbatim", "passed": true, "evidence": "Blockquote at line 11"},
+        {"text": "Adds testing steps", "passed": true, "evidence": "Step 5 with 3 specific test cases"},
+        {"text": "Mentions AR-CRIT-001", "passed": true, "evidence": "Considerations section explicitly references AR-CRIT-001"}
+      ]
+    },
+    {
+      "eval_name": "rate-limit-retry",
+      "configuration": "without_skill",
+      "pass_rate": 0.875,
+      "passed": 7,
+      "total": 8,
+      "tokens": 93862,
+      "time_seconds": 200.7,
+      "expectations": [
+        {"text": "Correctly identifies rlm_adk/dispatch.py", "passed": true, "evidence": "dispatch.py referenced throughout"},
+        {"text": "Correctly identifies rlm_adk/callbacks/worker_retry.py", "passed": true, "evidence": "Correctly notes worker_retry.py is NOT related"},
+        {"text": "References _classify_error function", "passed": true, "evidence": "_classify_error() at line 58"},
+        {"text": "Mentions SqliteTracingPlugin or ObservabilityPlugin", "passed": true, "evidence": "Both referenced"},
+        {"text": "Includes specific line numbers in appendix", "passed": true, "evidence": "Line numbers throughout"},
+        {"text": "Preserves original transcription verbatim", "passed": false, "evidence": "No blockquote. Original paraphrased, not preserved."},
+        {"text": "Adds testing steps", "passed": true, "evidence": "Full Testing section with 3 unit tests"},
+        {"text": "Mentions AR-CRIT-001", "passed": true, "evidence": "Constraints section references AR-CRIT-001"}
+      ]
+    },
+    {
+      "eval_name": "worker-health-skill",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 7,
+      "total": 7,
+      "tokens": 92341,
+      "time_seconds": 208.7,
+      "expectations": [
+        {"text": "Identifies ping.py as template", "passed": true, "evidence": "ping.py at L147-211 in appendix"},
+        {"text": "Notes WorkerPool/DispatchConfig alias", "passed": true, "evidence": "DispatchConfig.__init__ at L148-156 in appendix"},
+        {"text": "References skill_registry.py", "passed": true, "evidence": "3 rows in appendix for skill_registry.py"},
+        {"text": "Correct file placement", "passed": true, "evidence": "rlm_adk/skills/repl_skills/worker_health.py"},
+        {"text": "Includes line numbers in appendix", "passed": true, "evidence": "10-row appendix table"},
+        {"text": "Preserves original transcription", "passed": true, "evidence": "Blockquote at line 11"},
+        {"text": "Mentions frontmatter/skill discovery mechanism", "passed": true, "evidence": "Explains difference between prompt-visible and source-expandable skills"}
+      ]
+    },
+    {
+      "eval_name": "worker-health-skill",
+      "configuration": "without_skill",
+      "pass_rate": 0.714,
+      "passed": 5,
+      "total": 7,
+      "tokens": 88154,
+      "time_seconds": 177.3,
+      "expectations": [
+        {"text": "Identifies ping.py as template", "passed": true, "evidence": "ping.py referenced as canonical example"},
+        {"text": "Notes WorkerPool/DispatchConfig alias", "passed": false, "evidence": "No mention of the alias"},
+        {"text": "References skill_registry.py", "passed": true, "evidence": "skill_registry.py referenced"},
+        {"text": "Correct file placement", "passed": true, "evidence": "rlm_adk/skills/repl_skills/worker_health.py"},
+        {"text": "Includes line numbers in appendix", "passed": true, "evidence": "Line references present"},
+        {"text": "Preserves original transcription", "passed": false, "evidence": "No blockquote or verbatim preservation"},
+        {"text": "Mentions frontmatter/skill discovery mechanism", "passed": true, "evidence": "Notes distinction between prompt-visible and source-expandable"}
+      ]
+    },
+    {
+      "eval_name": "ast-rewriter-double-await",
+      "configuration": "with_skill",
+      "pass_rate": 1.0,
+      "passed": 8,
+      "total": 8,
+      "tokens": 53903,
+      "time_seconds": 279.0,
+      "expectations": [
+        {"text": "Identifies ast_rewriter.py", "passed": true, "evidence": "11 appendix rows referencing ast_rewriter.py"},
+        {"text": "Names all NodeTransformer classes", "passed": true, "evidence": "LlmCallRewriter L39, _FuncDefPromoter L122, _PromotedCallAwaiter L144"},
+        {"text": "References _promote_functions_to_async", "passed": true, "evidence": "L82 in appendix"},
+        {"text": "References rewrite_for_async", "passed": true, "evidence": "L161 in appendix"},
+        {"text": "Includes line numbers in appendix", "passed": true, "evidence": "11-row table"},
+        {"text": "Preserves original transcription", "passed": true, "evidence": "Blockquote at line 11"},
+        {"text": "Adds test scenarios", "passed": true, "evidence": "6 specific test scenarios in step 4"},
+        {"text": "Explains scope-tracking with implementation specificity", "passed": true, "evidence": "3 steps with precise AST-level explanations"}
+      ]
+    },
+    {
+      "eval_name": "ast-rewriter-double-await",
+      "configuration": "without_skill",
+      "pass_rate": 0.875,
+      "passed": 7,
+      "total": 8,
+      "tokens": 51161,
+      "time_seconds": 265.8,
+      "expectations": [
+        {"text": "Identifies ast_rewriter.py", "passed": true, "evidence": "Primary file throughout"},
+        {"text": "Names all NodeTransformer classes", "passed": true, "evidence": "All three named with line ranges"},
+        {"text": "References _promote_functions_to_async", "passed": true, "evidence": "Line 82-119"},
+        {"text": "References rewrite_for_async", "passed": true, "evidence": "In files-to-read table"},
+        {"text": "Includes line numbers in appendix", "passed": true, "evidence": "Line references throughout"},
+        {"text": "Preserves original transcription", "passed": false, "evidence": "No blockquote"},
+        {"text": "Adds test scenarios", "passed": true, "evidence": "5 regression test scenarios"},
+        {"text": "Explains scope-tracking with implementation specificity", "passed": true, "evidence": "Detailed with concrete code example"}
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "mean_pass_rate": 1.0,
+      "stddev_pass_rate": 0.0,
+      "mean_tokens": 78441,
+      "mean_time_seconds": 247.9
+    },
+    "without_skill": {
+      "mean_pass_rate": 0.821,
+      "stddev_pass_rate": 0.076,
+      "mean_tokens": 77726,
+      "mean_time_seconds": 214.6
+    },
+    "delta": {
+      "pass_rate": "+0.179",
+      "time_seconds": "+33.3",
+      "tokens": "+715"
+    }
+  },
+  "notes": [
+    "100% pass rate with skill (23/23) vs 82.1% without (19/23). The 4 failures are all format/structure issues, not code-understanding issues.",
+    "All 3 without-skill runs failed 'original_preserved' -- no verbatim transcription blockquote. The skill's explicit format spec ensures this.",
+    "The DispatchConfig alias assertion failed only without the skill in eval 2. The Polya-first deep investigation step caught it.",
+    "Token usage is nearly identical (~78K). Duration ~33s longer with skill due to reading Polya reference and repomix XML.",
+    "Both configurations excelled at code-reference assertions. The skill's value is in format consistency and domain-knowledge surfacing."
+  ]
+}

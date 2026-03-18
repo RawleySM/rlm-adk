@@ -1,0 +1,19 @@
+{
+  "eval_id": 2,
+  "eval_name": "worker-health-skill",
+  "prompt": "I want to add a new skill, like a repl skill similar to the ping one but this one should do like a health check on the worker pool. It should dispatch a simple query to each worker and report back latency and whether they responded. Put it next to the ping skill I guess. And make sure the skill registry picks it up automatically.",
+  "assertions": [
+    {"id": "correct_ping_file", "text": "Identifies repl_skills/ping.py as the template to follow", "type": "file_reference"},
+    {"id": "correct_registry_file", "text": "Identifies skill_registry.py for auto-discovery registration", "type": "file_reference"},
+    {"id": "dispatch_config_ref", "text": "References DispatchConfig in dispatch.py for worker pool context", "type": "code_reference"},
+    {"id": "skill_catalog_ref", "text": "References skills/catalog.py for prompt-visible skill registration", "type": "code_reference"},
+    {"id": "line_numbers_present", "text": "Includes specific line numbers in an appendix or reference table", "type": "format"},
+    {"id": "original_preserved", "text": "Preserves the original transcription verbatim in a blockquote or clearly marked section", "type": "format"},
+    {"id": "testing_consideration", "text": "Adds testing steps (expansion tests, registry tests) not in the original transcription", "type": "gap_filling"},
+    {"id": "source_expansion_note", "text": "Notes source expansion requirement — AST rewriter interaction, llm_query_batched sync form", "type": "domain_knowledge"},
+    {"id": "delegation_directive", "text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "type": "format_v2"},
+    {"id": "teammate_spawn_format", "text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "type": "format_v2"},
+    {"id": "provider_fake_fixture_tdd", "text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "type": "format_v2"},
+    {"id": "showboat_demo", "text": "Mentions `uvx showboat` demo documentation for proving changes work", "type": "format_v2"}
+  ]
+}

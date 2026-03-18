@@ -479,10 +479,11 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 - **2026-03-09 13:15** — `orchestrator.py`: Added `fanout_idx` Pydantic field to `RLMOrchestratorAgent`, threaded to REPLTool and `save_final_answer()`.
 - **2026-03-09 13:15** — `repl_tool.py`: Added `fanout_idx` to `REPLTool.__init__()`, threaded to `save_repl_code()` with depth and fanout_idx.
 - **2026-03-09 13:15** — `agent.py`: Added `fanout_idx` to `create_child_orchestrator()`, passed to `RLMOrchestratorAgent`.
-- **2026-03-10** — `repl_tool.py`: Documented skill import expansion pass (step 4) in REPL execution pipeline.
-- **2026-03-12** — `orchestrator.py`: Added `instruction_router` field to `RLMOrchestratorAgent`. `_run_async_impl` now seeds `DYN_SKILL_INSTRUCTION` into initial state and wires `before_agent_callback` for skill instruction propagation.
-- **2026-03-13** — `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()` (pass-through to `create_rlm_app()`). New `services.py` registers CLI service factories; does not affect the core loop or factory chain.
-- **2026-03-13** — `orchestrator.py`: Side-effect import of polya_narrative skill moved from `skills.repl_skills.polya_narrative` to `skills.polya_narrative_skill`. `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` alongside repomix (under `include_repomix` guard).
+- **2026-03-10 10:22** — `repl_tool.py`: Documented skill import expansion pass (step 4) in REPL execution pipeline.
+- **2026-03-12 14:37** — `orchestrator.py`: Added `instruction_router` field to `RLMOrchestratorAgent`. `_run_async_impl` now seeds `DYN_SKILL_INSTRUCTION` into initial state and wires `before_agent_callback` for skill instruction propagation.
+- **2026-03-13 09:45** — `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()` (pass-through to `create_rlm_app()`). New `services.py` registers CLI service factories; does not affect the core loop or factory chain.
+- **2026-03-13 16:10** — `orchestrator.py`: Side-effect import of polya_narrative skill moved from `skills.repl_skills.polya_narrative` to `skills.polya_narrative_skill`. `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` alongside repomix (under `include_repomix` guard).
+- **2026-03-17 13:49** — `repl_tool.py`: Added `_rlm_state` snapshot injection before code execution. Builds a fresh dict from `EXPOSED_STATE_KEYS` (depth-scoped where applicable) and injects into `repl.globals` each `run_async()` call. Read-only — AR-CRIT-001 compliant.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

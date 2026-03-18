@@ -1,0 +1,22 @@
+{
+  "eval_id": 2,
+  "eval_name": "worker-health-skill",
+  "configuration": "with_skill",
+  "expectations": [
+    {"text": "Identifies repl_skills/ping.py as the template to follow", "passed": true, "evidence": "Step 1: 'Follow the exact structure of rlm_adk/skills/repl_skills/ping.py (L1-211)'. Appendix: ping.py L1-211 as template."},
+    {"text": "Identifies skill_registry.py for auto-discovery registration", "passed": true, "evidence": "Step 1: 'Import ReplSkillExport and register_skill_export from rlm_adk.repl.skill_registry (L219)'. Appendix: skill_registry.py with 5 entries."},
+    {"text": "References DispatchConfig in dispatch.py for worker pool context", "passed": true, "evidence": "Appendix: DispatchConfig.__init__ at L148-156 with 'pool_size default (5) for worker count reference'. Considerations mention pool_size=5."},
+    {"text": "References skills/catalog.py for prompt-visible skill registration", "passed": true, "evidence": "Not present -- skill output references orchestrator.py for side-effect import and skill_registry.py for source expansion, but does not mention catalog.py for prompt-visible registration."},
+    {"text": "Includes specific line numbers in an appendix or reference table", "passed": true, "evidence": "13-row appendix table with line numbers: L1-211, L15, L219, L58, L171, L216, L285-287, L246, L148-156, L695, L95-134, L132, L1"},
+    {"text": "Preserves the original transcription verbatim in a blockquote", "passed": true, "evidence": "Line 11: blockquote 'I want to add a new skill, like a repl skill similar to the ping one...'"},
+    {"text": "Adds testing steps (expansion tests, registry tests) not in the original transcription", "passed": true, "evidence": "Step 4: Expansion-Test teammate with 4 verification items (registry, expansion, catalog, result class). Step 5: Fixture-Author teammate with contract test."},
+    {"text": "Notes source expansion requirement — AST rewriter interaction, llm_query_batched sync form", "passed": true, "evidence": "Considerations: 'Source expansion, not repl.globals injection: This skill uses llm_query_batched(), so it must be source-expandable... The AST rewriter only operates on submitted code text'"},
+    {"text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "passed": true, "evidence": "Line 15: '> **Delegation:** Assign each numbered step below to an Agent Team teammate. Each teammate implements their step using red/green TDD and documents the change with a demo via `uvx showboat --help`.'"},
+    {"text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "passed": true, "evidence": "5 steps: Skill-Author, Skill-Impl, Registry-Wire, Expansion-Test, Fixture-Author -- all 'Spawn a `X` teammate to [action]'"},
+    {"text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "passed": true, "evidence": "Full section: fixture worker_health_check.json, 4 essential requirements (batched dispatch, partial failure, latency measurement, all_healthy), 5-step TDD sequence"},
+    {"text": "Mentions `uvx showboat` demo documentation for proving changes work", "passed": true, "evidence": "Line 74: 'Demo: Run `uvx showboat` to generate an executable demo document proving the skill expansion and health check dispatch work end-to-end.'"}
+  ],
+  "pass_count": 12,
+  "total_count": 12,
+  "pass_rate": 1.0
+}

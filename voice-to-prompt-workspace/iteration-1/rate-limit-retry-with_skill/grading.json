@@ -1,0 +1,18 @@
+{
+  "eval_id": 1,
+  "eval_name": "rate-limit-retry",
+  "configuration": "with_skill",
+  "expectations": [
+    {"text": "Correctly identifies rlm_adk/dispatch.py as the file containing error classification", "passed": true, "evidence": "dispatch.py referenced throughout with _classify_error() at L58 in appendix table"},
+    {"text": "Correctly identifies rlm_adk/callbacks/worker_retry.py as the retry logic location", "passed": true, "evidence": "worker_retry.py at L79 in appendix; correctly distinguished from transport-level retry: 'WorkerRetryPlugin handles structured output validation retries, not LLM-level transport errors'"},
+    {"text": "References _classify_error function in dispatch.py", "passed": true, "evidence": "Appendix row: '_classify_error()' at L58 with relevance 'Error classification function -- already handles 429 correctly'"},
+    {"text": "Mentions sqlite_tracing.py or ObservabilityPlugin for traces database", "passed": true, "evidence": "Both referenced: SqliteTracingPlugin at L318 and ObservabilityPlugin at L50 in appendix"},
+    {"text": "Includes specific line numbers in an appendix or reference section", "passed": true, "evidence": "Full 13-row appendix table with specific line numbers: L58, L167, L383, L501, L783, L76, L72, L99, L50, L318, L223, L79, L29-234"},
+    {"text": "Preserves the original transcription verbatim in a blockquote", "passed": true, "evidence": "Blockquote at line 11 starting with 'ok so I need to uh change the dispatch thing...'"},
+    {"text": "Mentions or adds testing steps that weren't in the original transcription", "passed": true, "evidence": "Step 5 adds 3 specific test cases: _classify_error unit test, is_transient_error test, and contract test for retry path"},
+    {"text": "Mentions AR-CRIT-001 or state mutation rules since dispatch is involved", "passed": true, "evidence": "Considerations section: 'AR-CRIT-001 compliance: The new retry accumulator must follow the same local-accumulator + flush_fn pattern'"}
+  ],
+  "pass_count": 8,
+  "total_count": 8,
+  "pass_rate": 1.0
+}

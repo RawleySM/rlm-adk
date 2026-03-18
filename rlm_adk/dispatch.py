@@ -170,7 +170,7 @@ def create_dispatch_closures(
     call_log_sink: list | None = None,
     trace_sink: list | None = None,
     depth: int = 0,
-    max_depth: int = 3,
+    max_depth: int = 5,
     instruction_router: Any = None,
     fanout_idx: int = 0,
 ) -> tuple[Any, Any, Any]:

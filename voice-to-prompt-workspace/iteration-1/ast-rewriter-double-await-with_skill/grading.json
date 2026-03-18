@@ -1,0 +1,18 @@
+{
+  "eval_id": 3,
+  "eval_name": "ast-rewriter-double-await",
+  "configuration": "with_skill",
+  "expectations": [
+    {"text": "Correctly identifies rlm_adk/repl/ast_rewriter.py as the primary file", "passed": true, "evidence": "Referenced throughout. Appendix: 11 rows all referencing ast_rewriter.py"},
+    {"text": "References specific classes: LlmCallRewriter, _FuncDefPromoter, _PromotedCallAwaiter", "passed": true, "evidence": "All three in appendix: LlmCallRewriter at L39, _FuncDefPromoter at L122, _PromotedCallAwaiter at L144"},
+    {"text": "References _promote_functions_to_async as the key function to fix", "passed": true, "evidence": "Appendix: '_promote_functions_to_async | L82 | Only scans FunctionDef, misses user-written AsyncFunctionDef'"},
+    {"text": "References rewrite_for_async as the entry point function", "passed": true, "evidence": "Appendix: 'rewrite_for_async | L161 | Public entry point -- signature must not change'"},
+    {"text": "Includes specific line numbers in an appendix or reference section", "passed": true, "evidence": "11-row appendix table: L15, L39, L55, L70, L82, L122, L144, L150, L161, L26, L189"},
+    {"text": "Preserves the original transcription verbatim", "passed": true, "evidence": "Blockquote at line 11 starting with 'the ast rewriter is breaking on nested async functions...'"},
+    {"text": "Adds test case suggestions for nested async functions", "passed": true, "evidence": "Step 4 lists 6 specific test scenarios covering double-await, missing-await, transitive promotion, and name shadowing"},
+    {"text": "Explains scope-tracking issue with enough specificity for implementation", "passed": true, "evidence": "Steps 1-3 provide precise AST-level explanations: visit_Await mechanism (step 1), AsyncFunctionDef gap (step 2), scope-aware descent in _PromotedCallAwaiter (step 3)"}
+  ],
+  "pass_count": 8,
+  "total_count": 8,
+  "pass_rate": 1.0
+}

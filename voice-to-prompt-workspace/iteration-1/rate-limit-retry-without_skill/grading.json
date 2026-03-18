@@ -1,0 +1,18 @@
+{
+  "eval_id": 1,
+  "eval_name": "rate-limit-retry",
+  "configuration": "without_skill",
+  "expectations": [
+    {"text": "Correctly identifies rlm_adk/dispatch.py as the file containing error classification", "passed": true, "evidence": "dispatch.py referenced throughout with _classify_error() at line 58"},
+    {"text": "Correctly identifies rlm_adk/callbacks/worker_retry.py as the retry logic location", "passed": true, "evidence": "Correctly notes worker_retry.py is NOT related to transport-level retry"},
+    {"text": "References _classify_error function in dispatch.py", "passed": true, "evidence": "_classify_error() at line 58 referenced in Problem 2 section"},
+    {"text": "Mentions sqlite_tracing.py or ObservabilityPlugin for traces database", "passed": true, "evidence": "Both SqliteTracingPlugin (line 758) and ObservabilityPlugin (line 344) referenced in observability path"},
+    {"text": "Includes specific line numbers in an appendix or reference section", "passed": true, "evidence": "Line numbers throughout: lines 383, 504-505, 203, 783, 440, 501, 572, 264-270, etc."},
+    {"text": "Preserves the original transcription verbatim in a blockquote", "passed": false, "evidence": "No blockquote or verbatim transcription section. The original text is paraphrased but not preserved."},
+    {"text": "Mentions or adds testing steps that weren't in the original transcription", "passed": true, "evidence": "Full Testing section with unit tests (3 tests) and provider-fake fixture considerations"},
+    {"text": "Mentions AR-CRIT-001 or state mutation rules since dispatch is involved", "passed": true, "evidence": "Constraints section: 'AR-CRIT-001: All state mutations in dispatch closures must use local accumulators + flush_fn()'"}
+  ],
+  "pass_count": 7,
+  "total_count": 8,
+  "pass_rate": 0.875
+}

@@ -1,0 +1,35 @@
+{
+  "reviews": [
+    {
+      "run_id": "rate-limit-retry-with_skill",
+      "feedback": "looks great, but I would like all code change instructions to include the verbiage 'delegate to Agent Team to implement the following with red/green TDD, and document change with demo using 'uvx showboat --help'.    This can be a single line directly under the '## Refined Instructions'  that applies to all code changes.   Also, for every instruction step, add a 'Spawn a <agent-identifier> teammate to'.  For example, the first step becomes 1. **Spawn a Retry-Agent teammate to Add retry-with-backoff to `_run_child()` in `rlm_adk/dispatch.py` (line 383).**",
+      "timestamp": "2026-03-17T15:34:18.759Z"
+    },
+    {
+      "run_id": "rate-limit-retry-without_skill",
+      "feedback": "the output with the skill use is much better",
+      "timestamp": "2026-03-17T15:34:18.759Z"
+    },
+    {
+      "run_id": "worker-health-skill-with_skill",
+      "feedback": "looks great, but it we should include provider-fake fixture construction and subsequent provider-fake e2e testing an in-line TDD activity with follow-up demo and showboat review for all new features and skills. I would to name the essential requirements that the fixture design should capture, focusing on capturing intent, not just an error-free e2e test that can be reward hacked.",
+      "timestamp": "2026-03-17T15:34:18.759Z"
+    },
+    {
+      "run_id": "worker-health-skill-without_skill",
+      "feedback": "the result using the skill is SO much better",
+      "timestamp": "2026-03-17T15:34:18.759Z"
+    },
+    {
+      "run_id": "ast-rewriter-double-await-with_skill",
+      "feedback": "same as my first review, copied here:  \"looks great, but I would like all code change instructions to include the verbiage 'delegate to Agent Team to implement the following with red/green TDD, and document change with demo using 'uvx showboat --help'.    This can be a single line directly under the '## Refined Instructions'  that applies to all code changes.   Also, for every instruction step, add a 'Spawn a <agent-identifier> teammate to'.  For example, the first step becomes 1. **Spawn a Retry-Agent teammate to Add retry-with-backoff to `_run_child()` in `rlm_adk/dispatch.py` (line 383).** \"",
+      "timestamp": "2026-03-17T15:34:18.759Z"
+    },
+    {
+      "run_id": "ast-rewriter-double-await-without_skill",
+      "feedback": "output with skill is much better than this",
+      "timestamp": "2026-03-17T15:34:18.759Z"
+    }
+  ],
+  "status": "complete"
+}

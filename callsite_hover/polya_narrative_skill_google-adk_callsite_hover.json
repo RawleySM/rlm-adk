@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/polya_narrative_skill.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ad4f7583/rlm_adk/skills/polya_narrative_skill.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -17,7 +17,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\nclass Skill(\n    *,\n    frontmatter: Frontmatter,\n    instructions: str,\n    resources: Resources = Resources()\n)\n```\n---\nComplete skill representation including frontmatter, instructions, and resources.\n\nA skill combines:\n- L1: Frontmatter for discovery (name, description).\n- L2: Instructions from SKILL.md body, loaded when skill is triggered.\n- L3: Resources including additional instructions, assets, and scripts,\nloaded as needed.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;frontmatter: Parsed skill frontmatter from SKILL.md.  \n&nbsp;&nbsp;&nbsp;&nbsp;instructions: L2 skill content: markdown instruction from SKILL.md body.  \n&nbsp;&nbsp;&nbsp;&nbsp;resources: L3 skill content: additional instructions, assets, and scripts."
+        "markdown": "```python\n(import) Skill: Unknown\n```"
       }
     },
     {
@@ -29,7 +29,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(function) def format_skills_as_xml(skills: List[Frontmatter]) -> str\n```\n---\nFormats available skills into a standard XML string.\n\nArgs:  \n&nbsp;&nbsp;skills: A list of skill frontmatter objects.\n\nReturns:  \n&nbsp;&nbsp;&nbsp;&nbsp;XML string with &lt;available\\_skills&gt; block containing each skill's\nname and description."
+        "markdown": "```python\n(import) format_skills_as_xml: Unknown\n```"
       }
     },
     {
@@ -41,7 +41,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\nclass Frontmatter(\n    *,\n    name: str,\n    description: str,\n    license: str | None = None,\n    compatibility: str | None = None,\n    allowed_tools: str | None = None,\n    metadata: dict[str, str] = {}\n)\n```\n---\nL1 skill content: metadata parsed from SKILL.md frontmatter for skill discovery.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;name: Skill name in kebab-case (required).  \n&nbsp;&nbsp;&nbsp;&nbsp;description: What the skill does and when the model should use it  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(required).  \n&nbsp;&nbsp;&nbsp;&nbsp;license: License for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;compatibility: Compatibility information for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;allowed\\_tools: Tool patterns the skill requires (optional, experimental).  \n&nbsp;&nbsp;&nbsp;&nbsp;metadata: Key-value pairs for client-specific properties (defaults to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;empty dict)."
+        "markdown": "```python\n(import) Frontmatter: Unknown\n```"
       }
     }
   ],

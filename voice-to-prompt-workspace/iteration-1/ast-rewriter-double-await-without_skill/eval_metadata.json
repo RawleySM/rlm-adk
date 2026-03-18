@@ -1,0 +1,47 @@
+{
+  "eval_id": 3,
+  "eval_name": "ast-rewriter-double-await",
+  "prompt": "the ast rewriter is breaking on nested async functions. like if the LM generates code that defines an async helper inside the repl block and then calls llm query from inside that helper, the rewriter promotes it wrong and you get a double await. I saw it happen in production yesterday. Can you fix the node transformer so it tracks scope properly and doesn't re-promote functions that are already async.",
+  "assertions": [
+    {
+      "id": "ast_rewriter_file",
+      "text": "Correctly identifies rlm_adk/repl/ast_rewriter.py as the primary file",
+      "type": "file_reference"
+    },
+    {
+      "id": "node_transformer_classes",
+      "text": "References specific classes: LlmCallRewriter, _FuncDefPromoter, _PromotedCallAwaiter",
+      "type": "code_reference"
+    },
+    {
+      "id": "promote_function",
+      "text": "References _promote_functions_to_async as the key function to fix",
+      "type": "code_reference"
+    },
+    {
+      "id": "rewrite_for_async",
+      "text": "References rewrite_for_async as the entry point function",
+      "type": "code_reference"
+    },
+    {
+      "id": "line_numbers_present",
+      "text": "Includes specific line numbers in an appendix or reference section",
+      "type": "format"
+    },
+    {
+      "id": "original_preserved",
+      "text": "Preserves the original transcription verbatim",
+      "type": "format"
+    },
+    {
+      "id": "test_cases_added",
+      "text": "Adds test case suggestions for nested async functions (edge cases the user didn't specify)",
+      "type": "gap_filling"
+    },
+    {
+      "id": "scope_tracking_detail",
+      "text": "Explains the scope-tracking issue with enough specificity for a coding agent to implement",
+      "type": "clarity"
+    }
+  ]
+}

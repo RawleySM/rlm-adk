@@ -43,7 +43,7 @@
       "instances": [
         {
           "name": null,
-          "line": 524
+          "line": 528
         }
       ],
       "hover": {
@@ -55,7 +55,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 625
+          "line": 629
         }
       ],
       "hover": {
@@ -79,7 +79,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 623
+          "line": 627
         }
       ],
       "hover": {
@@ -93,19 +93,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 398
+          "line": 402
         },
         {
           "context": "param:plugins",
-          "line": 475
+          "line": 479
         },
         {
           "context": "param:plugins",
-          "line": 540
+          "line": 544
         },
         {
           "context": "variable:plugins",
-          "line": 413
+          "line": 417
         }
       ],
       "hover": {
@@ -117,7 +117,7 @@
       "usages": [
         {
           "context": "param:artifact_service",
-          "line": 542
+          "line": 546
         }
       ],
       "hover": {
@@ -129,7 +129,7 @@
       "usages": [
         {
           "context": "param:session_service",
-          "line": 543
+          "line": 547
         }
       ],
       "hover": {

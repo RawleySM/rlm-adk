@@ -1,0 +1,49 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/polya_understand_t3_adaptive.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "Frontmatter",
+    "Skill",
+    "format_skills_as_xml"
+  ],
+  "call_sites": [
+    {
+      "symbol": "Skill",
+      "instances": [
+        {
+          "name": "POLYA_UNDERSTAND_T3_ADAPTIVE_SKILL",
+          "line": 36
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) Skill: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "format_skills_as_xml",
+      "instances": [
+        {
+          "name": "discovery_xml",
+          "line": 151
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) format_skills_as_xml: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "Frontmatter",
+      "instances": [
+        {
+          "name": null,
+          "line": 37
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) Frontmatter: Unknown\n```"
+      }
+    }
+  ],
+  "type_annotations": []
+}

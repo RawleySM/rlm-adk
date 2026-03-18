@@ -1,7 +1,7 @@
 {
   "state": {
     "app:max_iterations": 5,
-    "app:max_depth": 3,
+    "app:max_depth": 5,
     "root_prompt": "Delegate to a child LLM via execute_code + llm_query and report its answer.",
     "test_context": "This is a recursive dispatch test. You MUST call execute_code before set_model_response. Do NOT answer directly."
   },

@@ -28,12 +28,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from google.adk.artifacts import InMemoryArtifactService
+from google.adk.artifacts import BaseArtifactService, FileArtifactService
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from rlm_adk.agent import create_rlm_app, create_rlm_runner
+from rlm_adk.agent import _default_session_service, create_rlm_app, create_rlm_runner
 from rlm_adk.repl.local_repl import LocalREPL
 
 from .fixtures import ContractResult, ScenarioRouter
@@ -94,8 +93,10 @@ class PluginContractResult:
     contract: ContractResult
     events: list[Any]
     final_state: dict[str, Any]
-    artifact_service: InMemoryArtifactService
+    artifact_service: BaseArtifactService
     traces_db_path: str | None
+    session_db_path: str | None
+    artifact_root: str | None
     router: ScenarioRouter
 
 
@@ -247,6 +248,7 @@ def _make_repl(router: ScenarioRouter) -> LocalREPL | None:
 
 async def _make_runner_and_session(
     router: ScenarioRouter,
+    tmpdir: str | None = None,
 ) -> tuple[Runner, Any]:
     """Create a Runner + session using config from the fixture's router."""
     repl = _make_repl(router)
@@ -280,7 +282,9 @@ async def _make_runner_and_session(
     if router.config.get("test_hooks"):
         _wire_test_hooks(app)
 
-    session_service = InMemorySessionService()
+    _tmpdir = tmpdir or tempfile.mkdtemp(prefix="provider-fake-runner-")
+    session_db_path = str(Path(_tmpdir) / "session.db")
+    session_service = _default_session_service(db_path=session_db_path)
     runner = Runner(app=app, session_service=session_service)
     initial_state = router.config.get("initial_state") or None
     session = await session_service.create_session(
@@ -348,6 +352,7 @@ async def run_fixture_contract(
             traces_db_path=str(Path(tmpdir) / "traces.db"),
             repl_trace_level=1,
             litellm_mode=litellm_mode,
+            tmpdir=tmpdir,
         )
     return plugin_result.contract
 
@@ -358,17 +363,22 @@ async def run_fixture_contract_with_plugins(
     traces_db_path: str | None = None,
     repl_trace_level: int = 2,
     litellm_mode: bool = False,
+    tmpdir: str | None = None,
 ) -> PluginContractResult:
     """Execute a fixture through the full plugin-enabled pipeline.
 
     Uses ``create_rlm_runner()`` with:
-    - ``InMemoryArtifactService`` for volatile artifact storage
-    - ``InMemorySessionService`` for test isolation
+    - ``FileArtifactService`` for persistent, inspectable artifact storage
+    - ``SqliteSessionService`` (WAL mode) for persistent session state
     - ``ObservabilityPlugin`` (always on)
     - ``SqliteTracingPlugin`` pointing to *traces_db_path*
     - ``REPLTracingPlugin`` (when *repl_trace_level* > 0)
     - ``ObservabilityPlugin`` verbose mode disabled (noisy in CI)
     - ``LangfuseTracingPlugin`` disabled (requires external service)
+
+    Each run gets an isolated temp directory for session DB and artifact
+    storage.  Pass *tmpdir* to control the location (e.g. pytest's
+    ``tmp_path``); otherwise a new temp directory is created automatically.
 
     When *litellm_mode* is True, routes calls through LiteLLM Router
     (``RLM_ADK_LITELLM=1``) pointing at the fake server's OpenAI-compatible
@@ -381,10 +391,14 @@ async def run_fixture_contract_with_plugins(
             sqlite tracing.
         repl_trace_level: ``RLM_REPL_TRACE`` env var value (0 = off).
         litellm_mode: When True, route via LiteLLM Router.
+        tmpdir: Directory for session DB and artifact files.  When ``None``,
+            a fresh temp directory is created.  The paths are returned in
+            :attr:`PluginContractResult.session_db_path` and
+            :attr:`PluginContractResult.artifact_root`.
 
     Returns:
         A :class:`PluginContractResult` with contract result, events,
-        final state, artifact service reference, and traces DB path.
+        final state, artifact/session paths, and traces DB path.
     """
     from rlm_adk.plugins.observability import ObservabilityPlugin
     from rlm_adk.plugins.repl_tracing import REPLTracingPlugin
@@ -412,8 +426,12 @@ async def run_fixture_contract_with_plugins(
         if repl_trace_level > 0:
             plugins.append(REPLTracingPlugin())
 
-        artifact_service = InMemoryArtifactService()
-        session_service = InMemorySessionService()
+        _tmpdir = tmpdir or tempfile.mkdtemp(prefix="provider-fake-svc-")
+        session_db_path = str(Path(_tmpdir) / "session.db")
+        artifact_root = str(Path(_tmpdir) / "artifacts")
+
+        session_service = _default_session_service(db_path=session_db_path)
+        artifact_service = FileArtifactService(root_dir=artifact_root)
 
         repl = _make_repl(router)
         runner = create_rlm_runner(
@@ -471,6 +489,8 @@ async def run_fixture_contract_with_plugins(
             final_state=final_state,
             artifact_service=artifact_service,
             traces_db_path=traces_db_path,
+            session_db_path=session_db_path,
+            artifact_root=artifact_root,
             router=router,
         )
     finally:

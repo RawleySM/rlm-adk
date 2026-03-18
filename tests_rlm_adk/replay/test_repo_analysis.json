@@ -2,7 +2,7 @@
   "state": {
     "repo_url": "https://github.com/google/adk-python",
     "app:max_iterations": 10,
-    "app:max_depth": 1
+    "app:max_depth": 5
   },
   "queries": [
     "Analyze the repository at repo_url. Use repomix-python to pack the repo with xml output style and output splitting enabled (split_output=500*1024). Read all split parts into memory as a list of chunks, then use llm_query_batched to analyze each chunk concurrently — each sub-LLM should identify the modules, public APIs, architecture patterns, and inter-module dependencies in its section. Aggregate the partial analyses with a final llm_query to produce a comprehensive architectural summary."

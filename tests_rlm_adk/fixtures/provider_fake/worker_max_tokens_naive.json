@@ -164,7 +164,6 @@
       },
       "obs:child_summary@d1f0": {
         "error": false,
-        "error_category": null,
         "finish_reason": "MAX_TOKENS",
         "raw_output_preview": {
           "$contains": "Key drivers include expanding digital advertising spend and"

@@ -1,0 +1,31 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.venv/lib/python3.12/site-packages/google/adk/a2a/executor/a2a_agent_executor.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "Runner"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "Runner",
+      "usages": [
+        {
+          "context": "param:runner",
+          "line": 84
+        },
+        {
+          "context": "return",
+          "line": 91
+        },
+        {
+          "context": "param:runner",
+          "line": 285
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) Runner\n```\n---\nThe Runner class is used to run agents.\n\nIt manages the execution of an agent within a session, handling message\nprocessing, event generation, and interaction with various services like\nartifact storage, session management, and memory.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;app\\_name: The application name of the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;agent: The root agent to run.  \n&nbsp;&nbsp;&nbsp;&nbsp;artifact\\_service: The artifact service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugin\\_manager: The plugin manager for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;session\\_service: The session service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;memory\\_service: The memory service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;credential\\_service: The credential service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;context\\_cache\\_config: The context cache config for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;resumability\\_config: The resumability config for the application."
+      }
+    }
+  ]
+}

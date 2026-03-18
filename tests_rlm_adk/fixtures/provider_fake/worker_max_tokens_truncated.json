@@ -166,7 +166,6 @@
       },
       "obs:child_summary@d1f0": {
         "error": false,
-        "error_category": null,
         "finish_reason": "MAX_TOKENS",
         "prompt_preview": "Provide a detailed market analysis",
         "final_answer": {

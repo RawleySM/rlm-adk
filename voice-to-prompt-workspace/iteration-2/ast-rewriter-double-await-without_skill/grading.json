@@ -1,0 +1,22 @@
+{
+  "eval_id": 3,
+  "eval_name": "ast-rewriter-double-await",
+  "configuration": "without_skill",
+  "expectations": [
+    {"text": "Identifies rlm_adk/repl/ast_rewriter.py as the file to modify", "passed": true, "evidence": "Referenced throughout; 16-row code references table all pointing to ast_rewriter.py"},
+    {"text": "References LlmCallRewriter class as the bug site for double-await", "passed": true, "evidence": "Step 1: 'Prevent double-await in LlmCallRewriter'. Code references: LlmCallRewriter at L39, visit_Call at L55."},
+    {"text": "References _promote_functions_to_async function for the AsyncFunctionDef gap", "passed": true, "evidence": "Step 2: 'Make _promote_functions_to_async aware of user-written AsyncFunctionDef'. Code references: L82, L97, L102."},
+    {"text": "References _PromotedCallAwaiter class for scope-tracking fixes", "passed": true, "evidence": "Step 3: scope tracking for _PromotedCallAwaiter. Code references: L144, visit_Await at L150."},
+    {"text": "Includes specific line numbers in an appendix or reference table", "passed": true, "evidence": "16-row Code References table with lines: 15, 39, 50, 55, 70, 82, 97, 102, 122, 144, 150, 161, 204, 26, 189, 198"},
+    {"text": "Preserves the original transcription verbatim in a blockquote", "passed": true, "evidence": "Line 17: blockquote 'the ast rewriter is breaking on nested async functions...'"},
+    {"text": "Adds comprehensive test cases for nested async scenarios not in the original transcription", "passed": true, "evidence": "Step 4: 10 test cases in a table covering baseline, double-await, pre-awaited, nested scopes, name shadowing, nested calls"},
+    {"text": "References rewrite_for_async as the public entry point that must not change signature", "passed": true, "evidence": "Considerations: 'Backward compatibility: The rewrite_for_async(code: str) -> ast.Module signature (line 161) and return type must not change.'"},
+    {"text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "passed": false, "evidence": "No delegation directive. Steps are 'Step 1:', 'Step 2:', etc. without teammate assignment."},
+    {"text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "passed": false, "evidence": "Steps use 'Step 1: Prevent double-await in LlmCallRewriter', 'Step 2: Make _promote_functions_to_async aware...' -- standard headings, not teammate spawns."},
+    {"text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "passed": false, "evidence": "No Provider-Fake Fixture & TDD section. Step 4 defines test cases but not provider-fake fixtures with intent-capturing requirements."},
+    {"text": "Mentions `uvx showboat` demo documentation for proving changes work", "passed": false, "evidence": "No mention of showboat or demo documentation anywhere in the output"}
+  ],
+  "pass_count": 8,
+  "total_count": 12,
+  "pass_rate": 0.667
+}

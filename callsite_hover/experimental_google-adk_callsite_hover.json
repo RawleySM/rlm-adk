@@ -1,0 +1,23 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.venv/lib/python3.12/site-packages/google/adk/a2a/experimental.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "_make_feature_decorator"
+  ],
+  "call_sites": [
+    {
+      "symbol": "_make_feature_decorator",
+      "instances": [
+        {
+          "name": "a2a_experimental",
+          "line": 21
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(function) def _make_feature_decorator(\n    *,\n    label: str,\n    default_message: str,\n    block_usage: bool = False,\n    bypass_env_var: str | None = None\n) -> ((...) -> Any)\n```"
+      }
+    }
+  ],
+  "type_annotations": []
+}

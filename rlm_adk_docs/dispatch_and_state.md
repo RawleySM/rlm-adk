@@ -484,9 +484,10 @@ This pattern is enforced in `dispatch.py` after each `llm_query_batched_async` c
 - **2026-03-09 12:55** — `dispatch.py`: Documented child context propagation — all children share parent's `InvocationContext` (same session_id, artifact_service). Artifact filename collisions identified for batched dispatch (`fanout_idx` not yet threaded to child REPLTool).
 - **2026-03-09 13:00** — `dispatch.py`: Added Args docstring to `_read_child_completion` function (child, child_depth, child_state, shared_state parameters).
 - **2026-03-09 14:00** — `dispatch.py`, `agent.py`: `_run_child()` now passes `fanout_idx` to `create_child_orchestrator()`, which threads it to `RLMOrchestratorAgent(fanout_idx=...)`. This enables depth+fanout artifact filename disambiguation (`d{depth}_f{fanout_idx}` prefix on all artifact filenames).
-- **2026-03-12** — `dispatch.py`, `state.py`: Added `instruction_router` and `fanout_idx` params to `create_dispatch_closures()`. flush_fn restores parent's `DYN_SKILL_INSTRUCTION` after child dispatch. Added `DYN_SKILL_INSTRUCTION` state key.
-- **2026-03-15** — `dispatch.py`: Added branch isolation for child orchestrators via `ctx.model_copy()` + unique `branch` string (same pattern as ADK's `ParallelAgent`). Children no longer share the parent's event history, preventing context leakage across recursive layers.
-- **2026-03-17** — `dispatch.py`: Moved `_classify_error()` here from deleted `callbacks/worker.py` (sole live consumer). `state.py`: Removed dead constants `CB_WORKER_CONTEXT`, `REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`.
+- **2026-03-12 11:18** — `dispatch.py`, `state.py`: Added `instruction_router` and `fanout_idx` params to `create_dispatch_closures()`. flush_fn restores parent's `DYN_SKILL_INSTRUCTION` after child dispatch. Added `DYN_SKILL_INSTRUCTION` state key.
+- **2026-03-15 15:42** — `dispatch.py`: Added branch isolation for child orchestrators via `ctx.model_copy()` + unique `branch` string (same pattern as ADK's `ParallelAgent`). Children no longer share the parent's event history, preventing context leakage across recursive layers.
+- **2026-03-17 10:05** — `dispatch.py`: Moved `_classify_error()` here from deleted `callbacks/worker.py` (sole live consumer). `state.py`: Removed dead constants `CB_WORKER_CONTEXT`, `REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`.
+- **2026-03-17 13:49** — `state.py`: Added `REPL_STATE_SNAPSHOT`, `EXPOSED_STATE_KEYS` frozenset (17 allowlisted keys for read-only REPL introspection). Enables provider-fake fixture code to inspect session state via `_rlm_state` dict.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

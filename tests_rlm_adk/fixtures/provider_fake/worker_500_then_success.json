@@ -175,7 +175,6 @@
       },
       "obs:child_summary@d1f0": {
         "error": false,
-        "error_category": null,
         "finish_reason": "STOP",
         "prompt_preview": "What is the status?",
         "result_preview": "Server recovered answer",
@@ -234,7 +233,6 @@
         "obs:child_summary@d1f0": {
           "error": true,
           "error_category": "SERVER",
-          "finish_reason": null,
           "prompt_preview": "What is the status?",
           "result_preview": {"$contains": "InternalServerError"},
           "final_answer": {"$contains": "Error"}

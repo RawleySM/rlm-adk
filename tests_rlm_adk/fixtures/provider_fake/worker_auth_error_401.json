@@ -152,7 +152,6 @@
       "obs:child_summary@d1f0": {
         "error": true,
         "error_category": "AUTH",
-        "finish_reason": null,
         "prompt_preview": "Summarize the data",
         "result_preview": {
           "$contains": "401 UNAUTHENTICATED"

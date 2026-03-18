@@ -181,7 +181,6 @@
       "obs:child_summary@d1f0": {
         "error": true,
         "error_category": "SERVER",
-        "finish_reason": null,
         "prompt_preview": "Summarize the data",
         "error_message": {
           "$contains": "500 INTERNAL"

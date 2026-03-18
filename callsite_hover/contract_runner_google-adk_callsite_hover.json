@@ -3,34 +3,18 @@
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
+    "BaseArtifactService",
     "BasePlugin",
-    "InMemoryArtifactService",
-    "InMemorySessionService",
+    "FileArtifactService",
     "Runner"
   ],
   "call_sites": [
-    {
-      "symbol": "InMemorySessionService",
-      "instances": [
-        {
-          "name": "session_service",
-          "line": 283
-        },
-        {
-          "name": "session_service",
-          "line": 416
-        }
-      ],
-      "hover": {
-        "markdown": "```python\nclass InMemorySessionService()\n```\n---\nAn in-memory implementation of the session service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
-      }
-    },
     {
       "symbol": "Runner",
       "instances": [
         {
           "name": "runner",
-          "line": 284
+          "line": 288
         }
       ],
       "hover": {
@@ -38,25 +22,37 @@
       }
     },
     {
-      "symbol": "InMemoryArtifactService",
+      "symbol": "FileArtifactService",
       "instances": [
         {
           "name": "artifact_service",
-          "line": 415
+          "line": 434
         }
       ],
       "hover": {
-        "markdown": "```python\nclass InMemoryArtifactService(\n    *,\n    artifacts: dict[str, list[_ArtifactEntry]] = dict\n)\n```\n---\nAn in-memory implementation of the artifact service.\n\nIt is not suitable for multi-threaded production environments. Use it for\ntesting and development only."
+        "markdown": "```python\nclass FileArtifactService(root_dir: Path | str)\n```\n---\nInitializes the file-based artifact service.\n\nArgs:  \n&nbsp;&nbsp;root\\_dir: The directory that will contain artifact data."
       }
     }
   ],
   "type_annotations": [
     {
+      "symbol": "BaseArtifactService",
+      "usages": [
+        {
+          "context": "variable:artifact_service",
+          "line": 96
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BaseArtifactService\n```\n---\nAbstract base class for artifact services."
+      }
+    },
+    {
       "symbol": "BasePlugin",
       "usages": [
         {
           "context": "variable:plugins",
-          "line": 409
+          "line": 423
         }
       ],
       "hover": {

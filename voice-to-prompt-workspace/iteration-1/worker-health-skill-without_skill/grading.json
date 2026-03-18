@@ -1,0 +1,17 @@
+{
+  "eval_id": 2,
+  "eval_name": "worker-health-skill",
+  "configuration": "without_skill",
+  "expectations": [
+    {"text": "Identifies rlm_adk/skills/repl_skills/ping.py as the template to follow", "passed": true, "evidence": "ping.py referenced as 'canonical example to follow' with exact path"},
+    {"text": "Notes that WorkerPool is an alias for DispatchConfig in dispatch.py", "passed": false, "evidence": "Does not explicitly mention the WorkerPool/DispatchConfig alias. References 'worker pool' generically."},
+    {"text": "References rlm_adk/repl/skill_registry.py for auto-discovery", "passed": true, "evidence": "skill_registry.py referenced: 'SkillRegistry singleton is module-global' at line 216"},
+    {"text": "Specifies creating the new file at rlm_adk/skills/repl_skills/", "passed": true, "evidence": "Step 1: 'Create a new file at rlm_adk/skills/repl_skills/worker_health.py'"},
+    {"text": "Includes specific line numbers in an appendix or reference section", "passed": true, "evidence": "Line references: line 287 (orchestrator import), line 216 (registry), line 223-224 (expand call), line 70 (prefix intercept)"},
+    {"text": "Preserves the original transcription verbatim", "passed": false, "evidence": "No blockquote or verbatim preservation of the original transcription"},
+    {"text": "Mentions YAML frontmatter requirement for skill discovery", "passed": true, "evidence": "'No manual catalog or prompt-injection wiring required' and distinction between prompt-visible and source-expandable skills noted"}
+  ],
+  "pass_count": 5,
+  "total_count": 7,
+  "pass_rate": 0.714
+}

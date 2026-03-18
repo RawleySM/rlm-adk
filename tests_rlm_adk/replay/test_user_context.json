@@ -1,7 +1,7 @@
 {
   "state": {
     "app:max_iterations": 3,
-    "app:max_depth": 1,
+    "app:max_depth": 5,
     "user_provided_ctx": {
       "sample_notes.txt": "Project kickoff meeting notes:\n- Timeline: Q3 2026\n- Budget: $50K\n- Team: 4 engineers",
       "requirements.md": "# Requirements\n\n1. Must support UTF-8\n2. Max file size: 10MB\n3. Recursive directory scanning"

@@ -202,11 +202,19 @@ def main() -> None:
     lines.append(
         'If you modified these files, please append your changes to the '
         '"## Recent Changes" section at the bottom of the affected branch doc(s). '
-        "Use the format:"
+        "Use the format (date AND time are REQUIRED, plus your session_id):"
     )
     lines.append("")
     lines.append(
-        "  - **YYYY-MM-DD** \u2014 `filename.py`: Brief description of what changed"
+        "  - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed"
+        " `[session: <first-8-chars-of-session-id>]`"
+    )
+    lines.append("")
+    lines.append(
+        "IMPORTANT: Always include the current time (HH:MM in 24h format) alongside "
+        "the date. Omitting the time makes it impossible to distinguish multiple "
+        "updates on the same day. Include your Claude Code session_id (first 8 chars) "
+        "so we can trace which session made the change."
     )
     lines.append("")
     lines.append(

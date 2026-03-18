@@ -1,0 +1,23 @@
+{
+  "skill_name": "voice-to-prompt",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "ok so I need to uh change the dispatch thing so that when a child agent hits a rate limit it actually backs off properly instead of just failing immediately. Right now I think the retry logic in the worker callback isn't catching 429s from the genai client correctly because it's checking the wrong attribute on the exception. Also the error classification function in dispatch dot py needs to handle that case. Oh and make sure the observability stuff picks it up too so I can see it in the traces database.",
+      "expected_output": "A refined prompt markdown file in ./prompts/ that: (1) correctly identifies worker_retry.py, dispatch.py, and the error classification functions, (2) resolves 'the dispatch thing' to create_dispatch_closures in dispatch.py, (3) adds the Polya understand analysis, (4) includes an appendix with verified file:line references, (5) adds testing considerations the transcription missed",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I want to add a new skill, like a repl skill similar to the ping one but this one should do like a health check on the worker pool. It should dispatch a simple query to each worker and report back latency and whether they responded. Put it next to the ping skill I guess. And make sure the skill registry picks it up automatically.",
+      "expected_output": "A refined prompt markdown file in ./prompts/ that: (1) correctly identifies repl_skills/ping.py as the template, (2) resolves 'worker pool' to DispatchConfig in dispatch.py, (3) identifies skill_registry.py for auto-discovery, (4) notes that WorkerPool is now DispatchConfig alias, (5) includes appendix with line references to ping.py, skill_registry.py, dispatch.py",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "the ast rewriter is breaking on nested async functions. like if the LM generates code that defines an async helper inside the repl block and then calls llm query from inside that helper, the rewriter promotes it wrong and you get a double await. I saw it happen in production yesterday. Can you fix the node transformer so it tracks scope properly and doesn't re-promote functions that are already async.",
+      "expected_output": "A refined prompt markdown file in ./prompts/ that: (1) correctly identifies ast_rewriter.py and the specific classes LlmCallRewriter, _FuncDefPromoter, _PromotedCallAwaiter, (2) identifies rewrite_for_async and _promote_functions_to_async as the key functions, (3) adds test case considerations for nested async, (4) appendix has verified line numbers for the NodeTransformer classes",
+      "files": []
+    }
+  ]
+}

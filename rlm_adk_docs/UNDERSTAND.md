@@ -23,10 +23,7 @@
 | Artifacts & Session | [artifacts_and_session.md](artifacts_and_session.md) | Session service, artifact persistence, save helpers |
 | Skills & Prompts | [skills_and_prompts.md](skills_and_prompts.md) | Skill system, static/dynamic instructions, adding skills |
 | Configuration | [configuration.md](configuration.md) | Env vars, factory functions, plugin wiring, pyproject.toml |
-| Vision: Dynamic Skill Loading | [vision/dynamic_skill_loading.md](vision/dynamic_skill_loading.md) | REPL embeddings, vector store, skill retrieval, feedback loop |
-| Vision: Polya Topology Engine | [vision/polya_topology_engine.md](vision/polya_topology_engine.md) | Understand→Plan→Implement→Reflect, horizontal/vertical/hybrid workflows |
-| Vision: Autonomous Self-Improvement | [vision/autonomous_self_improvement.md](vision/autonomous_self_improvement.md) | Cron-triggered agents, gap audits, doc staleness, test expansion |
-| Vision: Evolution Principles | [vision/evolution_principles.md](vision/evolution_principles.md) | Design philosophy, self-improvement feedback loops |
+| Vision & Roadmap | [vision/](vision/) | Dynamic skill loading, Polya topology, autonomous self-improvement, evolution principles, interactive dashboard |
 
 > **ADK Gotchas** are distributed as a final section in each branch doc above. Every doc includes the AR-CRIT-001 state mutation warning, plus gotchas specific to that branch (Pydantic constraints, private API, BUG-13, testing patterns, etc.).
 
@@ -132,13 +129,14 @@ Key env vars: `RLM_ADK_MODEL` (model), `RLM_MAX_ITERATIONS` (REPL call cap), `RL
 
 ## Vision & Roadmap
 
-RLM-ADK is Rawley Stanhope's personal agent — designed for a single power user, not multi-tenant deployment. It evolves through three planned capabilities:
+RLM-ADK is Rawley Stanhope's personal agent — designed for a single power user, not multi-tenant deployment. It evolves through planned capabilities documented in `vision/`:
 
 | Feature | Status | Doc |
 |---------|--------|-----|
-| Dynamic skill loading from REPL execution history embeddings | Planned (research complete) | [vision/dynamic_skill_loading.md](vision/dynamic_skill_loading.md) |
-| Polya topology engine — horizontal/vertical/hybrid workflows via dynamic instructions | Planned (research complete) | [vision/polya_topology_engine.md](vision/polya_topology_engine.md) |
+| Dynamic skill loading from REPL execution history embeddings | Planned (research complete) | [vision/dynamic_skill_loading/](vision/dynamic_skill_loading/) |
+| Polya topology engine — horizontal/vertical/hybrid workflows via dynamic instructions | Planned (research complete) | [vision/polya_topology/](vision/polya_topology/) |
 | Autonomous self-improvement via cron-triggered agents | Conceptual | [vision/autonomous_self_improvement.md](vision/autonomous_self_improvement.md) |
+| Interactive dashboard | In progress | [vision/interactive_dashboard.md](vision/interactive_dashboard.md) |
 
 Design philosophy: [vision/evolution_principles.md](vision/evolution_principles.md)
 

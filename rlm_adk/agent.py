@@ -201,7 +201,7 @@ def create_reasoning_agent(
     *,
     tools: list | None = None,
     output_schema: type | None = None,
-    include_repomix: bool = True,
+    include_skills: bool = True,
     enabled_skills: Iterable[str] | None = None,
     name: str = "reasoning_agent",
     output_key: str = "reasoning_output",
@@ -250,7 +250,7 @@ def create_reasoning_agent(
         )
 
     # Append skill instructions to static instruction (parent only)
-    if include_repomix:
+    if include_skills:
         for block in build_enabled_skill_instruction_blocks(enabled_skills):
             static_instruction = static_instruction + "\n" + block
 
@@ -366,10 +366,14 @@ def create_child_orchestrator(
         model,
         static_instruction=RLM_CHILD_STATIC_INSTRUCTION,
         thinking_budget=thinking_budget,
-        include_repomix=False,
+        include_skills=False,
         name=f"child_reasoning_d{depth}",
         output_key=f"reasoning_output@d{depth}",
-        output_schema=output_schema,
+        # output_schema intentionally NOT set on LlmAgent — the orchestrator
+        # injects SetModelResponseTool manually at runtime (orchestrator.py:303-305).
+        # Setting it here too causes ADK's _OutputSchemaRequestProcessor to inject
+        # a duplicate SetModelResponseTool on every LLM step (same root-agent
+        # reasoning documented at orchestrator.py:297-302).
         include_contents="none",
     )
 

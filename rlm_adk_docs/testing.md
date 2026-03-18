@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-12 -->
+<!-- validated: 2026-03-17 -->
 
 # Testing Infrastructure Reference
 
@@ -480,8 +480,9 @@ The default marker filter is `-m "provider_fake_contract and not agent_challenge
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-10** — `fixtures.py`: Added `$oneof` matcher operator, `litellm_overrides` fixture section support with `_deep_merge`, and upgraded top-level checks (`final_answer`, `total_iterations`, `total_model_calls`) to use `_match_value()` for operator support. `contract_runner.py`: passes `litellm_mode` through to `check_expectations()`.
-- **2026-03-12** — Added `test_instruction_router_e2e.py` and `instruction_router_fanout.json` fixture for instruction router e2e coverage.
+- **2026-03-10 14:52** — `fixtures.py`: Added `$oneof` matcher operator, `litellm_overrides` fixture section support with `_deep_merge`, and upgraded top-level checks (`final_answer`, `total_iterations`, `total_model_calls`) to use `_match_value()` for operator support. `contract_runner.py`: passes `litellm_mode` through to `check_expectations()`.
+- **2026-03-12 17:30** — Added `test_instruction_router_e2e.py` and `instruction_router_fanout.json` fixture for instruction router e2e coverage.
+- **2026-03-17 11:20** — `contract_runner.py`: Minor provider-fake improvements. Consolidated test suite from ~970 tests to 29 provider-fake contract tests in `test_provider_fake_e2e.py`. Removed 92 unit/FMEA/obs test files — coverage via e2e logging.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

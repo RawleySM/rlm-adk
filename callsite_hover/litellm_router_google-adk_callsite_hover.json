@@ -1,0 +1,37 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/models/litellm_router.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "LiteLLMClient",
+    "LiteLlm"
+  ],
+  "call_sites": [
+    {
+      "symbol": "LiteLlm",
+      "instances": [
+        {
+          "name": null,
+          "line": 297
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass LiteLlm(\n    model: str,\n    **kwargs: Unknown\n)\n```\n---\nInitializes the LiteLlm class.\n\nArgs:  \n&nbsp;&nbsp;model: The name of the LiteLlm model.  \n&nbsp;&nbsp;\\*\\*kwargs: Additional arguments to pass to the litellm completion api."
+      }
+    }
+  ],
+  "type_annotations": [
+    {
+      "symbol": "LiteLLMClient",
+      "usages": [
+        {
+          "context": "base:RouterLiteLlmClient",
+          "line": 32
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) LiteLLMClient\n```\n---\nProvides acompletion method (for better testability)."
+      }
+    }
+  ]
+}

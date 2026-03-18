@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-12 -->
+<!-- validated: 2026-03-17 -->
 
 # Skills & Prompt System
 
@@ -481,9 +481,11 @@ object.__setattr__(self.reasoning_agent, "tools", [repl_tool])
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-10** — Added section 8 (Source-Expandable REPL Skills) documenting skill registry, expansion contract, and ping skill module.
-- **2026-03-12** — `prompts.py`, `orchestrator.py`, `state.py`, `dispatch.py`: Instruction router feature — `{skill_instruction?}` placeholder in dynamic instruction, `DYN_SKILL_INSTRUCTION` state key, `before_agent_callback` seeding, flush_fn parent restoration.
-- **2026-03-13** — Moved `skills/repl_skills/polya_narrative.py` → `skills/polya_narrative_skill.py`. Added ADK `Skill` object (`POLYA_NARRATIVE_SKILL`) with `Frontmatter` + `instructions` following the repomix pattern. Added `build_polya_skill_instruction_block()` for XML discovery injection. `skills/__init__.py` now exports `POLYA_NARRATIVE_SKILL`. Skill is now discoverable by the reasoning agent via `<available_skills>` XML in static instruction — no instruction_router needed for depth-0 activation.
+- **2026-03-10 09:40** — Added section 8 (Source-Expandable REPL Skills) documenting skill registry, expansion contract, and ping skill module.
+- **2026-03-12 13:25** — `prompts.py`, `orchestrator.py`, `state.py`, `dispatch.py`: Instruction router feature — `{skill_instruction?}` placeholder in dynamic instruction, `DYN_SKILL_INSTRUCTION` state key, `before_agent_callback` seeding, flush_fn parent restoration.
+- **2026-03-13 10:50** — Moved `skills/repl_skills/polya_narrative.py` → `skills/polya_narrative_skill.py`. Added ADK `Skill` object (`POLYA_NARRATIVE_SKILL`) with `Frontmatter` + `instructions` following the repomix pattern. Added `build_polya_skill_instruction_block()` for XML discovery injection. `skills/__init__.py` now exports `POLYA_NARRATIVE_SKILL`. Skill is now discoverable by the reasoning agent via `<available_skills>` XML in static instruction — no instruction_router needed for depth-0 activation.
+- **2026-03-17 14:35** — `skills/__init__.py`: Added `normalize_enabled_skill_names()` and `build_enabled_skill_instruction_blocks()` exports. `skills/catalog.py`: New skill catalog module. `prompts.py`: Updated child static instruction and dynamic instruction templates.
+- **2026-03-17 16:55** — `catalog.py`: Extended `PromptSkillRegistration` with `repl_globals_factory` and `side_effect_modules` fields. Added `collect_repl_globals()` and `activate_side_effect_modules()` catalog functions. Added ping skill entry to `PROMPT_SKILL_REGISTRY`. `orchestrator.py`: Replaced hardwired repomix/polya/ping imports (lines 278-287) with catalog-driven `collect_repl_globals()` and `activate_side_effect_modules()` calls. `agent.py`: Renamed `include_repomix` parameter to `include_skills` in `create_reasoning_agent()` and `create_child_orchestrator()`.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

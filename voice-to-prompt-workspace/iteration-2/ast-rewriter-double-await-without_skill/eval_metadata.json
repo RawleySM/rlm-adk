@@ -1,0 +1,19 @@
+{
+  "eval_id": 3,
+  "eval_name": "ast-rewriter-double-await",
+  "prompt": "the ast rewriter is breaking on nested async functions. like if the LM generates code that defines an async helper inside the repl block and then calls llm query from inside that helper, the rewriter promotes it wrong and you get a double await. I saw it happen in production yesterday. Can you fix the node transformer so it tracks scope properly and doesn't re-promote functions that are already async.",
+  "assertions": [
+    {"id": "correct_ast_rewriter_file", "text": "Identifies rlm_adk/repl/ast_rewriter.py as the file to modify", "type": "file_reference"},
+    {"id": "llm_call_rewriter_class", "text": "References LlmCallRewriter class as the bug site for double-await", "type": "code_reference"},
+    {"id": "promote_functions_ref", "text": "References _promote_functions_to_async function for the AsyncFunctionDef gap", "type": "code_reference"},
+    {"id": "promoted_call_awaiter_ref", "text": "References _PromotedCallAwaiter class for scope-tracking fixes", "type": "code_reference"},
+    {"id": "line_numbers_present", "text": "Includes specific line numbers in an appendix or reference table", "type": "format"},
+    {"id": "original_preserved", "text": "Preserves the original transcription verbatim in a blockquote or clearly marked section", "type": "format"},
+    {"id": "testing_consideration", "text": "Adds comprehensive test cases for nested async scenarios not in the original transcription", "type": "gap_filling"},
+    {"id": "rewrite_for_async_ref", "text": "References rewrite_for_async as the public entry point that must not change signature", "type": "domain_knowledge"},
+    {"id": "delegation_directive", "text": "Contains a delegation blockquote instructing assignment to Agent Team teammates with red/green TDD and showboat demo", "type": "format_v2"},
+    {"id": "teammate_spawn_format", "text": "Each implementation step is phrased as 'Spawn a `<AgentName>` teammate to [action]'", "type": "format_v2"},
+    {"id": "provider_fake_fixture_tdd", "text": "Contains a Provider-Fake Fixture & TDD section with fixture names, essential requirements, and TDD sequence", "type": "format_v2"},
+    {"id": "showboat_demo", "text": "Mentions `uvx showboat` demo documentation for proving changes work", "type": "format_v2"}
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "eval_id": 1,
+  "eval_name": "rate-limit-retry",
+  "prompt": "ok so I need to uh change the dispatch thing so that when a child agent hits a rate limit it actually backs off properly instead of just failing immediately. Right now I think the retry logic in the worker callback isn't catching 429s from the genai client correctly because it's checking the wrong attribute on the exception. Also the error classification function in dispatch dot py needs to handle that case. Oh and make sure the observability stuff picks it up too so I can see it in the traces database.",
+  "assertions": [
+    {
+      "id": "correct_dispatch_file",
+      "text": "Correctly identifies rlm_adk/dispatch.py as the file containing error classification",
+      "type": "file_reference"
+    },
+    {
+      "id": "correct_retry_file",
+      "text": "Correctly identifies rlm_adk/callbacks/worker_retry.py as the retry logic location",
+      "type": "file_reference"
+    },
+    {
+      "id": "classify_error_function",
+      "text": "References _classify_error function in dispatch.py",
+      "type": "code_reference"
+    },
+    {
+      "id": "observability_path",
+      "text": "Mentions sqlite_tracing.py or ObservabilityPlugin for traces database",
+      "type": "code_reference"
+    },
+    {
+      "id": "line_numbers_present",
+      "text": "Includes specific line numbers (not just file paths) in an appendix or reference section",
+      "type": "format"
+    },
+    {
+      "id": "original_preserved",
+      "text": "Preserves the original transcription verbatim in a blockquote or clearly marked section",
+      "type": "format"
+    },
+    {
+      "id": "testing_consideration",
+      "text": "Mentions or adds testing steps that weren't in the original transcription",
+      "type": "gap_filling"
+    },
+    {
+      "id": "ar_crit_001",
+      "text": "Mentions AR-CRIT-001 or state mutation rules since dispatch is involved",
+      "type": "domain_knowledge"
+    }
+  ]
+}

@@ -275,16 +275,12 @@ class RLMOrchestratorAgent(BaseAgent):
 
             repl.set_llm_query_fns(sync_llm_query_unsupported, sync_llm_query_unsupported)
 
-        # Inject repomix skill helpers into REPL globals
-        from rlm_adk.skills.repomix_helpers import pack_repo, probe_repo, shard_repo
+        # Catalog-driven skill activation: inject REPL globals and trigger
+        # side-effect module imports for source-expandable skills.
+        from rlm_adk.skills.catalog import activate_side_effect_modules, collect_repl_globals
 
-        repl.globals["probe_repo"] = probe_repo
-        repl.globals["pack_repo"] = pack_repo
-        repl.globals["shard_repo"] = shard_repo
-
-        # Register expandable REPL skill modules (side-effect imports)
-        import rlm_adk.skills.polya_narrative_skill  # noqa: F401
-        import rlm_adk.skills.repl_skills.ping  # noqa: F401
+        repl.globals.update(collect_repl_globals(self.enabled_skills))
+        activate_side_effect_modules(self.enabled_skills)
 
         # Create REPLTool with flush_fn for dispatch accumulator flushing
         repl_tool = REPLTool(

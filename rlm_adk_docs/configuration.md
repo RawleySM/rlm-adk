@@ -362,9 +362,9 @@ The reasoning agent must be created with `include_contents="default"`. This tell
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
 - **2026-03-09 13:15** — `agent.py`: Added `fanout_idx: int = 0` parameter to `create_child_orchestrator()` for artifact filename disambiguation.
-- **2026-03-12** — `agent.py`: Added `instruction_router` parameter to `create_rlm_orchestrator()`, `create_child_orchestrator()`, and `create_rlm_app()`. Added `fanout_idx` to `create_child_orchestrator()`.
-- **2026-03-13** — `services.py`: New file. ADK CLI service registry overriding built-in `sqlite://` and `file://` schemes with WAL-pragma'd session and file artifact factories. No CLI flags needed. Added section 3.1 documenting service registry. `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()`.
-- **2026-03-13** — `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` via `build_polya_skill_instruction_block()` (same `include_repomix` guard as repomix).
+- **2026-03-12 15:10** — `agent.py`: Added `instruction_router` parameter to `create_rlm_orchestrator()`, `create_child_orchestrator()`, and `create_rlm_app()`. Added `fanout_idx` to `create_child_orchestrator()`.
+- **2026-03-13 11:30** — `services.py`: New file. ADK CLI service registry overriding built-in `sqlite://` and `file://` schemes with WAL-pragma'd session and file artifact factories. No CLI flags needed. Added section 3.1 documenting service registry. `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()`.
+- **2026-03-13 17:45** — `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` via `build_polya_skill_instruction_block()` (same `include_repomix` guard as repomix).
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
