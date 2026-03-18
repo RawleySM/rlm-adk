@@ -282,11 +282,22 @@ class RLMOrchestratorAgent(BaseAgent):
         repl.globals.update(collect_repl_globals(self.enabled_skills))
         activate_side_effect_modules(self.enabled_skills)
 
+        # Create telemetry finalizer from SqliteTracingPlugin (GAP-06 fix).
+        # The finalizer ensures tool telemetry rows are completed even when
+        # ADK's after_tool_callback doesn't fire for deeply nested async tools.
+        telemetry_finalizer = None
+        plugin_manager = getattr(ctx, "plugin_manager", None)
+        if plugin_manager is not None:
+            sqlite_plugin = plugin_manager.get_plugin("sqlite_tracing")
+            if sqlite_plugin is not None and hasattr(sqlite_plugin, "make_telemetry_finalizer"):
+                telemetry_finalizer = sqlite_plugin.make_telemetry_finalizer()
+
         # Create REPLTool with flush_fn for dispatch accumulator flushing
         repl_tool = REPLTool(
             repl,
             max_calls=max_iterations,
             flush_fn=flush_fn,
+            telemetry_finalizer=telemetry_finalizer,
             trace_holder=trace_holder if trace_level > 0 else None,
             depth=self.depth,
             fanout_idx=self.fanout_idx,

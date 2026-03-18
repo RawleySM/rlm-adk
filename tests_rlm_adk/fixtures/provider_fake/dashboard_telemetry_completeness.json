@@ -1,0 +1,229 @@
+{
+  "scenario_id": "dashboard_telemetry_completeness",
+  "description": "Exercises recursive dispatch at depths 0-2 to verify: (1) tool call telemetry finalization (end_time, duration_ms, result_payload non-NULL), (2) child state propagation (session_state_events at key_depth > 0), (3) trace lifecycle finalization (status=completed, total_calls > 0). Depth 0 calls execute_code with llm_query, depth 1 calls execute_code with llm_query, depth 2 hits DEPTH_LIMIT and returns immediately. Both depths finalize via set_model_response.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "initial_state": {
+      "app:max_depth": 3
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Root (depth 0) emits execute_code that dispatches one child via llm_query.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "response = llm_query(\"What is the answer?\")\nprint(response)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 250
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Child depth 1 emits execute_code that dispatches to depth 2 via llm_query.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "response = llm_query(\"Go deeper\")\nprint(response)"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 180,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 220
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Child depth 2 emits execute_code. Depth-2 REPL will call llm_query which hits DEPTH_LIMIT (max_depth=3, child at depth 3 is blocked).",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(\"leaf node at depth 2\")\nresult = \"42\""
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 160,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 190
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Child depth 2 finalizes via set_model_response.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "42",
+                      "reasoning_summary": "leaf computed 42"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 140,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 160
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Child depth 1 finalizes via set_model_response, forwarding the result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "42",
+                      "reasoning_summary": "depth 1 forwarded 42 from depth 2"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 22,
+          "totalTokenCount": 172
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "reasoning",
+      "note": "Root finalizes via set_model_response after receiving child result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "42",
+                      "reasoning_summary": "root received 42 from recursive chain"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 24,
+          "totalTokenCount": 324
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "42",
+    "total_model_calls": 6
+  },
+  "expected_state": {
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    }
+  }
+}

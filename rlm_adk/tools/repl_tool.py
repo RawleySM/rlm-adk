@@ -67,6 +67,7 @@ class REPLTool(BaseTool):
         max_calls: int = 60,
         trace_holder: list | None = None,
         flush_fn: Callable[[], dict] | None = None,
+        telemetry_finalizer: Callable[[int, dict], None] | None = None,
         depth: int = 0,
         fanout_idx: int = 0,
         summarization_threshold: int = 5000,
@@ -84,6 +85,7 @@ class REPLTool(BaseTool):
         self._call_count = 0
         self.trace_holder = trace_holder
         self._flush_fn = flush_fn
+        self._telemetry_finalizer = telemetry_finalizer
         self._depth = depth
         self._fanout_idx = fanout_idx
         self._summarization_threshold = summarization_threshold
@@ -106,6 +108,14 @@ class REPLTool(BaseTool):
                 required=["code"],
             ),
         )
+
+    def _finalize_telemetry(self, tool_context: ToolContext, result: dict) -> None:
+        """Invoke the telemetry_finalizer if wired, using id(tool_context) as key."""
+        if self._telemetry_finalizer is not None:
+            try:
+                self._telemetry_finalizer(id(tool_context), result)
+            except Exception:
+                pass  # Observe-only — never block execution
 
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> dict:
         code = args["code"]
@@ -131,13 +141,15 @@ class REPLTool(BaseTool):
         # Track iteration count in session state for observability
         tool_context.state[depth_key(ITERATION_COUNT, self._depth)] = self._call_count
         if self._call_count > self._max_calls:
-            return {
+            result = {
                 "stdout": "",
                 "stderr": _CALL_LIMIT_MSG,
                 "variables": {},
                 "llm_calls_made": False,
                 "call_number": self._call_count,
             }
+            self._finalize_telemetry(tool_context, result)
+            return result
 
         llm_calls_made = False
 
@@ -247,13 +259,15 @@ class REPLTool(BaseTool):
                 "stderr": f"CancelledError: {exc}",
                 "cancelled": True,
             }
-            return {
+            cancel_result = {
                 "stdout": "",
                 "stderr": f"CancelledError: {exc}",
                 "variables": {},
                 "llm_calls_made": llm_calls_made,
                 "call_number": self._call_count,
             }
+            self._finalize_telemetry(tool_context, cancel_result)
+            return cancel_result
         except Exception as exc:
             # OG-04 fix: ensure end_time is set so trace summary is non-negative
             if trace is not None and trace.start_time and not trace.end_time:
@@ -276,13 +290,15 @@ class REPLTool(BaseTool):
                 "stdout": "",
                 "stderr": f"{type(exc).__name__}: {exc}",
             }
-            return {
+            exc_result = {
                 "stdout": "",
                 "stderr": f"{type(exc).__name__}: {exc}",
                 "variables": {},
                 "llm_calls_made": llm_calls_made,
                 "call_number": self._call_count,
             }
+            self._finalize_telemetry(tool_context, exc_result)
+            return exc_result
 
         # Flush dispatch accumulators into tool_context.state
         total_llm_calls = 0
@@ -326,10 +342,12 @@ class REPLTool(BaseTool):
                 except (TypeError, ValueError, OverflowError, RecursionError):
                     pass  # Skip non-serializable values (incl. circular refs)
 
-        return {
+        normal_result = {
             "stdout": result.stdout,
             "stderr": result.stderr,
             "variables": variables,
             "llm_calls_made": llm_calls_made,
             "call_number": self._call_count,
         }
+        self._finalize_telemetry(tool_context, normal_result)
+        return normal_result
