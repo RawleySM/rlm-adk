@@ -34,6 +34,7 @@ dependencies = [
     "substack-api>=0.1.0",
     "ipython>=8.0",
     "debugpy>=1.8",
+    "pydantic>=2.12.5",
 ]
 
 [project.urls]

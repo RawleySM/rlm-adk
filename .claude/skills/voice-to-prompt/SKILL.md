@@ -17,7 +17,7 @@ Before doing anything else, read `references/polya_understand.md` (bundled with 
 
 The reason this comes first: voice transcriptions are inherently ambiguous — they contain implied context, vague references, and assumed knowledge. Polya's Understand phase gives you a systematic way to surface what's missing, identify hidden assumptions, and distinguish facts from inferences before you touch any code.
 
-### Step 2: Apply "Understand" to the Transcription
+### Step 2: Apply "Understand" to the Transcription and Classify
 
 With Polya's framework fresh in mind, read the user's transcription and work through a lightweight Understand pass:
 
@@ -28,6 +28,20 @@ With Polya's framework fresh in mind, read the user's transcription and work thr
 - **Assumptions**: What is the user assuming you already know? What might they have misspoken about?
 
 Write this analysis down internally — it guides everything that follows.
+
+#### Classify the Target
+
+Based on your Understand pass, classify the transcription's Target into one of three categories. This classification determines which prompt template you use in Step 5.
+
+| Classification | The user wants to... | Synonyms / signals in transcription |
+|----------------|----------------------|-------------------------------------|
+| **UPDATE** | Build, change, fix, or ship something | build, add, implement, create, fix, refactor, migrate, upgrade, wire up, hook in, swap out, replace, rename, move, delete, remove, ship, deploy, "make it so that..." |
+| **REVIEW** | Inspect, audit, or evaluate existing code | review, audit, check, inspect, evaluate, assess, examine, critique, look at, verify, validate, "is this right?", "does this look good?", "what's wrong with...", "sanity check" |
+| **PROPOSAL** | Brainstorm, explore, or design before committing | brainstorm, propose, explore, ideate, design, consider, "what if", spitball, sketch out, think through, "how should we...", "what's the best way to...", "I'm torn between...", "should we...", prototype, draft, RFC |
+
+**When in doubt:** If the transcription mixes categories (e.g., "review the dispatch code and then fix the retry logic"), classify by the *primary* intent. A review that leads to fixes is still an UPDATE — the user wants something changed. A proposal that includes "and then build it" is still a PROPOSAL if the brainstorming hasn't happened yet.
+
+Record the classification — it determines which prompt template Step 5 uses.
 
 ### Step 3: Prime on Codebase Structure
 
@@ -49,114 +63,15 @@ Now search the actual codebase to verify and correct every file, class, function
 
 ### Step 5: Write the Engineered Prompt
 
-Create a markdown file in `./prompts/` with a descriptive name derived from the task (e.g., `fix_dispatch_retry_logic.md`, `add_skill_hot_reload.md`, `refactor_repl_tracing.md`).
+Read the prompt template reference file that matches the classification from Step 2, then follow its instructions to write the engineered prompt:
 
-The prompt file must contain these sections:
+| Classification | Template file |
+|----------------|---------------|
+| **UPDATE** | `references/prompt_update.md` (bundled with this skill) |
+| **REVIEW** | `references/prompt_review.md` (bundled with this skill) |
+| **PROPOSAL** | `references/prompt_proposal.md` (bundled with this skill) |
 
-#### Header
-```markdown
-<!-- generated: YYYY-MM-DD -->
-<!-- source: voice transcription via voice-to-prompt skill -->
-# [Descriptive Task Title]
-```
-
-#### Context
-A 2-3 sentence summary of what needs to happen and why, written for a coding agent that has never seen this codebase before.
-
-#### Original Transcription
-The user's raw text, preserved verbatim in a blockquote. This ensures the original intent is always recoverable.
-
-#### Refined Instructions
-
-Immediately after the `## Refined Instructions` heading, emit this delegation directive:
-
-```markdown
-> **Delegation:** Assign each numbered step below to an Agent Team teammate. Each teammate implements their step using red/green TDD and documents the change with a demo via `uvx showboat --help`.
-```
-
-Then transform the transcription into clear, numbered steps. **Each step must be phrased as a teammate spawn directive.** Derive a short, descriptive agent identifier from the step's purpose. Format:
-
-```
-1. **Spawn a `<AgentName>` teammate to [action description targeting exact file/function].**
-```
-
-For example:
-- `1. **Spawn a `Retry-Agent` teammate to add retry-with-backoff to `_run_child()` in `rlm_adk/dispatch.py` (line 383).**`
-- `2. **Spawn a `Schema-Guard` teammate to fix error classification priority at line 504 in `rlm_adk/dispatch.py`.**`
-
-Each step should:
-- Reference exact file paths (not "the orchestrator file" but `rlm_adk/orchestrator.py`)
-- Name specific functions or classes when relevant
-- Explain what to change and why
-- Include constraints the user implied but didn't state explicitly (e.g., "don't break the existing test suite", "preserve AR-CRIT-001 compliance")
-
-If the transcription was missing steps that a competent agent would need, add them with a note like: *[Added — the transcription didn't mention this, but X requires Y because Z.]*
-
-#### Provider-Fake Fixture & TDD
-
-For any task that introduces new behavior (new features, new skills, bug fixes with observable behavior changes), include a dedicated section specifying provider-fake fixture requirements. This is not optional — it is part of the refined prompt output.
-
-The section should:
-
-1. **Name the fixture file** — e.g., `tests_rlm_adk/fixtures/provider_fake/worker_health_check.json`
-2. **List essential requirements the fixture must capture** — Focus on *intent validation*, not just error-free execution. What behavior proves the feature works correctly? What would a reward-hacked test miss? For example:
-   - "The fixture must verify that the health check dispatches exactly N concurrent queries (not 1 sequential query repeated N times)"
-   - "The fixture must include at least one worker that returns an error, verifying the skill correctly reports partial failures"
-   - "The fixture must verify latency measurement is non-zero and plausible (not hardcoded)"
-3. **Specify the TDD sequence** — Which test to write first (red), what minimal implementation makes it green, then what the next test should cover.
-4. **Include a showboat demo step** — After implementation, the teammate runs `uvx showboat` to generate an executable demo document proving the feature works.
-
-```markdown
-## Provider-Fake Fixture & TDD
-
-**Fixture:** `tests_rlm_adk/fixtures/provider_fake/<fixture_name>.json`
-
-**Essential requirements the fixture must capture:**
-- [Requirement 1 — what intent does this validate?]
-- [Requirement 2 — what would a naive test miss?]
-- [Requirement 3 — edge case that proves correctness]
-
-**TDD sequence:**
-1. Red: Write test asserting [specific behavior]. Run, confirm failure.
-2. Green: Implement [minimal change]. Run, confirm pass.
-3. Red: Write test asserting [next behavior]. Continue.
-
-**Demo:** Run `uvx showboat` to generate an executable demo document proving the implementation works end-to-end.
-```
-
-#### Considerations
-Anything the coding agent should be aware of:
-- Related subsystems that might be affected
-- Testing requirements
-- State mutation rules (AR-CRIT-001 if dispatch/state work is involved)
-- Potential gotchas from the ADK framework
-
-#### Appendix: Code References
-
-A table of every file, class, and function referenced in the instructions:
-
-```markdown
-## Appendix: Code References
-
-| File | Item | Line | Relevance |
-|------|------|------|-----------|
-| `rlm_adk/orchestrator.py` | `RLMOrchestratorAgent._run_async_impl` | L278 | Main orchestrator loop being modified |
-| `rlm_adk/dispatch.py` | `create_dispatch_closures` | L1378 | Dispatch closure factory |
-| `rlm_adk/state.py` | `depth_key()` | L42 | Depth-scoped state key helper |
-```
-
-Line numbers must be verified against the current source — do not guess. Use Grep with line number output to confirm.
-
-#### Priming References
-End with pointers for the coding agent that will execute this prompt:
-
-```markdown
-## Priming References
-
-Before starting implementation, read these in order:
-1. `repomix-architecture-flow-compressed.xml` — compressed source snapshot for structural context
-2. `rlm_adk_docs/UNDERSTAND.md` — documentation entrypoint (follow branch links relevant to this task)
-```
+Read the selected template file now, then follow its structure exactly to produce the output prompt file in `prompts/`.
 
 ### Step 6: Report to User
 
@@ -178,5 +93,9 @@ Tell the user:
 | File | Purpose |
 |------|---------|
 | `references/polya_understand.md` | Polya's "Understand" phase methodology — read first, always |
+| `references/prompt_update.md` | Prompt template for UPDATE classifications (build/change/fix) |
+| `references/prompt_review.md` | Prompt template for REVIEW classifications (audit/inspect/evaluate) — integrates devil's advocate |
+| `references/prompt_proposal.md` | Prompt template for PROPOSAL classifications (brainstorm/explore/design) — brainstorm agents + devil's advocate |
+| `.claude/skills/devils-advocate/SKILL.md` (project root) | Devil's advocate adversarial review workflow — used by REVIEW and PROPOSAL templates |
 | `repomix-architecture-flow-compressed.xml` (project root) | Compressed source code snapshot for structural priming |
 | `rlm_adk_docs/UNDERSTAND.md` (project root) | Documentation entrypoint with branch index to detailed docs |

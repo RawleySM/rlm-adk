@@ -484,7 +484,7 @@ peak memory into the shared `_rlm_trace` object.
 
 **Directory:** `rlm_adk/dashboard/`
 
-Streamlit-based UI. Reads `.adk/context_snapshots.jsonl` and
+NiceGUI-based UI. Reads `.adk/context_snapshots.jsonl` and
 `.adk/model_outputs.jsonl`. `data_loader.py` groups by session into
 `SessionSummary` + `IterationData`. Components: `api_usage.py` (token charts),
 `token_charts.py` (per-iteration breakdowns), `worker_panel.py` (dispatch

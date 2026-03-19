@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-aa62de6c/rlm_adk/agent.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/agent.py",
   "library": "google-genai",
   "import_prefix": "google.genai",
   "imported_classes": [
@@ -14,15 +14,15 @@
       "instances": [
         {
           "name": "_DEFAULT_RETRY_OPTIONS",
-          "line": 109
+          "line": 110
         },
         {
           "name": null,
-          "line": 180
+          "line": 181
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) HttpRetryOptions: Unknown\n```"
+        "markdown": "```python\nclass HttpRetryOptions(\n    *,\n    attempts: int | None = None,\n    initial_delay: float | None = None,\n    max_delay: float | None = None,\n    exp_base: float | None = None,\n    jitter: float | None = None,\n    http_status_codes: list[int] | None = None\n)\n```\n---\nHTTP retry options to be used in each of the requests."
       }
     },
     {
@@ -30,11 +30,11 @@
       "instances": [
         {
           "name": null,
-          "line": 187
+          "line": 188
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) GenerateContentConfig: Unknown\n```"
+        "markdown": "```python\nclass GenerateContentConfig(\n    *,\n    http_options: HttpOptions | None = None,\n    should_return_http_response: bool | None = None,\n    system_instruction: ContentUnion | None = None,\n    temperature: float | None = None,\n    top_p: float | None = None,\n    top_k: float | None = None,\n    candidate_count: int | None = None,\n    max_output_tokens: int | None = None,\n    stop_sequences: list[str] | None = None,\n    response_logprobs: bool | None = None,\n    logprobs: int | None = None,\n    presence_penalty: float | None = None,\n    frequency_penalty: float | None = None,\n    seed: int | None = None,\n    response_mime_type: str | None = None,\n    response_schema: SchemaUnion | None = None,\n    response_json_schema: Any | None = None,\n    routing_config: GenerationConfigRoutingConfig | None = None,\n    model_selection_config: ModelSelectionConfig | None = None,\n    safety_settings: list[SafetySetting] | None = None,\n    tools: ToolListUnion | None = None,\n    tool_config: ToolConfig | None = None,\n    labels: dict[str, str] | None = None,\n    cached_content: str | None = None,\n    response_modalities: list[str] | None = None,\n    media_resolution: MediaResolution | None = None,\n    speech_config: SpeechConfigUnion | None = None,\n    audio_timestamp: bool | None = None,\n    automatic_function_calling: AutomaticFunctionCallingConfig | None = None,\n    thinking_config: ThinkingConfig | None = None,\n    image_config: ImageConfig | None = None,\n    enable_enhanced_civic_answers: bool | None = None\n)\n```\n---\nOptional model configuration parameters.\n\nFor more information, see `Content generation parameters\n<https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/content-generation-parameters>`\\_."
       }
     },
     {
@@ -42,11 +42,11 @@
       "instances": [
         {
           "name": null,
-          "line": 188
+          "line": 189
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) HttpOptions: Unknown\n```"
+        "markdown": "```python\nclass HttpOptions(\n    *,\n    base_url: str | None = None,\n    base_url_resource_scope: ResourceScope | None = None,\n    api_version: str | None = None,\n    headers: dict[str, str] | None = None,\n    timeout: int | None = None,\n    client_args: dict[str, Any] | None = None,\n    async_client_args: dict[str, Any] | None = None,\n    extra_body: dict[str, Any] | None = None,\n    retry_options: HttpRetryOptions | None = None,\n    httpx_client: HttpxClient | None = None,\n    httpx_async_client: HttpxAsyncClient | None = None\n)\n```\n---\nHTTP options to be used in each of the requests."
       }
     }
   ],

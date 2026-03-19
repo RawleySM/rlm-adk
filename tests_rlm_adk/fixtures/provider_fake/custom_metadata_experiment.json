@@ -1,0 +1,249 @@
+{
+  "scenario_id": "custom_metadata_experiment",
+  "description": "Experiment proving ADK LlmResponse.custom_metadata + canonical after_model_callback can replace the LLMResult + depth-scoped state reading pattern. Root reasoning at depth 0 dispatches K=2 children via llm_query_batched_async. Each child does one REPL call then one set_model_response. RLM_MAX_CONCURRENT_CHILDREN=1 for deterministic call ordering.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "initial_state": {
+      "app:max_depth": 3
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Root emits execute_code with code that calls llm_query_batched_async with K=2 prompts.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I will analyze the two reviews using batched dispatch."
+                },
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "prompts = [\"analyze sentiment of review A\", \"analyze sentiment of review B\"]\nresults = llm_query_batched(prompts)\nfor i, r in enumerate(results):\n    print(f\"Review {i}: {r}\")\nprint(f\"Total results: {len(results)}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 250,
+          "candidatesTokenCount": 120,
+          "totalTokenCount": 370,
+          "thoughtsTokenCount": 30
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Child 0 execute_code (REPL code: analyzing review A). Includes thought part.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Let me analyze this review.",
+                  "thought": true
+                },
+                {
+                  "text": "Analyzing review A for sentiment."
+                },
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(\"analyzing review A\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 170,
+          "thoughtsTokenCount": 20
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Child 0 set_model_response with positive sentiment result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Review A is positive",
+                      "reasoning_summary": "positive sentiment detected"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 120,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 150,
+          "thoughtsTokenCount": 0
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Child 1 execute_code (REPL code: analyzing review B). Includes thought part.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "I need to carefully analyze this second review.",
+                  "thought": true
+                },
+                {
+                  "text": "Analyzing review B for sentiment."
+                },
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print(\"analyzing review B\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 75,
+          "totalTokenCount": 310,
+          "thoughtsTokenCount": 35
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Child 1 set_model_response with negative sentiment result.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Review B is negative",
+                      "reasoning_summary": "negative sentiment detected"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 220,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 260,
+          "thoughtsTokenCount": 0
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "reasoning",
+      "note": "Root set_model_response with combined review analysis.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Review A: positive, Review B: negative",
+                      "reasoning_summary": "2 reviews analyzed"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 60,
+          "totalTokenCount": 460,
+          "thoughtsTokenCount": 15
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Review A: positive, Review B: negative",
+    "total_iterations": 1,
+    "total_model_calls": 6
+  },
+  "expected_state": {
+    "obs:child_dispatch_count": {"$gte": 0},
+    "obs:child_dispatch_count_total": 2
+  }
+}

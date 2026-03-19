@@ -1,0 +1,48 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/experiments/custom_metadata_callback.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "CallbackContext",
+    "LlmResponse"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "LlmResponse",
+      "usages": [
+        {
+          "context": "param:llm_response",
+          "line": 32
+        },
+        {
+          "context": "param:llm_response",
+          "line": 68
+        },
+        {
+          "context": "return",
+          "line": 69
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) LlmResponse\n```\n---\nLLM response class that provides the first candidate response from the\n\nmodel if available. Otherwise, returns error code and message.\n\nAttributes:  \n&nbsp;&nbsp;content: The content of the response.  \n&nbsp;&nbsp;grounding\\_metadata: The grounding metadata of the response.  \n&nbsp;&nbsp;partial: Indicates whether the text content is part of an unfinished text  \n&nbsp;&nbsp;&nbsp;&nbsp;stream. Only used for streaming mode and when the content is plain text.  \n&nbsp;&nbsp;turn\\_complete: Indicates whether the response from the model is complete.  \n&nbsp;&nbsp;&nbsp;&nbsp;Only used for streaming mode.  \n&nbsp;&nbsp;error\\_code: Error code if the response is an error. Code varies by model.  \n&nbsp;&nbsp;error\\_message: Error message if the response is an error.  \n&nbsp;&nbsp;interrupted: Flag indicating that LLM was interrupted when generating the  \n&nbsp;&nbsp;&nbsp;&nbsp;content. Usually it's due to user interruption during a bidi streaming.  \n&nbsp;&nbsp;custom\\_metadata: The custom metadata of the LlmResponse.  \n&nbsp;&nbsp;input\\_transcription: Audio transcription of user input.  \n&nbsp;&nbsp;output\\_transcription: Audio transcription of model output.  \n&nbsp;&nbsp;avg\\_logprobs: Average log probability of the generated tokens.  \n&nbsp;&nbsp;logprobs\\_result: Detailed log probabilities for chosen and top candidate tokens."
+      }
+    },
+    {
+      "symbol": "CallbackContext",
+      "usages": [
+        {
+          "context": "param:callback_context",
+          "line": 50
+        },
+        {
+          "context": "param:callback_context",
+          "line": 68
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) CallbackContext\n```\n---\nThe context of various callbacks within an agent run."
+      }
+    }
+  ]
+}

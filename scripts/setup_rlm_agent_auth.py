@@ -12,6 +12,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/tasks',
+    'https://www.googleapis.com/auth/youtube.readonly',  # YouTube Data API v3 (search, list videos)
     'https://www.googleapis.com/auth/cloud-platform',  # Required for Trace/Logging/Telemetry
 ]
 
