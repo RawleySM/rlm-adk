@@ -1,0 +1,23 @@
+{
+  "skill_name": "devils-advocate",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Devil's advocate this plan: prompts/add_step_mode_plugin_and_dashboard_gate.md",
+      "expected_output": "A structured report with 3 sections (ADK Callback Opportunities, Vision Alignment Assessment, Prior Art Findings) plus Cross-Cutting Themes and Prioritized Recommendations",
+      "files": ["prompts/add_step_mode_plugin_and_dashboard_gate.md"]
+    },
+    {
+      "id": 2,
+      "prompt": "Poke holes in prompts/design_observability_enriched_benchmark_evaluation.md -- I want to know if I'm overcomplicating this or missing callback opportunities",
+      "expected_output": "A structured report emphasizing callback under-utilization and complexity assessment, with prior-art research on existing observability/benchmark frameworks",
+      "files": ["prompts/design_observability_enriched_benchmark_evaluation.md"]
+    },
+    {
+      "id": 3,
+      "prompt": "Challenge this: I'm thinking about adding a cron job that runs every 30 minutes, checks the SQLite tracing DB for failed runs, and automatically re-dispatches them with adjusted parameters. The cron agent would read the failure traces, classify the error type, generate a fix hypothesis, and resubmit. What am I missing?",
+      "expected_output": "A structured report critiquing the inline cron plan from all 3 angles, with prior-art research on auto-retry/self-healing agent systems",
+      "files": []
+    }
+  ]
+}

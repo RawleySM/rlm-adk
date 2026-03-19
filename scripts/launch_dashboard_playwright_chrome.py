@@ -101,7 +101,7 @@ def load_launch_config() -> ChromeDevLaunchConfig:
     dev_root = (
         Path(dev_root_raw).expanduser().resolve()
         if dev_root_raw
-        else repo_root() / "rlm_adk" / ".adk" / "chrome-dev-profile"
+        else Path.home() / "dev" / "chrome-dev-profile"
     )
 
     return ChromeDevLaunchConfig(
@@ -177,6 +177,7 @@ def build_launch_args(config: ChromeDevLaunchConfig) -> list[str]:
         f"--profile-directory={config.profile_dir}",
         f"--remote-debugging-port={config.remote_debugging_port}",
         "--new-window",
+        "--start-maximized",
         "--no-first-run",
         "--no-default-browser-check",
     ]
@@ -207,6 +208,7 @@ def open_dashboard_context(
         user_data_dir=str(dev_root),
         channel="chrome",
         headless=config.headless,
+        no_viewport=True,
         args=build_launch_args(config),
     )
     page = context.new_page()

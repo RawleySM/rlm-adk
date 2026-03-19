@@ -1,0 +1,74 @@
+{
+  "eval_name": "inline-cron-plan",
+  "config": "with_skill",
+  "pass_rate": 1.0,
+  "passed": 13,
+  "total": 13,
+  "expectations": [
+    {
+      "text": "Report has a dedicated ADK Callback Opportunities section",
+      "passed": true,
+      "evidence": "Found ADK Callback heading"
+    },
+    {
+      "text": "Report has Vision Alignment Assessment with 2+ vision areas",
+      "passed": true,
+      "evidence": "Heading: True, areas: 4/4"
+    },
+    {
+      "text": "Report has Prior Art Findings with URLs or search queries",
+      "passed": true,
+      "evidence": "Heading: True, URLs: True"
+    },
+    {
+      "text": "Report has Cross-Cutting Themes section",
+      "passed": true,
+      "evidence": "Found"
+    },
+    {
+      "text": "Report has Prioritized Recommendations (numbered)",
+      "passed": true,
+      "evidence": "Heading: True, numbered: True"
+    },
+    {
+      "text": "ADK section names specific callback types",
+      "passed": true,
+      "evidence": "Found: ['before_model', 'on_event', 'after_run']"
+    },
+    {
+      "text": "Vision section references actual vision concepts",
+      "passed": true,
+      "evidence": "Found: ['polya', 'topology', 'dynamic skill', 'skill loading', 'continuous runtime', 'autonomous', 'interactive dashboard', 'inventing on principle']"
+    },
+    {
+      "text": "Report uses A-prefixed IDs for callback findings (A1, A2, etc.)",
+      "passed": true,
+      "evidence": "A-prefixed headings: 5"
+    },
+    {
+      "text": "Report uses V-prefixed IDs for vision recommendations (V1, V2, etc.)",
+      "passed": true,
+      "evidence": "V-prefixed headings: 5"
+    },
+    {
+      "text": "Report uses P-prefixed IDs for prior art capabilities (P1, P2, etc.)",
+      "passed": true,
+      "evidence": "P-prefixed headings: 4"
+    },
+    {
+      "text": "Report uses X-prefixed IDs for cross-cutting themes (X1, X2, etc.)",
+      "passed": true,
+      "evidence": "X-prefixed headings: 4"
+    },
+    {
+      "text": "Report uses R-prefixed IDs for recommendations with Traces-to lines (R1, R2, etc.)",
+      "passed": true,
+      "evidence": "R-prefixed headings: 6, Traces-to lines: 7"
+    },
+    {
+      "text": "Report includes Reference Key table at top",
+      "passed": true,
+      "evidence": "Found Reference Key"
+    }
+  ]
+}

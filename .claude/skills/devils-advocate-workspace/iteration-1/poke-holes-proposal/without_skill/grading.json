@@ -1,0 +1,44 @@
+{
+  "eval_name": "poke-holes-proposal",
+  "config": "without_skill",
+  "pass_rate": 0.2857142857142857,
+  "passed": 2,
+  "total": 7,
+  "expectations": [
+    {
+      "text": "Report has a dedicated ADK Callback Opportunities section analyzing callback under-utilization",
+      "passed": false,
+      "evidence": "No dedicated ADK Callback section heading found"
+    },
+    {
+      "text": "Report has a Vision Alignment Assessment section referencing at least 2 of the 4 vision areas",
+      "passed": false,
+      "evidence": "Vision heading: False, vision areas mentioned: 1/4"
+    },
+    {
+      "text": "Report has a Prior Art Findings section with URLs or search queries",
+      "passed": false,
+      "evidence": "Prior Art heading: False, URLs found: False, search queries: False"
+    },
+    {
+      "text": "Report has a Cross-Cutting Themes section identifying patterns across multiple critics",
+      "passed": false,
+      "evidence": "No Cross-Cutting Themes section found"
+    },
+    {
+      "text": "Report has a Prioritized Recommendations section with numbered actionable items",
+      "passed": false,
+      "evidence": "Prioritized Recs heading: False, numbered items: True"
+    },
+    {
+      "text": "ADK section names specific callback types (before_model, after_tool, BasePlugin, etc.) not just generic advice",
+      "passed": true,
+      "evidence": "Callback types found: ['before_model', 'before_tool', 'after_tool', 'on_event', 'after_run']"
+    },
+    {
+      "text": "Vision section references actual vision concepts (Polya topology, dynamic skill loading, continuous runtime, or dashboard)",
+      "passed": true,
+      "evidence": "Vision concepts found: ['polya', 'topology']"
+    }
+  ]
+}

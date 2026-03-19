@@ -333,9 +333,14 @@ class LiveDashboardState:
     selected_invocation_id_by_pane: dict[str, str] = field(default_factory=dict)
     auto_follow: bool = True
     live_updates_paused: bool = False
+    available_provider_fake_fixtures: list[str] = field(default_factory=list)
+    selected_provider_fake_fixture: str = ""
     last_error: str | None = None
     context_selection: LiveContextSelection | None = None
     context_viewer_open: bool = False
+    step_mode_enabled: bool = False
+    step_mode_waiting: bool = False
+    step_mode_paused_label: str = ""
 
     @property
     def panes(self) -> list[LivePane]:

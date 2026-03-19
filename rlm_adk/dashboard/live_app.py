@@ -131,10 +131,14 @@ async def live_dashboard_page() -> None:
     def header_section() -> None:
         run_state = controller.state.run_state
         session_summary = controller.session_summary()
-        with ui.element("div").classes("live-dashboard").style(
-            "position: sticky; top: 0; z-index: 50; width: 100%; "
-            "padding: 0.9rem 1rem; border-bottom: 1px solid var(--border-1); "
-            "background: rgba(11,16,32,0.96); backdrop-filter: blur(14px);"
+        with (
+            ui.element("div")
+            .classes("live-dashboard")
+            .style(
+                "position: sticky; top: 0; z-index: 50; width: 100%; "
+                "padding: 0.9rem 1rem; border-bottom: 1px solid var(--border-1); "
+                "background: rgba(11,16,32,0.96); backdrop-filter: blur(14px);"
+            )
         ):
             with ui.element("div").style(
                 "display: flex; justify-content: space-between; align-items: flex-start; "
@@ -170,6 +174,12 @@ async def live_dashboard_page() -> None:
                             controller.state.pause_live_updates,
                             lambda value: _handle_pause(value, controller, live_ui),
                         )
+                        _toggle(
+                            "Step mode",
+                            controller.state.step_mode_enabled,
+                            lambda value: _handle_step_mode(value, controller, live_ui),
+                        )
+                        _step_mode_controls(controller, live_ui)
                     with ui.element("div").style(
                         "display: flex; flex-wrap: wrap; justify-content: flex-end; "
                         "align-items: center; gap: 0.45rem;"
@@ -191,7 +201,9 @@ async def live_dashboard_page() -> None:
                     "User Query",
                     [
                         (
-                            _truncate_chip_text(session_summary.user_query, fallback="No query captured"),
+                            _truncate_chip_text(
+                                session_summary.user_query, fallback="No query captured"
+                            ),
                             session_summary.user_query or "No query captured.",
                             "user-query",
                         )
@@ -249,11 +261,15 @@ async def live_dashboard_page() -> None:
     live_ui.register(invocation_section)
     live_ui.register(text_panel_body)
 
-    with ui.element("div").classes("live-dashboard").style(
-        "min-height: 100vh; width: 100%; background: radial-gradient(circle at top left, "
-        "rgba(87,199,255,0.12), transparent 24%), "
-        "radial-gradient(circle at top right, rgba(255,107,159,0.12), transparent 24%), "
-        "linear-gradient(180deg, var(--bg-0), #060912);"
+    with (
+        ui.element("div")
+        .classes("live-dashboard")
+        .style(
+            "min-height: 100vh; width: 100%; background: radial-gradient(circle at top left, "
+            "rgba(87,199,255,0.12), transparent 24%), "
+            "radial-gradient(circle at top right, rgba(255,107,159,0.12), transparent 24%), "
+            "linear-gradient(180deg, var(--bg-0), #060912);"
+        )
     ):
         header_section()
         invocation_section()
@@ -293,6 +309,17 @@ def _session_selector(controller: LiveDashboardController, live_ui: LiveDashboar
 def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
     skill_options = [name for name, _ in selected_skill_summaries(None)]
     replay_options = controller.state.available_replay_fixtures
+    pf_options = controller.state.available_provider_fake_fixtures
+
+    if controller.state.selected_provider_fake_fixture:
+        header_label = "Launch Fixture"
+        launch_label = "Launch Fixture"
+    elif controller.state.replay_path:
+        header_label = "Launch Replay"
+        launch_label = "Launch Replay"
+    else:
+        header_label = "Launch"
+        launch_label = "Launch"
 
     async def on_launch() -> None:
         await controller.launch_replay()
@@ -303,7 +330,7 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
         "padding-bottom: 0.75rem; margin-bottom: 0.2rem; "
         "border-bottom: 1px solid var(--border-1);"
     ):
-        ui.label("Launch Replay").style(
+        ui.label(header_label).style(
             "color: var(--text-0); font-size: 0.86rem; font-weight: 700; "
             "text-transform: uppercase; letter-spacing: 0.06em;"
         )
@@ -321,6 +348,13 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
             if not replay_options:
                 replay_select.disable()
             ui.select(
+                options=pf_options,
+                value=controller.state.selected_provider_fake_fixture or None,
+                label="Provider-fake fixture",
+                with_input=False,
+                on_change=lambda e: controller.set_provider_fake_fixture(str(e.value or "")),
+            ).style("flex: 2 1 24rem; min-width: 18rem;")
+            ui.select(
                 options=skill_options,
                 value=controller.state.selected_skills,
                 label="Prompt-visible skills",
@@ -329,7 +363,7 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
                 on_change=lambda e: controller.set_selected_skills(list(e.value or [])),
             ).style("flex: 1 1 18rem; min-width: 16rem;")
             launch_button = ui.button(
-                "Launching..." if controller.state.launch_in_progress else "Launch Replay",
+                "Launching..." if controller.state.launch_in_progress else launch_label,
                 on_click=on_launch,
             )
             launch_button.props("unelevated")
@@ -337,7 +371,10 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
                 "height: 3.5rem; padding: 0 1.1rem; "
                 "background: var(--accent-root); color: #05111d; font-weight: 700;"
             )
-            if not controller.state.replay_path:
+            if (
+                not controller.state.replay_path
+                and not controller.state.selected_provider_fake_fixture
+            ):
                 launch_button.disable()
         if not replay_options:
             ui.label("No replay fixtures found under tests_rlm_adk/replay/.").style(
@@ -366,9 +403,9 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
                     "border: 1px solid var(--border-1); "
                     "background: rgba(230,237,247,0.06);"
                 ):
-                    ui.label(name).style(
-                        "color: var(--text-0); font-size: 0.78rem;"
-                    ).tooltip(description)
+                    ui.label(name).style("color: var(--text-0); font-size: 0.78rem;").tooltip(
+                        description
+                    )
         if controller.state.launched_session_id:
             ui.label(f"Latest launched session: {controller.state.launched_session_id}").style(
                 "color: var(--text-1); font-size: 0.78rem;"
@@ -397,9 +434,7 @@ def _status_badge(status: str) -> None:
         f"border: 1px solid {color}; background: color-mix(in srgb, {color} 16%, transparent); "
         "padding: 0.32rem 0.7rem;"
     ):
-        ui.label(status).style(
-            f"color: {color}; font-size: 0.78rem; text-transform: uppercase;"
-        )
+        ui.label(status).style(f"color: {color}; font-size: 0.78rem; text-transform: uppercase;")
 
 
 def _metric_chip(label: str, value: str) -> None:
@@ -454,19 +489,23 @@ def _session_chip(
     controller: LiveDashboardController,
     refresh_viewer,
 ) -> None:
-    with ui.element("div").style(
-        "display: inline-flex; align-items: center; min-width: 0; cursor: pointer; "
-        "padding: 0.32rem 0.68rem; border-radius: 999px; "
-        "border: 1px solid var(--border-1); background: rgba(230,237,247,0.06);"
-    ).on(
-        "click.stop",
-        lambda _e: _open_text_viewer(
-            controller,
-            refresh_viewer,
-            label,
-            text,
-            raw_key,
-        ),
+    with (
+        ui.element("div")
+        .style(
+            "display: inline-flex; align-items: center; min-width: 0; cursor: pointer; "
+            "padding: 0.32rem 0.68rem; border-radius: 999px; "
+            "border: 1px solid var(--border-1); background: rgba(230,237,247,0.06);"
+        )
+        .on(
+            "click.stop",
+            lambda _e: _open_text_viewer(
+                controller,
+                refresh_viewer,
+                label,
+                text,
+                raw_key,
+            ),
+        )
     ):
         ui.label(label).style("color: var(--text-0); font-size: 0.78rem;").tooltip(text)
 
@@ -487,6 +526,39 @@ def _handle_pause(
 ) -> None:
     controller.set_pause_live_updates(value)
     live_ui.refresh_all()
+
+
+def _handle_step_mode(
+    value: bool,
+    controller: LiveDashboardController,
+    live_ui: LiveDashboardUI,
+) -> None:
+    controller.set_step_mode(value)
+    live_ui.refresh_all()
+
+
+def _step_mode_controls(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
+    """Render the Next Step button and paused-agent label when step mode is active."""
+    if not controller.state.step_mode_enabled:
+        return
+
+    async def on_advance() -> None:
+        controller.advance_step()
+        live_ui.refresh_all()
+
+    btn = ui.button("Next Step", on_click=on_advance)
+    btn.props("unelevated dense")
+    btn.style(
+        "height: 2rem; padding: 0 0.75rem; font-size: 0.78rem; font-weight: 700; "
+        "background: var(--accent-active); color: #05111d;"
+    )
+    if not controller.state.step_mode_waiting:
+        btn.disable()
+
+    if controller.state.step_mode_paused_label:
+        ui.label(controller.state.step_mode_paused_label).style(
+            "color: var(--accent-warning); font-size: 0.78rem; font-weight: 600;"
+        )
 
 
 def _open_invocation_context_viewer(

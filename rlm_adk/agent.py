@@ -44,6 +44,7 @@ from rlm_adk.orchestrator import RLMOrchestratorAgent
 from rlm_adk.plugins.dashboard_auto_launch import DashboardAutoLaunchPlugin
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
+from rlm_adk.plugins.step_mode import StepModePlugin
 from rlm_adk.skills import (
     build_enabled_skill_instruction_blocks,
     normalize_enabled_skill_names,
@@ -416,6 +417,7 @@ def _default_plugins(
     _debug_env = os.getenv("RLM_ADK_DEBUG", "").lower() in ("1", "true", "yes")
     plugins: list[BasePlugin] = [
         DashboardAutoLaunchPlugin(),
+        StepModePlugin(),
         ObservabilityPlugin(verbose=_debug_env),
     ]
     _sqlite_env = os.getenv("RLM_ADK_SQLITE_TRACING", "").lower() in ("1", "true", "yes")

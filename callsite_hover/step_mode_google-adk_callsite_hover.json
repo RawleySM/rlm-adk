@@ -1,0 +1,62 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ac27c1e3/rlm_adk/plugins/step_mode.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "BasePlugin",
+    "CallbackContext",
+    "LlmRequest",
+    "LlmResponse"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "BasePlugin",
+      "usages": [
+        {
+          "context": "base:StepModePlugin",
+          "line": 14
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) BasePlugin: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "CallbackContext",
+      "usages": [
+        {
+          "context": "param:callback_context",
+          "line": 23
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) CallbackContext: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "LlmRequest",
+      "usages": [
+        {
+          "context": "param:llm_request",
+          "line": 24
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) LlmRequest: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "LlmResponse",
+      "usages": [
+        {
+          "context": "return",
+          "line": 25
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) LlmResponse: Unknown\n```"
+      }
+    }
+  ]
+}

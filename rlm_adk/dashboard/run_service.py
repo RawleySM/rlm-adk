@@ -67,6 +67,29 @@ def list_replay_fixtures(
     return fixtures
 
 
+def list_provider_fake_fixtures(
+    *,
+    fixture_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
+) -> list[str]:
+    """Return sorted provider-fake fixture stems for the dashboard picker."""
+    resolved_repo_root = Path(repo_root).expanduser().resolve() if repo_root else _REPO_ROOT
+    resolved_fixture_dir = (
+        Path(fixture_dir).expanduser().resolve()
+        if fixture_dir
+        else resolved_repo_root / "tests_rlm_adk" / "fixtures" / "provider_fake"
+    )
+    if not resolved_fixture_dir.exists():
+        return []
+
+    stems: list[str] = []
+    for fixture_path in sorted(resolved_fixture_dir.glob("*.json")):
+        if not fixture_path.is_file():
+            continue
+        stems.append(fixture_path.stem)
+    return stems
+
+
 def default_replay_fixture(fixtures: Iterable[str]) -> str:
     fixture_list = list(fixtures)
     if _DEFAULT_REPLAY_FIXTURE in fixture_list:
@@ -100,8 +123,10 @@ def _load_replay_file(replay_path: str | Path) -> dict[str, Any]:
     queries = payload.get("queries")
     if not isinstance(state, dict):
         raise ValueError("Replay payload must contain a dict 'state'")
-    if not isinstance(queries, list) or not queries or not all(
-        isinstance(query, str) and query.strip() for query in queries
+    if (
+        not isinstance(queries, list)
+        or not queries
+        or not all(isinstance(query, str) and query.strip() for query in queries)
     ):
         raise ValueError("Replay payload must contain a non-empty string list 'queries'")
 

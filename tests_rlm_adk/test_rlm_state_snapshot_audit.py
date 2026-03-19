@@ -7,7 +7,6 @@ This test dumps the actual _rlm_state dict seen by REPL code at each turn.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 

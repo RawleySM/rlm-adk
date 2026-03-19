@@ -153,6 +153,12 @@ MIGRATION_STATUS = "migration:status"
 MIGRATION_TIMESTAMP = "migration:timestamp"
 MIGRATION_ERROR = "migration:error"
 
+# Step-Mode Keys (session-scoped)
+STEP_MODE_ENABLED = "step:mode_enabled"       # bool — is step mode active?
+STEP_MODE_PAUSED_AGENT = "step:paused_agent"   # str — name of agent currently paused
+STEP_MODE_PAUSED_DEPTH = "step:paused_depth"   # int — depth of paused agent
+STEP_MODE_ADVANCE_COUNT = "step:advance_count"  # int — number of advances taken
+
 
 # REPL State Introspection
 REPL_STATE_SNAPSHOT = "_rlm_state"
@@ -179,6 +185,7 @@ EXPOSED_STATE_KEYS: frozenset[str] = frozenset(
         OBS_REWRITE_FAILURE_COUNT,
         LAST_REPL_RESULT,
         REPL_SUBMITTED_CODE_CHARS,
+        STEP_MODE_ENABLED,
     }
 )
 

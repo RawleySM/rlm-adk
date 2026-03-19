@@ -86,7 +86,7 @@ What it does:
 - Verifies the dashboard is reachable, by default at
   `http://127.0.0.1:8080/live`
 - Copies the selected Chrome profile into
-  `rlm_adk/.adk/chrome-dev-profile`
+  `~/dev/chrome-dev-profile`
 - Launches a persistent Chrome context with Playwright
 - Enables remote debugging, by default on port `9222`
 - Prints a JSON summary that includes the dev profile path and CDP websocket
@@ -99,7 +99,7 @@ What it does:
 | `RLM_DASHBOARD_URL` | `http://127.0.0.1:8080/live` | Dashboard URL to open |
 | `RLM_PLAYWRIGHT_CHROME_SOURCE_ROOT` | platform default Chrome user-data root | Source Chrome profile root to copy |
 | `RLM_PLAYWRIGHT_CHROME_PROFILE_DIR` | `Default` | Profile directory inside the source root |
-| `RLM_PLAYWRIGHT_CHROME_DEV_ROOT` | `rlm_adk/.adk/chrome-dev-profile` | Destination dev-mode profile root |
+| `RLM_PLAYWRIGHT_CHROME_DEV_ROOT` | `~/dev/chrome-dev-profile` | Destination dev-mode profile root |
 | `RLM_PLAYWRIGHT_CHROME_REMOTE_DEBUGGING_PORT` | `9222` | Remote debugging port exposed by Chrome |
 | `RLM_PLAYWRIGHT_CHROME_HEADLESS` | unset / false | Set to `1` for headless mode |
 | `RLM_PLAYWRIGHT_CHROME_REFRESH_PROFILE` | unset / false | Set to `1` to recopy profile data before launch |

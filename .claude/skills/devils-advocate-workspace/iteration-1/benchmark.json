@@ -1,0 +1,187 @@
+{
+  "metadata": {
+    "skill_name": "devils-advocate",
+    "skill_path": "/home/rawley-stanhope/dev/rlm-adk/.claude/skills/devils-advocate",
+    "executor_model": "claude-opus-4-6",
+    "timestamp": "2026-03-18T00:00:00Z",
+    "evals_run": [1, 2, 3],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "plan-file-review",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 295.1,
+        "tokens": 99064,
+        "tool_calls": 35,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Report has a dedicated ADK Callback Opportunities section", "passed": true, "evidence": "Found heading with 5 findings"},
+        {"text": "Report has Vision Alignment Assessment with 2+ vision areas", "passed": true, "evidence": "4/4 vision areas covered"},
+        {"text": "Report has Prior Art Findings with URLs", "passed": true, "evidence": "URLs for LangGraph, AgentStepper, AutoGen, Open WebUI"},
+        {"text": "Report has Cross-Cutting Themes section", "passed": true, "evidence": "4 themes identified"},
+        {"text": "Report has Prioritized Recommendations (numbered)", "passed": true, "evidence": "8 numbered recommendations"},
+        {"text": "ADK section names specific callback types", "passed": true, "evidence": "before_model, after_model, before_agent, on_event, BasePlugin, after_run"},
+        {"text": "Vision section references actual vision concepts", "passed": true, "evidence": "Polya topology, dynamic skill loading, continuous runtime, interactive dashboard"}
+      ]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "plan-file-review",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.14,
+        "passed": 1,
+        "failed": 6,
+        "total": 7,
+        "time_seconds": 346.4,
+        "tokens": 117770,
+        "tool_calls": 43,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Report has a dedicated ADK Callback Opportunities section", "passed": false, "evidence": "Organized by severity, no dedicated ADK section"},
+        {"text": "Report has Vision Alignment Assessment with 2+ vision areas", "passed": false, "evidence": "No vision alignment section"},
+        {"text": "Report has Prior Art Findings with URLs", "passed": false, "evidence": "No prior art section"},
+        {"text": "Report has Cross-Cutting Themes section", "passed": false, "evidence": "No cross-cutting themes"},
+        {"text": "Report has Prioritized Recommendations (numbered)", "passed": false, "evidence": "Inline recs per finding, no prioritized section"},
+        {"text": "ADK section names specific callback types", "passed": true, "evidence": "before_model_callback, BasePlugin, after_model_callback found throughout"},
+        {"text": "Vision section references actual vision concepts", "passed": false, "evidence": "No vision documents referenced"}
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "poke-holes-proposal",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.86,
+        "passed": 6,
+        "failed": 1,
+        "total": 7,
+        "time_seconds": 247.8,
+        "tokens": 84599,
+        "tool_calls": 26,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Report has a dedicated ADK Callback Opportunities section", "passed": true, "evidence": "5 callback findings"},
+        {"text": "Report has Vision Alignment Assessment with 2+ vision areas", "passed": true, "evidence": "4/4 vision areas"},
+        {"text": "Report has Prior Art Findings with URLs", "passed": false, "evidence": "Citation-style refs (arXiv IDs) but no https:// URLs"},
+        {"text": "Report has Cross-Cutting Themes section", "passed": true, "evidence": "3 themes"},
+        {"text": "Report has Prioritized Recommendations (numbered)", "passed": true, "evidence": "7 numbered recommendations"},
+        {"text": "ADK section names specific callback types", "passed": true, "evidence": "before_model, after_model, before_tool, after_tool, on_event, after_run"},
+        {"text": "Vision section references actual vision concepts", "passed": true, "evidence": "All 4 areas + inventing on principle"}
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "poke-holes-proposal",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.29,
+        "passed": 2,
+        "failed": 5,
+        "total": 7,
+        "time_seconds": 242.1,
+        "tokens": 89553,
+        "tool_calls": 24,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Report has a dedicated ADK Callback Opportunities section", "passed": true, "evidence": "'Part 2: Missed callback opportunities' with 6 findings"},
+        {"text": "Report has Vision Alignment Assessment with 2+ vision areas", "passed": false, "evidence": "No vision section"},
+        {"text": "Report has Prior Art Findings with URLs", "passed": false, "evidence": "No prior art section"},
+        {"text": "Report has Cross-Cutting Themes section", "passed": false, "evidence": "No themes section"},
+        {"text": "Report has Prioritized Recommendations (numbered)", "passed": true, "evidence": "Summary table of recommendations"},
+        {"text": "ADK section names specific callback types", "passed": true, "evidence": "after_tool, on_event, before_tool, after_run, BasePlugin"},
+        {"text": "Vision section references actual vision concepts", "passed": false, "evidence": "No vision concepts"}
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "inline-cron-plan",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 228.1,
+        "tokens": 89015,
+        "tool_calls": 31,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Report has a dedicated ADK Callback Opportunities section", "passed": true, "evidence": "4 callback findings"},
+        {"text": "Report has Vision Alignment Assessment with 2+ vision areas", "passed": true, "evidence": "4/4 vision areas"},
+        {"text": "Report has Prior Art Findings with URLs", "passed": true, "evidence": "URLs for VIGIL, PALADIN, Temporal.io, etc."},
+        {"text": "Report has Cross-Cutting Themes section", "passed": true, "evidence": "3 themes"},
+        {"text": "Report has Prioritized Recommendations (numbered)", "passed": true, "evidence": "6 numbered recommendations"},
+        {"text": "ADK section names specific callback types", "passed": true, "evidence": "after_model, on_event, before_agent, after_run, BasePlugin"},
+        {"text": "Vision section references actual vision concepts", "passed": true, "evidence": "All 4 areas referenced"}
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "inline-cron-plan",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.14,
+        "passed": 1,
+        "failed": 6,
+        "total": 7,
+        "time_seconds": 233.1,
+        "tokens": 99046,
+        "tool_calls": 22,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Report has a dedicated ADK Callback Opportunities section", "passed": false, "evidence": "No ADK section, organized by numbered findings"},
+        {"text": "Report has Vision Alignment Assessment with 2+ vision areas", "passed": false, "evidence": "Mentions one vision doc but no structured assessment"},
+        {"text": "Report has Prior Art Findings with URLs", "passed": false, "evidence": "Codebase-internal prior art only, no external URLs"},
+        {"text": "Report has Cross-Cutting Themes section", "passed": false, "evidence": "No themes section"},
+        {"text": "Report has Prioritized Recommendations (numbered)", "passed": false, "evidence": "Has MVP recommendation but not prioritized list"},
+        {"text": "ADK section names specific callback types", "passed": true, "evidence": "after_run, before_run, after_tool, on_event"},
+        {"text": "Vision section references actual vision concepts", "passed": false, "evidence": "Only mentions autonomous self-improvement"}
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 0.95, "stddev": 0.08, "min": 0.86, "max": 1.0},
+      "time_seconds": {"mean": 257.0, "stddev": 34.6, "min": 228.1, "max": 295.1},
+      "tokens": {"mean": 90893, "stddev": 7308, "min": 84599, "max": 99064}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.19, "stddev": 0.09, "min": 0.14, "max": 0.29},
+      "time_seconds": {"mean": 273.9, "stddev": 62.5, "min": 233.1, "max": 346.4},
+      "tokens": {"mean": 102123, "stddev": 14442, "min": 89553, "max": 117770}
+    },
+    "delta": {
+      "pass_rate": "+0.76",
+      "time_seconds": "-16.9",
+      "tokens": "-11230"
+    }
+  },
+  "notes": [
+    "Assertion 'ADK section names specific callback types' passes in 5/6 runs -- callbacks are mentioned by both configs, but only the skill produces dedicated structured sections. Partially non-discriminating.",
+    "Eval 2 with_skill failed Prior Art URL assertion: used citation-style refs (arXiv 2308.03688) without full https:// URLs. The section existed and was substantive.",
+    "Baselines used more tokens (102k avg vs 91k) while achieving much lower structural pass rates (19% vs 95%) -- deeper codebase exploration but without the multi-angle framework.",
+    "Eval 1 baseline (346s, 118k tokens) found a critical issue (plugin doesn't fire for child dispatches) that the with-skill report missed -- baselines can find codebase-specific bugs the skill's structured approach may overlook.",
+    "Eval 3 (inline cron plan) shows strongest differentiation: with-skill found external prior art (VIGIL, PALADIN, Temporal.io) while baseline focused entirely on codebase-internal analysis.",
+    "The skill's value is the structured 3-critic framework (ADK callbacks, vision alignment, prior art) which baselines never spontaneously produce. Quality of individual critiques is comparable."
+  ]
+}

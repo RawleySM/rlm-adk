@@ -1,0 +1,44 @@
+{
+  "eval_name": "inline-cron-plan",
+  "config": "with_skill",
+  "pass_rate": 1.0,
+  "passed": 7,
+  "total": 7,
+  "expectations": [
+    {
+      "text": "Report has a dedicated ADK Callback Opportunities section analyzing callback under-utilization",
+      "passed": true,
+      "evidence": "Found '## ADK Callback' heading"
+    },
+    {
+      "text": "Report has a Vision Alignment Assessment section referencing at least 2 of the 4 vision areas",
+      "passed": true,
+      "evidence": "Vision heading: True, vision areas mentioned: 4/4"
+    },
+    {
+      "text": "Report has a Prior Art Findings section with URLs or search queries",
+      "passed": true,
+      "evidence": "Prior Art heading: True, URLs found: True, search queries: False"
+    },
+    {
+      "text": "Report has a Cross-Cutting Themes section identifying patterns across multiple critics",
+      "passed": true,
+      "evidence": "Found '## Cross-Cutting Themes' heading"
+    },
+    {
+      "text": "Report has a Prioritized Recommendations section with numbered actionable items",
+      "passed": true,
+      "evidence": "Prioritized Recs heading: True, numbered items: True"
+    },
+    {
+      "text": "ADK section names specific callback types (before_model, after_tool, BasePlugin, etc.) not just generic advice",
+      "passed": true,
+      "evidence": "Callback types found: ['after_model', 'after_tool', 'before_agent', 'after_agent', 'on_event', 'before_run', 'after_run']"
+    },
+    {
+      "text": "Vision section references actual vision concepts (Polya topology, dynamic skill loading, continuous runtime, or dashboard)",
+      "passed": true,
+      "evidence": "Vision concepts found: ['polya', 'topology', 'dynamic skill', 'skill loading', 'continuous runtime', 'self-improvement', 'autonomous', 'interactive dashboard', 'inventing on principle']"
+    }
+  ]
+}

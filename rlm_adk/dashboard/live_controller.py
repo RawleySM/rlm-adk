@@ -18,10 +18,12 @@ from rlm_adk.dashboard.live_models import (
 )
 from rlm_adk.dashboard.run_service import (
     default_replay_fixture,
+    list_provider_fake_fixtures,
     list_replay_fixtures,
     prepare_replay_launch,
 )
 from rlm_adk.skills import DEFAULT_ENABLED_SKILL_NAMES, normalize_enabled_skill_names
+from rlm_adk.step_gate import step_gate
 
 
 @dataclass(frozen=True)
@@ -55,10 +57,9 @@ class LiveDashboardController:
 
     async def initialize(self) -> None:
         self.state.available_replay_fixtures = list_replay_fixtures()
+        self.state.available_provider_fake_fixtures = list_provider_fake_fixtures()
         if not self.state.replay_path:
-            self.state.replay_path = default_replay_fixture(
-                self.state.available_replay_fixtures
-            )
+            self.state.replay_path = default_replay_fixture(self.state.available_replay_fixtures)
         self._refresh_available_sessions()
         if self.state.available_sessions and not self.state.selected_session_id:
             await self.select_session(self.state.available_sessions[0])
@@ -71,6 +72,14 @@ class LiveDashboardController:
 
     def set_replay_path(self, replay_path: str) -> None:
         self.state.replay_path = replay_path
+        if replay_path:
+            self.state.selected_provider_fake_fixture = ""  # mutual exclusion
+        self.state.launch_error = None
+
+    def set_provider_fake_fixture(self, fixture_stem: str) -> None:
+        self.state.selected_provider_fake_fixture = fixture_stem
+        if fixture_stem:
+            self.state.replay_path = ""  # mutual exclusion
         self.state.launch_error = None
 
     def set_selected_skills(self, selected_skills: list[str]) -> None:
@@ -134,8 +143,7 @@ class LiveDashboardController:
             self.state.snapshot is None
             or snapshot.watermark != self.state.snapshot.watermark
             or len(snapshot.panes) != len(self.state.snapshot.panes)
-            or snapshot.active_candidate_pane_id
-            != self.state.snapshot.active_candidate_pane_id
+            or snapshot.active_candidate_pane_id != self.state.snapshot.active_candidate_pane_id
         )
         self.state.snapshot = snapshot
         self._sync_selected_invocations(snapshot.pane_map.values())
@@ -145,6 +153,17 @@ class LiveDashboardController:
         else:
             self.state.active_pane_id = self._clamp_active_pane(self.state.active_pane_id)
         self._refresh_run_state()
+
+        # Sync step-gate state
+        self.state.step_mode_enabled = step_gate.step_mode_enabled
+        self.state.step_mode_waiting = step_gate.waiting
+        if step_gate.waiting and step_gate.paused_agent_name is not None:
+            self.state.step_mode_paused_label = (
+                f"Paused: {step_gate.paused_agent_name} @ depth {step_gate.paused_depth}"
+            )
+        else:
+            self.state.step_mode_paused_label = ""
+
         return changed
 
     def set_auto_follow(self, enabled: bool) -> None:
@@ -166,6 +185,16 @@ class LiveDashboardController:
 
     def toggle_live_updates_paused(self) -> None:
         self.set_live_updates_paused(not self.state.live_updates_paused)
+
+    def set_step_mode(self, enabled: bool) -> None:
+        step_gate.set_step_mode(enabled)
+        self.state.step_mode_enabled = enabled
+        if not enabled:
+            self.state.step_mode_waiting = False
+            self.state.step_mode_paused_label = ""
+
+    def advance_step(self) -> None:
+        step_gate.advance()
 
     def activate_pane(self, pane_id: str, *, manual: bool = True) -> None:
         pane = self._pane_by_id(pane_id)
@@ -276,15 +305,15 @@ class LiveDashboardController:
     def active_lineage(self) -> list[LivePane]:
         if self.state.snapshot is None:
             return []
-        panes_by_depth = {
-            pane.depth: pane for pane in self.state.snapshot.panes
-        }
+        panes_by_depth = {pane.depth: pane for pane in self.state.snapshot.panes}
         lineage: list[LivePane] = []
         root = panes_by_depth.get(0)
         if root is not None:
             lineage.append(root)
-        target_depth = self.state.active_pane.depth if self.state.active_pane is not None else (
-            max(panes_by_depth) if panes_by_depth else 0
+        target_depth = (
+            self.state.active_pane.depth
+            if self.state.active_pane is not None
+            else (max(panes_by_depth) if panes_by_depth else 0)
         )
         for parent_depth in range(0, target_depth):
             child_depth = parent_depth + 1
@@ -317,11 +346,7 @@ class LiveDashboardController:
     def invocation_tree(self) -> list[LiveInvocationNode]:
         if self.state.snapshot is None:
             return []
-        roots = [
-            pane
-            for pane in self.state.snapshot.panes
-            if pane.parent_pane_id is None
-        ]
+        roots = [pane for pane in self.state.snapshot.panes if pane.parent_pane_id is None]
         nodes: list[LiveInvocationNode] = []
         for root in sorted(roots, key=lambda item: (item.depth, item.fanout_idx or -1)):
             node = self._build_invocation_node(root, lineages=[])
@@ -344,9 +369,7 @@ class LiveDashboardController:
     def selected_invocation_lineage(self) -> list[LiveInvocation]:
         return [
             invocation
-            for invocation in (
-                self.selected_invocation(pane) for pane in self.active_lineage()
-            )
+            for invocation in (self.selected_invocation(pane) for pane in self.active_lineage())
             if invocation is not None
         ]
 
@@ -423,7 +446,9 @@ class LiveDashboardController:
     def _sync_selected_invocations(self, panes) -> None:
         for pane in panes:
             if pane.invocations and pane.pane_id not in self.state.selected_invocation_id_by_pane:
-                self.state.selected_invocation_id_by_pane[pane.pane_id] = pane.invocations[-1].invocation_id
+                self.state.selected_invocation_id_by_pane[pane.pane_id] = pane.invocations[
+                    -1
+                ].invocation_id
 
     def _descendant_pane_ids(self, pane_id: str) -> set[str]:
         if self.state.snapshot is None:
@@ -433,9 +458,7 @@ class LiveDashboardController:
         while frontier:
             current = frontier.pop()
             children = [
-                pane.pane_id
-                for pane in self.state.snapshot.panes
-                if pane.parent_pane_id == current
+                pane.pane_id for pane in self.state.snapshot.panes if pane.parent_pane_id == current
             ]
             for child in children:
                 if child not in descendants:
@@ -474,9 +497,7 @@ class LiveDashboardController:
         child_nodes: list[LiveInvocationNode] = []
         if self.state.snapshot is not None:
             child_panes = [
-                child
-                for child in self.state.snapshot.panes
-                if child.parent_pane_id == pane.pane_id
+                child for child in self.state.snapshot.panes if child.parent_pane_id == pane.pane_id
             ]
             for child in sorted(child_panes, key=lambda item: (item.depth, item.fanout_idx or -1)):
                 child_node = self._build_invocation_node(

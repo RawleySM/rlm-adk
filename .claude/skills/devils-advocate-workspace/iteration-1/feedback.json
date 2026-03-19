@@ -1,0 +1,20 @@
+{
+  "reviews": [
+    {
+      "run_id": "plan-file-review-with_skill",
+      "feedback": "This looks great",
+      "timestamp": "2026-03-18T16:55:32.850Z"
+    },
+    {
+      "run_id": "plan-file-review-without_skill",
+      "feedback": "The version with skills contains much richer output with better suggestions",
+      "timestamp": "2026-03-18T16:55:32.850Z"
+    },
+    {
+      "run_id": "poke-holes-proposal-with_skill",
+      "feedback": "Excellent. But I think I would like hash headers through the document easier for me to reference.  For example,  i would like to command \"implement A2, D3, and C4\", where each letter differentiates between devil advocates (and also synthesis and cross-cutting themes, which should have their own letter/numbers)",
+      "timestamp": "2026-03-18T16:55:32.850Z"
+    }
+  ],
+  "status": "in_progress"
+}

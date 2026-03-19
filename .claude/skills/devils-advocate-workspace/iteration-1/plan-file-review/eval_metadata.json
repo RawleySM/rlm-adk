@@ -1,0 +1,14 @@
+{
+  "eval_id": 1,
+  "eval_name": "plan-file-review",
+  "prompt": "Devil's advocate this plan: prompts/add_step_mode_plugin_and_dashboard_gate.md",
+  "assertions": [
+    {"text": "Report has a dedicated ADK Callback Opportunities section analyzing callback under-utilization", "type": "structural"},
+    {"text": "Report has a Vision Alignment Assessment section referencing at least 2 of the 4 vision areas", "type": "structural"},
+    {"text": "Report has a Prior Art Findings section with URLs or search queries", "type": "structural"},
+    {"text": "Report has a Cross-Cutting Themes section identifying patterns across multiple critics", "type": "structural"},
+    {"text": "Report has a Prioritized Recommendations section with numbered actionable items", "type": "structural"},
+    {"text": "ADK section names specific callback types (before_model, after_tool, BasePlugin, etc.) not just generic advice", "type": "specificity"},
+    {"text": "Vision section references actual vision concepts (Polya topology, dynamic skill loading, continuous runtime, or dashboard)", "type": "specificity"}
+  ]
+}
