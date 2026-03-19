@@ -415,7 +415,7 @@ class ScenarioRouter:
         ``expected``, ``expected_state``, and ``expected_contract`` before
         checking.
         """
-        from rlm_adk.state import FINAL_ANSWER, ITERATION_COUNT
+        from rlm_adk.state import FINAL_RESPONSE_TEXT, ITERATION_COUNT
 
         # Apply litellm overrides if present
         expected = self.expected
@@ -432,7 +432,7 @@ class ScenarioRouter:
 
         # final_answer
         if "final_answer" in expected:
-            actual = final_state.get(FINAL_ANSWER)
+            actual = final_state.get(FINAL_RESPONSE_TEXT)
             expected_fa = expected["final_answer"]
             ok, detail = _match_value(actual, expected_fa)
             checks.append({

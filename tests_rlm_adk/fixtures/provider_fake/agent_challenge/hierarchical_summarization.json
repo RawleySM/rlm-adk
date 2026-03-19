@@ -178,7 +178,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Map-reduce: 3 chunks extracted, synthesis confidence=0.87, evidence from all 3 chunks, 0 conflicts.",
+    "final_answer": "Map-reduce summarization completed successfully:\n- Map phase: 3 chunks, 3 valid extractions (0 parse errors)\n- Reduce phase: synthesized from all 3 chunks with 0.87 confidence and no inter-chunk conflicts\n- The synthesis correctly combined revenue data (chunk 1), R&D pipeline (chunk 2), and risks/guidance (chunk 3)\n\nFINAL(Map-reduce: 3 chunks extracted, synthesis confidence=0.87, evidence from all 3 chunks, 0 conflicts.)",
     "total_iterations": 1,
     "total_model_calls": 6
   }

@@ -24,3 +24,9 @@ rlm_adk/.adk/
 # Debug config
 rlm_adk_debug.yaml
 rlm_adk/eval/understand_bench/corpus/
+
+# Node
+node_modules/
+
+# Backup tokens
+token.json.bak

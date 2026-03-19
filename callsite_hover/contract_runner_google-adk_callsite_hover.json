@@ -26,7 +26,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 434
+          "line": 437
         }
       ],
       "hover": {
@@ -52,7 +52,7 @@
       "usages": [
         {
           "context": "variable:plugins",
-          "line": 423
+          "line": 424
         }
       ],
       "hover": {

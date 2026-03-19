@@ -237,7 +237,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "AdaptiveGate: batch1_conf=0.92 size=50, after low-conf batch rolling_mean dropped, batch_size reduced, retries=3.",
+    "final_answer": "The adaptive gate correctly responded to confidence changes:\n\n- After batch 1 (high conf ~0.92): recommended batch_size=50 (max), retries=1\n- After batch 2 (low conf R-4=0.35, R-5=0.28): rolling mean dropped, gate reduced batch size and increased retries\n\nThe gate's rolling mean now reflects the full 5-sample window. The batch size recommendation decreased from 50 toward the minimum, demonstrating adaptive behavior.\n\nFINAL(AdaptiveGate: batch1_conf=0.92 size=50, after low-conf batch rolling_mean dropped, batch_size reduced, retries=3.)",
     "total_iterations": 2,
     "total_model_calls": 8
   }

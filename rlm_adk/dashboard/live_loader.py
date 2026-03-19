@@ -36,10 +36,6 @@ from rlm_adk.state import (
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
     ENABLED_SKILLS,
-    REASONING_PARSED_OUTPUT,
-    REASONING_RAW_OUTPUT,
-    REASONING_THOUGHT_TEXT,
-    REASONING_VISIBLE_OUTPUT_TEXT,
     REPL_EXPANDED_CODE,
     REPL_SUBMITTED_CODE,
 )
@@ -331,12 +327,6 @@ class LiveDashboardLoader:
                     total_request_chars,
                     total_request_tokens,
                 )
-            if (
-                not display_text
-                and key == REASONING_VISIBLE_OUTPUT_TEXT
-                and bool(invocation.tool_events)
-            ):
-                preview = "(tool call \u2014 no text output)"
             banner_items.append(
                 LiveContextBannerItem(
                     label=self._depth_scoped_label(key, invocation.depth),
@@ -943,17 +933,6 @@ class LiveDashboardLoader:
             for item in state_items
             if item.base_key in {REPL_SUBMITTED_CODE, REPL_EXPANDED_CODE}
         }
-        latest_reasoning = {
-            item.base_key: item
-            for item in state_items
-            if item.base_key
-            in {
-                REASONING_VISIBLE_OUTPUT_TEXT,
-                REASONING_THOUGHT_TEXT,
-                REASONING_RAW_OUTPUT,
-                REASONING_PARSED_OUTPUT,
-            }
-        }
         matching_children = [child for child in child_summaries if child.parent_depth == depth]
         tool_payload = (relevant_tools[-1].payload or {}) if relevant_tools else {}
         repl_stdout = str(tool_payload.get("stdout") or "")
@@ -1005,17 +984,11 @@ class LiveDashboardLoader:
             repl_stdout=repl_stdout,
             repl_stderr=repl_stderr,
             reasoning_visible_text=str(
-                latest_reasoning.get(REASONING_VISIBLE_OUTPUT_TEXT).value
-                if latest_reasoning.get(REASONING_VISIBLE_OUTPUT_TEXT)
-                else (
-                    (output_row or {}).get("output_text")
-                    or (pane_summary.visible_output_text if pane_summary is not None else "")
-                )
+                (output_row or {}).get("output_text")
+                or (pane_summary.visible_output_text if pane_summary is not None else "")
             ),
             reasoning_thought_text=str(
-                latest_reasoning.get(REASONING_THOUGHT_TEXT).value
-                if latest_reasoning.get(REASONING_THOUGHT_TEXT)
-                else (pane_summary.thought_text if pane_summary is not None else "")
+                pane_summary.thought_text if pane_summary is not None else ""
             ),
             structured_output=structured_output,
             raw_payload={

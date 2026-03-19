@@ -38,7 +38,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "42",
+    "final_answer": "After analyzing the problem, the answer is straightforward.\n\nFINAL(42)",
     "total_iterations": 0,
     "total_model_calls": 1
   }

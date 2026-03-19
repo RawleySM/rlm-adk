@@ -30,20 +30,14 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
-    CONTEXT_WINDOW_SNAPSHOT,
+    CURRENT_DEPTH,
     DYN_SKILL_INSTRUCTION,
-    FINAL_ANSWER,
+    FINAL_RESPONSE_TEXT,
     INVOCATION_START_TIME,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    OBS_CHILD_TOTAL_BATCH_DISPATCHES,
     OBS_TOTAL_CALLS,
-    OBS_TOTAL_INPUT_TOKENS,
-    OBS_TOTAL_OUTPUT_TOKENS,
-    REASONING_PARSED_OUTPUT,
-    REASONING_RAW_OUTPUT,
-    REASONING_THOUGHT_TEXT,
-    REASONING_VISIBLE_OUTPUT_TEXT,
+    SHOULD_STOP,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,22 +62,15 @@ def _parse_key(raw_key: str) -> tuple[str, int, int | None]:
 
 
 def _categorize_key(key: str) -> str:
-    """Categorize a state key for the session_state_events table."""
-    if key.startswith("obs:total_") or key.startswith("obs:per_iteration"):
-        return "obs_reasoning"
-    if key.startswith("obs:child_") or key.startswith("obs:worker_"):
-        return "obs_dispatch"
+    """Categorize a state key for the session_state_events table.
+
+    Only categorizes keys that actually flow through state_delta.
+    Per-model-call lineage is captured directly in the telemetry table,
+    not via session_state_events.
+    """
     if key.startswith("obs:artifact_") or key.startswith("artifact_"):
         return "obs_artifact"
-    if key.startswith("obs:finish_"):
-        return "obs_finish"
-    if key.startswith("obs:model_usage:"):
-        return "obs_reasoning"
-    if key.startswith("obs:tool_"):
-        return "obs_reasoning"
-    if key.startswith("obs:structured_"):
-        return "obs_dispatch"
-    if key in ("iteration_count", "should_stop", "final_answer", "policy_violation"):
+    if key in ("iteration_count", "should_stop", "final_response_text", "current_depth", "policy_violation"):
         return "flow_control"
     if key.startswith("repl_submitted_code"):
         return "repl"
@@ -95,8 +82,6 @@ def _categorize_key(key: str) -> str:
         return "repl"
     if key.startswith("last_repl_result"):
         return "repl"
-    if key.startswith("reasoning_"):
-        return "obs_reasoning"
     if key.startswith("cache:"):
         return "cache"
     if key in (
@@ -113,8 +98,10 @@ def _categorize_key(key: str) -> str:
 
 # ---- Curated capture set ----
 
+# Narrowed to working-state keys only; obs:* lineage keys are now
+# captured directly in the telemetry table, not via session_state_events.
 _CURATED_PREFIXES = (
-    "obs:",
+    "obs:artifact_",
     "artifact_",
     "last_repl_result",
     "repl_submitted_code",
@@ -123,32 +110,14 @@ _CURATED_PREFIXES = (
     "repl_did_expand",
 )
 
-_CURATED_EXACT = {
-    "iteration_count",
-    "should_stop",
-    "final_answer",
-    "policy_violation",
-    "request_id",
-    "idempotency_key",
-    "repo_url",
-    "root_prompt",
-    "skill_instruction",
-    "enabled_skills",
-    "cache:hit_count",
-    "cache:miss_count",
-    "cache:last_hit_key",
-    "worker_dispatch_count",
-    REASONING_VISIBLE_OUTPUT_TEXT,
-    REASONING_THOUGHT_TEXT,
-    REASONING_RAW_OUTPUT,
-    REASONING_PARSED_OUTPUT,
-}
-
-_FULL_TEXT_SSE_KEYS = {
-    REASONING_VISIBLE_OUTPUT_TEXT,
-    REASONING_THOUGHT_TEXT,
-    REASONING_RAW_OUTPUT,
-}
+_CURATED_EXACT = frozenset({
+    CURRENT_DEPTH,
+    ITERATION_COUNT,
+    SHOULD_STOP,
+    FINAL_RESPONSE_TEXT,
+    LAST_REPL_RESULT,
+    DYN_SKILL_INSTRUCTION,
+})
 
 
 def _should_capture(base_key: str) -> bool:
@@ -187,9 +156,7 @@ def _typed_value_for_key(
     base_key: str,
     value: Any,
 ) -> tuple[str, int | None, float | None, str | None, str | None]:
-    """Return a typed row payload, preserving full text for live-inspection keys."""
-    if base_key in _FULL_TEXT_SSE_KEYS and isinstance(value, str):
-        return "str", None, None, value, None
+    """Return a typed row payload."""
     return _typed_value(value)
 
 
@@ -289,6 +256,18 @@ CREATE TABLE IF NOT EXISTS telemetry (
     result_payload      TEXT,
     repl_stdout         TEXT,
     repl_stderr         TEXT,
+    fanout_idx          INTEGER,
+    parent_depth        INTEGER,
+    parent_fanout_idx   INTEGER,
+    branch              TEXT,
+    invocation_id       TEXT,
+    session_id          TEXT,
+    output_schema_name  TEXT,
+    decision_mode       TEXT,
+    structured_outcome  TEXT,
+    terminal_completion INTEGER,
+    custom_metadata_json TEXT,
+    validated_output_json TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -452,6 +431,18 @@ class SqliteTracingPlugin(BasePlugin):
                 ("result_payload", "TEXT"),
                 ("repl_stdout", "TEXT"),
                 ("repl_stderr", "TEXT"),
+                ("fanout_idx", "INTEGER"),
+                ("parent_depth", "INTEGER"),
+                ("parent_fanout_idx", "INTEGER"),
+                ("branch", "TEXT"),
+                ("invocation_id", "TEXT"),
+                ("session_id", "TEXT"),
+                ("output_schema_name", "TEXT"),
+                ("decision_mode", "TEXT"),
+                ("structured_outcome", "TEXT"),
+                ("terminal_completion", "INTEGER"),
+                ("custom_metadata_json", "TEXT"),
+                ("validated_output_json", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -729,125 +720,221 @@ class SqliteTracingPlugin(BasePlugin):
             logger.warning("SqliteTracingPlugin: before_run failed: %s", e)
         return None
 
-    async def after_run_callback(self, *, invocation_context: InvocationContext) -> None:
-        """Finalize the trace row with summary stats and enriched columns."""
+    def _build_trace_summary_from_telemetry(
+        self,
+    ) -> dict[str, Any]:
+        """Build trace summary stats by querying the telemetry table.
+
+        Returns a dict of column values for the traces UPDATE.
+        This replaces the old approach of reading obs:* session-state
+        keys, making the telemetry table the authoritative source.
+        """
+        summary: dict[str, Any] = {}
+        if self._conn is None or self._trace_id is None:
+            return summary
+        tid = self._trace_id
+
+        # Aggregate model-call telemetry
+        row = self._conn.execute(
+            """SELECT
+                 COUNT(*) AS total_calls,
+                 COALESCE(SUM(input_tokens), 0),
+                 COALESCE(SUM(output_tokens), 0)
+               FROM telemetry
+               WHERE trace_id = ? AND event_type = 'model_call'
+            """,
+            (tid,),
+        ).fetchone()
+        if row:
+            summary["total_calls"] = row[0]
+            summary["total_input_tokens"] = row[1]
+            summary["total_output_tokens"] = row[2]
+
+        # Per-model usage breakdown
+        model_rows = self._conn.execute(
+            """SELECT model,
+                 COUNT(*) AS calls,
+                 COALESCE(SUM(input_tokens), 0),
+                 COALESCE(SUM(output_tokens), 0)
+               FROM telemetry
+               WHERE trace_id = ? AND event_type = 'model_call'
+                 AND model IS NOT NULL
+               GROUP BY model
+            """,
+            (tid,),
+        ).fetchall()
+        if model_rows:
+            mu: dict[str, Any] = {}
+            for m_name, calls, inp, outp in model_rows:
+                mu[m_name] = {
+                    "calls": calls,
+                    "input_tokens": inp,
+                    "output_tokens": outp,
+                }
+            summary["model_usage_summary"] = json.dumps(mu)
+
+        # Finish-reason counts (non-STOP)
+        fr_rows = self._conn.execute(
+            """SELECT finish_reason, COUNT(*)
+               FROM telemetry
+               WHERE trace_id = ? AND event_type = 'model_call'
+                 AND finish_reason IS NOT NULL
+                 AND finish_reason != 'STOP'
+               GROUP BY finish_reason
+            """,
+            (tid,),
+        ).fetchall()
+        fr_map = {r.lower(): c for r, c in fr_rows}
+        summary["finish_safety_count"] = fr_map.get("safety")
+        summary["finish_recitation_count"] = fr_map.get(
+            "recitation"
+        )
+        summary["finish_max_tokens_count"] = fr_map.get(
+            "max_tokens"
+        )
+
+        # Tool invocation summary
+        tool_rows = self._conn.execute(
+            """SELECT tool_name, COUNT(*)
+               FROM telemetry
+               WHERE trace_id = ? AND event_type = 'tool_call'
+                 AND tool_name IS NOT NULL
+               GROUP BY tool_name
+            """,
+            (tid,),
+        ).fetchall()
+        if tool_rows:
+            tool_summary = {name: cnt for name, cnt in tool_rows}
+            summary["tool_invocation_summary"] = json.dumps(
+                tool_summary
+            )
+
+        # Max depth reached from telemetry depth column
+        depth_row = self._conn.execute(
+            """SELECT MAX(depth)
+               FROM telemetry
+               WHERE trace_id = ? AND depth IS NOT NULL
+            """,
+            (tid,),
+        ).fetchone()
+        summary["max_depth_reached"] = (
+            depth_row[0] if depth_row and depth_row[0] else 0
+        )
+
+        # Child dispatch counts from tool_call rows at depth > 0
+        child_row = self._conn.execute(
+            """SELECT COUNT(*)
+               FROM telemetry
+               WHERE trace_id = ?
+                 AND event_type = 'tool_call'
+                 AND depth > 0
+            """,
+            (tid,),
+        ).fetchone()
+        if child_row and child_row[0]:
+            summary["child_dispatch_count"] = child_row[0]
+
+        # Structured output failures (set_model_response with
+        # structured_outcome = 'retry_exhausted')
+        sf_row = self._conn.execute(
+            """SELECT COUNT(*)
+               FROM telemetry
+               WHERE trace_id = ?
+                 AND decision_mode = 'set_model_response'
+                 AND structured_outcome = 'retry_exhausted'
+            """,
+            (tid,),
+        ).fetchone()
+        if sf_row and sf_row[0]:
+            summary["structured_output_failures"] = sf_row[0]
+
+        return summary
+
+    async def after_run_callback(
+        self, *, invocation_context: InvocationContext
+    ) -> None:
+        """Finalize the trace row with summary stats from telemetry."""
         try:
-            if self._conn is not None and self._trace_id is not None:
-                state = invocation_context.session.state
-                final_answer = state.get(FINAL_ANSWER, "")
+            if self._conn is None or self._trace_id is None:
+                return
+            state = invocation_context.session.state
+            final_answer = state.get(FINAL_RESPONSE_TEXT, "")
+            root_prompt = state.get("root_prompt", "")
+            prompt_hash = None
+            if root_prompt:
+                prompt_hash = hashlib.sha256(
+                    root_prompt.encode()
+                ).hexdigest()
 
-                # Aggregate model usage from obs:model_usage:* keys
-                model_usage: dict[str, Any] = {}
-                for k, v in state.items():
-                    if k.startswith("obs:model_usage:") and isinstance(v, dict):
-                        model_name = k[len("obs:model_usage:") :]
-                        model_usage[model_name] = v
+            # Build summary from telemetry table rows
+            summary = self._build_trace_summary_from_telemetry()
 
-                root_prompt = state.get("root_prompt", "")
-
-                # Compute prompt hash
-                prompt_hash = None
-                if root_prompt:
-                    prompt_hash = hashlib.sha256(root_prompt.encode()).hexdigest()
-
-                # Compute max depth reached from telemetry agent_name patterns
-                max_depth_reached = 0
-                depth_re = re.compile(r"_d(\d+)")
-                rows = self._conn.execute(
-                    "SELECT DISTINCT agent_name FROM telemetry WHERE trace_id = ? AND agent_name IS NOT NULL",
-                    (self._trace_id,),
-                ).fetchall()
-                for (agent_name,) in rows:
-                    m = depth_re.search(agent_name)
-                    if m:
-                        d = int(m.group(1))
-                        if d > max_depth_reached:
-                            max_depth_reached = d
-
-                self._conn.execute(
-                    """UPDATE traces SET
-                       end_time = ?,
-                       status = 'completed',
-                       total_input_tokens = ?,
-                       total_output_tokens = ?,
-                       total_calls = ?,
-                       iterations = ?,
-                       final_answer_length = ?,
-                       request_id = ?,
-                       repo_url = ?,
-                       root_prompt_preview = ?,
-                       total_execution_time_s = ?,
-                       child_dispatch_count = ?,
-                       child_total_batch_dispatches = ?,
-                       child_error_counts = ?,
-                       structured_output_failures = ?,
-                       finish_safety_count = ?,
-                       finish_recitation_count = ?,
-                       finish_max_tokens_count = ?,
-                       tool_invocation_summary = ?,
-                       artifact_saves = ?,
-                       artifact_bytes_saved = ?,
-                       per_iteration_breakdown = ?,
-                       model_usage_summary = ?,
-                       prompt_hash = ?,
-                       max_depth_reached = ?
-                       WHERE trace_id = ?""",
+            self._conn.execute(
+                """UPDATE traces SET
+                   end_time = ?,
+                   status = 'completed',
+                   total_input_tokens = ?,
+                   total_output_tokens = ?,
+                   total_calls = ?,
+                   iterations = ?,
+                   final_answer_length = ?,
+                   request_id = ?,
+                   repo_url = ?,
+                   root_prompt_preview = ?,
+                   total_execution_time_s = ?,
+                   child_dispatch_count = ?,
+                   child_total_batch_dispatches = ?,
+                   child_error_counts = ?,
+                   structured_output_failures = ?,
+                   finish_safety_count = ?,
+                   finish_recitation_count = ?,
+                   finish_max_tokens_count = ?,
+                   tool_invocation_summary = ?,
+                   artifact_saves = ?,
+                   artifact_bytes_saved = ?,
+                   per_iteration_breakdown = ?,
+                   model_usage_summary = ?,
+                   prompt_hash = ?,
+                   max_depth_reached = ?
+                   WHERE trace_id = ?""",
+                (
+                    time.time(),
+                    summary.get("total_input_tokens", 0),
+                    summary.get("total_output_tokens", 0),
+                    summary.get("total_calls", 0),
+                    state.get(ITERATION_COUNT, 0),
+                    len(final_answer) if final_answer else 0,
+                    state.get("request_id"),
+                    state.get("repo_url"),
+                    root_prompt[:500] if root_prompt else None,
                     (
-                        time.time(),
-                        state.get(OBS_TOTAL_INPUT_TOKENS, 0),
-                        state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
-                        state.get(OBS_TOTAL_CALLS, 0),
-                        state.get(ITERATION_COUNT, 0),
-                        len(final_answer) if final_answer else 0,
-                        state.get("request_id"),
-                        state.get("repo_url"),
-                        root_prompt[:500] if root_prompt else None,
-                        # AR-CRIT-001: compute from INVOCATION_START_TIME
-                        # (delta-tracked) instead of reading untracked
-                        # obs:total_execution_time from session state.
-                        (time.time() - state.get(INVOCATION_START_TIME, 0))
-                        if state.get(INVOCATION_START_TIME)
-                        else None,
-                        state.get(
-                            "obs:child_dispatch_count_total", state.get("obs:child_dispatch_count")
-                        ),
-                        state.get(
-                            "obs:child_batch_dispatches_total",
-                            state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES),
-                        ),
-                        json.dumps(
-                            state.get("obs:child_error_counts_total")
-                            or state.get("obs:child_error_counts")
-                        )
-                        if (
-                            state.get("obs:child_error_counts_total")
-                            or state.get("obs:child_error_counts")
-                        )
-                        else None,
-                        state.get(
-                            "obs:structured_output_failures_total",
-                            state.get("obs:structured_output_failures"),
-                        ),
-                        state.get("obs:finish_safety_count"),
-                        state.get("obs:finish_recitation_count"),
-                        state.get("obs:finish_max_tokens_count"),
-                        json.dumps(state.get("obs:tool_invocation_summary"))
-                        if state.get("obs:tool_invocation_summary")
-                        else None,
-                        state.get("obs:artifact_saves"),
-                        state.get("obs:artifact_bytes_saved"),
-                        json.dumps(state.get("obs:per_iteration_token_breakdown"))
-                        if state.get("obs:per_iteration_token_breakdown")
-                        else None,
-                        json.dumps(model_usage) if model_usage else None,
-                        prompt_hash,
-                        max_depth_reached,
-                        self._trace_id,
-                    ),
-                )
-                self._conn.commit()
+                        time.time()
+                        - state.get(INVOCATION_START_TIME, 0)
+                    )
+                    if state.get(INVOCATION_START_TIME)
+                    else None,
+                    summary.get("child_dispatch_count"),
+                    None,  # child_total_batch_dispatches
+                    None,  # child_error_counts
+                    summary.get("structured_output_failures"),
+                    summary.get("finish_safety_count"),
+                    summary.get("finish_recitation_count"),
+                    summary.get("finish_max_tokens_count"),
+                    summary.get("tool_invocation_summary"),
+                    state.get("obs:artifact_saves"),
+                    None,  # artifact_bytes_saved: no longer tracked via state
+                    None,  # per_iteration_breakdown
+                    summary.get("model_usage_summary"),
+                    prompt_hash,
+                    summary.get("max_depth_reached", 0),
+                    self._trace_id,
+                ),
+            )
+            self._conn.commit()
         except Exception as e:
-            logger.warning("SqliteTracingPlugin: after_run failed: %s", e)
+            logger.warning(
+                "SqliteTracingPlugin: after_run failed: %s", e
+            )
 
     # ---- Agent callbacks ----
 
@@ -876,33 +963,91 @@ class SqliteTracingPlugin(BasePlugin):
     # ---- Model callbacks ----
 
     async def before_model_callback(
-        self, *, callback_context: CallbackContext, llm_request: LlmRequest
+        self,
+        *,
+        callback_context: CallbackContext,
+        llm_request: LlmRequest,
     ) -> LlmResponse | None:
         """Insert a telemetry row for model_call and store ID for pairing."""
         try:
             model = llm_request.model or "unknown"
-            num_contents = len(llm_request.contents) if llm_request.contents else 0
-            iteration = callback_context.state.get(ITERATION_COUNT, 0)
-            agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
-            depth = getattr(
-                getattr(callback_context, "_invocation_context", None),
-                "agent",
+            num_contents = (
+                len(llm_request.contents)
+                if llm_request.contents
+                else 0
+            )
+            iteration = callback_context.state.get(
+                ITERATION_COUNT, 0
+            )
+            agent_name = (
+                self._agent_span_stack[-1]
+                if self._agent_span_stack
+                else None
+            )
+
+            # Resolve agent from invocation context
+            inv_ctx = getattr(
+                callback_context,
+                "_invocation_context",
                 None,
             )
-            depth = self._coerce_int(getattr(depth, "_rlm_depth", 0))
+            agent = getattr(inv_ctx, "agent", None)
 
-            # Extract agent_type, prompt_chars, system_chars from context snapshot
-            context_snapshot = callback_context.state.get(CONTEXT_WINDOW_SNAPSHOT)
-            agent_type = None
-            prompt_chars = None
-            system_chars = None
-            if isinstance(context_snapshot, dict):
-                agent_type = context_snapshot.get("agent_type")
-                prompt_chars = context_snapshot.get("prompt_chars")
-                system_chars = context_snapshot.get("system_chars")
+            # Compute depth/fanout/parent from agent attrs
+            depth = self._coerce_int(
+                getattr(agent, "_rlm_depth", 0)
+            )
+            fanout_idx = getattr(
+                agent, "_rlm_fanout_idx", None
+            )
+            parent_depth = getattr(
+                agent, "_rlm_parent_depth", None
+            )
+            parent_fanout_idx = getattr(
+                agent, "_rlm_parent_fanout_idx", None
+            )
+            output_schema_name = getattr(
+                agent, "_rlm_output_schema_name", None
+            )
 
-            call_number = callback_context.state.get(OBS_TOTAL_CALLS)
-            skill_instruction = callback_context.state.get(DYN_SKILL_INSTRUCTION)
+            # Compute prompt/system chars directly from
+            # llm_request instead of CONTEXT_WINDOW_SNAPSHOT
+            prompt_chars = 0
+            system_chars = 0
+            if llm_request.contents:
+                for content in llm_request.contents:
+                    parts = getattr(content, "parts", None)
+                    if parts:
+                        for part in parts:
+                            t = getattr(part, "text", None)
+                            if t:
+                                prompt_chars += len(t)
+            config = getattr(llm_request, "config", None)
+            sys_inst = getattr(
+                config, "system_instruction", None
+            )
+            if sys_inst:
+                si_parts = getattr(sys_inst, "parts", None)
+                if si_parts:
+                    for part in si_parts:
+                        t = getattr(part, "text", None)
+                        if t:
+                            system_chars += len(t)
+
+            # Branch / invocation / session identifiers
+            branch = getattr(inv_ctx, "branch", None)
+            invocation_id = getattr(
+                inv_ctx, "invocation_id", None
+            )
+            session = getattr(inv_ctx, "session", None)
+            session_id = getattr(session, "id", None)
+
+            call_number = callback_context.state.get(
+                OBS_TOTAL_CALLS
+            )
+            skill_instruction = callback_context.state.get(
+                DYN_SKILL_INSTRUCTION
+            )
 
             telemetry_id = self._new_id()
             start_time = time.time()
@@ -914,54 +1059,111 @@ class SqliteTracingPlugin(BasePlugin):
                 num_contents=num_contents,
                 iteration=iteration,
                 agent_name=agent_name,
-                agent_type=agent_type,
-                prompt_chars=prompt_chars,
-                system_chars=system_chars,
+                prompt_chars=prompt_chars or None,
+                system_chars=system_chars or None,
                 call_number=call_number,
                 skill_instruction=skill_instruction,
                 depth=depth,
+                fanout_idx=fanout_idx,
+                parent_depth=parent_depth,
+                parent_fanout_idx=parent_fanout_idx,
+                branch=branch,
+                invocation_id=invocation_id,
+                session_id=session_id,
+                output_schema_name=output_schema_name,
             )
-            self._pending_model_telemetry[self._pending_key(callback_context)] = (
-                telemetry_id,
-                start_time,
-            )
+            self._pending_model_telemetry[
+                self._pending_key(callback_context)
+            ] = (telemetry_id, start_time)
         except Exception as e:
-            logger.warning("SqliteTracingPlugin: before_model failed: %s", e)
+            logger.warning(
+                "SqliteTracingPlugin: before_model failed: %s",
+                e,
+            )
         return None
 
     async def after_model_callback(
-        self, *, callback_context: CallbackContext, llm_response: LlmResponse
+        self,
+        *,
+        callback_context: CallbackContext,
+        llm_response: LlmResponse,
     ) -> LlmResponse | None:
-        """Update telemetry row with tokens, finish_reason, duration."""
+        """Update telemetry row with tokens, finish_reason, duration,
+        and custom_metadata['rlm'] lineage."""
         try:
             pending = self._pending_model_telemetry.pop(
                 self._pending_key(callback_context),
                 None,
             )
             if pending is None and self._pending_model_telemetry:
-                _, pending = self._pending_model_telemetry.popitem()
+                _, pending = (
+                    self._pending_model_telemetry.popitem()
+                )
 
             tokens_in = 0
             tokens_out = 0
             thought_tokens = 0
             if llm_response.usage_metadata:
                 tokens_in = self._coerce_int(
-                    getattr(llm_response.usage_metadata, "prompt_token_count", 0),
+                    getattr(
+                        llm_response.usage_metadata,
+                        "prompt_token_count",
+                        0,
+                    ),
                 )
                 tokens_out = self._coerce_int(
-                    getattr(llm_response.usage_metadata, "candidates_token_count", 0),
+                    getattr(
+                        llm_response.usage_metadata,
+                        "candidates_token_count",
+                        0,
+                    ),
                 )
                 thought_tokens = self._coerce_int(
-                    getattr(llm_response.usage_metadata, "thoughts_token_count", 0),
+                    getattr(
+                        llm_response.usage_metadata,
+                        "thoughts_token_count",
+                        0,
+                    ),
                 )
 
             finish_reason = None
             if llm_response.finish_reason:
                 finish_reason = (
                     llm_response.finish_reason.name
-                    if hasattr(llm_response.finish_reason, "name")
+                    if hasattr(
+                        llm_response.finish_reason, "name"
+                    )
                     else str(llm_response.finish_reason)
                 )
+
+            # Extract custom_metadata["rlm"] lineage
+            rlm_meta = None
+            custom_meta = getattr(
+                llm_response, "custom_metadata", None
+            )
+            if isinstance(custom_meta, dict):
+                rlm_meta = custom_meta.get("rlm")
+            custom_metadata_json = None
+            if rlm_meta is not None:
+                try:
+                    custom_metadata_json = json.dumps(
+                        rlm_meta, default=str
+                    )
+                except (TypeError, ValueError):
+                    pass
+
+            # Project lineage fields from rlm metadata
+            # into dedicated telemetry columns.
+            lineage_kwargs: dict[str, Any] = {}
+            if isinstance(rlm_meta, dict):
+                dm = rlm_meta.get("decision_mode")
+                if dm:
+                    lineage_kwargs["decision_mode"] = dm
+                so = rlm_meta.get("structured_outcome")
+                if so and so != "not_applicable":
+                    lineage_kwargs["structured_outcome"] = so
+                if rlm_meta.get("terminal"):
+                    lineage_kwargs["terminal_completion"] = 1
 
             end_time = time.time()
 
@@ -976,29 +1178,57 @@ class SqliteTracingPlugin(BasePlugin):
                     "thought_tokens": thought_tokens,
                     "finish_reason": finish_reason,
                 }
+                if custom_metadata_json:
+                    update_kwargs[
+                        "custom_metadata_json"
+                    ] = custom_metadata_json
+                update_kwargs.update(lineage_kwargs)
                 if llm_response.error_code:
                     update_kwargs["status"] = "error"
-                    update_kwargs["error_type"] = str(llm_response.error_code)
-                    update_kwargs["error_message"] = str(llm_response.error_message or "")[:500]
-                self._update_telemetry(telemetry_id, **update_kwargs)
+                    update_kwargs["error_type"] = str(
+                        llm_response.error_code
+                    )
+                    update_kwargs["error_message"] = str(
+                        llm_response.error_message or ""
+                    )[:500]
+                self._update_telemetry(
+                    telemetry_id, **update_kwargs
+                )
             else:
                 # Standalone telemetry row
                 standalone_id = self._new_id()
+                insert_kw: dict[str, Any] = {
+                    "end_time": end_time,
+                    "duration_ms": 0,
+                    "model": (
+                        llm_response.model_version or "unknown"
+                    ),
+                    "input_tokens": tokens_in,
+                    "output_tokens": tokens_out,
+                    "thought_tokens": thought_tokens,
+                    "finish_reason": finish_reason,
+                    "status": (
+                        "error"
+                        if llm_response.error_code
+                        else "ok"
+                    ),
+                }
+                if custom_metadata_json:
+                    insert_kw[
+                        "custom_metadata_json"
+                    ] = custom_metadata_json
+                insert_kw.update(lineage_kwargs)
                 self._insert_telemetry(
                     standalone_id,
                     "model_call",
                     end_time,
-                    end_time=end_time,
-                    duration_ms=0,
-                    model=llm_response.model_version or "unknown",
-                    input_tokens=tokens_in,
-                    output_tokens=tokens_out,
-                    thought_tokens=thought_tokens,
-                    finish_reason=finish_reason,
-                    status="error" if llm_response.error_code else "ok",
+                    **insert_kw,
                 )
         except Exception as e:
-            logger.warning("SqliteTracingPlugin: after_model failed: %s", e)
+            logger.warning(
+                "SqliteTracingPlugin: after_model failed: %s",
+                e,
+            )
         return None
 
     async def on_model_error_callback(
@@ -1040,31 +1270,79 @@ class SqliteTracingPlugin(BasePlugin):
         tool_args: dict[str, Any],
         tool_context: ToolContext,
     ) -> dict | None:
-        """Insert a telemetry row for tool_call."""
+        """Insert a telemetry row for tool_call with full scope."""
         try:
             tool_name = getattr(tool, "name", str(tool))
             telemetry_id = self._new_id()
             start_time = time.time()
-            agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
-            tool_depth = self._coerce_int(getattr(tool, "_depth", 0))
+            agent_name = (
+                self._agent_span_stack[-1]
+                if self._agent_span_stack
+                else None
+            )
+            tool_depth = self._coerce_int(
+                getattr(tool, "_depth", 0)
+            )
             iteration = None
             state = getattr(tool_context, "state", None)
             if hasattr(state, "get"):
                 depth_key_name = (
-                    "iteration_count" if tool_depth == 0 else f"iteration_count@d{tool_depth}"
+                    "iteration_count"
+                    if tool_depth == 0
+                    else f"iteration_count@d{tool_depth}"
                 )
                 iteration = state.get(depth_key_name)
+
+            # Resolve agent for scope fields
+            inv_ctx = getattr(
+                tool_context, "_invocation_context", None
+            )
+            agent = getattr(inv_ctx, "agent", None)
+            fanout_idx = getattr(
+                agent, "_rlm_fanout_idx", None
+            )
+            parent_depth = getattr(
+                agent, "_rlm_parent_depth", None
+            )
+            parent_fanout_idx = getattr(
+                agent, "_rlm_parent_fanout_idx", None
+            )
+            output_schema_name = getattr(
+                agent, "_rlm_output_schema_name", None
+            )
+            branch = getattr(inv_ctx, "branch", None)
+            invocation_id = getattr(
+                inv_ctx, "invocation_id", None
+            )
+            session = getattr(inv_ctx, "session", None)
+            session_id = getattr(session, "id", None)
+
             self._insert_telemetry(
                 telemetry_id,
                 "tool_call",
                 start_time,
                 tool_name=tool_name,
-                tool_args_keys=json.dumps(list(tool_args.keys())),
+                tool_args_keys=json.dumps(
+                    list(tool_args.keys())
+                ),
                 agent_name=agent_name,
                 depth=tool_depth,
-                iteration=self._coerce_int(iteration) if iteration is not None else None,
+                iteration=(
+                    self._coerce_int(iteration)
+                    if iteration is not None
+                    else None
+                ),
+                fanout_idx=fanout_idx,
+                parent_depth=parent_depth,
+                parent_fanout_idx=parent_fanout_idx,
+                branch=branch,
+                invocation_id=invocation_id,
+                session_id=session_id,
+                output_schema_name=output_schema_name,
             )
-            self._pending_tool_telemetry[self._pending_key(tool_context)] = (
+            self._pending_tool_telemetry[
+                self._pending_key(tool_context)
+            ] = (
                 telemetry_id,
                 start_time,
             )
@@ -1080,7 +1358,8 @@ class SqliteTracingPlugin(BasePlugin):
         tool_context: ToolContext,
         result: dict,
     ) -> dict | None:
-        """Update the tool telemetry row with result preview and duration."""
+        """Update the tool telemetry row with result preview,
+        duration, and lineage status."""
         try:
             tool_name = getattr(tool, "name", str(tool))
             pending = self._pending_tool_telemetry.pop(
@@ -1095,54 +1374,165 @@ class SqliteTracingPlugin(BasePlugin):
                     "end_time": end_time,
                     "duration_ms": duration_ms,
                     "result_preview": str(result)[:500],
-                    "result_payload": _serialize_payload(result),
+                    "result_payload": _serialize_payload(
+                        result
+                    ),
                 }
-                if isinstance(result, dict) and result.get("call_number") is not None:
-                    update_kwargs["call_number"] = self._coerce_int(result.get("call_number"))
+                if (
+                    isinstance(result, dict)
+                    and result.get("call_number") is not None
+                ):
+                    update_kwargs[
+                        "call_number"
+                    ] = self._coerce_int(
+                        result.get("call_number")
+                    )
+
+                # Persist decision_mode / lineage from
+                # _rlm_lineage_status on the agent
+                inv_ctx = getattr(
+                    tool_context,
+                    "_invocation_context",
+                    None,
+                )
+                agent = getattr(inv_ctx, "agent", None)
+                lineage_status = (
+                    getattr(
+                        agent,
+                        "_rlm_lineage_status",
+                        None,
+                    )
+                    or {}
+                )
+
+                if tool_name == "set_model_response":
+                    update_kwargs[
+                        "decision_mode"
+                    ] = "set_model_response"
+                    update_kwargs[
+                        "structured_outcome"
+                    ] = lineage_status.get(
+                        "structured_outcome"
+                    )
+                    is_terminal = bool(
+                        lineage_status.get("terminal")
+                    )
+                    update_kwargs[
+                        "terminal_completion"
+                    ] = int(is_terminal)
+                    # Only persist validated_output_json for
+                    # terminal validated payloads, not retries.
+                    if is_terminal:
+                        update_kwargs[
+                            "validated_output_json"
+                        ] = json.dumps(result, default=str)
+                elif tool_name == "execute_code":
+                    update_kwargs[
+                        "decision_mode"
+                    ] = "execute_code"
+
                 # REPL enrichment
-                if tool_name == "execute_code" and isinstance(result, dict):
-                    state = getattr(tool_context, "state", None)
+                if tool_name == "execute_code" and isinstance(
+                    result, dict
+                ):
+                    state = getattr(
+                        tool_context, "state", None
+                    )
                     repl_state = self._resolve_repl_state(
                         state,
-                        tool_depth=getattr(tool, "_depth", None),
+                        tool_depth=getattr(
+                            tool, "_depth", None
+                        ),
                     )
                     stdout = result.get("stdout")
                     stderr = result.get("stderr")
                     if repl_state is not None:
-                        update_kwargs["repl_has_errors"] = int(
-                            bool(repl_state.get("has_errors", False))
+                        update_kwargs[
+                            "repl_has_errors"
+                        ] = int(
+                            bool(
+                                repl_state.get(
+                                    "has_errors", False
+                                )
+                            )
                         )
-                        update_kwargs["repl_has_output"] = int(
-                            bool(repl_state.get("has_output", False))
+                        update_kwargs[
+                            "repl_has_output"
+                        ] = int(
+                            bool(
+                                repl_state.get(
+                                    "has_output", False
+                                )
+                            )
                         )
-                        update_kwargs["repl_llm_calls"] = repl_state.get(
+                        update_kwargs[
+                            "repl_llm_calls"
+                        ] = repl_state.get(
                             "total_llm_calls",
                             0,
                         )
-                        trace_summary = repl_state.get("trace_summary")
+                        trace_summary = repl_state.get(
+                            "trace_summary"
+                        )
                         if trace_summary is not None:
-                            update_kwargs["repl_trace_summary"] = json.dumps(trace_summary)
+                            update_kwargs[
+                                "repl_trace_summary"
+                            ] = json.dumps(trace_summary)
                     else:
-                        update_kwargs["repl_has_errors"] = int(
-                            bool(result.get("has_errors") or stderr)
+                        update_kwargs[
+                            "repl_has_errors"
+                        ] = int(
+                            bool(
+                                result.get("has_errors")
+                                or stderr
+                            )
                         )
-                        update_kwargs["repl_has_output"] = int(
-                            bool(result.get("has_output") or stdout or result.get("output"))
+                        update_kwargs[
+                            "repl_has_output"
+                        ] = int(
+                            bool(
+                                result.get("has_output")
+                                or stdout
+                                or result.get("output")
+                            )
                         )
-                        update_kwargs["repl_llm_calls"] = result.get(
+                        update_kwargs[
+                            "repl_llm_calls"
+                        ] = result.get(
                             "total_llm_calls",
-                            1 if result.get("llm_calls_made") else 0,
+                            (
+                                1
+                                if result.get(
+                                    "llm_calls_made"
+                                )
+                                else 0
+                            ),
                         )
-                    update_kwargs["repl_llm_calls"] = self._coerce_int(
+                    update_kwargs[
+                        "repl_llm_calls"
+                    ] = self._coerce_int(
                         update_kwargs["repl_llm_calls"],
                     )
-                    update_kwargs["repl_stdout_len"] = len(stdout or "")
-                    update_kwargs["repl_stderr_len"] = len(stderr or "")
-                    update_kwargs["repl_stdout"] = stdout or ""
-                    update_kwargs["repl_stderr"] = stderr or ""
-                self._update_telemetry(telemetry_id, **update_kwargs)
+                    update_kwargs[
+                        "repl_stdout_len"
+                    ] = len(stdout or "")
+                    update_kwargs[
+                        "repl_stderr_len"
+                    ] = len(stderr or "")
+                    update_kwargs[
+                        "repl_stdout"
+                    ] = stdout or ""
+                    update_kwargs[
+                        "repl_stderr"
+                    ] = stderr or ""
+                self._update_telemetry(
+                    telemetry_id, **update_kwargs
+                )
         except Exception as e:
-            logger.warning("SqliteTracingPlugin: after_tool failed: %s", e)
+            logger.warning(
+                "SqliteTracingPlugin: after_tool failed: %s",
+                e,
+            )
         return None
 
     # ---- Event callback ----

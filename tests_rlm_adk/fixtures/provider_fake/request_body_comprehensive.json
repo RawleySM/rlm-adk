@@ -12,8 +12,16 @@
       "test_context": {
         "\u00abDICT_STATE_START\u00bb": true,
         "experiment_id": "exp-42",
-        "parameters": {"learning_rate": 0.001, "epochs": 10, "batch_size": 32},
-        "tags": ["test", "roundtrip", "comprehensive"],
+        "parameters": {
+          "learning_rate": 0.001,
+          "epochs": 10,
+          "batch_size": 32
+        },
+        "tags": [
+          "test",
+          "roundtrip",
+          "comprehensive"
+        ],
         "\u00abDICT_STATE_END\u00bb": true
       }
     },
@@ -179,13 +187,19 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "\u00abFINAL_ANSWER_START\u00bb Comprehensive analysis: minimal Python utility project with arithmetic helpers, main entry point, metadata version 1.0.0 \u00abFINAL_ANSWER_END\u00bb",
+    "final_answer": "Analysis and synthesis complete.\n\nFINAL(\u00abFINAL_ANSWER_START\u00bb Comprehensive analysis: minimal Python utility project with arithmetic helpers, main entry point, metadata version 1.0.0 \u00abFINAL_ANSWER_END\u00bb)",
     "total_iterations": 2,
     "total_model_calls": 5
   },
   "expected_contract": {
     "callers": {
-      "sequence": ["reasoning", "worker", "reasoning", "worker", "reasoning"],
+      "sequence": [
+        "reasoning",
+        "worker",
+        "reasoning",
+        "worker",
+        "reasoning"
+      ],
       "counts": {
         "reasoning": 3,
         "worker": 2
@@ -273,7 +287,6 @@
     },
     "observability": {
       "counters": {
-        "obs:child_dispatch_count": 1,
         "obs:tool_invocation_summary": {
           "execute_code": 2
         },
@@ -282,7 +295,6 @@
     }
   },
   "expected_state": {
-    "obs:child_dispatch_count": 1,
     "last_repl_result": {
       "$not_none": true
     }

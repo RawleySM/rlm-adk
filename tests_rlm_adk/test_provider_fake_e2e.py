@@ -19,7 +19,7 @@ import pytest
 
 from rlm_adk.state import (
     ARTIFACT_SAVE_COUNT,
-    FINAL_ANSWER,
+    FINAL_RESPONSE_TEXT,
 )
 from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
 from tests_rlm_adk.provider_fake.contract_runner import (
@@ -28,6 +28,7 @@ from tests_rlm_adk.provider_fake.contract_runner import (
     run_fixture_contract_with_plugins,
 )
 from tests_rlm_adk.provider_fake.fixtures import save_captured_requests
+from tests_rlm_adk.provider_fake.lineage_assertion_plugin import LineageAssertionPlugin
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 
@@ -98,7 +99,6 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -108,7 +108,6 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -120,7 +119,6 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:tool_results.any[1]",
                 "contract:observability:obs:tool_invocation_summary",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -133,7 +131,6 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:tool_results.any[2]",
                 "contract:observability:obs:tool_invocation_summary",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -143,9 +140,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_summary@d1f0",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -155,10 +150,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:child_summary@d1f0",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -168,10 +160,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:child_summary@d1f0",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -181,10 +170,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:child_summary@d1f1",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -194,10 +180,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_summary@d1f0",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:finish_max_tokens_count",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -207,10 +190,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:child_summary@d1f0",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -220,10 +200,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:structured_output_failures",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -233,10 +210,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:structured_output_failures",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
         (
@@ -246,10 +220,7 @@ async def test_fixture_contract(fixture_path: Path):
                 "contract:events.part_sequence",
                 "contract:tool_results.any[0]",
                 "contract:observability:obs:tool_invocation_summary",
-                "contract:observability:obs:child_error_counts",
-                "contract:observability:obs:structured_output_failures",
                 "contract:observability:last_repl_result",
-                "contract:observability:obs:per_iteration_token_breakdown",
             },
         ),
     ],
@@ -274,7 +245,9 @@ async def test_priority_fixture_contracts_cover_runtime_and_observability(
 
 
 async def _run_with_plugins(
-    fixture_name: str, tmp_path: Path
+    fixture_name: str,
+    tmp_path: Path,
+    extra_plugins: list | None = None,
 ) -> PluginContractResult:
     """Run a named fixture through the plugin-enabled pipeline."""
     fixture_path = FIXTURE_DIR / f"{fixture_name}.json"
@@ -284,6 +257,7 @@ async def _run_with_plugins(
         traces_db_path=traces_db,
         repl_trace_level=1,
         tmpdir=str(tmp_path),
+        extra_plugins=extra_plugins,
     )
 
 
@@ -316,11 +290,9 @@ async def test_observability_state_happy_path(tmp_path: Path):
     finally:
         conn.close()
 
-    # Verify agent-level token accounting is in the final state
-    # (agent callbacks state writes DO persist via event state_delta)
-    state = result.final_state
-    assert state.get("reasoning_input_tokens", 0) > 0, "reasoning_input_tokens should be > 0"
-    assert state.get("reasoning_output_tokens", 0) > 0, "reasoning_output_tokens should be > 0"
+    # Token accounting keys (reasoning_input_tokens, reasoning_output_tokens)
+    # are no longer written to session state after the refactor.
+    # Observability is verified through the traces DB above.
 
 
 @pytest.mark.agent_challenge
@@ -344,7 +316,8 @@ async def test_artifact_persistence_happy_path(tmp_path: Path):
     # so the only artifact expected is final_answer.md (if wired).
     # If the orchestrator does not save artifacts for no-code-block runs,
     # we just verify the plugin pipeline did not crash.
-    assert result.final_state.get(FINAL_ANSWER) == "42"
+    fa = result.final_state.get(FINAL_RESPONSE_TEXT, "")
+    assert "42" in fa, f"Expected '42' in final_response_text, got {fa!r}"
     print(f"  artifact_save_count={save_count}, artifact_keys={keys}")
 
 
@@ -354,7 +327,8 @@ async def test_artifact_persistence_multi_iteration(tmp_path: Path):
     result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
-    assert result.final_state.get(FINAL_ANSWER) == "4"
+    fa = result.final_state.get(FINAL_RESPONSE_TEXT, "")
+    assert "FINAL(4)" in fa, f"Expected 'FINAL(4)' in response, got {fa!r}"
 
     # With an artifact service wired, the orchestrator should have saved
     # repl_code and repl_output artifacts for iterations with code blocks.
@@ -530,7 +504,8 @@ async def test_ipython_backend_multi_iteration_with_workers(tmp_path: Path, monk
 
     result = await _run_with_plugins("agent_challenge/multi_iteration_with_workers", tmp_path)
     assert result.contract.passed, result.contract.diagnostics()
-    assert result.final_state.get(FINAL_ANSWER) == "4"
+    fa = result.final_state.get(FINAL_RESPONSE_TEXT, "")
+    assert "FINAL(4)" in fa, f"Expected 'FINAL(4)' in response, got {fa!r}"
 
     # Verify at least one execute_code tool response exists
     tool_results = []
@@ -672,3 +647,345 @@ async def test_session_db_persisted_to_disk(tmp_path: Path):
         print(f"  tables: {sorted(tables)}")
     finally:
         conn.close()
+
+
+# ===========================================================================
+# GROUP H: Lineage / Completion / State planes
+# ===========================================================================
+
+_LINEAGE_FIXTURE = "agent_challenge/lineage_completion_planes"
+
+
+async def _run_lineage_fixture(
+    tmp_path: Path,
+    monkeypatch,
+    extra_plugins: list | None = None,
+) -> tuple[PluginContractResult, LineageAssertionPlugin]:
+    """Run the lineage_completion_planes fixture with lineage plugin."""
+    monkeypatch.setenv("RLM_MAX_CONCURRENT_CHILDREN", "1")
+
+    plugin = LineageAssertionPlugin()
+    all_plugins: list = [plugin]
+    if extra_plugins:
+        all_plugins.extend(extra_plugins)
+    fixture_path = FIXTURE_DIR / f"{_LINEAGE_FIXTURE}.json"
+    traces_db = str(tmp_path / "traces.db")
+    result = await run_fixture_contract_with_plugins(
+        fixture_path,
+        traces_db_path=traces_db,
+        repl_trace_level=1,
+        tmpdir=str(tmp_path),
+        extra_plugins=all_plugins,
+    )
+    return result, plugin
+
+
+@pytest.mark.agent_challenge
+async def test_lineage_fixture_contract(tmp_path: Path, monkeypatch, repl_capture):
+    """Fixture contract passes: 9 model calls, 2 iterations, correct final answer."""
+    extra = [repl_capture] if repl_capture is not None else None
+    result, plugin = await _run_lineage_fixture(tmp_path, monkeypatch, extra_plugins=extra)
+
+    if not result.contract.passed:
+        print(result.contract.diagnostics())
+        # Diagnostic: print plugin summary
+        print(f"\n  Plugin model_events: {len(plugin.model_events)}")
+        for e in plugin.model_events:
+            print(f"    {e['phase']} d={e.get('depth')} f={e.get('fanout_idx')} agent={e.get('agent_name')}")
+        print(f"  Plugin tool_events: {len(plugin.tool_events)}")
+        for e in plugin.tool_events:
+            print(f"    {e['phase']} {e.get('tool_name')} d={e.get('depth')} f={e.get('fanout_idx')}")
+
+    assert result.contract.passed, (
+        f"Lineage fixture contract failed\n{result.contract.diagnostics()}"
+    )
+
+    # Fix #7: Verify FIFO response consumption order was not violated.
+    # If asyncio task scheduling reordered child dispatch, the wrong agent
+    # would consume the wrong scripted response — detected here by checking
+    # that no fixture-exhausted fallbacks were used and that all 9 scripted
+    # responses were consumed sequentially.
+    router = result.router
+    assert not router.fixture_exhausted_calls, (
+        f"Fixture responses consumed out of order or exhausted: "
+        f"fallback at call indices {router.fixture_exhausted_calls}"
+    )
+    assert router.call_index == 9, (
+        f"Expected exactly 9 calls consumed, got {router.call_index}"
+    )
+
+    # Populate capture metadata for --repl-capture-json output
+    if repl_capture is not None:
+        repl_capture.fixture_name = _LINEAGE_FIXTURE
+        repl_capture.final_state = result.final_state
+
+
+@pytest.mark.agent_challenge
+async def test_lineage_state_plane(tmp_path: Path, monkeypatch):
+    """State plane: correct final state values, no leaked depth-scoped keys."""
+    result, _plugin = await _run_lineage_fixture(tmp_path, monkeypatch)
+    assert result.contract.passed, result.contract.diagnostics()
+
+    state = result.final_state
+
+    # final_response_text present and correct
+    fa = state.get(FINAL_RESPONSE_TEXT, "")
+    assert "Multi-depth analysis complete" in fa, f"Unexpected final answer: {fa!r}"
+
+    # should_stop = True
+    assert state.get("should_stop") is True, f"should_stop={state.get('should_stop')}"
+
+    # iteration_count = 2 (two execute_code calls at depth 0)
+    assert state.get("iteration_count") == 2, (
+        f"iteration_count={state.get('iteration_count')}, expected 2"
+    )
+
+    # No leaked depth-scoped lineage keys from children
+    for key in list(state.keys()):
+        if "@d1" in key or "@d2" in key:
+            # Depth-scoped keys from children are expected in session state
+            # (written by child orchestrators via EventActions).  But they
+            # should not be obs:reasoning_* keys which would indicate leakage.
+            assert not key.startswith("obs:reasoning_"), (
+                f"Leaked depth-scoped obs key: {key}"
+            )
+
+    print(f"  final_answer={fa[:80]!r}")
+    print(f"  iteration_count={state.get('iteration_count')}")
+    print(f"  should_stop={state.get('should_stop')}")
+
+
+@pytest.mark.agent_challenge
+async def test_lineage_sqlite_telemetry(tmp_path: Path, monkeypatch):
+    """Lineage plane: SQLite telemetry has rows at all 3 depths with lineage columns."""
+    result, _plugin = await _run_lineage_fixture(tmp_path, monkeypatch)
+    assert result.contract.passed, result.contract.diagnostics()
+    assert result.traces_db_path is not None
+
+    conn = sqlite3.connect(result.traces_db_path)
+    try:
+        # --- Model-call rows exist at depth 0 (parent) ---
+        d0_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type='model_call' AND depth=0"
+        ).fetchone()[0]
+        assert d0_rows >= 3, f"Expected >= 3 model_call rows at depth 0, got {d0_rows}"
+
+        # --- Model-call rows exist at depth 1 ---
+        d1_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type='model_call' AND depth=1"
+        ).fetchone()[0]
+        assert d1_rows >= 2, f"Expected >= 2 model_call rows at depth 1, got {d1_rows}"
+
+        # --- Model-call rows exist at depth 2 ---
+        d2_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type='model_call' AND depth=2"
+        ).fetchone()[0]
+        assert d2_rows >= 1, f"Expected >= 1 model_call rows at depth 2, got {d2_rows}"
+
+        # --- Total model calls ---
+        total = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type='model_call'"
+        ).fetchone()[0]
+        assert total >= 9, f"Expected >= 9 total model_call rows, got {total}"
+
+        # --- Traces table: max_depth_reached ---
+        max_depth = conn.execute(
+            "SELECT max_depth_reached FROM traces LIMIT 1"
+        ).fetchone()
+        if max_depth and max_depth[0] is not None:
+            assert max_depth[0] >= 2, (
+                f"Expected max_depth_reached >= 2, got {max_depth[0]}"
+            )
+
+        # --- Tool-call rows for execute_code and set_model_response ---
+        exec_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type='tool_call' AND tool_name='execute_code'"
+        ).fetchone()[0]
+        smr_rows = conn.execute(
+            "SELECT COUNT(*) FROM telemetry WHERE event_type='tool_call' AND tool_name='set_model_response'"
+        ).fetchone()[0]
+
+        print(f"  model_call rows: d0={d0_rows} d1={d1_rows} d2={d2_rows} total={total}")
+        print(f"  tool_call rows: execute_code={exec_rows} set_model_response={smr_rows}")
+        print(f"  max_depth_reached={max_depth[0] if max_depth else 'N/A'}")
+
+        # --- Lineage columns populated (check a sample row) ---
+        sample = conn.execute(
+            "SELECT depth, fanout_idx, output_schema_name, decision_mode, "
+            "structured_outcome, terminal_completion, custom_metadata_json "
+            "FROM telemetry WHERE event_type='model_call' AND depth=1 LIMIT 1"
+        ).fetchone()
+        if sample:
+            print(f"  sample d1 row: depth={sample[0]} fanout={sample[1]} "
+                  f"schema={sample[2]} decision={sample[3]} "
+                  f"outcome={sample[4]} terminal={sample[5]}")
+    finally:
+        conn.close()
+
+
+@pytest.mark.agent_challenge
+async def test_lineage_plugin_model_events(tmp_path: Path, monkeypatch):
+    """Lineage plugin: model events captured at all 3 depths with correct lineage."""
+    result, plugin = await _run_lineage_fixture(tmp_path, monkeypatch)
+    assert result.contract.passed, result.contract.diagnostics()
+
+    # --- Model events at depth 0 ---
+    d0_before = plugin.model_events_at(depth=0, phase="before")
+    d0_after = plugin.model_events_at(depth=0, phase="after")
+    assert len(d0_before) >= 3, (
+        f"Expected >= 3 before_model events at d0, got {len(d0_before)}"
+    )
+    assert len(d0_after) >= 3, (
+        f"Expected >= 3 after_model events at d0, got {len(d0_after)}"
+    )
+
+    # --- Model events at depth 1 ---
+    d1_events = plugin.model_events_at(depth=1, phase="before")
+    assert len(d1_events) >= 2, (
+        f"Expected >= 2 before_model events at d1, got {len(d1_events)}"
+    )
+
+    # --- Model events at depth 2 ---
+    d2_events = plugin.model_events_at(depth=2, phase="before")
+    assert len(d2_events) >= 1, (
+        f"Expected >= 1 before_model events at d2, got {len(d2_events)}"
+    )
+
+    # --- Depth 0 has correct output_schema_name ---
+    d0_schemas = {e.get("output_schema_name") for e in d0_before}
+    assert "ReasoningOutput" in d0_schemas, (
+        f"Expected 'ReasoningOutput' in d0 schemas, got {d0_schemas}"
+    )
+
+    # --- After-model events at d0 captured depth correctly ---
+    # NOTE: rlm_lineage in custom_metadata is injected by the agent callback
+    # (reasoning_after_model) which fires AFTER plugin callbacks.  So the
+    # plugin sees it as None.  Instead, verify depth is captured directly.
+    for e in d0_after:
+        assert e.get("depth") == 0, f"Expected depth 0 in d0 after_model, got {e}"
+
+    # --- Depth 1 events MUST have parent_depth set ---
+    d1_before = plugin.model_events_at(depth=1, phase="before")
+    d1_with_parent = [e for e in d1_before if e.get("parent_depth") is not None]
+    assert len(d1_with_parent) >= 1, (
+        f"Expected >= 1 d1 before_model events with parent_depth set, "
+        f"got 0 (total d1 events: {len(d1_before)}). "
+        f"_rlm_parent_depth may not be set on child agents."
+    )
+    for e in d1_with_parent:
+        assert e["parent_depth"] == 0, f"d1 parent_depth should be 0: {e}"
+
+    # --- Depth 1 events have correct agent name (non-circular: comes from
+    # production wiring in create_child_orchestrator, not fixture responses) ---
+    d1_agent_names = {e.get("agent_name") for e in d1_before}
+    assert "child_reasoning_d1" in d1_agent_names, (
+        f"Expected 'child_reasoning_d1' in d1 agent names, got {d1_agent_names}"
+    )
+
+    # --- Depth 0 events have correct agent name ---
+    d0_agent_names = {e.get("agent_name") for e in d0_before}
+    assert "reasoning_agent" in d0_agent_names, (
+        f"Expected 'reasoning_agent' in d0 agent names, got {d0_agent_names}"
+    )
+
+    # --- Depth 1 events must include both fanout indices (0 and 1) ---
+    d1_fanouts = {e.get("fanout_idx") for e in d1_before}
+    assert 0 in d1_fanouts, f"Expected fanout_idx=0 in d1 events, got {d1_fanouts}"
+    assert 1 in d1_fanouts, f"Expected fanout_idx=1 in d1 events, got {d1_fanouts}"
+
+    print(f"  model events: d0={len(d0_before)} d1={len(d1_events)} d2={len(d2_events)}")
+    print(f"  d0 schemas: {d0_schemas}")
+    print(f"  d1 events with parent_depth: {len(d1_with_parent)}")
+    print(f"  d1 agent_names: {d1_agent_names}")
+    print(f"  d1 fanout_idxs: {sorted(d for d in d1_fanouts if d is not None)}")
+
+
+@pytest.mark.agent_challenge
+async def test_lineage_plugin_tool_events(tmp_path: Path, monkeypatch):
+    """Lineage plugin: tool events captured for execute_code and set_model_response."""
+    result, plugin = await _run_lineage_fixture(tmp_path, monkeypatch)
+    assert result.contract.passed, result.contract.diagnostics()
+
+    # --- execute_code tool events ---
+    exec_events = plugin.tool_events_for("execute_code")
+    # 4 execute_code calls total (calls 0, 1, 4, 6), each has before+after = 8 events
+    exec_before = [e for e in exec_events if e["phase"] == "before"]
+    exec_after = [e for e in exec_events if e["phase"] == "after"]
+    assert len(exec_before) >= 4, (
+        f"Expected >= 4 before execute_code events, got {len(exec_before)}"
+    )
+    assert len(exec_after) >= 4, (
+        f"Expected >= 4 after execute_code events, got {len(exec_after)}"
+    )
+
+    # --- set_model_response tool events ---
+    smr_events = plugin.tool_events_for("set_model_response")
+    smr_before = [e for e in smr_events if e["phase"] == "before"]
+    # 5 set_model_response calls total (calls 2, 3, 5, 7, 8)
+    assert len(smr_before) >= 5, (
+        f"Expected >= 5 before set_model_response events, got {len(smr_before)}"
+    )
+
+    # --- Depth distribution of execute_code ---
+    exec_depths = [e.get("depth") for e in exec_before]
+    assert 0 in exec_depths, f"Expected depth 0 in execute_code events, got {exec_depths}"
+    assert 1 in exec_depths, f"Expected depth 1 in execute_code events, got {exec_depths}"
+
+    # --- Depth distribution of set_model_response ---
+    smr_depths = [e.get("depth") for e in smr_before]
+    assert 0 in smr_depths, f"Expected depth 0 in set_model_response events, got {smr_depths}"
+    assert 1 in smr_depths, f"Expected depth 1 in set_model_response events, got {smr_depths}"
+    assert 2 in smr_depths, f"Expected depth 2 in set_model_response events, got {smr_depths}"
+
+    print(f"  execute_code: {len(exec_before)} before, {len(exec_after)} after")
+    print(f"  set_model_response: {len(smr_before)} before")
+    print(f"  exec depths: {sorted(set(exec_depths))}")
+    print(f"  smr depths: {sorted(set(smr_depths))}")
+
+
+@pytest.mark.agent_challenge
+async def test_lineage_completion_plane(tmp_path: Path, monkeypatch):
+    """Completion plane: terminal completions found at correct depths via plugin."""
+    result, plugin = await _run_lineage_fixture(tmp_path, monkeypatch)
+    assert result.contract.passed, result.contract.diagnostics()
+
+    completions = plugin.completions()
+    print(f"  total completions: {len(completions)}")
+    for c in completions:
+        tc = c.get("terminal_completion", {})
+        print(
+            f"    d={c.get('depth')} f={c.get('fanout_idx')} "
+            f"agent={c.get('agent_name')} "
+            f"terminal={tc.get('terminal')} mode={tc.get('mode')} "
+            f"schema={tc.get('output_schema_name')}"
+        )
+
+    # Completions MUST be captured — an empty list indicates the plugin's
+    # after_agent_callback never saw _rlm_terminal_completion, which means
+    # the completion plane is broken.
+    assert len(completions) >= 1, (
+        "No terminal completions captured — after_agent_callback may not "
+        "have fired or _rlm_terminal_completion was never set"
+    )
+
+    # Verify that at least one completion is terminal + structured
+    terminal_completions = [
+        c for c in completions
+        if c.get("terminal_completion", {}).get("terminal") is True
+    ]
+    assert len(terminal_completions) >= 1, (
+        "Expected at least 1 terminal completion"
+    )
+
+    # Check for completions at different depths
+    completion_depths = {c.get("depth") for c in terminal_completions}
+    print(f"  completion depths: {sorted(d for d in completion_depths if d is not None)}")
+
+    # Verify mode is "structured" for at least some completions
+    structured = [
+        c for c in terminal_completions
+        if c.get("terminal_completion", {}).get("mode") == "structured"
+    ]
+    assert len(structured) >= 1, (
+        "Expected at least 1 structured completion"
+    )

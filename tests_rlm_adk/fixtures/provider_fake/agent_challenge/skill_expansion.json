@@ -97,7 +97,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "skill_expansion_ok: layer=0, payload=pong",
+    "final_answer": "The recursive ping skill executed successfully. The run_recursive_ping function was expanded from the skill registry, the llm_query call was dispatched to a child worker, and the terminal payload was returned.\n\nFINAL(skill_expansion_ok: layer=0, payload=pong)",
     "total_iterations": 1,
     "total_model_calls": 3
   }

@@ -1,7 +1,6 @@
 import json
-from dataclasses import dataclass
 from types import ModuleType
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -119,7 +118,7 @@ class LLMResult(str):
     visible_text: str | None = None
     thought_text: str | None = None
     raw_output: Any | None = None
-    parsed: dict | None = None  # Validated structured output (set when output_schema used)
+    parsed: Any = None  # Validated structured output (any type when output_schema used)
 
     def __new__(cls, text: str, **kwargs: Any) -> "LLMResult":
         instance = super().__new__(cls, text)
@@ -138,55 +137,36 @@ class LLMResult(str):
 ########################################################
 
 
-@dataclass
-class ModelUsageSummary:
+class ModelUsageSummary(BaseModel):
     total_calls: int
     total_input_tokens: int
     total_output_tokens: int
 
     def to_dict(self):
-        return {
-            "total_calls": self.total_calls,
-            "total_input_tokens": self.total_input_tokens,
-            "total_output_tokens": self.total_output_tokens,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict) -> "ModelUsageSummary":
-        return cls(
-            total_calls=data.get("total_calls"),
-            total_input_tokens=data.get("total_input_tokens"),
-            total_output_tokens=data.get("total_output_tokens"),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass
-class UsageSummary:
+class UsageSummary(BaseModel):
     model_usage_summaries: dict[str, ModelUsageSummary]
 
     def to_dict(self):
-        return {
-            "model_usage_summaries": {
-                model: usage_summary.to_dict()
-                for model, usage_summary in self.model_usage_summaries.items()
-            },
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict) -> "UsageSummary":
-        return cls(
-            model_usage_summaries={
-                model: ModelUsageSummary.from_dict(usage_summary)
-                for model, usage_summary in data.get("model_usage_summaries", {}).items()
-            },
-        )
+        return cls.model_validate(data)
 
 
 ########################################################
 ########   Types for REPL and RLM Iterations   #########
 ########################################################
-@dataclass
-class RLMChatCompletion:
+
+
+class RLMChatCompletion(BaseModel):
     """Record of a single LLM call made from within the environment."""
 
     root_model: str
@@ -233,30 +213,13 @@ class RLMChatCompletion:
         )
 
 
-@dataclass
-class REPLResult:
+class REPLResult(BaseModel):
     stdout: str
     stderr: str
     locals: dict
-    execution_time: float | None
-    llm_calls: list["RLMChatCompletion"]
-    trace: dict[str, Any] | None
-
-    def __init__(
-        self,
-        stdout: str,
-        stderr: str,
-        locals: dict,
-        execution_time: float | None = None,
-        llm_calls: list["RLMChatCompletion"] | None = None,
-        trace: dict[str, Any] | None = None,
-    ):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.locals = locals
-        self.execution_time = execution_time
-        self.llm_calls = llm_calls or []
-        self.trace = trace
+    execution_time: float | None = None
+    llm_calls: list[RLMChatCompletion] = Field(default_factory=list)
+    trace: dict[str, Any] | None = None
 
     def __str__(self):
         return f"REPLResult(stdout={self.stdout}, stderr={self.stderr}, locals={self.locals}, execution_time={self.execution_time}, llm_calls={len(self.llm_calls)})"
@@ -272,3 +235,70 @@ class REPLResult:
         if self.trace is not None:
             result["trace"] = self.trace
         return result
+
+
+########################################################
+########   Completion & Lineage Envelopes      #########
+########################################################
+
+
+class CompletionEnvelope(BaseModel):
+    """Canonical in-memory result object per reasoning run."""
+    terminal: bool
+    mode: Literal["structured", "text", "error"]
+    output_schema_name: str | None = None
+    validated_output: Any = None
+    raw_output: Any = None
+    display_text: str = ""
+    reasoning_summary: str = ""
+    finish_reason: str | None = None
+    error: bool = False
+    error_category: str | None = None
+
+
+class LineageEnvelope(BaseModel):
+    """Canonical provenance payload per model/tool decision."""
+    version: Literal["v1"] = "v1"
+    agent_name: str
+    depth: int
+    fanout_idx: int | None = None
+    parent_depth: int | None = None
+    parent_fanout_idx: int | None = None
+    branch: str | None = None
+    invocation_id: str | None = None
+    session_id: str | None = None
+    output_schema_name: str | None = None
+    decision_mode: Literal["execute_code", "set_model_response", "unknown"] = "unknown"
+    structured_outcome: Literal[
+        "not_applicable", "validated", "retry_requested",
+        "retry_exhausted", "incomplete", "error"
+    ] = "not_applicable"
+    terminal: bool = False
+
+
+def render_completion_text(validated_output: Any, fallback_text: str = "") -> str:
+    """Deterministic renderer for final user-visible text.
+
+    Priority:
+    1. dict with final_answer str -> use it
+    2. validated string -> use it
+    3. other non-None -> compact JSON
+    4. None -> fallback_text
+    """
+    if isinstance(validated_output, dict):
+        fa = validated_output.get("final_answer")
+        if isinstance(fa, str) and fa.strip():
+            return fa
+        return json.dumps(
+            validated_output, sort_keys=True, separators=(",", ":")
+        )
+    if isinstance(validated_output, str):
+        return validated_output
+    if validated_output is not None:
+        return json.dumps(
+            validated_output,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    return fallback_text

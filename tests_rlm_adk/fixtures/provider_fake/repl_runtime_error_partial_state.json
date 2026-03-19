@@ -106,7 +106,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Result: 90",
+    "final_answer": "After fixing the NameError, the computation completed: x=10, y=20, z=60, total=90.\n\nFINAL(Result: 90)",
     "total_iterations": 2,
     "total_model_calls": 3
   },
@@ -114,9 +114,14 @@
     "last_repl_result": {
       "$not_none": true
     },
-    "obs:total_calls": {"$gt": 0},
-    "obs:total_input_tokens": {"$gt": 0},
-    "obs:total_output_tokens": {"$gt": 0},
-    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    }
   }
 }

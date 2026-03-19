@@ -151,7 +151,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "3 decisions: 1 exact_match, 1 fuzzy_match, 1 anomaly. 0 errors.",
+    "final_answer": "The triage pipeline successfully classified all 3 records:\n- REC-001: exact_match to ENT-100 (Medtronic) with 0.95 confidence\n- REC-002: fuzzy_match to ENT-200 (Johnson & Johnson) with 0.82 confidence\n- REC-003: anomaly with 0.30 confidence (unknown entity, missing city)\n\nAll Pydantic validations passed, grounding checks confirmed entity IDs exist in the symbol table.\n\nFINAL(3 decisions: 1 exact_match, 1 fuzzy_match, 1 anomaly. 0 errors.)",
     "total_iterations": 1,
     "total_model_calls": 5
   }

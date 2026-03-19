@@ -485,6 +485,8 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 - **2026-03-13 16:10** — `orchestrator.py`: Side-effect import of polya_narrative skill moved from `skills.repl_skills.polya_narrative` to `skills.polya_narrative_skill`. `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` alongside repomix (under `include_repomix` guard).
 - **2026-03-17 13:49** — `repl_tool.py`: Added `_rlm_state` snapshot injection before code execution. Builds a fresh dict from `EXPOSED_STATE_KEYS` (depth-scoped where applicable) and injects into `repl.globals` each `run_async()` call. Read-only — AR-CRIT-001 compliant.
 - **2026-03-18 12:29** — `agent.py`: `_default_plugins()` now includes `StepModePlugin()` before `ObservabilityPlugin`. Plugin's `before_model_callback` awaits `StepGate` singleton when step mode is on (zero overhead when off, always returns `None`). Pauses each agent's model call independently (including parallel workers).
+- **2026-03-19 13:01** — `agent.py`: Removed `output_schema` param from `create_reasoning_agent()` to prevent duplicate `SetModelResponseTool` trap. Orchestrator wires schema at runtime. Removed dead `max_iterations` from `create_child_orchestrator()`. Part of three-plane cleanup.
+- **2026-03-19 15:00** — `repl_tool.py`: `_rlm_state` snapshot now includes runtime lineage metadata (`_rlm_depth`, `_rlm_fanout_idx`, `_rlm_agent_name`) injected from REPLTool fields and invocation context. Enables non-circular test verification — values originate from production orchestrator wiring, not fixture-scripted responses.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

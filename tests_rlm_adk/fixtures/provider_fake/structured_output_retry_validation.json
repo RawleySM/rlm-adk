@@ -137,18 +137,22 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Market recovering with moderate gains",
+    "final_answer": "The structured analysis returned: Market recovering with moderate gains (confidence: 0.78).\n\nFINAL(Market recovering with moderate gains)",
     "total_iterations": 1,
     "total_model_calls": 4
   },
   "expected_state": {
-    "obs:child_dispatch_count": 1,
     "last_repl_result": {
       "$not_none": true
     },
-    "obs:total_calls": {"$gt": 0},
-    "obs:total_input_tokens": {"$gt": 0},
-    "obs:total_output_tokens": {"$gt": 0},
-    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    }
   }
 }

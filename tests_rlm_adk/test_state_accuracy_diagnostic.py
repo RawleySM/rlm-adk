@@ -23,23 +23,13 @@ FIXTURE_DIR = Path("tests_rlm_adk/fixtures/provider_fake")
 # State keys we want to track across events
 TRACKED_KEYS = {
     "iteration_count",
-    "obs:child_dispatch_count",
-    "obs:child_error_counts",
-    "obs:child_total_batch_dispatches",
-    "obs:child_dispatch_count_total",
-    "obs:child_batch_dispatches_total",
-    "obs:child_error_counts_total",
-    "obs:structured_output_failures_total",
     "obs:total_input_tokens",
     "obs:total_output_tokens",
     "obs:total_calls",
-    "obs:per_iteration_token_breakdown",
     "obs:tool_invocation_summary",
     "obs:finish_max_tokens_count",
     "obs:rewrite_count",
     "last_repl_result",
-    "reasoning_input_tokens",
-    "reasoning_output_tokens",
 }
 
 
@@ -203,49 +193,14 @@ async def test_state_accuracy_audit(fixture_name: str, tmp_path: Path):
             f"Final iteration_count={final_iter} != expected={expected_iterations}"
         )
 
-    # 3. obs:child_dispatch_count: track what it looks like per event
-    dispatch_values = []
-    for entry in timeline:
-        for k, v in entry["state_delta"].items():
-            if k == "obs:child_dispatch_count":
-                dispatch_values.append((entry["event_idx"], v))
-
-    if dispatch_values:
-        print(f"\n  --- OBS:CHILD_DISPATCH_COUNT TRACE ---")
-        for idx, val in dispatch_values:
-            print(f"    event #{idx}: obs:child_dispatch_count = {val}")
-
-    # 3b. obs:child_dispatch_count_total must be monotonically non-decreasing
-    cum_dispatch_values = []
-    for entry in timeline:
-        for k, v in entry["state_delta"].items():
-            if k == "obs:child_dispatch_count_total":
-                cum_dispatch_values.append((entry["event_idx"], v))
-
-    if cum_dispatch_values:
-        print("\n  --- OBS:CHILD_DISPATCH_COUNT_TOTAL TRACE ---")
-        for idx, val in cum_dispatch_values:
-            print(f"    event #{idx}: obs:child_dispatch_count_total = {val}")
-
-        values_only = [v for _, v in cum_dispatch_values]
-        print(f"    progression: {values_only}")
-        for i in range(1, len(values_only)):
-            assert values_only[i] >= values_only[i - 1], (
-                f"obs:child_dispatch_count_total DECREASED: "
-                f"{values_only[i-1]} -> {values_only[i]} "
-                f"(events {cum_dispatch_values[i-1][0]} -> {cum_dispatch_values[i][0]})"
-            )
-        print("    monotonicity check: PASS")
-
-    # 4. obs:total_calls should match expected total_model_calls
+    # 3. obs:total_calls should match expected total_model_calls
     final_total_calls = result.final_state.get("obs:total_calls", 0)
-    print(f"\n  final obs:total_calls = {final_total_calls}, expected = {expected_calls}")
+    print(
+        f"\n  final obs:total_calls = {final_total_calls}, "
+        f"expected = {expected_calls}"
+    )
 
-    # 5. obs:per_iteration_token_breakdown length should match iterations
-    breakdown = result.final_state.get("obs:per_iteration_token_breakdown", [])
-    print(f"  obs:per_iteration_token_breakdown length = {len(breakdown)}")
-
-    # 6. Cross-check: last_repl_result should exist
+    # 4. Cross-check: last_repl_result should exist
     last_repl = result.final_state.get("last_repl_result")
     print(f"  last_repl_result exists = {last_repl is not None}")
     if last_repl:

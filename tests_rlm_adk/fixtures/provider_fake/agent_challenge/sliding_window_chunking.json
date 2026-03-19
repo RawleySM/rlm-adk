@@ -286,7 +286,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "8 records classified across 3 chunks with 50% prefix overlap. All parses succeeded.",
+    "final_answer": "Sliding window chunking worked correctly:\n- 8 records processed in 4 chunks with window_size=4, stride=2\n- Chunk 0: no prefix, 4 actionable (R-0..R-3)\n- Chunk 1: prefix [R-2,R-3], actionable [R-4,R-5]\n- Chunk 2: prefix [R-4,R-5], actionable [R-6,R-7]\n- Chunk 3 would be empty, skipped\n- All 8 records classified with valid categories\n- Prefix overlap ensured cross-boundary context for chunks 1-2\n\nFINAL(8 records classified across 3 chunks with 50% prefix overlap. All parses succeeded.)",
     "total_iterations": 1,
     "total_model_calls": 10
   }

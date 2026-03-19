@@ -21,7 +21,6 @@ from rlm_adk.state import (
     EXPOSED_STATE_KEYS,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    OBS_TOTAL_INPUT_TOKENS,
     depth_key,
 )
 from rlm_adk.tools.repl_tool import REPLTool
@@ -85,14 +84,17 @@ class TestSnapshotInjectedIntoRepl:
                 CURRENT_DEPTH: 0,
                 APP_MAX_ITERATIONS: 30,
                 APP_MAX_DEPTH: 5,
-                OBS_TOTAL_INPUT_TOKENS: 1000,
                 # Not in EXPOSED_STATE_KEYS -- should be excluded:
+                "obs:total_input_tokens": 1000,
                 "some_random_key": "should_not_appear",
             }
         )
 
         result = await tool.run_async(
-            args={"code": "import json\nprint(json.dumps(dict(_rlm_state)))"},
+            args={
+                "code": "import json\n"
+                "print(json.dumps(dict(_rlm_state)))"
+            },
             tool_context=tc,
         )
 
@@ -105,14 +107,19 @@ class TestSnapshotInjectedIntoRepl:
         assert snapshot[CURRENT_DEPTH] == 0
         assert snapshot[APP_MAX_ITERATIONS] == 30
         assert snapshot[APP_MAX_DEPTH] == 5
-        assert snapshot[OBS_TOTAL_INPUT_TOKENS] == 1000
 
-        # Non-allowlisted key should NOT be present
+        # Non-allowlisted keys should NOT be present
+        assert "obs:total_input_tokens" not in snapshot
         assert "some_random_key" not in snapshot
 
-        # Every key in snapshot must be in EXPOSED_STATE_KEYS
+        # Every key in snapshot must be in EXPOSED_STATE_KEYS or be a
+        # runtime lineage key injected by REPLTool for non-circular test
+        # verification (see repl_tool.py lineage metadata injection).
+        _LINEAGE_KEYS = {"_rlm_depth", "_rlm_fanout_idx", "_rlm_agent_name"}
         for key in snapshot:
-            assert key in EXPOSED_STATE_KEYS, f"Unexpected key {key!r} in snapshot"
+            assert key in EXPOSED_STATE_KEYS or key in _LINEAGE_KEYS, (
+                f"Unexpected key {key!r} in snapshot"
+            )
 
         repl.cleanup()
 

@@ -201,7 +201,6 @@ def create_reasoning_agent(
     retry_config: dict[str, Any] | None = None,
     *,
     tools: list | None = None,
-    output_schema: type | None = None,
     include_skills: bool = True,
     enabled_skills: Iterable[str] | None = None,
     name: str = "reasoning_agent",
@@ -235,9 +234,13 @@ def create_reasoning_agent(
         tools: Optional list of tools (BaseTool, callables, or BaseToolset)
             to attach to the agent.  When provided, the agent operates in
             tool-calling mode (ADK manages tool call/response history).
-        output_schema: Optional Pydantic BaseModel subclass for structured
-            output.  When set, ADK injects a ``set_model_response`` tool
-            and validates the model's response against this schema.
+
+    Note:
+        ``output_schema`` is intentionally NOT accepted here.  The orchestrator
+        wires ``SetModelResponseTool(schema)`` at runtime alongside ``REPLTool``
+        so the model chooses between ``execute_code`` and ``set_model_response``.
+        Passing ``output_schema`` to ``LlmAgent`` would cause ADK to inject a
+        duplicate ``set_model_response`` tool.
     """
     litellm_active = _is_litellm_active()
 
@@ -276,7 +279,6 @@ def create_reasoning_agent(
         before_model_callback=reasoning_before_model,
         after_model_callback=reasoning_after_model,
         tools=tools or [],
-        output_schema=output_schema,
     )
 
 
@@ -342,10 +344,10 @@ def create_child_orchestrator(
     depth: int,
     prompt: str,
     worker_pool: WorkerPool | None = None,
-    max_iterations: int = 10,
     thinking_budget: int = 512,
     output_schema: type | None = None,
     fanout_idx: int = 0,
+    parent_fanout_idx: int | None = None,
     instruction_router: Any = None,
 ) -> RLMOrchestratorAgent:
     """Create a child orchestrator for recursive dispatch at *depth* > 0.
@@ -358,7 +360,6 @@ def create_child_orchestrator(
         depth: Nesting depth (must be > 0).
         prompt: The sub-query for this child to solve.
         worker_pool: Optional shared WorkerPool (created if None).
-        max_iterations: Max tool calls for the child reasoning agent.
         thinking_budget: Token budget for built-in planner.
         output_schema: Optional Pydantic schema for structured output.
         fanout_idx: Fanout index within a batched dispatch (0 = single/first).
@@ -392,6 +393,8 @@ def create_child_orchestrator(
         fanout_idx=fanout_idx,
         output_schema=output_schema,
         instruction_router=instruction_router,
+        parent_depth=depth - 1 if depth > 0 else None,
+        parent_fanout_idx=parent_fanout_idx,
         sub_agents=[reasoning],
     )
 

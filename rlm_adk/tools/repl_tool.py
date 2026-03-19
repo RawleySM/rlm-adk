@@ -7,7 +7,7 @@ model calls via function calling. The tool:
 - Detects llm_query calls and routes through the AST rewriter for async execution
 - Enforces a configurable call limit
 - Records execution traces when a trace_holder list is provided
-- Flushes dispatch accumulators into ToolContext.state when a flush_fn is provided
+- Applies minimal working-state patches via post_dispatch_state_patch_fn
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from rlm_adk.state import (
     EXPOSED_STATE_KEYS,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    OBS_CHILD_DISPATCH_COUNT,
     OBS_REWRITE_COUNT,
     OBS_REWRITE_FAILURE_CATEGORIES,
     OBS_REWRITE_FAILURE_COUNT,
@@ -66,8 +65,12 @@ class REPLTool(BaseTool):
         *,
         max_calls: int = 60,
         trace_holder: list | None = None,
-        flush_fn: Callable[[], dict] | None = None,
-        telemetry_finalizer: Callable[[int, dict], None] | None = None,
+        post_dispatch_state_patch_fn: (
+            Callable[[], dict] | None
+        ) = None,
+        telemetry_finalizer: (
+            Callable[[int, dict], None] | None
+        ) = None,
         depth: int = 0,
         fanout_idx: int = 0,
         summarization_threshold: int = 5000,
@@ -75,16 +78,17 @@ class REPLTool(BaseTool):
         super().__init__(
             name="execute_code",
             description=(
-                "Execute Python code in a persistent REPL environment. "
-                "Variables persist between calls. Returns stdout, stderr, "
-                "and current variable values."
+                "Execute Python code in a persistent REPL "
+                "environment. Variables persist between calls. "
+                "Returns stdout, stderr, and current variable "
+                "values."
             ),
         )
         self.repl = repl
         self._max_calls = max_calls
         self._call_count = 0
         self.trace_holder = trace_holder
-        self._flush_fn = flush_fn
+        self._patch_fn = post_dispatch_state_patch_fn
         self._telemetry_finalizer = telemetry_finalizer
         self._depth = depth
         self._fanout_idx = fanout_idx
@@ -195,18 +199,24 @@ class REPLTool(BaseTool):
             tool_context.state[depth_key(REPL_DID_EXPAND, self._depth)] = True
 
         # Build read-only state snapshot for REPL introspection.
-        # This snapshot is taken BEFORE code execution, so per-iteration keys
-        # (e.g. obs:child_dispatch_count) reflect the PREVIOUS turn's values
-        # (reset to 0 by flush_fn after each turn).  Cumulative *_total keys
-        # (e.g. obs:child_dispatch_count_total) are monotonically non-decreasing
-        # and never reset, so they always show the running total across all
-        # prior turns.
         _state_snapshot: dict[str, Any] = {}
         for key in EXPOSED_STATE_KEYS:
             scoped = depth_key(key, self._depth) if key in DEPTH_SCOPED_KEYS else key
             val = tool_context.state.get(scoped)
             if val is not None:
                 _state_snapshot[key] = val  # Use unscoped key name for clean API
+
+        # Inject runtime lineage metadata from the tool/agent for
+        # non-circular test verification (values originate from production
+        # wiring in orchestrator.py, not from fixture-scripted responses).
+        _state_snapshot["_rlm_depth"] = self._depth
+        _state_snapshot["_rlm_fanout_idx"] = self._fanout_idx
+        _inv = getattr(tool_context, "_invocation_context", None)
+        _agent = getattr(_inv, "agent", None) if _inv is not None else None
+        _agent_name = getattr(_agent, "name", None) if _agent is not None else None
+        if isinstance(_agent_name, str):
+            _state_snapshot["_rlm_agent_name"] = _agent_name
+
         self.repl.globals[REPL_STATE_SNAPSHOT] = _state_snapshot
 
         try:
@@ -246,20 +256,20 @@ class REPLTool(BaseTool):
             # OG-04 fix: ensure end_time is set so trace summary is non-negative
             if trace is not None and trace.start_time and not trace.end_time:
                 trace.end_time = time.perf_counter()
-            # FM-13 fix: flush accumulators before returning so dispatch
-            # counts from this iteration are not lost (accumulator drift).
-            total_llm_calls = 0
-            if self._flush_fn is not None:
-                acc = self._flush_fn()
-                for k, v in acc.items():
+            # Apply working-state patch (e.g. skill instruction restore)
+            if self._patch_fn is not None:
+                for k, v in self._patch_fn().items():
                     tool_context.state[k] = v
-                total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
             # Write LAST_REPL_RESULT even on cancellation for observability
-            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = {
+            tool_context.state[
+                depth_key(LAST_REPL_RESULT, self._depth)
+            ] = {
                 "code_blocks": 1,
                 "has_errors": True,
                 "has_output": False,
-                "total_llm_calls": total_llm_calls,
+                "total_llm_calls": len(
+                    self.repl._pending_llm_calls
+                ),
                 "stdout_preview": "",
                 "stdout": "",
                 "stderr": f"CancelledError: {exc}",
@@ -278,20 +288,20 @@ class REPLTool(BaseTool):
             # OG-04 fix: ensure end_time is set so trace summary is non-negative
             if trace is not None and trace.start_time and not trace.end_time:
                 trace.end_time = time.perf_counter()
-            # FM-14 fix: flush accumulators before returning so dispatch
-            # counts from this iteration are not lost (accumulator drift).
-            total_llm_calls = 0
-            if self._flush_fn is not None:
-                acc = self._flush_fn()
-                for k, v in acc.items():
+            # Apply working-state patch (e.g. skill instruction restore)
+            if self._patch_fn is not None:
+                for k, v in self._patch_fn().items():
                     tool_context.state[k] = v
-                total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
             # Write LAST_REPL_RESULT even on exception for observability
-            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = {
+            tool_context.state[
+                depth_key(LAST_REPL_RESULT, self._depth)
+            ] = {
                 "code_blocks": 1,
                 "has_errors": True,
                 "has_output": False,
-                "total_llm_calls": total_llm_calls,
+                "total_llm_calls": len(
+                    self.repl._pending_llm_calls
+                ),
                 "stdout_preview": "",
                 "stdout": "",
                 "stderr": f"{type(exc).__name__}: {exc}",
@@ -306,20 +316,17 @@ class REPLTool(BaseTool):
             self._finalize_telemetry(tool_context, exc_result)
             return exc_result
 
-        # Flush dispatch accumulators into tool_context.state
-        total_llm_calls = 0
-        if self._flush_fn is not None:
-            acc = self._flush_fn()
-            for k, v in acc.items():
+        # Apply minimal working-state patch after dispatch
+        if self._patch_fn is not None:
+            for k, v in self._patch_fn().items():
                 tool_context.state[k] = v
-            total_llm_calls = acc.get(OBS_CHILD_DISPATCH_COUNT, 0)
 
         # Write LAST_REPL_RESULT summary for observability plugins
         last_repl: dict[str, Any] = {
             "code_blocks": 1,
             "has_errors": bool(result.stderr),
             "has_output": bool(result.stdout),
-            "total_llm_calls": total_llm_calls,
+            "total_llm_calls": len(result.llm_calls),
             "stdout_preview": result.stdout[:500],
             "stdout": result.stdout,
             "stderr": result.stderr,

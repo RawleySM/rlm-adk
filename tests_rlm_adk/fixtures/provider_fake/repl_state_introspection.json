@@ -73,7 +73,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "State introspection succeeded: iter=1, depth=0",
+    "final_answer": "The REPL state snapshot shows iteration_count=1 and current_depth=0.\n\nFINAL(State introspection succeeded: iter=1, depth=0)",
     "total_iterations": 1,
     "total_model_calls": 2
   },
@@ -81,19 +81,35 @@
     "last_repl_result": {
       "$not_none": true
     },
-    "obs:total_calls": {"$gt": 0},
-    "obs:total_input_tokens": {"$gt": 0},
-    "obs:total_output_tokens": {"$gt": 0}
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    }
   },
   "expected_contract": {
-    "callers": ["reasoning", "reasoning"],
+    "callers": [
+      "reasoning",
+      "reasoning"
+    ],
     "captured_requests": 2,
     "events": {
-      "part_counts": {"function_call:execute_code": 1, "text": 3, "function_response:execute_code": 1}
+      "part_counts": {
+        "function_call:execute_code": 1,
+        "text": 3,
+        "function_response:execute_code": 1
+      }
     },
     "tool_results": {
       "count": 1,
-      "stdout_contains": ["iter=1", "depth=0"]
+      "stdout_contains": [
+        "iter=1",
+        "depth=0"
+      ]
     }
   }
 }

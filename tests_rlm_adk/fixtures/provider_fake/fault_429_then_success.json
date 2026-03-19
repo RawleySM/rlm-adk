@@ -51,17 +51,19 @@
     }
   ],
   "expected": {
-    "final_answer": "ok",
+    "final_answer": "The system recovered from the transient error.\n\nFINAL(ok)",
     "total_iterations": 0,
     "total_model_calls": 2
   },
   "expected_state": {
-    "reasoning_input_tokens": {
+    "obs:total_calls": {
       "$gt": 0
     },
-    "obs:total_calls": {"$gt": 0},
-    "obs:total_input_tokens": {"$gt": 0},
-    "obs:total_output_tokens": {"$gt": 0},
-    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    }
   }
 }

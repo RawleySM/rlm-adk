@@ -364,6 +364,7 @@ async def run_fixture_contract_with_plugins(
     repl_trace_level: int = 2,
     litellm_mode: bool = False,
     tmpdir: str | None = None,
+    extra_plugins: list | None = None,
 ) -> PluginContractResult:
     """Execute a fixture through the full plugin-enabled pipeline.
 
@@ -425,6 +426,8 @@ async def run_fixture_contract_with_plugins(
             plugins.append(SqliteTracingPlugin(db_path=traces_db_path))
         if repl_trace_level > 0:
             plugins.append(REPLTracingPlugin())
+        if extra_plugins:
+            plugins.extend(extra_plugins)
 
         _tmpdir = tmpdir or tempfile.mkdtemp(prefix="provider-fake-svc-")
         session_db_path = str(Path(_tmpdir) / "session.db")

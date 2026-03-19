@@ -1,0 +1,353 @@
+{
+  "scenario_id": "lineage_completion_planes",
+  "description": "Multi-depth (0→1→2), 2 fanouts, 2 parent iterations, 9 model calls. Exercises state/lineage/completion planes: batched dispatch with schema (ChildResult), single dispatch without schema (ReasoningOutput default), and grandchild dispatch at depth 2. Requires RLM_MAX_CONCURRENT_CHILDREN=1 for deterministic ordering.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 10,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Parent depth-0, turn 0: execute_code defining ChildResult, dispatching llm_query_batched(K=2, output_schema=ChildResult)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from pydantic import BaseModel\nclass ChildResult(BaseModel):\n    answer: str\n    confidence: float\n\nstate = _rlm_state\nprint(f\"[D0_T0] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D0_T0] current_depth={state.get('current_depth')}\")\nprint(f\"[D0_T0] should_stop={state.get('should_stop')}\")\nprint(f\"[D0_T0] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D0_T0] _rlm_fanout_idx={state.get('_rlm_fanout_idx')}\")\nprint(f\"[D0_T0] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\nprompts = [\"Analyze item A in depth\", \"Analyze item B briefly\"]\nresults = llm_query_batched(prompts, output_schema=ChildResult)\nprint(f\"[D0_T0] DISPATCH num_results={len(results)}\")\nfor i, r in enumerate(results):\n    print(f\"[D0_T0] CHILD_{i} error={r.error} parsed={r.parsed}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 120,
+          "totalTokenCount": 420
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Child d1 f0 reasoning: execute_code dispatching llm_query to depth 2",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "state = _rlm_state\nprint(f\"[D1_F0] current_depth={state.get('current_depth')}\")\nprint(f\"[D1_F0] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D1_F0] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D1_F0] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\ndeep_result = llm_query(\"Perform deep analysis of item A\")\nprint(f\"[D1_F0] D2_RESULT error={deep_result.error}\")\nprint(f\"[D1_F0] D2_RESULT text={str(deep_result)[:80]}\")\nif deep_result.parsed:\n    print(f\"[D1_F0] D2_PARSED final_answer={deep_result.parsed.get('final_answer', 'N/A')}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 230
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "worker",
+      "note": "Grandchild d2 f0: immediate set_model_response with default ReasoningOutput",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Deep analysis of item A: strong performance metrics with 95% accuracy",
+                      "reasoning_summary": "Analyzed item A using multi-factor evaluation"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 130
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 3,
+      "caller": "worker",
+      "note": "Child d1 f0: set_model_response with ChildResult schema (terminates child)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "answer": "Item A analyzed in depth with deep sub-analysis confirming strong metrics",
+                      "confidence": 0.95
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 225
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "Child d1 f1 reasoning: execute_code with local analysis (no sub-dispatch)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "state = _rlm_state\nprint(f\"[D1_F1] current_depth={state.get('current_depth')}\")\nprint(f\"[D1_F1] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D1_F1] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D1_F1] _rlm_fanout_idx={state.get('_rlm_fanout_idx')}\")\nprint(f\"[D1_F1] _rlm_agent_name={state.get('_rlm_agent_name')}\")\nanalysis = \"Item B brief assessment: moderate quality\"\nprint(f\"[D1_F1] analysis={analysis}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 150,
+          "candidatesTokenCount": 60,
+          "totalTokenCount": 210
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "worker",
+      "note": "Child d1 f1: set_model_response with ChildResult schema (terminates child)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "answer": "Item B brief assessment shows moderate quality",
+                      "confidence": 0.72
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 220
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 6,
+      "caller": "reasoning",
+      "note": "Parent depth-0, turn 1: execute_code dispatching llm_query (single, no schema)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "state = _rlm_state\nprint(f\"[D0_T1] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D0_T1] last_repl_result_present={'last_repl_result' in state}\")\nprint(f\"[D0_T1] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D0_T1] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\nsummary_result = llm_query(\"Summarize all findings from the analysis\")\nprint(f\"[D0_T1] SUMMARY error={summary_result.error}\")\nprint(f\"[D0_T1] SUMMARY text={str(summary_result)[:80]}\")\nif summary_result.parsed:\n    print(f\"[D0_T1] SUMMARY_PARSED final_answer={summary_result.parsed.get('final_answer', 'N/A')}\")"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 600
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "worker",
+      "note": "Summary child d1: immediate set_model_response with default ReasoningOutput (no schema override)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate quality.",
+                      "reasoning_summary": "Combined findings from depth-1 and depth-2 analyses"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 100,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 130
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 8,
+      "caller": "reasoning",
+      "note": "Parent depth-0: set_model_response with ReasoningOutput (terminates parent)",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Multi-depth analysis complete: items A and B analyzed across 3 depth levels with high confidence",
+                      "reasoning_summary": "Orchestrated multi-depth recursive analysis with batched dispatch"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 600,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 630
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": {"$contains": "Multi-depth analysis complete"},
+    "total_iterations": 2,
+    "total_model_calls": 9
+  },
+  "expected_state": {
+    "should_stop": true,
+    "current_depth": 0
+  },
+  "expected_contract": {
+    "callers": {
+      "count": 9,
+      "counts": {
+        "reasoning": 3,
+        "worker": 6
+      }
+    },
+    "tool_results": {
+      "stdout_contains": [
+        "[D0_T0] current_depth=0",
+        "[D0_T0] _rlm_depth=0",
+        "[D0_T0] _rlm_fanout_idx=0",
+        "[D0_T0] _rlm_agent_name=reasoning_agent",
+        "[D0_T0] DISPATCH num_results=2",
+        "[D0_T0] CHILD_0 error=False",
+        "[D0_T0] CHILD_1 error=False",
+        "[D0_T1] _rlm_depth=0",
+        "[D0_T1] _rlm_agent_name=reasoning_agent",
+        "[D0_T1] SUMMARY error=False",
+        "[D0_T1] SUMMARY_PARSED final_answer="
+      ]
+    },
+    "observability": {
+      "obs:total_calls": 9,
+      "obs:total_input_tokens": {"$gte": 2000},
+      "last_repl_result": {"$not_none": true}
+    }
+  }
+}

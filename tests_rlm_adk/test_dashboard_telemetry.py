@@ -115,7 +115,12 @@ async def test_tool_calls_have_repl_enrichment(tmp_path: Path):
 
 @pytest.mark.provider_fake_contract
 async def test_state_events_at_child_depths(tmp_path: Path):
-    """session_state_events should contain rows at key_depth > 0 for child agents."""
+    """Child agent activity should appear in telemetry rows at depth > 0.
+
+    After the lineage refactor, child state deltas no longer propagate
+    through session_state_events.  Instead, child lineage is tracked
+    via telemetry rows with depth > 0 and distinct agent_name values.
+    """
     result = await _run(tmp_path)
 
     assert result.contract.passed, result.contract.diagnostics()
@@ -123,38 +128,42 @@ async def test_state_events_at_child_depths(tmp_path: Path):
 
     conn = sqlite3.connect(result.traces_db_path)
     try:
-        # Check for any state events at depth > 0
+        # Check for telemetry rows at depth > 0 (child agents)
         child_rows = conn.execute(
-            "SELECT state_key, key_depth, value_type FROM session_state_events WHERE key_depth > 0"
+            "SELECT agent_name, depth, event_type, tool_name "
+            "FROM telemetry WHERE depth > 0"
         ).fetchall()
 
-        print(f"  child depth state events: {len(child_rows)}")
-        for key, depth, vtype in child_rows:
-            print(f"    key={key} depth={depth} type={vtype}")
+        print(f"  child depth telemetry rows: {len(child_rows)}")
+        for agent, depth, etype, tool in child_rows:
+            print(
+                f"    agent={agent} depth={depth} "
+                f"type={etype} tool={tool}"
+            )
 
         assert len(child_rows) > 0, (
-            "GAP-02: session_state_events has zero rows at key_depth > 0. "
-            "Child state deltas are not being propagated."
+            "GAP-02: telemetry has zero rows at depth > 0. "
+            "Child agent activity is not being recorded."
         )
 
-        # Specifically check for REPL-related keys at child depths
-        repl_child_keys = conn.execute(
-            "SELECT state_key, key_depth FROM session_state_events "
-            "WHERE key_depth > 0 AND state_key IN "
-            "('repl_submitted_code', 'last_repl_result', 'iteration_count')"
-        ).fetchall()
+        # Verify child agents have model_call and tool_call rows
+        child_model = conn.execute(
+            "SELECT COUNT(*) FROM telemetry "
+            "WHERE depth > 0 AND event_type = 'model_call'"
+        ).fetchone()[0]
+        child_tool = conn.execute(
+            "SELECT COUNT(*) FROM telemetry "
+            "WHERE depth > 0 AND event_type = 'tool_call'"
+        ).fetchone()[0]
 
-        print(f"  REPL child state events: {len(repl_child_keys)}")
-        for key, depth in repl_child_keys:
-            print(f"    key={key} depth={depth}")
+        print(f"  child model_calls: {child_model}")
+        print(f"  child tool_calls: {child_tool}")
 
-        # The child at depth 1 submits code, so repl_submitted_code@d1 should
-        # be propagated. Without the GAP-02 fix, only obs:child_summary keys
-        # appear at child depths.
-        assert len(repl_child_keys) > 0, (
-            "GAP-02: No REPL/reasoning state keys (repl_submitted_code, "
-            "last_repl_result, iteration_count) found at key_depth > 0. "
-            "Child depth-scoped state is not being propagated through flush_fn."
+        assert child_model > 0, (
+            "GAP-02: No child model_call telemetry rows at depth > 0."
+        )
+        assert child_tool > 0, (
+            "GAP-02: No child tool_call telemetry rows at depth > 0."
         )
 
     finally:

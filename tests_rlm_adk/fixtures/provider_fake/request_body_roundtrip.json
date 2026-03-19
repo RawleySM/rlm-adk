@@ -27,7 +27,7 @@
                   "functionCall": {
                     "name": "execute_code",
                     "args": {
-                      "code": "artifact = {\"«ARTIFACT_START»\": True, \"repo_name\": \"test-repo\", \"files\": {\"main.py\": \"print('hello')\", \"utils.py\": \"def add(a,b): return a+b\"}, \"metadata\": {\"token_estimate\": 42, \"shard_index\": 0}, \"«ARTIFACT_END»\": True}\nresult = llm_query(\"«WORKER_INSTRUCTION_START» Analyze this code artifact and summarize its purpose «WORKER_INSTRUCTION_END»\\n\\n\" + str(artifact))\nprint(result)\nprint(\"«STDOUT_SENTINEL_START» This is a known stdout string from iteration 1 «STDOUT_SENTINEL_END»\")"
+                      "code": "artifact = {\"\u00abARTIFACT_START\u00bb\": True, \"repo_name\": \"test-repo\", \"files\": {\"main.py\": \"print('hello')\", \"utils.py\": \"def add(a,b): return a+b\"}, \"metadata\": {\"token_estimate\": 42, \"shard_index\": 0}, \"\u00abARTIFACT_END\u00bb\": True}\nresult = llm_query(\"\u00abWORKER_INSTRUCTION_START\u00bb Analyze this code artifact and summarize its purpose \u00abWORKER_INSTRUCTION_END\u00bb\\n\\n\" + str(artifact))\nprint(result)\nprint(\"\u00abSTDOUT_SENTINEL_START\u00bb This is a known stdout string from iteration 1 \u00abSTDOUT_SENTINEL_END\u00bb\")"
                     }
                   }
                 }
@@ -103,13 +103,17 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "\u00abFINAL_ANSWER_START\u00bb Analysis complete: simple Python project with entry point and utilities \u00abFINAL_ANSWER_END\u00bb",
+    "final_answer": "The worker analysis is complete. The code artifact is a simple utility project.\n\nFINAL(\u00abFINAL_ANSWER_START\u00bb Analysis complete: simple Python project with entry point and utilities \u00abFINAL_ANSWER_END\u00bb)",
     "total_iterations": 1,
     "total_model_calls": 3
   },
   "expected_contract": {
     "callers": {
-      "sequence": ["reasoning", "worker", "reasoning"],
+      "sequence": [
+        "reasoning",
+        "worker",
+        "reasoning"
+      ],
       "counts": {
         "reasoning": 2,
         "worker": 1
@@ -169,7 +173,6 @@
     },
     "observability": {
       "counters": {
-        "obs:child_dispatch_count": 1,
         "obs:tool_invocation_summary": {
           "execute_code": 1
         },
@@ -178,7 +181,6 @@
     }
   },
   "expected_state": {
-    "obs:child_dispatch_count": 1,
     "last_repl_result": {
       "$not_none": true
     }

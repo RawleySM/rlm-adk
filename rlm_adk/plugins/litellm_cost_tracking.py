@@ -1,10 +1,13 @@
 """LiteLLMCostTrackingPlugin - Per-call and cumulative cost tracking.
 
 Uses ``litellm.completion_cost()`` to estimate costs from usage metadata
-on each model response.  Writes state keys:
+on each model response.  Writes state key:
 
-- ``obs:litellm_last_call_cost`` — cost of the most recent model call
 - ``obs:litellm_total_cost`` — running total across all model calls
+
+Per-call cost is stored on the plugin instance (``last_call_cost``)
+for programmatic access, not in session state (per-call provenance
+belongs in the lineage plane, not the state plane).
 
 LIMITATION (MED-2): This plugin only tracks costs for the root reasoning
 agent's model calls.  Child orchestrator costs (from llm_query /
@@ -21,6 +24,8 @@ import logging
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
+
+from rlm_adk.state import OBS_LITELLM_TOTAL_COST
 
 try:
     import litellm
@@ -43,6 +48,7 @@ class LiteLLMCostTrackingPlugin(BasePlugin):
     def __init__(self):
         super().__init__(name="litellm_cost_tracking")
         self._total_cost = 0.0
+        self.last_call_cost: float = 0.0
 
     async def after_model_callback(
         self,
@@ -65,8 +71,9 @@ class LiteLLMCostTrackingPlugin(BasePlugin):
                 completion_tokens=usage.candidates_token_count or 0,
             )
             self._total_cost += cost
-            callback_context.state["obs:litellm_last_call_cost"] = round(cost, 6)
-            callback_context.state["obs:litellm_total_cost"] = round(self._total_cost, 6)
+            self.last_call_cost = round(cost, 6)
+            # Session aggregate — state plane (like OBS_TOTAL_INPUT_TOKENS)
+            callback_context.state[OBS_LITELLM_TOTAL_COST] = round(self._total_cost, 6)
         except Exception as e:
             logger.debug("LiteLLM cost tracking error: %s", e)
         return None

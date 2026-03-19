@@ -1,0 +1,23 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/provider_fake/lineage_assertion_plugin.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "BasePlugin"
+  ],
+  "call_sites": [],
+  "type_annotations": [
+    {
+      "symbol": "BasePlugin",
+      "usages": [
+        {
+          "context": "base:LineageAssertionPlugin",
+          "line": 18
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BasePlugin\n```\n---\nBase class for creating plugins.\n\nPlugins provide a structured way to intercept and modify agent, tool, and\nLLM behaviors at critical execution points in a callback manner. While agent\ncallbacks apply to a particular agent, plugins applies globally to all\nagents added in the runner. Plugins are best used for adding custom behaviors\nlike logging, monitoring, caching, or modifying requests and responses at key\nstages.\n\nA plugin can implement one or more methods of callbacks, but should not\nimplement the same method of callback for multiple times.\n\nRelation with [Agent callbacks](https://google.github.io/adk-docs/callbacks/):\n\n\\*\\*Execution Order\\*\\*\nSimilar to Agent callbacks, Plugins are executed in the order they are\nregistered. However, Plugin and Agent Callbacks are executed sequentially,\nwith Plugins takes precedence over agent callbacks. When the callback in a\nplugin returns a value, it will short circuit all remaining plugins and\nagent callbacks, causing all remaining plugins and agent callbacks\nto be skipped.\n\n\\*\\*Change Propagation\\*\\*\nPlugins and agent callbacks can both modify the value of the input parameters,\nincluding agent input, tool input, and LLM request/response, etc. They work in\nthe exactly same way. The modifications will be visible and passed to the next\ncallback in the chain. For example, if a plugin modifies the tool input with\nbefore\\_tool\\_callback, the modified tool input will be passed to the\nbefore\\_tool\\_callback of the next plugin, and further passed to the agent\ncallbacks if not short-circuited.\n\nTo use a plugin, implement the desired callback methods and pass an instance\nof your custom plugin class to the ADK Runner.\n\nExamples:  \n&nbsp;&nbsp;&nbsp;&nbsp;A simple plugin that logs every tool call.\n\n```\n>>> class ToolLoggerPlugin(BasePlugin):\n..   def __init__(self):\n..     super().__init__(name=\"tool_logger\")\n..\n..   async def before_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict[str, Any],\ntool_context:\nToolContext\n..   ):\n..     print(f\"[{self.name}] Calling tool '{tool.name}' with args:\n{tool_args}\")\n..\n..   async def after_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict, tool_context:\nToolContext, result: dict\n..   ):\n..     print(f\"[{self.name}] Tool '{tool.name}' finished with result:\n{result}\")\n..\n>>> # Add the plugin to ADK Runner\n>>> # runner = Runner(\n>>> #     ...\n>>> #     plugins=[ToolLoggerPlugin(), AgentPolicyPlugin()],\n>>> # )\n```"
+      }
+    }
+  ]
+}

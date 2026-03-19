@@ -242,8 +242,5 @@
     "total_iterations": 1,
     "total_model_calls": 6
   },
-  "expected_state": {
-    "obs:child_dispatch_count": {"$gte": 0},
-    "obs:child_dispatch_count_total": 2
-  }
+  "expected_state": {}
 }

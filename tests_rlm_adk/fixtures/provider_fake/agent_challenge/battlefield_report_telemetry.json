@@ -102,7 +102,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Battlefield reports: Report1 healthy (68 items, 1 error, recommend=inspect), Report2 degraded (18 items, 3 errors, 7 anomalies, low-conf warning).",
+    "final_answer": "Both battlefield reports generated correctly:\n\n**Report 1 (Healthy):** 68 items across 3 dispositions, 1 error in fuzzy_match, gate recommended batch_size=50 (high confidence). No anomalies listed but error inspection recommended.\n\n**Report 2 (Degraded):** 18 items, 3 errors, 7 unresolved anomalies listed. Gate dropped to batch_size=5 with retries=3. All three warning paths triggered: error inspection, anomaly triage, and low-confidence warning.\n\nFINAL(Battlefield reports: Report1 healthy (68 items, 1 error, recommend=inspect), Report2 degraded (18 items, 3 errors, 7 anomalies, low-conf warning).)",
     "total_iterations": 2,
     "total_model_calls": 3
   }

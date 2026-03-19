@@ -287,7 +287,6 @@
     "total_model_calls": 8
   },
   "expected_state": {
-    "reasoning_summary": "T4 adversarial debate completed with CONDITIONAL verdict",
     "last_repl_result": {
       "$not_none": true
     },
@@ -303,7 +302,16 @@
   },
   "expected_contract": {
     "callers": {
-      "sequence": ["reasoning", "worker", "worker", "worker", "worker", "worker", "worker", "reasoning"],
+      "sequence": [
+        "reasoning",
+        "worker",
+        "worker",
+        "worker",
+        "worker",
+        "worker",
+        "worker",
+        "reasoning"
+      ],
       "counts": {
         "reasoning": 2,
         "worker": 6

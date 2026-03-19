@@ -129,7 +129,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Sandbox codegen: 3 records transformed, all_upper=True, no_suffixes=True, safety_checks=passed.",
+    "final_answer": "The LLM-generated code sandbox worked correctly:\n\n1. Code generation: LLM produced a valid Python function using only `re` import\n2. Safety validation: No forbidden tokens, only whitelisted imports, AST validated\n3. Sandbox execution: exec() in isolated namespace succeeded\n4. Transform results:\n   - \"Medtronic LLC\" -> \"MEDTRONIC\" (removed LLC, uppercased)\n   - \"johnson & johnson inc.\" -> \"JOHNSON & JOHNSON\" (removed Inc, uppercased)\n   - \"  ABBOTT LABORATORIES, Corp  \" -> \"ABBOTT LABORATORIES\" (removed Corp, trimmed)\n   - Address splitting: \"710 Medtronic Pkwy Ste 200\" -> street + suite\n\nFINAL(Sandbox codegen: 3 records transformed, all_upper=True, no_suffixes=True, safety_checks=passed.)",
     "total_iterations": 2,
     "total_model_calls": 4
   }

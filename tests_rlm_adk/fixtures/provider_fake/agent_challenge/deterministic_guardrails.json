@@ -124,7 +124,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "parse_with_retry self-healed: label=medication conf=0.92. Dedup: 2 unique from 5 with 3 skipped.",
+    "final_answer": "The self-healing retry loop worked correctly:\n- First LLM response was malformed JSON (missing quotes, no closing brace)\n- Correction prompt was sent with the error details\n- Second response was valid JSON that parsed into ClassificationResult\n- Dedup ring correctly identified 2 duplicates out of 5 records\n\nFINAL(parse_with_retry self-healed: label=medication conf=0.92. Dedup: 2 unique from 5 with 3 skipped.)",
     "total_iterations": 1,
     "total_model_calls": 4
   }

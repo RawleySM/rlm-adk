@@ -45,10 +45,14 @@
   },
   "expected_state": {
     "should_stop": true,
-    "obs:total_calls": {"$gt": 0},
-    "obs:total_input_tokens": {"$gt": 0},
-    "obs:total_output_tokens": {"$gte": 0},
-    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true},
-    "obs:finish_safety_count": {"$gt": 0}
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gte": 0
+    }
   }
 }

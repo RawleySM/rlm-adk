@@ -13,7 +13,6 @@ CRIT-1: All state writes inside _run_async_impl use yield Event(actions=EventAct
 """
 
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -40,22 +39,10 @@ from rlm_adk.state import (
     DYN_SKILL_INSTRUCTION,
     DYN_USER_CTX_MANIFEST,
     ENABLED_SKILLS,
-    FINAL_ANSWER,
+    FINAL_RESPONSE_TEXT,
     ITERATION_COUNT,
-    OBS_CHILD_BATCH_DISPATCHES_TOTAL,
-    OBS_CHILD_DISPATCH_COUNT_TOTAL,
     OBS_REASONING_RETRY_COUNT,
     OBS_REASONING_RETRY_DELAY_MS,
-    OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL,
-    REASONING_FINISH_REASON,
-    REASONING_INPUT_TOKENS,
-    REASONING_OUTPUT_TOKENS,
-    REASONING_PARSED_OUTPUT,
-    REASONING_RAW_OUTPUT,
-    REASONING_SUMMARY,
-    REASONING_THOUGHT_TEXT,
-    REASONING_THOUGHT_TOKENS,
-    REASONING_VISIBLE_OUTPUT_TEXT,
     REPO_URL,
     REQUEST_ID,
     ROOT_PROMPT,
@@ -67,7 +54,13 @@ from rlm_adk.state import (
     depth_key,
 )
 from rlm_adk.tools.repl_tool import REPLTool
-from rlm_adk.types import LLMResult, ReasoningOutput, parse_reasoning_output
+from rlm_adk.types import (
+    CompletionEnvelope,
+    LLMResult,
+    ReasoningOutput,
+    parse_reasoning_output,
+    render_completion_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,18 +87,6 @@ def is_transient_error(exc: Exception) -> bool:
     except ImportError:
         pass
     return False
-
-
-def _serialize_completion_payload(value: Any) -> str:
-    """Return a stable string form for structured child results."""
-    if isinstance(value, dict):
-        try:
-            return json.dumps(value, separators=(",", ":"), sort_keys=True)
-        except (TypeError, ValueError):
-            return str(value)
-    if value is None:
-        return ""
-    return str(value)
 
 
 def _infer_completion_error(
@@ -139,61 +120,90 @@ def _infer_completion_error(
     )
 
 
-def _collect_reasoning_completion(
+def _collect_completion(
     *,
     reasoning_agent: LlmAgent,
     session_state: dict[str, Any],
-    depth: int,
     output_schema: Any,
-) -> dict[str, Any]:
-    """Normalize the final reasoning payload for dispatch + finalization."""
+) -> CompletionEnvelope:
+    """Build a CompletionEnvelope from reasoning agent results.
+
+    Priority order:
+    1. ``_rlm_terminal_completion`` (set by worker_retry after_tool_cb)
+    2. ``output_key`` fallback — derive finish_reason from
+       ``_rlm_last_response_meta``, NOT from session state
+    3. Plain-text response candidate from visible output text
+    4. Synthesize terminal error envelope
+    """
+    # Priority 1: already-built envelope from after_tool_cb
+    existing = getattr(reasoning_agent, "_rlm_terminal_completion", None)
+    if isinstance(existing, CompletionEnvelope) and existing.terminal:
+        return existing
+
+    # Read agent-local metadata (never fall back to session state)
+    response_meta = getattr(reasoning_agent, "_rlm_last_response_meta", None) or {}
+    finish_reason = response_meta.get("finish_reason")
+    visible_text = response_meta.get("visible_text") or ""
+
+    # Priority 2: output_key
     output_key = reasoning_agent.output_key or "reasoning_output"
     raw = session_state.get(output_key)
     structured = getattr(reasoning_agent, "_structured_result", None)
-    visible_text = session_state.get(depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)) or ""
-    thought_text = session_state.get(depth_key(REASONING_THOUGHT_TEXT, depth)) or ""
-    finish_reason = session_state.get(depth_key(REASONING_FINISH_REASON, depth))
 
     payload = parse_reasoning_output(raw)
-    source = "output_key"
+    mode: str = "text"
     if not payload.final_answer and payload.parsed_output is None and structured is not None:
         payload = parse_reasoning_output(structured)
-        source = "structured_result"
+        mode = "structured"
     elif not payload.final_answer and visible_text:
+        # Priority 3: plain-text from visible output
         payload = parse_reasoning_output(visible_text)
-        source = "visible_output_text"
 
-    parsed_output = payload.parsed_output if isinstance(payload.parsed_output, dict) else None
-    result_text = payload.final_answer or _serialize_completion_payload(
-        parsed_output or payload.raw_output or visible_text
+    # Accept any non-None validated output (dict, list, BaseModel,
+    # str, primitive) -- not just dicts.
+    validated = payload.parsed_output
+    if validated is None and structured is not None:
+        validated = structured
+
+    display = render_completion_text(
+        validated if validated is not None else payload.raw_output,
+        fallback_text="",
     )
+    if not display and payload.final_answer:
+        display = payload.final_answer
+    if not display and visible_text:
+        display = visible_text
+
+    schema_name = getattr(output_schema, "__name__", None) if output_schema else None
+
+    # Check for error conditions
     error = False
     error_category = None
-
-    if not result_text or result_text.startswith("[RLM ERROR]"):
+    if not display or display.startswith("[RLM ERROR]"):
         error = True
-        error_category, result_text = _infer_completion_error(
-            final_answer=result_text,
+        error_category, display = _infer_completion_error(
+            final_answer=display or "",
             finish_reason=finish_reason,
             output_schema=output_schema,
         )
 
-    completion = {
-        "source": source,
-        "text": result_text,
-        "error": error,
-        "error_category": error_category,
-        "raw_output": payload.raw_output,
-        "parsed_output": parsed_output,
-        "reasoning_summary": payload.reasoning_summary,
-        "visible_output_text": visible_text or result_text,
-        "thought_text": thought_text,
-        "finish_reason": finish_reason,
-        "input_tokens": session_state.get(depth_key(REASONING_INPUT_TOKENS, depth), 0) or 0,
-        "output_tokens": session_state.get(depth_key(REASONING_OUTPUT_TOKENS, depth), 0) or 0,
-        "thoughts_tokens": session_state.get(depth_key(REASONING_THOUGHT_TOKENS, depth), 0) or 0,
-    }
-    return completion
+    if validated is not None:
+        mode = "structured"
+    if error:
+        mode = "error"
+
+    return CompletionEnvelope(
+        terminal=True,
+        mode=mode,
+        output_schema_name=schema_name,
+        validated_output=validated,
+        raw_output=payload.raw_output,
+        display_text=display,
+        reasoning_summary=payload.reasoning_summary or "",
+        finish_reason=finish_reason,
+        error=error,
+        error_category=error_category,
+    )
 
 
 class RLMOrchestratorAgent(BaseAgent):
@@ -226,6 +236,8 @@ class RLMOrchestratorAgent(BaseAgent):
     output_schema: Any = None  # type[BaseModel] | None — caller's schema for children
     instruction_router: Any = None  # Callable[[int, int], str] | None
     enabled_skills: tuple[str, ...] = ()
+    parent_depth: int | None = None
+    parent_fanout_idx: int | None = None
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Collapsed orchestrator -- delegates to reasoning_agent with REPLTool.
@@ -236,8 +248,7 @@ class RLMOrchestratorAgent(BaseAgent):
         max_iterations = ctx.session.state.get(APP_MAX_ITERATIONS, _default_max_iter)
         trace_level = int(os.getenv("RLM_REPL_TRACE", "0"))
         object.__setattr__(self.reasoning_agent, "_structured_result", None)
-        object.__setattr__(self.reasoning_agent, "_rlm_completion", None)
-        object.__setattr__(self, "_rlm_completion", None)
+        object.__setattr__(self, "_rlm_terminal_completion", None)
 
         # Initialize REPL environment (reuse persistent REPL if provided)
         if self.repl is not None:
@@ -252,13 +263,18 @@ class RLMOrchestratorAgent(BaseAgent):
         # Dispatch closures read this to record per-call timing.
         trace_holder: list[REPLTrace | None] = [None]
 
-        # Wire up WorkerPool dispatch closures -- collapsed mode omits the
-        # queue parameter.  The flush_fn is passed to REPLTool which flushes
-        # accumulators into tool_context.state after each code execution.
-        flush_fn = None
+        # Wire up WorkerPool dispatch closures -- collapsed mode omits
+        # the queue parameter.  post_dispatch_state_patch_fn is passed
+        # to REPLTool which applies minimal working-state patches after
+        # each code execution.
+        post_dispatch_state_patch_fn = None
         if self.worker_pool is not None:
             self.worker_pool.ensure_initialized()
-            llm_query_async, llm_query_batched_async, flush_fn = create_dispatch_closures(
+            (
+                llm_query_async,
+                llm_query_batched_async,
+                post_dispatch_state_patch_fn,
+            ) = create_dispatch_closures(
                 self.worker_pool,
                 ctx,
                 call_log_sink=repl._pending_llm_calls,
@@ -295,11 +311,11 @@ class RLMOrchestratorAgent(BaseAgent):
             if sqlite_plugin is not None and hasattr(sqlite_plugin, "make_telemetry_finalizer"):
                 telemetry_finalizer = sqlite_plugin.make_telemetry_finalizer()
 
-        # Create REPLTool with flush_fn for dispatch accumulator flushing
+        # Create REPLTool with post_dispatch_state_patch_fn
         repl_tool = REPLTool(
             repl,
             max_calls=max_iterations,
-            flush_fn=flush_fn,
+            post_dispatch_state_patch_fn=post_dispatch_state_patch_fn,
             telemetry_finalizer=telemetry_finalizer,
             trace_holder=trace_holder if trace_level > 0 else None,
             depth=self.depth,
@@ -317,8 +333,27 @@ class RLMOrchestratorAgent(BaseAgent):
         schema = self.output_schema or ReasoningOutput
         set_model_response_tool = SetModelResponseTool(schema)
         object.__setattr__(self.reasoning_agent, "tools", [repl_tool, set_model_response_tool])
-        # Tag depth for telemetry (read by reasoning callbacks)
-        object.__setattr__(self.reasoning_agent, "_rlm_depth", self.depth)
+        # Tag lineage attrs for telemetry (read by reasoning callbacks)
+        _ra = self.reasoning_agent
+        object.__setattr__(_ra, "_rlm_depth", self.depth)
+        object.__setattr__(_ra, "_rlm_fanout_idx", self.fanout_idx)
+        object.__setattr__(
+            _ra,
+            "_rlm_parent_depth",
+            getattr(self, "parent_depth", None),
+        )
+        object.__setattr__(
+            _ra,
+            "_rlm_parent_fanout_idx",
+            getattr(self, "parent_fanout_idx", None),
+        )
+        _schema_name = getattr(schema, "__name__", None)
+        object.__setattr__(_ra, "_rlm_output_schema_name", _schema_name)
+        object.__setattr__(_ra, "_rlm_terminal_completion", None)
+        object.__setattr__(_ra, "_rlm_lineage_status", None)
+        object.__setattr__(_ra, "_rlm_pending_request_meta", None)
+        object.__setattr__(_ra, "_rlm_last_response_meta", None)
+        object.__setattr__(_ra, "_rlm_base_lineage", None)
         # Ensure ADK manages tool call/response history at depth 0.
         # Children (depth > 0) keep include_contents='none' set by
         # create_child_orchestrator so they don't inherit parent session
@@ -334,15 +369,13 @@ class RLMOrchestratorAgent(BaseAgent):
         try:
             # Build initial state delta.
             initial_state: dict[str, Any] = {
-                CURRENT_DEPTH: self.depth,
+                depth_key(CURRENT_DEPTH, self.depth): self.depth,
                 depth_key(ITERATION_COUNT, self.depth): 0,
-                REQUEST_ID: str(uuid.uuid4()),
-                # Seed cumulative dispatch counters so they are present (not
-                # ABSENT) in _rlm_state from the very first REPL turn.
-                OBS_CHILD_DISPATCH_COUNT_TOTAL: 0,
-                OBS_CHILD_BATCH_DISPATCHES_TOTAL: 0,
-                OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL: 0,
             }
+            # Only root (depth=0) sets the global REQUEST_ID.
+            # Children must not overwrite the root correlation ID.
+            if self.depth == 0:
+                initial_state[REQUEST_ID] = str(uuid.uuid4())
             if self.root_prompt:
                 initial_state[ROOT_PROMPT] = self.root_prompt
                 initial_state[DYN_ROOT_PROMPT] = self.root_prompt
@@ -484,7 +517,7 @@ class RLMOrchestratorAgent(BaseAgent):
                             author=self.name,
                             actions=EventActions(
                                 state_delta={
-                                    depth_key(FINAL_ANSWER, self.depth): error_msg,
+                                    depth_key(FINAL_RESPONSE_TEXT, self.depth): error_msg,
                                     depth_key(SHOULD_STOP, self.depth): True,
                                 }
                             ),
@@ -517,47 +550,25 @@ class RLMOrchestratorAgent(BaseAgent):
                     actions=EventActions(state_delta=retry_state_delta),
                 )
 
-            # --- Extract final_answer from output_key ---
-            # ADK's output_key stores the raw text of the final model response.
-            # When output_schema is set, it's a JSON dict (ReasoningOutput).
-            # When output_schema is NOT set, it's plain text.
-            completion = _collect_reasoning_completion(
+            # --- Finalize from CompletionEnvelope ---
+            completion = _collect_completion(
                 reasoning_agent=self.reasoning_agent,
                 session_state=ctx.session.state,
-                depth=self.depth,
                 output_schema=self.output_schema,
             )
-            object.__setattr__(self.reasoning_agent, "_rlm_completion", completion)
-            object.__setattr__(self, "_rlm_completion", completion)
-            final_answer = completion["text"]
+            object.__setattr__(self, "_rlm_terminal_completion", completion)
+            final_text = completion.display_text
 
-            reasoning_state_delta: dict[str, Any] = {
-                depth_key(REASONING_RAW_OUTPUT, self.depth): completion["raw_output"],
-            }
-            if completion["parsed_output"] is not None:
-                reasoning_state_delta[depth_key(REASONING_PARSED_OUTPUT, self.depth)] = completion[
-                    "parsed_output"
-                ]
-            if completion["reasoning_summary"]:
-                reasoning_state_delta[depth_key(REASONING_SUMMARY, self.depth)] = completion[
-                    "reasoning_summary"
-                ]
-            yield Event(
-                invocation_id=ctx.invocation_id,
-                author=self.name,
-                actions=EventActions(state_delta=reasoning_state_delta),
-            )
-
-            if final_answer and not completion["error"]:
+            if final_text and not completion.error:
                 print(
-                    f"[RLM] FINAL_ANSWER detected length={len(final_answer)}",
+                    f"[RLM] FINAL_RESPONSE_TEXT detected length={len(final_text)}",
                     flush=True,
                 )
 
                 # Auto-save final answer as artifact
                 await save_final_answer(
                     ctx,
-                    answer=final_answer,
+                    answer=completion.display_text,
                     depth=self.depth,
                     fanout_idx=self.fanout_idx,
                 )
@@ -567,7 +578,10 @@ class RLMOrchestratorAgent(BaseAgent):
                     author=self.name,
                     actions=EventActions(
                         state_delta={
-                            depth_key(FINAL_ANSWER, self.depth): final_answer,
+                            depth_key(
+                                FINAL_RESPONSE_TEXT,
+                                self.depth,
+                            ): final_text,
                             depth_key(SHOULD_STOP, self.depth): True,
                         }
                     ),
@@ -578,11 +592,11 @@ class RLMOrchestratorAgent(BaseAgent):
                     author=self.name,
                     content=types.Content(
                         role="model",
-                        parts=[types.Part.from_text(text=final_answer)],
+                        parts=[types.Part.from_text(text=final_text)],
                     ),
                 )
             else:
-                exhausted_msg = final_answer or (
+                exhausted_msg = final_text or (
                     "[RLM ERROR] Reasoning agent completed without producing a final answer."
                 )
                 yield Event(
@@ -590,7 +604,10 @@ class RLMOrchestratorAgent(BaseAgent):
                     author=self.name,
                     actions=EventActions(
                         state_delta={
-                            depth_key(FINAL_ANSWER, self.depth): exhausted_msg,
+                            depth_key(
+                                FINAL_RESPONSE_TEXT,
+                                self.depth,
+                            ): exhausted_msg,
                             depth_key(SHOULD_STOP, self.depth): True,
                         }
                     ),
@@ -608,6 +625,15 @@ class RLMOrchestratorAgent(BaseAgent):
             # Clean up reasoning_agent wiring
             object.__setattr__(self.reasoning_agent, "tools", [])
             object.__setattr__(self.reasoning_agent, "after_tool_callback", None)
-            object.__setattr__(self.reasoning_agent, "on_tool_error_callback", None)
+            object.__setattr__(
+                self.reasoning_agent,
+                "on_tool_error_callback",
+                None,
+            )
+            object.__setattr__(
+                self.reasoning_agent,
+                "before_agent_callback",
+                None,
+            )
             if not self.persistent:
                 repl.cleanup()

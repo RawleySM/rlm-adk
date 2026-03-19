@@ -19,14 +19,7 @@ POLICY_VIOLATION = "policy_violation"
 # REPL Execution Keys
 MESSAGE_HISTORY = "message_history"
 LAST_REPL_RESULT = "last_repl_result"
-FINAL_ANSWER = "final_answer"
-REASONING_SUMMARY = "reasoning_summary"
-REASONING_FINISH_REASON = "reasoning_finish_reason"
-REASONING_VISIBLE_OUTPUT_TEXT = "reasoning_visible_output_text"
-REASONING_THOUGHT_TEXT = "reasoning_thought_text"
-REASONING_THOUGHT_TOKENS = "reasoning_thought_tokens"
-REASONING_RAW_OUTPUT = "reasoning_raw_output"
-REASONING_PARSED_OUTPUT = "reasoning_parsed_output"
+FINAL_RESPONSE_TEXT = "final_response_text"
 
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
@@ -61,25 +54,13 @@ OBS_TOTAL_OUTPUT_TOKENS = "obs:total_output_tokens"
 OBS_TOTAL_CALLS = "obs:total_calls"
 OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
 OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
-OBS_PER_ITERATION_TOKEN_BREAKDOWN = "obs:per_iteration_token_breakdown"
 INVOCATION_START_TIME = "invocation_start_time"
-
-# Per-Invocation Token Accounting Keys
-REASONING_PROMPT_CHARS = "reasoning_prompt_chars"
-REASONING_SYSTEM_CHARS = "reasoning_system_chars"
-REASONING_INPUT_TOKENS = "reasoning_input_tokens"
-REASONING_OUTPUT_TOKENS = "reasoning_output_tokens"
-CONTEXT_WINDOW_SNAPSHOT = "context_window_snapshot"
-
 
 # Finish Reason Tracking (written by ObservabilityPlugin)
 OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
 OBS_FINISH_RECITATION_COUNT = "obs:finish_recitation_count"
 OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
 
-
-# Structured Output Observability (written by dispatch closures)
-OBS_STRUCTURED_OUTPUT_FAILURES = "obs:structured_output_failures"
 
 # AST Rewrite Instrumentation (written by REPLTool)
 OBS_REWRITE_COUNT = "obs:rewrite_count"
@@ -90,21 +71,6 @@ OBS_REWRITE_FAILURE_CATEGORIES = "obs:rewrite_failure_categories"
 # Reasoning Retry Observability (written by orchestrator)
 OBS_REASONING_RETRY_COUNT = "obs:reasoning_retry_count"
 OBS_REASONING_RETRY_DELAY_MS = "obs:reasoning_retry_delay_ms"
-
-# BUG-13 Monkey-Patch Observability (written by flush_fn)
-OBS_BUG13_SUPPRESS_COUNT = "obs:bug13_suppress_count"
-
-# Child Dispatch Observability Keys (session-scoped)
-OBS_CHILD_DISPATCH_COUNT = "obs:child_dispatch_count"
-OBS_CHILD_ERROR_COUNTS = "obs:child_error_counts"
-OBS_CHILD_DISPATCH_LATENCY_MS = "obs:child_dispatch_latency_ms"
-OBS_CHILD_TOTAL_BATCH_DISPATCHES = "obs:child_total_batch_dispatches"
-
-# Cumulative Child Dispatch Observability Keys (never reset by flush_fn)
-OBS_CHILD_DISPATCH_COUNT_TOTAL = "obs:child_dispatch_count_total"
-OBS_CHILD_BATCH_DISPATCHES_TOTAL = "obs:child_batch_dispatches_total"
-OBS_CHILD_ERROR_COUNTS_TOTAL = "obs:child_error_counts_total"
-OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL = "obs:structured_output_failures_total"
 
 # REPL Submitted-Code Observability Keys
 REPL_SUBMITTED_CODE = "repl_submitted_code"
@@ -117,11 +83,6 @@ REPL_EXPANDED_CODE = "repl_expanded_code"
 REPL_EXPANDED_CODE_HASH = "repl_expanded_code_hash"
 REPL_SKILL_EXPANSION_META = "repl_skill_expansion_meta"
 REPL_DID_EXPAND = "repl_did_expand"
-
-
-def child_obs_key(depth: int, fanout_idx: int) -> str:
-    """Return fanout-suffixed obs key: obs:child_summary@d{depth}f{fanout_idx}."""
-    return f"obs:child_summary@d{depth}f{fanout_idx}"
 
 
 # API/Messaging Keys
@@ -141,9 +102,11 @@ ARTIFACT_TOTAL_BYTES_SAVED = "artifact_total_bytes_saved"
 ARTIFACT_LAST_SAVED_FILENAME = "artifact_last_saved_filename"
 ARTIFACT_LAST_SAVED_VERSION = "artifact_last_saved_version"
 
+# LiteLLM Cost Tracking (session-scoped aggregate)
+OBS_LITELLM_TOTAL_COST = "obs:litellm_total_cost"
+
 # Artifact Observability Keys (session-scoped)
 OBS_ARTIFACT_SAVES = "obs:artifact_saves"
-OBS_ARTIFACT_BYTES_SAVED = "obs:artifact_bytes_saved"
 
 # Artifact Configuration Keys (app-scoped)
 APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"
@@ -169,23 +132,10 @@ EXPOSED_STATE_KEYS: frozenset[str] = frozenset(
         CURRENT_DEPTH,
         APP_MAX_ITERATIONS,
         APP_MAX_DEPTH,
-        OBS_CHILD_DISPATCH_COUNT,
-        OBS_CHILD_ERROR_COUNTS,
-        OBS_CHILD_DISPATCH_LATENCY_MS,
-        OBS_CHILD_TOTAL_BATCH_DISPATCHES,
-        OBS_CHILD_DISPATCH_COUNT_TOTAL,
-        OBS_CHILD_BATCH_DISPATCHES_TOTAL,
-        OBS_STRUCTURED_OUTPUT_FAILURES_TOTAL,
-        OBS_TOTAL_INPUT_TOKENS,
-        OBS_TOTAL_OUTPUT_TOKENS,
-        REASONING_INPUT_TOKENS,
-        REASONING_OUTPUT_TOKENS,
-        OBS_STRUCTURED_OUTPUT_FAILURES,
-        OBS_REWRITE_COUNT,
-        OBS_REWRITE_FAILURE_COUNT,
         LAST_REPL_RESULT,
-        REPL_SUBMITTED_CODE_CHARS,
         STEP_MODE_ENABLED,
+        SHOULD_STOP,
+        FINAL_RESPONSE_TEXT,
     }
 )
 
@@ -193,18 +143,9 @@ EXPOSED_STATE_KEYS: frozenset[str] = frozenset(
 DEPTH_SCOPED_KEYS: set[str] = {
     MESSAGE_HISTORY,
     ITERATION_COUNT,
-    FINAL_ANSWER,
+    FINAL_RESPONSE_TEXT,
     LAST_REPL_RESULT,
     SHOULD_STOP,
-    REASONING_INPUT_TOKENS,
-    REASONING_OUTPUT_TOKENS,
-    REASONING_SUMMARY,
-    REASONING_FINISH_REASON,
-    REASONING_VISIBLE_OUTPUT_TEXT,
-    REASONING_THOUGHT_TEXT,
-    REASONING_THOUGHT_TOKENS,
-    REASONING_RAW_OUTPUT,
-    REASONING_PARSED_OUTPUT,
     REPL_SUBMITTED_CODE,
     REPL_SUBMITTED_CODE_PREVIEW,
     REPL_SUBMITTED_CODE_HASH,

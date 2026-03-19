@@ -15,7 +15,7 @@
       "usages": [
         {
           "context": "base:WorkerRetryPlugin",
-          "line": 79
+          "line": 81
         }
       ],
       "hover": {
@@ -27,15 +27,15 @@
       "usages": [
         {
           "context": "param:tool",
-          "line": 92
+          "line": 94
         },
         {
           "context": "param:tool",
-          "line": 135
+          "line": 151
         },
         {
           "context": "param:tool",
-          "line": 180
+          "line": 239
         }
       ],
       "hover": {
@@ -47,15 +47,15 @@
       "usages": [
         {
           "context": "param:tool_context",
-          "line": 94
+          "line": 96
         },
         {
           "context": "param:tool_context",
-          "line": 137
+          "line": 153
         },
         {
           "context": "param:tool_context",
-          "line": 182
+          "line": 241
         }
       ],
       "hover": {

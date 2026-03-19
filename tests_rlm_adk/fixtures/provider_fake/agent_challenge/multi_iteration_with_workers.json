@@ -97,7 +97,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "4",
+    "final_answer": "The sub-model returned 4. That is the answer.\n\nFINAL(4)",
     "total_iterations": 1,
     "total_model_calls": 3
   }

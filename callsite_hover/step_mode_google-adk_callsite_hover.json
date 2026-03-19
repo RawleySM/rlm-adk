@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ac27c1e3/rlm_adk/plugins/step_mode.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/plugins/step_mode.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -19,7 +19,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) BasePlugin: Unknown\n```"
+        "markdown": "```python\n(class) BasePlugin\n```\n---\nBase class for creating plugins.\n\nPlugins provide a structured way to intercept and modify agent, tool, and\nLLM behaviors at critical execution points in a callback manner. While agent\ncallbacks apply to a particular agent, plugins applies globally to all\nagents added in the runner. Plugins are best used for adding custom behaviors\nlike logging, monitoring, caching, or modifying requests and responses at key\nstages.\n\nA plugin can implement one or more methods of callbacks, but should not\nimplement the same method of callback for multiple times.\n\nRelation with [Agent callbacks](https://google.github.io/adk-docs/callbacks/):\n\n\\*\\*Execution Order\\*\\*\nSimilar to Agent callbacks, Plugins are executed in the order they are\nregistered. However, Plugin and Agent Callbacks are executed sequentially,\nwith Plugins takes precedence over agent callbacks. When the callback in a\nplugin returns a value, it will short circuit all remaining plugins and\nagent callbacks, causing all remaining plugins and agent callbacks\nto be skipped.\n\n\\*\\*Change Propagation\\*\\*\nPlugins and agent callbacks can both modify the value of the input parameters,\nincluding agent input, tool input, and LLM request/response, etc. They work in\nthe exactly same way. The modifications will be visible and passed to the next\ncallback in the chain. For example, if a plugin modifies the tool input with\nbefore\\_tool\\_callback, the modified tool input will be passed to the\nbefore\\_tool\\_callback of the next plugin, and further passed to the agent\ncallbacks if not short-circuited.\n\nTo use a plugin, implement the desired callback methods and pass an instance\nof your custom plugin class to the ADK Runner.\n\nExamples:  \n&nbsp;&nbsp;&nbsp;&nbsp;A simple plugin that logs every tool call.\n\n```\n>>> class ToolLoggerPlugin(BasePlugin):\n..   def __init__(self):\n..     super().__init__(name=\"tool_logger\")\n..\n..   async def before_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict[str, Any],\ntool_context:\nToolContext\n..   ):\n..     print(f\"[{self.name}] Calling tool '{tool.name}' with args:\n{tool_args}\")\n..\n..   async def after_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict, tool_context:\nToolContext, result: dict\n..   ):\n..     print(f\"[{self.name}] Tool '{tool.name}' finished with result:\n{result}\")\n..\n>>> # Add the plugin to ADK Runner\n>>> # runner = Runner(\n>>> #     ...\n>>> #     plugins=[ToolLoggerPlugin(), AgentPolicyPlugin()],\n>>> # )\n```"
       }
     },
     {
@@ -31,7 +31,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) CallbackContext: Unknown\n```"
+        "markdown": "```python\n(class) CallbackContext\n```\n---\nThe context of various callbacks within an agent run."
       }
     },
     {
@@ -43,7 +43,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) LlmRequest: Unknown\n```"
+        "markdown": "```python\n(class) LlmRequest\n```\n---\nLLM request class that allows passing in tools, output schema and system\n\ninstructions to the model.\n\nAttributes:  \n&nbsp;&nbsp;model: The model name.  \n&nbsp;&nbsp;contents: The contents to send to the model.  \n&nbsp;&nbsp;config: Additional config for the generate content request.  \n&nbsp;&nbsp;tools\\_dict: The tools dictionary.  \n&nbsp;&nbsp;cache\\_config: Context cache configuration for this request.  \n&nbsp;&nbsp;cache\\_metadata: Cache metadata from previous requests, used for cache management."
       }
     },
     {
@@ -55,7 +55,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) LlmResponse: Unknown\n```"
+        "markdown": "```python\n(class) LlmResponse\n```\n---\nLLM response class that provides the first candidate response from the\n\nmodel if available. Otherwise, returns error code and message.\n\nAttributes:  \n&nbsp;&nbsp;content: The content of the response.  \n&nbsp;&nbsp;grounding\\_metadata: The grounding metadata of the response.  \n&nbsp;&nbsp;partial: Indicates whether the text content is part of an unfinished text  \n&nbsp;&nbsp;&nbsp;&nbsp;stream. Only used for streaming mode and when the content is plain text.  \n&nbsp;&nbsp;turn\\_complete: Indicates whether the response from the model is complete.  \n&nbsp;&nbsp;&nbsp;&nbsp;Only used for streaming mode.  \n&nbsp;&nbsp;error\\_code: Error code if the response is an error. Code varies by model.  \n&nbsp;&nbsp;error\\_message: Error message if the response is an error.  \n&nbsp;&nbsp;interrupted: Flag indicating that LLM was interrupted when generating the  \n&nbsp;&nbsp;&nbsp;&nbsp;content. Usually it's due to user interruption during a bidi streaming.  \n&nbsp;&nbsp;custom\\_metadata: The custom metadata of the LlmResponse.  \n&nbsp;&nbsp;input\\_transcription: Audio transcription of user input.  \n&nbsp;&nbsp;output\\_transcription: Audio transcription of model output.  \n&nbsp;&nbsp;avg\\_logprobs: Average log probability of the generated tokens.  \n&nbsp;&nbsp;logprobs\\_result: Detailed log probabilities for chosen and top candidate tokens."
       }
     }
   ]

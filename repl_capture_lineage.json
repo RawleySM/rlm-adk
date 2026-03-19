@@ -1,0 +1,344 @@
+{
+  "test_name": "test_lineage_fixture_contract",
+  "fixture": "agent_challenge/lineage_completion_planes",
+  "timestamp": "2026-03-19T15:30:47",
+  "repl_globals_inventory": {
+    "__builtins__": {
+      "type": "dict",
+      "source": "local_repl.py:202",
+      "note": "safe builtins subset"
+    },
+    "__name__": {
+      "type": "str",
+      "source": "local_repl.py:203",
+      "value": "__main__"
+    },
+    "FINAL_VAR": {
+      "type": "function",
+      "source": "local_repl.py:208"
+    },
+    "SHOW_VARS": {
+      "type": "function",
+      "source": "local_repl.py:209"
+    },
+    "llm_query": {
+      "type": "function",
+      "source": "orchestrator.py:295",
+      "note": "sync placeholder; AST rewriter converts to async"
+    },
+    "llm_query_batched": {
+      "type": "function",
+      "source": "orchestrator.py:295",
+      "note": "sync placeholder; AST rewriter converts to async"
+    },
+    "llm_query_async": {
+      "type": "async function",
+      "source": "dispatch.py:435",
+      "note": "single child dispatch"
+    },
+    "llm_query_batched_async": {
+      "type": "async function",
+      "source": "dispatch.py:477",
+      "note": "batched child dispatch"
+    },
+    "LLMResult": {
+      "type": "class",
+      "source": "orchestrator.py:260",
+      "note": "str subclass with .error, .parsed, .model, etc."
+    },
+    "_rlm_state": {
+      "type": "dict",
+      "source": "repl_tool.py:220",
+      "keys": [
+        "iteration_count",
+        "current_depth",
+        "app:max_iterations",
+        "app:max_depth",
+        "last_repl_result",
+        "step:mode_enabled",
+        "should_stop",
+        "final_response_text",
+        "_rlm_depth",
+        "_rlm_fanout_idx",
+        "_rlm_agent_name"
+      ]
+    }
+  },
+  "repl_executions": [
+    {
+      "call_number": 1,
+      "depth": 1,
+      "fanout_idx": 0,
+      "agent_name": "child_reasoning_d1",
+      "submitted_code": "state = _rlm_state\nprint(f\"[D1_F0] current_depth={state.get('current_depth')}\")\nprint(f\"[D1_F0] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D1_F0] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D1_F0] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\ndeep_result = llm_query(\"Perform deep analysis of item A\")\nprint(f\"[D1_F0] D2_RESULT error={deep_result.error}\")\nprint(f\"[D1_F0] D2_RESULT text={str(deep_result)[:80]}\")\nif deep_result.parsed:\n    print(f\"[D1_F0] D2_PARSED final_answer={deep_result.parsed.get('final_answer', 'N/A')}\")",
+      "expanded_code": null,
+      "did_expand": false,
+      "stdout": "[D1_F0] current_depth=0\n[D1_F0] iteration_count=1\n[D1_F0] _rlm_depth=1\n[D1_F0] _rlm_agent_name=child_reasoning_d1\n[RLM] FINAL_RESPONSE_TEXT detected length=69\n[D1_F0] D2_RESULT error=False\n[D1_F0] D2_RESULT text=Deep analysis of item A: strong performance metrics with 95% accuracy\n[D1_F0] D2_PARSED final_answer=Deep analysis of item A: strong performance metrics with 95% accuracy\n",
+      "stderr": "",
+      "variables": {
+        "state": {
+          "current_depth": 0,
+          "iteration_count": 1,
+          "_rlm_depth": 1,
+          "_rlm_fanout_idx": 0,
+          "_rlm_agent_name": "child_reasoning_d1"
+        },
+        "deep_result": "Deep analysis of item A: strong performance metrics with 95% accuracy"
+      },
+      "llm_calls_made": true,
+      "rlm_state_snapshot": {
+        "current_depth": 0,
+        "iteration_count": 1,
+        "_rlm_depth": 1,
+        "_rlm_fanout_idx": 0,
+        "_rlm_agent_name": "child_reasoning_d1"
+      },
+      "wall_time_s": 0.1188
+    },
+    {
+      "call_number": 1,
+      "depth": 1,
+      "fanout_idx": 1,
+      "agent_name": "child_reasoning_d1",
+      "submitted_code": "state = _rlm_state\nprint(f\"[D1_F1] current_depth={state.get('current_depth')}\")\nprint(f\"[D1_F1] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D1_F1] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D1_F1] _rlm_fanout_idx={state.get('_rlm_fanout_idx')}\")\nprint(f\"[D1_F1] _rlm_agent_name={state.get('_rlm_agent_name')}\")\nanalysis = \"Item B brief assessment: moderate quality\"\nprint(f\"[D1_F1] analysis={analysis}\")",
+      "expanded_code": null,
+      "did_expand": false,
+      "stdout": "[D1_F1] current_depth=0\n[D1_F1] iteration_count=1\n[D1_F1] _rlm_depth=1\n[D1_F1] _rlm_fanout_idx=1\n[D1_F1] _rlm_agent_name=child_reasoning_d1\n[D1_F1] analysis=Item B brief assessment: moderate quality\n",
+      "stderr": "",
+      "variables": {
+        "state": {
+          "current_depth": 0,
+          "iteration_count": 1,
+          "last_repl_result": {
+            "code_blocks": 1,
+            "has_errors": false,
+            "has_output": true,
+            "total_llm_calls": 1,
+            "stdout_preview": "[D1_F0] current_depth=0\n[D1_F0] iteration_count=1\n[D1_F0] _rlm_depth=1\n[D1_F0] _rlm_agent_name=child_reasoning_d1\n[RLM] FINAL_RESPONSE_TEXT detected length=69\n[D1_F0] D2_RESULT error=False\n[D1_F0] D2_RESULT text=Deep analysis of item A: strong performance metrics with 95% accuracy\n[D1_F0] D2_PARSED final_answer=Deep analysis of item A: strong performance metrics with 95% accuracy\n",
+            "stdout": "[D1_F0] current_depth=0\n[D1_F0] iteration_count=1\n[D1_F0] _rlm_depth=1\n[D1_F0] _rlm_agent_name=child_reasoning_d1\n[RLM] FINAL_RESPONSE_TEXT detected length=69\n[D1_F0] D2_RESULT error=False\n[D1_F0] D2_RESULT text=Deep analysis of item A: strong performance metrics with 95% accuracy\n[D1_F0] D2_PARSED final_answer=Deep analysis of item A: strong performance metrics with 95% accuracy\n",
+            "stderr": "",
+            "submitted_code_chars": 551,
+            "submitted_code_hash": "049dd90a7b9b249775c1e6acba1f4eee415d0137ccf34232115639cd13284537",
+            "trace_summary": {
+              "wall_time_ms": 114.55,
+              "llm_call_count": 1,
+              "failed_llm_calls": 0,
+              "peak_memory_bytes": 0,
+              "data_flow_edges": 0,
+              "submitted_code_chars": 551,
+              "submitted_code_hash": "049dd90a7b9b249775c1e6acba1f4eee415d0137ccf34232115639cd13284537"
+            }
+          },
+          "_rlm_depth": 1,
+          "_rlm_fanout_idx": 1,
+          "_rlm_agent_name": "child_reasoning_d1"
+        },
+        "analysis": "Item B brief assessment: moderate quality"
+      },
+      "llm_calls_made": false,
+      "rlm_state_snapshot": {
+        "current_depth": 0,
+        "iteration_count": 1,
+        "last_repl_result": {
+          "code_blocks": 1,
+          "has_errors": false,
+          "has_output": true,
+          "total_llm_calls": 1,
+          "stdout_preview": "[D1_F0] current_depth=0\n[D1_F0] iteration_count=1\n[D1_F0] _rlm_depth=1\n[D1_F0] _rlm_agent_name=child_reasoning_d1\n[RLM] FINAL_RESPONSE_TEXT detected length=69\n[D1_F0] D2_RESULT error=False\n[D1_F0] D2_RESULT text=Deep analysis of item A: strong performance metrics with 95% accuracy\n[D1_F0] D2_PARSED final_answer=Deep analysis of item A: strong performance metrics with 95% accuracy\n",
+          "stdout": "[D1_F0] current_depth=0\n[D1_F0] iteration_count=1\n[D1_F0] _rlm_depth=1\n[D1_F0] _rlm_agent_name=child_reasoning_d1\n[RLM] FINAL_RESPONSE_TEXT detected length=69\n[D1_F0] D2_RESULT error=False\n[D1_F0] D2_RESULT text=Deep analysis of item A: strong performance metrics with 95% accuracy\n[D1_F0] D2_PARSED final_answer=Deep analysis of item A: strong performance metrics with 95% accuracy\n",
+          "stderr": "",
+          "submitted_code_chars": 551,
+          "submitted_code_hash": "049dd90a7b9b249775c1e6acba1f4eee415d0137ccf34232115639cd13284537",
+          "trace_summary": {
+            "wall_time_ms": 114.55,
+            "llm_call_count": 1,
+            "failed_llm_calls": 0,
+            "peak_memory_bytes": 0,
+            "data_flow_edges": 0,
+            "submitted_code_chars": 551,
+            "submitted_code_hash": "049dd90a7b9b249775c1e6acba1f4eee415d0137ccf34232115639cd13284537"
+          }
+        },
+        "_rlm_depth": 1,
+        "_rlm_fanout_idx": 1,
+        "_rlm_agent_name": "child_reasoning_d1"
+      },
+      "wall_time_s": 0.0062
+    },
+    {
+      "call_number": 1,
+      "depth": 0,
+      "fanout_idx": 0,
+      "agent_name": "reasoning_agent",
+      "submitted_code": "from pydantic import BaseModel\nclass ChildResult(BaseModel):\n    answer: str\n    confidence: float\n\nstate = _rlm_state\nprint(f\"[D0_T0] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D0_T0] current_depth={state.get('current_depth')}\")\nprint(f\"[D0_T0] should_stop={state.get('should_stop')}\")\nprint(f\"[D0_T0] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D0_T0] _rlm_fanout_idx={state.get('_rlm_fanout_idx')}\")\nprint(f\"[D0_T0] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\nprompts = [\"Analyze item A in depth\", \"Analyze item B briefly\"]\nresults = llm_query_batched(prompts, output_schema=ChildResult)\nprint(f\"[D0_T0] DISPATCH num_results={len(results)}\")\nfor i, r in enumerate(results):\n    print(f\"[D0_T0] CHILD_{i} error={r.error} parsed={r.parsed}\")",
+      "expanded_code": null,
+      "did_expand": false,
+      "stdout": "[D0_T0] iteration_count=1\n[D0_T0] current_depth=0\n[D0_T0] should_stop=None\n[D0_T0] _rlm_depth=0\n[D0_T0] _rlm_fanout_idx=0\n[D0_T0] _rlm_agent_name=reasoning_agent\n[RLM] child dispatch batch (2 prompts, depth=1)\n[RLM] FINAL_RESPONSE_TEXT detected length=104\n[RLM] FINAL_RESPONSE_TEXT detected length=77\n[D0_T0] DISPATCH num_results=2\n[D0_T0] CHILD_0 error=False parsed={'answer': 'Item A analyzed in depth with deep sub-analysis confirming strong metrics', 'confidence': 0.95}\n[D0_T0] CHILD_1 error=False parsed={'answer': 'Item B brief assessment shows moderate quality', 'confidence': 0.72}\n",
+      "stderr": "",
+      "variables": {
+        "state": {
+          "current_depth": 0,
+          "iteration_count": 1,
+          "_rlm_depth": 0,
+          "_rlm_fanout_idx": 0,
+          "_rlm_agent_name": "reasoning_agent"
+        },
+        "prompts": [
+          "Analyze item A in depth",
+          "Analyze item B briefly"
+        ],
+        "results": [
+          "{\"answer\":\"Item A analyzed in depth with deep sub-analysis confirming strong metrics\",\"confidence\":0.95}",
+          "{\"answer\":\"Item B brief assessment shows moderate quality\",\"confidence\":0.72}"
+        ],
+        "i": 1,
+        "r": "{\"answer\":\"Item B brief assessment shows moderate quality\",\"confidence\":0.72}"
+      },
+      "llm_calls_made": true,
+      "rlm_state_snapshot": {
+        "current_depth": 0,
+        "iteration_count": 1,
+        "_rlm_depth": 0,
+        "_rlm_fanout_idx": 0,
+        "_rlm_agent_name": "reasoning_agent"
+      },
+      "wall_time_s": 0.5613
+    },
+    {
+      "call_number": 2,
+      "depth": 0,
+      "fanout_idx": 0,
+      "agent_name": "reasoning_agent",
+      "submitted_code": "state = _rlm_state\nprint(f\"[D0_T1] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D0_T1] last_repl_result_present={'last_repl_result' in state}\")\nprint(f\"[D0_T1] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D0_T1] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\nsummary_result = llm_query(\"Summarize all findings from the analysis\")\nprint(f\"[D0_T1] SUMMARY error={summary_result.error}\")\nprint(f\"[D0_T1] SUMMARY text={str(summary_result)[:80]}\")\nif summary_result.parsed:\n    print(f\"[D0_T1] SUMMARY_PARSED final_answer={summary_result.parsed.get('final_answer', 'N/A')}\")",
+      "expanded_code": null,
+      "did_expand": false,
+      "stdout": "[D0_T1] iteration_count=2\n[D0_T1] last_repl_result_present=True\n[D0_T1] _rlm_depth=0\n[D0_T1] _rlm_agent_name=reasoning_agent\n[RLM] FINAL_RESPONSE_TEXT detected length=88\n[D0_T1] SUMMARY error=False\n[D0_T1] SUMMARY text=Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate \n[D0_T1] SUMMARY_PARSED final_answer=Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate quality.\n",
+      "stderr": "",
+      "variables": {
+        "state": {
+          "current_depth": 0,
+          "iteration_count": 2,
+          "last_repl_result": {
+            "code_blocks": 1,
+            "has_errors": false,
+            "has_output": true,
+            "total_llm_calls": 2,
+            "stdout_preview": "[D0_T0] iteration_count=1\n[D0_T0] current_depth=0\n[D0_T0] should_stop=None\n[D0_T0] _rlm_depth=0\n[D0_T0] _rlm_fanout_idx=0\n[D0_T0] _rlm_agent_name=reasoning_agent\n[RLM] child dispatch batch (2 prompts, depth=1)\n[RLM] FINAL_RESPONSE_TEXT detected length=104\n[RLM] FINAL_RESPONSE_TEXT detected length=77\n[D0_T0] DISPATCH num_results=2\n[D0_T0] CHILD_0 error=False parsed={'answer': 'Item A analyzed in depth with deep sub-analysis confirming strong metrics', 'confidence': 0.95}\n[D0_T0] CHILD_1 error=Fal",
+            "stdout": "[D0_T0] iteration_count=1\n[D0_T0] current_depth=0\n[D0_T0] should_stop=None\n[D0_T0] _rlm_depth=0\n[D0_T0] _rlm_fanout_idx=0\n[D0_T0] _rlm_agent_name=reasoning_agent\n[RLM] child dispatch batch (2 prompts, depth=1)\n[RLM] FINAL_RESPONSE_TEXT detected length=104\n[RLM] FINAL_RESPONSE_TEXT detected length=77\n[D0_T0] DISPATCH num_results=2\n[D0_T0] CHILD_0 error=False parsed={'answer': 'Item A analyzed in depth with deep sub-analysis confirming strong metrics', 'confidence': 0.95}\n[D0_T0] CHILD_1 error=False parsed={'answer': 'Item B brief assessment shows moderate quality', 'confidence': 0.72}\n",
+            "stderr": "",
+            "submitted_code_chars": 767,
+            "submitted_code_hash": "a53c68bf13158b6722541896151f837f4d5074e5c4c49faf28029c868818e663",
+            "trace_summary": {
+              "wall_time_ms": 557.84,
+              "llm_call_count": 2,
+              "failed_llm_calls": 0,
+              "peak_memory_bytes": 0,
+              "data_flow_edges": 0,
+              "submitted_code_chars": 767,
+              "submitted_code_hash": "a53c68bf13158b6722541896151f837f4d5074e5c4c49faf28029c868818e663"
+            }
+          },
+          "_rlm_depth": 0,
+          "_rlm_fanout_idx": 0,
+          "_rlm_agent_name": "reasoning_agent"
+        },
+        "prompts": [
+          "Analyze item A in depth",
+          "Analyze item B briefly"
+        ],
+        "results": [
+          "{\"answer\":\"Item A analyzed in depth with deep sub-analysis confirming strong metrics\",\"confidence\":0.95}",
+          "{\"answer\":\"Item B brief assessment shows moderate quality\",\"confidence\":0.72}"
+        ],
+        "i": 1,
+        "r": "{\"answer\":\"Item B brief assessment shows moderate quality\",\"confidence\":0.72}",
+        "summary_result": "Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate quality."
+      },
+      "llm_calls_made": true,
+      "rlm_state_snapshot": {
+        "current_depth": 0,
+        "iteration_count": 2,
+        "last_repl_result": {
+          "code_blocks": 1,
+          "has_errors": false,
+          "has_output": true,
+          "total_llm_calls": 2,
+          "stdout_preview": "[D0_T0] iteration_count=1\n[D0_T0] current_depth=0\n[D0_T0] should_stop=None\n[D0_T0] _rlm_depth=0\n[D0_T0] _rlm_fanout_idx=0\n[D0_T0] _rlm_agent_name=reasoning_agent\n[RLM] child dispatch batch (2 prompts, depth=1)\n[RLM] FINAL_RESPONSE_TEXT detected length=104\n[RLM] FINAL_RESPONSE_TEXT detected length=77\n[D0_T0] DISPATCH num_results=2\n[D0_T0] CHILD_0 error=False parsed={'answer': 'Item A analyzed in depth with deep sub-analysis confirming strong metrics', 'confidence': 0.95}\n[D0_T0] CHILD_1 error=Fal",
+          "stdout": "[D0_T0] iteration_count=1\n[D0_T0] current_depth=0\n[D0_T0] should_stop=None\n[D0_T0] _rlm_depth=0\n[D0_T0] _rlm_fanout_idx=0\n[D0_T0] _rlm_agent_name=reasoning_agent\n[RLM] child dispatch batch (2 prompts, depth=1)\n[RLM] FINAL_RESPONSE_TEXT detected length=104\n[RLM] FINAL_RESPONSE_TEXT detected length=77\n[D0_T0] DISPATCH num_results=2\n[D0_T0] CHILD_0 error=False parsed={'answer': 'Item A analyzed in depth with deep sub-analysis confirming strong metrics', 'confidence': 0.95}\n[D0_T0] CHILD_1 error=False parsed={'answer': 'Item B brief assessment shows moderate quality', 'confidence': 0.72}\n",
+          "stderr": "",
+          "submitted_code_chars": 767,
+          "submitted_code_hash": "a53c68bf13158b6722541896151f837f4d5074e5c4c49faf28029c868818e663",
+          "trace_summary": {
+            "wall_time_ms": 557.84,
+            "llm_call_count": 2,
+            "failed_llm_calls": 0,
+            "peak_memory_bytes": 0,
+            "data_flow_edges": 0,
+            "submitted_code_chars": 767,
+            "submitted_code_hash": "a53c68bf13158b6722541896151f837f4d5074e5c4c49faf28029c868818e663"
+          }
+        },
+        "_rlm_depth": 0,
+        "_rlm_fanout_idx": 0,
+        "_rlm_agent_name": "reasoning_agent"
+      },
+      "wall_time_s": 0.1153
+    }
+  ],
+  "final_state": {
+    "invocation_start_time": 1773948646.471417,
+    "current_depth": 0,
+    "iteration_count": 2,
+    "request_id": "76bb63d1-662f-4568-a06c-94b6a269a341",
+    "enabled_skills": [
+      "repomix-repl-helpers",
+      "polya-understand",
+      "polya-narrative",
+      "polya-understand-t1-workflow",
+      "polya-understand-t2-flat",
+      "polya-understand-t3-adaptive",
+      "polya-understand-t4-debate",
+      "ping"
+    ],
+    "obs:tool_invocation_summary": {
+      "execute_code": 4,
+      "set_model_response": 5
+    },
+    "repl_submitted_code": "state = _rlm_state\nprint(f\"[D0_T1] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D0_T1] last_repl_result_present={'last_repl_result' in state}\")\nprint(f\"[D0_T1] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D0_T1] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\nsummary_result = llm_query(\"Summarize all findings from the analysis\")\nprint(f\"[D0_T1] SUMMARY error={summary_result.error}\")\nprint(f\"[D0_T1] SUMMARY text={str(summary_result)[:80]}\")\nif summary_result.parsed:\n    print(f\"[D0_T1] SUMMARY_PARSED final_answer={summary_result.parsed.get('final_answer', 'N/A')}\")",
+    "repl_submitted_code_chars": 588,
+    "repl_submitted_code_hash": "bb4dde6f91f3058c5e87c4d50c84c4bb31f7ab35fe77b862b8f129eb2bc7dfd6",
+    "repl_submitted_code_preview": "state = _rlm_state\nprint(f\"[D0_T1] iteration_count={state.get('iteration_count')}\")\nprint(f\"[D0_T1] last_repl_result_present={'last_repl_result' in state}\")\nprint(f\"[D0_T1] _rlm_depth={state.get('_rlm_depth')}\")\nprint(f\"[D0_T1] _rlm_agent_name={state.get('_rlm_agent_name')}\")\n\nsummary_result = llm_query(\"Summarize all findings from the analysis\")\nprint(f\"[D0_T1] SUMMARY error={summary_result.error}\")\nprint(f\"[D0_T1] SUMMARY text={str(summary_result)[:80]}\")\nif summary_result.parsed:\n    print(f\"",
+    "artifact_save_count": 2,
+    "artifact_total_bytes_saved": 1355,
+    "artifact_last_saved_filename": "repl_code_d0_f0_iter_2_turn_0.py",
+    "artifact_last_saved_version": 0,
+    "obs:rewrite_count": 2,
+    "obs:rewrite_total_ms": 1.463,
+    "last_repl_result": {
+      "code_blocks": 1,
+      "has_errors": false,
+      "has_output": true,
+      "total_llm_calls": 1,
+      "stdout_preview": "[D0_T1] iteration_count=2\n[D0_T1] last_repl_result_present=True\n[D0_T1] _rlm_depth=0\n[D0_T1] _rlm_agent_name=reasoning_agent\n[RLM] FINAL_RESPONSE_TEXT detected length=88\n[D0_T1] SUMMARY error=False\n[D0_T1] SUMMARY text=Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate \n[D0_T1] SUMMARY_PARSED final_answer=Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate quality.\n",
+      "stdout": "[D0_T1] iteration_count=2\n[D0_T1] last_repl_result_present=True\n[D0_T1] _rlm_depth=0\n[D0_T1] _rlm_agent_name=reasoning_agent\n[RLM] FINAL_RESPONSE_TEXT detected length=88\n[D0_T1] SUMMARY error=False\n[D0_T1] SUMMARY text=Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate \n[D0_T1] SUMMARY_PARSED final_answer=Summary: Items A and B analyzed. A shows strong metrics (95%), B shows moderate quality.\n",
+      "stderr": "",
+      "submitted_code_chars": 588,
+      "submitted_code_hash": "bb4dde6f91f3058c5e87c4d50c84c4bb31f7ab35fe77b862b8f129eb2bc7dfd6",
+      "trace_summary": {
+        "wall_time_ms": 110.52,
+        "llm_call_count": 1,
+        "failed_llm_calls": 0,
+        "peak_memory_bytes": 0,
+        "data_flow_edges": 0,
+        "submitted_code_chars": 588,
+        "submitted_code_hash": "bb4dde6f91f3058c5e87c4d50c84c4bb31f7ab35fe77b862b8f129eb2bc7dfd6"
+      }
+    },
+    "reasoning_output": "{\"final_answer\": \"Multi-depth analysis complete: items A and B analyzed across 3 depth levels with high confidence\", \"reasoning_summary\": \"Orchestrated multi-depth recursive analysis with batched dispatch\"}",
+    "obs:total_calls": 9,
+    "obs:total_input_tokens": 2300,
+    "obs:total_output_tokens": 495,
+    "final_response_text": "Multi-depth analysis complete: items A and B analyzed across 3 depth levels with high confidence",
+    "should_stop": true
+  }
+}

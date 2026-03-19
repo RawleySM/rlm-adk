@@ -20,7 +20,8 @@ from rlm_adk.dashboard.live_models import (
     LiveStateItem,
     LiveToolEvent,
 )
-from rlm_adk.state import REASONING_VISIBLE_OUTPUT_TEXT
+# Legacy reasoning state key (no longer exported from state.py)
+REASONING_VISIBLE_OUTPUT_TEXT = "reasoning_visible_output_text"
 
 pytestmark = [pytest.mark.unit_nondefault]
 

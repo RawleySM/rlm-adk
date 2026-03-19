@@ -1,7 +1,7 @@
 # NotebookLM Skill Enhancement Proposal
 
 **Date:** 2026-03-19
-**Source:** Code architect review of pipeline execution trace
+**Source:** Code architect review of pipeline execution trace + Artem Zhutov article comparison + ytcli review
 
 ---
 
@@ -153,6 +153,55 @@ def auto_add_to_notebooklm(sources: list[dict], max_add: int, notebooklm_bin: st
 
 ---
 
+## 3b. Proposed: `scripts/generate_topic_hubs.py`
+
+### Motivation
+
+Artem Zhutov's Obsidian output creates **topic files as hub nodes** — opening a topic like "Claude Code" shows which 6 videos mentioned it, what they said, and linked passages. Our current `import_sources.py` writes `topics` to frontmatter but does not create the actual topic hub files. This leaves the knowledge graph disconnected: topics exist as tags in source files but have no corresponding nodes in the vault.
+
+### File path
+`~/.claude/skills/notebooklm/scripts/generate_topic_hubs.py`
+
+### Design
+
+```python
+#!/usr/bin/env python3
+"""Generate topic hub files from imported source frontmatter.
+
+Reads all source .md files in a notebook's Sources/ directory,
+extracts 'topics' from YAML frontmatter, and creates one hub .md
+per unique topic with backlinks to all sources that mention it.
+
+Usage:
+  python3 generate_topic_hubs.py --slug my-notebook --dashboard "Dashboard Title"
+"""
+```
+
+### Behavior
+
+- Scan `Notes/NotebookLM/{slug}/Sources/*.md` for `topics:` frontmatter
+- Extract unique topic names (strip `[[` and `]]` wrappers if present)
+- For each topic, create `Notes/NotebookLM/{slug}/Topics/{Topic Name}.md` with:
+  - Frontmatter: `type: topic`, `status: active`, `related: [[dashboard]]`
+  - Body: `# {Topic Name}` heading + `## Sources` section with wikilinks to all source files that list this topic
+- Report how many topic hubs were created vs. how many already existed
+- Idempotent: re-running updates existing hub files with any new source backlinks
+
+### CLI interface
+
+```bash
+python3 generate_topic_hubs.py \
+    --slug ai-agent-advertising \
+    --dashboard "AI Agent Advertising Dashboard" \
+    --vault-root ~/Obsidian/MainVault
+```
+
+### Integration
+
+This script runs after `import_sources.py` (Phase 3, Step 9) and before dashboard creation. It converts the flat `topics:` frontmatter tags into navigable hub nodes, completing the knowledge graph that Obsidian's graph view renders.
+
+---
+
 ## 4. Proposed: `workflows/research.md`
 
 ### File path
@@ -161,25 +210,40 @@ def auto_add_to_notebooklm(sources: list[dict], max_add: int, notebooklm_bin: st
 ### Pipeline phases
 
 ```
-Phase 1: Source Discovery
+Phase 1: Source Discovery (human-curated by default)
   Step 1: search_youtube.py → /tmp/youtube-candidates.json
   Step 2: search_substack.py → /tmp/substack-candidates.json
+  Step 3: Review candidate JSONs — approve, reject, or edit entries
+  Note: The --auto-add flag is an opt-in convenience. The default
+  workflow outputs a candidate list for human review. Artem Zhutov's
+  approach emphasizes deliberate source selection over automated bulk
+  import: "much more granular control over the sources" — picking
+  exactly which videos become research sources improves signal-to-noise.
 
 Phase 2: Notebook Creation + Source Import
-  Step 3: notebooklm create "{topic}"
-  Step 4: Auto-add YouTube sources (--auto-add flag)
-  Step 5: Add Substack sources (loop over JSON)
-  Step 6: notebooklm source list --json → /tmp/notebooklm-sources.json
+  Step 4: notebooklm create "{topic}"
+  Step 5: Add approved YouTube sources (--auto-add flag OR manual loop)
+  Step 6: Add approved Substack sources (loop over JSON)
+  Step 7: notebooklm source list --json → /tmp/notebooklm-sources.json
 
 Phase 3: Vault Import
-  Step 7: mkdir vault structure
-  Step 8: import_sources.py (existing)
-  Step 9: Create dashboard from template
+  Step 8: mkdir vault structure
+  Step 9: import_sources.py (existing)
+  Step 10: Create dashboard from template
 
 Phase 4: Research Questions
-  Step 10: notebooklm ask --new --json (2-6 questions)
-  Step 11: extract_passages.py (existing)
-  Step 12: resolve_citations.py (existing)
+  Step 11: notebooklm ask --new --json (2-6 questions)
+  Step 12: extract_passages.py (existing)
+  Step 13: resolve_citations.py (existing)
+
+Phase 4.5: Audio Overview (optional)
+  Step 14: notebooklm audio generate --topic "gaps in {topic}"
+  Generates a podcast-style audio summary of the notebook's sources.
+  Output syncs to mobile via Obsidian Sync for async consumption.
+  The `notebooklm generate` command family also supports:
+    flashcards, slide-deck, quiz, mind-map, report
+  Artem uses this to produce listenable digests of research gaps
+  that he can review away from the terminal.
 
 Phase 5: Verify
   Count source files, QA notes, check dashboard renders
@@ -211,6 +275,7 @@ or wants to turn NotebookLM research into vault knowledge.
 |--------|---------|
 | `scripts/search_youtube.py` | Search YouTube Data API v3 for topic-relevant videos; optional auto-add to active notebook |
 | `scripts/search_substack.py` | Search Substack trending posts, category archives, and named newsletters; outputs NotebookLM-ready source list |
+| `scripts/generate_topic_hubs.py` | Generate topic hub files from source frontmatter; creates navigable hub nodes in Obsidian vault |
 
 ---
 
@@ -279,14 +344,43 @@ notebooklm CLI     →  ~/.notebooklm/storage_state.json (Playwright cookies)
 
 ---
 
+## 7. ytcli Review: Keep Our Script
+
+### Background
+
+Artem Zhutov used the term "ytcli" in one screenshot caption in his Substack article. This prompted an investigation into whether we should adopt an existing YouTube CLI tool instead of building `search_youtube.py`.
+
+### Findings
+
+- **"ytcli" is not a real package.** Artem used it as informal shorthand. His `personal-os-skills` repo contains zero YouTube search scripts — source discovery is left entirely to the user.
+- Packages actually named "ytcli" on GitHub are archived Rust/Python music player CLIs with no JSON output or research pipeline integration.
+- **yt-dlp** (the most credible scraping alternative) has fragility problems: YouTube actively IP-bans scrapers, and yt-dlp requires frequent emergency upgrades to keep working. One yt-dlp advantage (view count in search results without a second API call) is negligible at our quota levels. Transcript extraction (yt-dlp's other advantage) is irrelevant since NotebookLM fetches its own transcripts from YouTube URLs.
+
+### Our Data API v3 approach
+
+- Stable, versioned Google API with OAuth authentication
+- Correctly scoped: `youtube.readonly` permission only
+- 10,000 units/day quota (~26 research sessions/day at typical usage)
+- Already working — validated in `test_youtube_search.py`
+
+### Verdict
+
+**Keep `search_youtube.py` as designed. Do not adopt ytcli or yt-dlp.**
+
+---
+
 ## Implementation Checklist
 
 - [ ] Create `scripts/search_substack.py`
 - [ ] Create `scripts/search_youtube.py`
+- [ ] Create `scripts/generate_topic_hubs.py`
 - [ ] Create `workflows/research.md`
+- [ ] Add audio generate step to `workflows/research.md`
 - [ ] Update `SKILL.md` (description, routing table, scripts table)
 - [ ] Test: `search_youtube.py "test query" --max-results 5`
 - [ ] Test: `search_substack.py "test query" --skip-categories`
+- [ ] Test: `generate_topic_hubs.py --slug test-notebook`
+- [ ] Verify `notebooklm audio generate` and `notebooklm generate flashcards` work with current CLI version
 - [ ] Test: Full pipeline end-to-end on a small topic
 
 ### No changes needed to existing scripts

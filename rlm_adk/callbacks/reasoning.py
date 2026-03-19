@@ -25,19 +25,9 @@ from google.genai import types
 from rlm_adk.state import (
     CB_REASONING_CONTEXT,
     CB_TOOL_CONTEXT,
-    CONTEXT_WINDOW_SNAPSHOT,
     ITERATION_COUNT,
-    REASONING_FINISH_REASON,
-    REASONING_INPUT_TOKENS,
-    REASONING_OUTPUT_TOKENS,
-    REASONING_PROMPT_CHARS,
-    REASONING_SUMMARY,
-    REASONING_SYSTEM_CHARS,
-    REASONING_THOUGHT_TEXT,
-    REASONING_THOUGHT_TOKENS,
-    REASONING_VISIBLE_OUTPUT_TEXT,
-    depth_key,
 )
+from rlm_adk.types import LineageEnvelope
 
 
 def _extract_system_instruction_text(llm_request: LlmRequest) -> str:
@@ -88,18 +78,36 @@ def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]:
     return "".join(output_parts), "".join(thought_parts)
 
 
-def _reasoning_depth(callback_context: CallbackContext) -> int:
-    """Return the current reasoning depth tagged by the orchestrator."""
-    agent = getattr(callback_context, "_invocation_context", None)
-    agent_obj = getattr(agent, "agent", None) if agent else None
-    depth = getattr(agent_obj, "_rlm_depth", 0)
-    return depth if isinstance(depth, int) else 0
-
-
 def _usage_int(usage: Any, attr: str) -> int:
     """Return an integer usage field, guarding against MagicMock values in tests."""
     value = getattr(usage, attr, 0)
     return value if isinstance(value, int) else 0
+
+
+def _agent_runtime(callback_context):
+    """Extract invocation context and agent.
+
+    Note: inv.branch and inv.invocation_id are private ADK attributes.
+    """
+    inv = callback_context._invocation_context
+    agent = inv.agent
+    return inv, agent
+
+
+def _build_lineage(callback_context) -> LineageEnvelope:
+    """Build a LineageEnvelope from agent runtime attrs."""
+    inv, agent = _agent_runtime(callback_context)
+    return LineageEnvelope(
+        agent_name=getattr(agent, "name", "unknown"),
+        depth=getattr(agent, "_rlm_depth", 0),
+        fanout_idx=getattr(agent, "_rlm_fanout_idx", None),
+        parent_depth=getattr(agent, "_rlm_parent_depth", None),
+        parent_fanout_idx=getattr(agent, "_rlm_parent_fanout_idx", None),
+        branch=getattr(inv, "branch", None),
+        invocation_id=getattr(inv, "invocation_id", None),
+        session_id=getattr(getattr(inv, "session", None), "id", None),
+        output_schema_name=getattr(agent, "_rlm_output_schema_name", None),
+    )
 
 
 def reasoning_before_model(
@@ -137,7 +145,7 @@ def reasoning_before_model(
         llm_request.config = llm_request.config or types.GenerateContentConfig()
         llm_request.config.system_instruction = system_instruction_text
 
-    # --- Per-invocation token accounting ---
+    # --- Per-invocation token accounting (agent-local) ---
     total_prompt_chars = sum(
         len(part.text or "")
         for content in contents
@@ -147,20 +155,16 @@ def reasoning_before_model(
     system_chars = len(system_instruction_text)
     content_count = len(contents)
 
-    callback_context.state[REASONING_PROMPT_CHARS] = total_prompt_chars
-    callback_context.state[REASONING_SYSTEM_CHARS] = system_chars
-    # Read depth tag set by orchestrator (default 0)
-    _depth = _reasoning_depth(callback_context)
-
-    callback_context.state[CONTEXT_WINDOW_SNAPSHOT] = {
-        "agent_type": "reasoning",
-        "depth": _depth,
-        "content_count": content_count,
+    # Store request metadata on the agent instead of session state.
+    # ObservabilityPlugin reads _rlm_pending_request_meta from the agent.
+    inv, agent = _agent_runtime(callback_context)
+    request_meta = {
         "prompt_chars": total_prompt_chars,
         "system_chars": system_chars,
-        "history_msg_count": content_count,
-        "total_chars": total_prompt_chars + system_chars,
+        "content_count": content_count,
+        "lineage": _build_lineage(callback_context).model_dump(),
     }
+    object.__setattr__(agent, "_rlm_pending_request_meta", request_meta)
 
     return None
 
@@ -170,33 +174,27 @@ def reasoning_after_model(
 ) -> LlmResponse | None:
     """Record per-invocation token accounting from usage_metadata.
 
-    The collapsed orchestrator reads the final answer from the output_key
-    ("reasoning_output") instead of LAST_REASONING_RESPONSE state.
+    Stores response metadata on the agent as ``_rlm_last_response_meta``
+    and injects lineage into ``llm_response.custom_metadata``.  The
+    collapsed orchestrator reads the final answer from the output_key
+    ("reasoning_output") and token data from the agent attr.
     """
     # --- Per-invocation token accounting from usage_metadata ---
     usage = llm_response.usage_metadata
-    depth = _reasoning_depth(callback_context)
     visible_text, thought_text = _extract_response_text(llm_response)
-    callback_context.state[depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)] = visible_text
-    callback_context.state[depth_key(REASONING_THOUGHT_TEXT, depth)] = thought_text
     finish_reason = getattr(getattr(llm_response, "finish_reason", None), "name", None)
-    if finish_reason is not None:
-        callback_context.state[depth_key(REASONING_FINISH_REASON, depth)] = finish_reason
-    if usage:
-        callback_context.state[depth_key(REASONING_INPUT_TOKENS, depth)] = (
-            _usage_int(usage, "prompt_token_count")
-        )
-        callback_context.state[depth_key(REASONING_OUTPUT_TOKENS, depth)] = (
-            _usage_int(usage, "candidates_token_count")
-        )
-        callback_context.state[depth_key(REASONING_THOUGHT_TOKENS, depth)] = (
-            _usage_int(usage, "thoughts_token_count")
-        )
-    else:
-        callback_context.state[depth_key(REASONING_THOUGHT_TOKENS, depth)] = 0
-        callback_context.state[depth_key(REASONING_INPUT_TOKENS, depth)] = 0
-        callback_context.state[depth_key(REASONING_OUTPUT_TOKENS, depth)] = 0
 
+    if usage:
+        input_tokens = _usage_int(usage, "prompt_token_count")
+        output_tokens = _usage_int(usage, "candidates_token_count")
+        thought_tokens = _usage_int(usage, "thoughts_token_count")
+    else:
+        input_tokens = 0
+        output_tokens = 0
+        thought_tokens = 0
+
+    # Parse reasoning_summary from JSON-shaped visible text
+    reasoning_summary = ""
     if visible_text.lstrip().startswith("{"):
         try:
             import json
@@ -205,9 +203,28 @@ def reasoning_after_model(
         except (json.JSONDecodeError, ValueError):
             parsed = None
         if isinstance(parsed, dict):
-            callback_context.state[depth_key(REASONING_SUMMARY, depth)] = (
-                parsed.get("reasoning_summary", "") or ""
-            )
+            reasoning_summary = parsed.get("reasoning_summary", "") or ""
+
+    # --- Store on agent-local metadata (not session state) ---
+    inv, agent = _agent_runtime(callback_context)
+    lineage = _build_lineage(callback_context)
+
+    # Inject lineage into llm_response.custom_metadata
+    meta = dict(llm_response.custom_metadata or {})
+    meta["rlm"] = lineage.model_dump()
+    llm_response.custom_metadata = meta
+
+    response_meta = {
+        "visible_text": visible_text,
+        "thought_text": thought_text,
+        "finish_reason": finish_reason,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "thought_tokens": thought_tokens,
+        "reasoning_summary": reasoning_summary,
+        "custom_metadata": meta,
+    }
+    object.__setattr__(agent, "_rlm_last_response_meta", response_meta)
 
     # Return None -- observe only, don't alter the response
     return None

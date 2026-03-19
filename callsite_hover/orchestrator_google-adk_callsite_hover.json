@@ -16,7 +16,7 @@
       "instances": [
         {
           "name": "set_model_response_tool",
-          "line": 318
+          "line": 334
         }
       ],
       "hover": {
@@ -28,23 +28,15 @@
       "instances": [
         {
           "name": null,
-          "line": 443
+          "line": 476
         },
         {
           "name": null,
-          "line": 452
+          "line": 485
         },
         {
           "name": null,
-          "line": 545
-        },
-        {
-          "name": null,
-          "line": 514
-        },
-        {
-          "name": null,
-          "line": 565
+          "line": 547
         },
         {
           "name": null,
@@ -52,15 +44,19 @@
         },
         {
           "name": null,
-          "line": 588
+          "line": 590
         },
         {
           "name": null,
-          "line": 598
+          "line": 602
         },
         {
           "name": null,
-          "line": 482
+          "line": 615
+        },
+        {
+          "name": null,
+          "line": 515
         }
       ],
       "hover": {
@@ -72,27 +68,23 @@
       "instances": [
         {
           "name": null,
-          "line": 446
+          "line": 479
         },
         {
           "name": null,
-          "line": 548
+          "line": 550
         },
         {
           "name": null,
-          "line": 517
+          "line": 579
         },
         {
           "name": null,
-          "line": 568
+          "line": 605
         },
         {
           "name": null,
-          "line": 591
-        },
-        {
-          "name": null,
-          "line": 485
+          "line": 518
         }
       ],
       "hover": {
@@ -106,11 +98,11 @@
       "usages": [
         {
           "context": "param:reasoning_agent",
-          "line": 144
+          "line": 125
         },
         {
           "context": "variable:reasoning_agent",
-          "line": 216
+          "line": 226
         }
       ],
       "hover": {
@@ -122,7 +114,7 @@
       "usages": [
         {
           "context": "base:RLMOrchestratorAgent",
-          "line": 199
+          "line": 209
         }
       ],
       "hover": {
@@ -134,7 +126,7 @@
       "usages": [
         {
           "context": "param:ctx",
-          "line": 230
+          "line": 242
         }
       ],
       "hover": {

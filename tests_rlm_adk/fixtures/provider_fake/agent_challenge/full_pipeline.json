@@ -237,7 +237,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Pipeline: 4 triaged, 2 deduped, 0 errors. Dispositions: 1 exact, 2 fuzzy, 1 anomaly.",
+    "final_answer": "Full pipeline completed:\n- Dedup: 2 duplicates removed from 6 records, 4 unique processed\n- Triage: 3 succeeded on first pass, 1 failed (V-3 malformed JSON)\n- Retry: V-3 succeeded on retry -> anomaly (conf 0.40)\n- Final: 4 decisions (1 exact_match, 2 fuzzy_match, 1 anomaly), 0 errors\n\nFINAL(Pipeline: 4 triaged, 2 deduped, 0 errors. Dispositions: 1 exact, 2 fuzzy, 1 anomaly.)",
     "total_iterations": 2,
     "total_model_calls": 8
   }

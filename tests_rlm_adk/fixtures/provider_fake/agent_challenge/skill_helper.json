@@ -156,7 +156,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "skill_helpers_validated: probe=4_files, pack=xml_ok, shard=chunks_ok, batched=2_analyses",
+    "final_answer": "All three skill helpers validated:\n- probe_repo: 4 files found\n- pack_repo: XML output with <file tags\n- shard_repo: chunks produced, worker analyses returned\n\nFINAL(skill_helpers_validated: probe=4_files, pack=xml_ok, shard=chunks_ok, batched=2_analyses)",
     "total_iterations": 2,
     "total_model_calls": 5
   }

@@ -16,7 +16,7 @@ Wiring: dispatch.py sets these callbacks on workers when output_schema is provid
 
 import json as _json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from google.adk.plugins.reflect_retry_tool_plugin import (
     REFLECT_AND_RETRY_RESPONSE_TYPE,
@@ -24,6 +24,8 @@ from google.adk.plugins.reflect_retry_tool_plugin import (
 )
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
+
+from rlm_adk.types import CompletionEnvelope, render_completion_text
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ def _structured_obs(agent: Any) -> dict[str, Any]:
     if isinstance(obs, dict):
         return obs
     obs = {"attempts": 0, "retry_count": 0, "events": []}
-    agent._structured_output_obs = obs  # type: ignore[attr-defined]
+    object.__setattr__(agent, "_structured_output_obs", obs)
     return obs
 
 
@@ -93,7 +95,7 @@ class WorkerRetryPlugin(ReflectAndRetryToolPlugin):
         tool_args: dict[str, Any],
         tool_context: ToolContext,
         result: Any,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Detect empty responses in set_model_response tool output."""
         if tool.name != "set_model_response":
             return None
@@ -103,10 +105,24 @@ class WorkerRetryPlugin(ReflectAndRetryToolPlugin):
             if isinstance(value, str) and not value.strip():
                 return {
                     "error": "Empty value",
-                    "details": f"Empty string for field '{key}'. The response must contain meaningful content.",
+                    "details": (
+                        f"Empty string for field '{key}'."
+                        " The response must contain"
+                        " meaningful content."
+                    ),
                 }
 
         return None
+
+
+def _set_lineage_status(agent: Any, **updates: Any) -> None:
+    """Update lineage status on agent.
+
+    Uses object.__setattr__ since agent is a Pydantic LlmAgent.
+    """
+    state = getattr(agent, "_rlm_lineage_status", {}) or {}
+    state.update(updates)
+    object.__setattr__(agent, "_rlm_lineage_status", state)
 
 
 def make_worker_tool_callbacks(
@@ -136,7 +152,7 @@ def make_worker_tool_callbacks(
         args: dict[str, Any],
         tool_context: ToolContext,
         tool_response: Any,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """After-tool callback: capture structured result, delegate to plugin.
 
         Note: ADK calls this with ``args=`` and ``tool_response=`` kwargs
@@ -153,24 +169,67 @@ def make_worker_tool_callbacks(
             agent = tool_context._invocation_context.agent
             is_reflect_retry_payload = (
                 isinstance(tool_response, dict)
-                and tool_response.get("response_type") == REFLECT_AND_RETRY_RESPONSE_TYPE
+                and tool_response.get("response_type")
+                == REFLECT_AND_RETRY_RESPONSE_TYPE
             )
-            if (
-                isinstance(tool_response, dict)
-                and not is_reflect_retry_payload
-                and result is None
-            ):
-                agent._structured_result = tool_response  # type: ignore[attr-defined]
-                logger.debug(
-                    "Captured structured result on %s: %s",
-                    getattr(agent, "name", "?"),
-                    list(tool_response.keys()),
-                )
             if is_reflect_retry_payload:
+                _set_lineage_status(
+                    agent,
+                    decision_mode="set_model_response",
+                    structured_outcome="retry_requested",
+                    terminal=False,
+                )
                 return result
+            # result is None means the plugin accepted the response
+            # (validation passed). Capture for all response types:
+            # dict, list-of-dicts, and raw primitives.
+            if result is None:
+                object.__setattr__(
+                    agent, "_structured_result", tool_response,
+                )
+                logger.debug(
+                    "Captured structured result on %s: %r",
+                    getattr(agent, "name", "?"),
+                    type(tool_response).__name__,
+                )
+                rs = (
+                    tool_response.get("reasoning_summary", "")
+                    if isinstance(tool_response, dict)
+                    else ""
+                )
+                object.__setattr__(
+                    agent,
+                    "_rlm_terminal_completion",
+                    CompletionEnvelope(
+                        terminal=True,
+                        mode="structured",
+                        output_schema_name=getattr(
+                            agent,
+                            "_rlm_output_schema_name",
+                            None,
+                        ),
+                        validated_output=tool_response,
+                        raw_output=tool_response,
+                        display_text=render_completion_text(
+                            tool_response,
+                        ),
+                        reasoning_summary=str(rs or ""),
+                        error=False,
+                    ),
+                )
+                _set_lineage_status(
+                    agent,
+                    decision_mode="set_model_response",
+                    structured_outcome="validated",
+                    terminal=True,
+                )
             _record_structured_event(
                 agent,
-                outcome="retry_requested" if result is not None else "validated",
+                outcome=(
+                    "retry_requested"
+                    if result is not None
+                    else "validated"
+                ),
                 args=args,
                 tool_response=tool_response,
             )
@@ -181,7 +240,7 @@ def make_worker_tool_callbacks(
         args: dict[str, Any],
         tool_context: ToolContext,
         error: Exception,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """On-tool-error callback: delegate to plugin for retry/reflection.
 
         Only intercepts errors from set_model_response. Errors from other
@@ -206,12 +265,34 @@ def make_worker_tool_callbacks(
                 args=args,
                 error=error,
             )
+            object.__setattr__(agent, "_rlm_terminal_completion",
+                CompletionEnvelope(
+                    terminal=True,
+                    mode="error",
+                    error=True,
+                    error_category="SCHEMA_VALIDATION_EXHAUSTED",
+                    display_text=(
+                        "[RLM ERROR] Structured output validation"
+                        " failed after all retries."
+                    ),
+                )
+            )
+            _set_lineage_status(agent,
+                decision_mode="set_model_response",
+                structured_outcome="retry_exhausted",
+                terminal=True,
+            )
             raise
         _record_structured_event(
             agent,
             outcome="retry_requested",
             args=args,
             error=error,
+        )
+        _set_lineage_status(agent,
+            decision_mode="set_model_response",
+            structured_outcome="retry_requested",
+            terminal=False,
         )
         return result
 

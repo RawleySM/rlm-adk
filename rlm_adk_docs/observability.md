@@ -549,6 +549,7 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 - **2026-03-17 09:15** — `reasoning.py`: Removed 3 dead state writes (`REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`) — written but never read by any plugin or consumer.
 - **2026-03-17 13:48** — `sqlite_tracing.py`: Plugin updates merged with accumulated feature work.
 - **2026-03-18 00:00** — `observability.md`: Added section 8.1 "Per-Iteration vs Cumulative Dispatch Keys" documenting cumulative counters (`obs:*_total`), mapping table, `_rlm_state` oscillation rationale, and SqliteTracingPlugin impact.
+- **2026-03-19 12:40** — `observability.py`: Removed dead `OBS_ARTIFACT_BYTES_SAVED` import and state read (never written). `sqlite_tracing.py`: Removed dead `_categorize_key` rules for `obs:child_*`, `obs:worker_*`, `obs:structured_*`, `obs:finish_*`, `obs:total_*`, `reasoning_*` — per-call lineage is now in telemetry columns, not session_state_events. Replaced dead `obs:artifact_bytes_saved` state read with `None`. Part of three-plane (state/lineage/completion) cleanup.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

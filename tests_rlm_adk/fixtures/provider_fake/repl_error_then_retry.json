@@ -161,19 +161,22 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "Retry succeeded: alpha-42",
+    "final_answer": "The data extraction succeeded after correcting the key name. The extracted value is alpha-42.\n\nFINAL(Retry succeeded: alpha-42)",
     "total_iterations": 2,
     "total_model_calls": 5
   },
   "expected_state": {
-    "obs:child_dispatch_count": 1,
-    "obs:child_dispatch_count_total": 2,
     "last_repl_result": {
       "$not_none": true
     },
-    "obs:total_calls": {"$gt": 0},
-    "obs:total_input_tokens": {"$gt": 0},
-    "obs:total_output_tokens": {"$gt": 0},
-    "obs:per_iteration_token_breakdown": {"$type": "list", "$not_empty": true}
+    "obs:total_calls": {
+      "$gt": 0
+    },
+    "obs:total_input_tokens": {
+      "$gt": 0
+    },
+    "obs:total_output_tokens": {
+      "$gt": 0
+    }
   }
 }

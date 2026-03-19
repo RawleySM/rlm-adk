@@ -78,32 +78,60 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "meeting notes here",
+    "final_answer": "The user context contains meeting notes.\n\nFINAL(meeting notes here)",
     "total_iterations": 1,
     "total_model_calls": 2
   },
   "expected_state": {
-    "user_provided_ctx": {"$not_none": true},
-    "user_ctx_manifest": {"$contains": "notes.txt"},
-    "usr_provided_files_serialized": {"$type": "list", "$not_empty": true},
+    "user_provided_ctx": {
+      "$not_none": true
+    },
+    "user_ctx_manifest": {
+      "$contains": "notes.txt"
+    },
+    "usr_provided_files_serialized": {
+      "$type": "list",
+      "$not_empty": true
+    },
     "user_provided_ctx_exceeded": false
   },
   "expected_contract": {
-    "callers": ["reasoning", "reasoning"],
+    "callers": [
+      "reasoning",
+      "reasoning"
+    ],
     "captured_requests": 2,
     "events": {
-      "part_counts": {"text": 3, "function_call:execute_code": 1, "function_response:execute_code": 1},
+      "part_counts": {
+        "text": 3,
+        "function_call:execute_code": 1,
+        "function_response:execute_code": 1
+      },
       "part_sequence": [
-        {"kind": "text"},
-        {"kind": "function_call", "name": "execute_code"},
-        {"kind": "function_response", "name": "execute_code"},
-        {"kind": "text"},
-        {"kind": "text"}
+        {
+          "kind": "text"
+        },
+        {
+          "kind": "function_call",
+          "name": "execute_code"
+        },
+        {
+          "kind": "function_response",
+          "name": "execute_code"
+        },
+        {
+          "kind": "text"
+        },
+        {
+          "kind": "text"
+        }
       ]
     },
     "tool_results": {
       "count": 1,
-      "stdout_contains": ["meeting notes here"]
+      "stdout_contains": [
+        "meeting notes here"
+      ]
     }
   }
 }

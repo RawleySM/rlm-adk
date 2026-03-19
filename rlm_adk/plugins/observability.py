@@ -6,7 +6,7 @@ Observe only - never returns a value, never blocks execution.
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.callback_context import CallbackContext
@@ -19,27 +19,13 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
-    CONTEXT_WINDOW_SNAPSHOT,
-    FINAL_ANSWER,
+    FINAL_RESPONSE_TEXT,
     INVOCATION_START_TIME,
-    ITERATION_COUNT,
-    LAST_REPL_RESULT,
-    OBS_ARTIFACT_BYTES_SAVED,
     OBS_ARTIFACT_SAVES,
-    OBS_CHILD_DISPATCH_COUNT,
-    OBS_CHILD_DISPATCH_LATENCY_MS,
-    OBS_CHILD_ERROR_COUNTS,
-    OBS_CHILD_TOTAL_BATCH_DISPATCHES,
-    OBS_FINISH_MAX_TOKENS_COUNT,
-    OBS_FINISH_RECITATION_COUNT,
-    OBS_FINISH_SAFETY_COUNT,
-    OBS_PER_ITERATION_TOKEN_BREAKDOWN,
     OBS_TOOL_INVOCATION_SUMMARY,
     OBS_TOTAL_CALLS,
     OBS_TOTAL_INPUT_TOKENS,
     OBS_TOTAL_OUTPUT_TOKENS,
-    REASONING_PROMPT_CHARS,
-    REASONING_SYSTEM_CHARS,
     REQUEST_ID,
     obs_model_usage_key,
 )
@@ -62,13 +48,16 @@ class ObservabilityPlugin(BasePlugin):
         self._artifact_saves_acc: int = 0
         self._total_execution_time: float | None = None
         self._last_successful_call_id: str | None = None
+        # Consumed from agent._rlm_pending_request_meta
+        self._last_prompt_chars: int | None = None
+        self._last_system_chars: int | None = None
 
     async def before_agent_callback(
         self,
         *,
         agent: BaseAgent,
         callback_context: CallbackContext,
-    ) -> Optional[types.Content]:
+    ) -> types.Content | None:
         """Record agent entry."""
         try:
             state = callback_context.state
@@ -82,25 +71,13 @@ class ObservabilityPlugin(BasePlugin):
             pass
         return None
 
-    # Keys written by after_model_callback that are ephemeral due to ADK
-    # not wiring event_actions on plugin after_model CallbackContext
-    # (base_llm_flow.py oversight).  We re-persist them here.
-    _EPHEMERAL_FIXED_KEYS: tuple[str, ...] = (
+    # ADK plugin after_model_callback state writes are ephemeral.
+    # These summary counters must be re-persisted in
+    # after_agent_callback to appear in final session state.
+    _SUMMARY_COUNTER_KEYS = (
         OBS_TOTAL_CALLS,
         OBS_TOTAL_INPUT_TOKENS,
         OBS_TOTAL_OUTPUT_TOKENS,
-        OBS_PER_ITERATION_TOKEN_BREAKDOWN,
-        OBS_FINISH_SAFETY_COUNT,
-        OBS_FINISH_RECITATION_COUNT,
-        OBS_FINISH_MAX_TOKENS_COUNT,
-        CONTEXT_WINDOW_SNAPSHOT,
-    )
-
-    # Prefixes for dynamic keys generated in after_model_callback
-    _EPHEMERAL_DYNAMIC_PREFIXES: tuple[str, ...] = (
-        "obs:finish_",
-        "obs:model_usage:",
-        "obs:child_summary@",
     )
 
     async def after_agent_callback(
@@ -108,43 +85,30 @@ class ObservabilityPlugin(BasePlugin):
         *,
         agent: BaseAgent,
         callback_context: CallbackContext,
-    ) -> Optional[types.Content]:
-        """Persist ephemeral obs keys and record agent exit.
-
-        ADK's base_llm_flow.py creates CallbackContext *without*
-        event_actions for plugin after_model_callback, so state writes
-        there hit the live session dict but never land in a state_delta
-        Event.  This after_agent_callback re-writes those values through
-        the properly-wired CallbackContext so they appear in final_state.
-        """
+    ) -> types.Content | None:
+        """Record agent exit, persist summary counters and artifacts."""
         try:
             state = callback_context.state
-            # Read the live session dict to find ephemeral values
-            session_state = callback_context._invocation_context.session.state
 
-            # Persist fixed keys
-            for key in self._EPHEMERAL_FIXED_KEYS:
-                val = session_state.get(key)
+            # Re-persist summary counters so they surface in final
+            # state. Plugin after_model_callback writes are ephemeral.
+            for key in self._SUMMARY_COUNTER_KEYS:
+                val = state.get(key)
                 if val is not None:
                     state[key] = val
 
-            # Persist dynamic keys (obs:finish_*, obs:model_usage:*)
-            for sess_key in list(session_state.keys()):
-                for prefix in self._EPHEMERAL_DYNAMIC_PREFIXES:
-                    if sess_key.startswith(prefix):
-                        val = session_state.get(sess_key)
-                        if val is not None:
-                            state[sess_key] = val
-                        break
-
-            # AR-CRIT-001: persist artifact saves accumulated by on_event_callback
-            # (which has no delta-tracked channel).
+            # AR-CRIT-001: persist artifact saves accumulated by
+            # on_event_callback (which has no delta-tracked channel).
             if self._artifact_saves_acc > 0:
                 state[OBS_ARTIFACT_SAVES] = self._artifact_saves_acc
 
             agent_name = getattr(agent, "name", "unknown")
             request_id = state.get(REQUEST_ID, "unknown")
-            logger.debug("[%s] Agent '%s' completed", request_id, agent_name)
+            logger.debug(
+                "[%s] Agent '%s' completed",
+                request_id,
+                agent_name,
+            )
         except Exception:
             pass
         return None
@@ -154,7 +118,7 @@ class ObservabilityPlugin(BasePlugin):
         *,
         callback_context: CallbackContext,
         llm_request: LlmRequest,
-    ) -> Optional[LlmResponse]:
+    ) -> LlmResponse | None:
         """Record pre-model call metrics."""
         try:
             state = callback_context.state
@@ -170,81 +134,92 @@ class ObservabilityPlugin(BasePlugin):
         *,
         callback_context: CallbackContext,
         llm_response: LlmResponse,
-    ) -> Optional[LlmResponse]:
-        """Record post-model call metrics: token usage, call counts."""
+    ) -> LlmResponse | None:
+        """Record post-model call metrics: token usage, call counts.
+
+        Consumes ``_rlm_pending_request_meta`` from the agent
+        (set by ``reasoning_before_model``) for prompt/system
+        char counts alongside response-side token accounting.
+        """
         try:
             state = callback_context.state
 
             # Increment total calls
-            state[OBS_TOTAL_CALLS] = state.get(OBS_TOTAL_CALLS, 0) + 1
+            state[OBS_TOTAL_CALLS] = (
+                state.get(OBS_TOTAL_CALLS, 0) + 1
+            )
 
             # Extract token usage from response
             usage = llm_response.usage_metadata
             if usage:
-                input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-                output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+                input_tokens = (
+                    getattr(usage, "prompt_token_count", 0) or 0
+                )
+                output_tokens = (
+                    getattr(usage, "candidates_token_count", 0)
+                    or 0
+                )
 
                 state[OBS_TOTAL_INPUT_TOKENS] = (
-                    state.get(OBS_TOTAL_INPUT_TOKENS, 0) + input_tokens
+                    state.get(OBS_TOTAL_INPUT_TOKENS, 0)
+                    + input_tokens
                 )
                 state[OBS_TOTAL_OUTPUT_TOKENS] = (
-                    state.get(OBS_TOTAL_OUTPUT_TOKENS, 0) + output_tokens
+                    state.get(OBS_TOTAL_OUTPUT_TOKENS, 0)
+                    + output_tokens
                 )
 
-                # Per-model tracking via agent_name as proxy since after_model
-                # does not receive llm_request
                 model = "unknown"
-                # Try to get model from response's model_version field
                 if llm_response.model_version:
                     model = llm_response.model_version
                 model_key = obs_model_usage_key(model)
                 model_usage = state.get(
                     model_key,
-                    {"calls": 0, "input_tokens": 0, "output_tokens": 0},
+                    {
+                        "calls": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                    },
                 )
                 model_usage["calls"] += 1
                 model_usage["input_tokens"] += input_tokens
                 model_usage["output_tokens"] += output_tokens
                 state[model_key] = model_usage
 
+            # --- Consume request-side metadata from agent ---
+            inv_ctx = getattr(
+                callback_context, "_invocation_context", None
+            )
+            agent = getattr(inv_ctx, "agent", None) if inv_ctx else None
+            request_meta = (
+                getattr(agent, "_rlm_pending_request_meta", None)
+                if agent
+                else None
+            )
+            if isinstance(request_meta, dict):
+                prompt_chars = request_meta.get("prompt_chars")
+                system_chars = request_meta.get("system_chars")
+                if prompt_chars is not None:
+                    self._last_prompt_chars = prompt_chars
+                if system_chars is not None:
+                    self._last_system_chars = system_chars
+
             # --- Record finish_reason ---
-            # Use .name to get "SAFETY" not "FinishReason.SAFETY" (BUG-A fix)
-            finish_reason = llm_response.finish_reason.name if llm_response.finish_reason else None
+            finish_reason = (
+                llm_response.finish_reason.name
+                if llm_response.finish_reason
+                else None
+            )
             if finish_reason and finish_reason != "STOP":
-                key = f"obs:finish_{finish_reason.lower()}_count"
+                key = (
+                    f"obs:finish_{finish_reason.lower()}_count"
+                )
                 state[key] = state.get(key, 0) + 1
 
-            # --- Per-iteration token breakdown ---
-            # Read agent-specific token accounting written by before/after callbacks
-            iteration = state.get(ITERATION_COUNT, 0)
-            context_snapshot = state.get(CONTEXT_WINDOW_SNAPSHOT)
-
-            breakdown_entry: dict[str, Any] = {
-                "iteration": iteration,
-                "call_number": state.get(OBS_TOTAL_CALLS, 0),
-                "input_tokens": input_tokens if usage else 0,
-                "output_tokens": output_tokens if usage else 0,
-                "finish_reason": finish_reason,  # now .name (BUG-A fix)
-            }
-
-            # Include agent-type-specific prompt characterization
-            reasoning_prompt_chars = state.get(REASONING_PROMPT_CHARS)
-            if reasoning_prompt_chars is not None:
-                breakdown_entry["agent_type"] = "reasoning"
-                breakdown_entry["prompt_chars"] = reasoning_prompt_chars
-                breakdown_entry["system_chars"] = state.get(
-                    REASONING_SYSTEM_CHARS, 0
-                )
-
-            if context_snapshot:
-                breakdown_entry["context_snapshot"] = context_snapshot
-
-            breakdowns: list = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
-            breakdowns.append(breakdown_entry)
-            state[OBS_PER_ITERATION_TOKEN_BREAKDOWN] = breakdowns
-
             request_id = state.get(REQUEST_ID, "unknown")
-            logger.debug("[%s] Model call completed", request_id)
+            logger.debug(
+                "[%s] Model call completed", request_id
+            )
 
         except Exception as e:
             logger.debug("Observability after_model error: %s", e)
@@ -257,7 +232,7 @@ class ObservabilityPlugin(BasePlugin):
         tool: BaseTool,
         tool_args: dict[str, Any],
         tool_context: ToolContext,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Record tool invocation."""
         try:
             tool_name = getattr(tool, "name", str(tool))
@@ -274,7 +249,7 @@ class ObservabilityPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
         event: Event,
-    ) -> Optional[Event]:
+    ) -> Event | None:
         """Enrich events with request ID for correlation and track artifact deltas."""
         try:
             state = invocation_context.session.state
@@ -330,70 +305,27 @@ class ObservabilityPlugin(BasePlugin):
             if request_id != "unknown":
                 self._last_successful_call_id = request_id
 
-            breakdowns = state.get(OBS_PER_ITERATION_TOKEN_BREAKDOWN, [])
-            reasoning_calls = sum(
-                1 for b in breakdowns if b.get("agent_type") == "reasoning"
-            )
-            worker_calls = sum(
-                1 for b in breakdowns if b.get("agent_type") == "worker"
-            )
-
             artifact_saves = self._artifact_saves_acc
-            artifact_bytes = state.get(OBS_ARTIFACT_BYTES_SAVED, 0)
-            child_dispatches = state.get(OBS_CHILD_DISPATCH_COUNT, 0)
-            child_errors = state.get(OBS_CHILD_ERROR_COUNTS, {})
-            batch_dispatches = state.get(OBS_CHILD_TOTAL_BATCH_DISPATCHES, 0)
-            latencies = state.get(OBS_CHILD_DISPATCH_LATENCY_MS, [])
-            final_answer = state.get(FINAL_ANSWER, "")
+            final_answer = state.get(FINAL_RESPONSE_TEXT, "")
             answer_len = len(final_answer) if final_answer else 0
 
-            # Extract total_llm_calls from LAST_REPL_RESULT if present
-            repl_result = state.get(LAST_REPL_RESULT)
-            total_llm_calls = None
-            if isinstance(repl_result, dict):
-                total_llm_calls = repl_result.get("total_llm_calls")
-
             log_msg = (
-                "[%s] Run completed: calls=%d (reasoning=%d, worker=%d), "
+                "[%s] Run completed: calls=%d, "
                 "input_tokens=%d, output_tokens=%d, time=%.2fs, "
                 "answer_len=%d"
             )
             log_args: list = [
                 request_id,
                 state.get(OBS_TOTAL_CALLS, 0),
-                reasoning_calls,
-                worker_calls,
                 state.get(OBS_TOTAL_INPUT_TOKENS, 0),
                 state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
                 total_time,
                 answer_len,
             ]
 
-            if child_dispatches > 0:
-                log_msg += ", child_dispatches=%d"
-                log_args.append(child_dispatches)
-                if child_errors:
-                    log_msg += ", child_errors=%s"
-                    log_args.append(child_errors)
-
-            if batch_dispatches > 0:
-                log_msg += ", batch_dispatches=%d"
-                log_args.append(batch_dispatches)
-
-            if latencies:
-                lat_min = min(latencies)
-                lat_max = max(latencies)
-                lat_mean = sum(latencies) / len(latencies)
-                log_msg += ", dispatch_latency(min=%.1f, max=%.1f, mean=%.1f)"
-                log_args.extend([lat_min, lat_max, lat_mean])
-
             if artifact_saves > 0:
-                log_msg += ", artifact_saves=%d, artifact_bytes=%d"
-                log_args.extend([artifact_saves, artifact_bytes])
-
-            if total_llm_calls is not None:
-                log_msg += ", total_llm_calls=%d"
-                log_args.append(total_llm_calls)
+                log_msg += ", artifact_saves=%d"
+                log_args.append(artifact_saves)
 
             logger.info(log_msg, *log_args)
 
