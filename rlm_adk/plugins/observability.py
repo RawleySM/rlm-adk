@@ -2,6 +2,9 @@
 
 Trigger points: ALL (before/after agent, model, tool; on_event, after_run)
 Observe only - never returns a value, never blocks execution.
+
+All counters are tracked on plugin instance attributes. Session state is
+NOT used as an observability bus — SQLite telemetry is the sole lineage sink.
 """
 
 import logging
@@ -21,13 +24,7 @@ from google.genai import types
 from rlm_adk.state import (
     FINAL_RESPONSE_TEXT,
     INVOCATION_START_TIME,
-    OBS_ARTIFACT_SAVES,
-    OBS_TOOL_INVOCATION_SUMMARY,
-    OBS_TOTAL_CALLS,
-    OBS_TOTAL_INPUT_TOKENS,
-    OBS_TOTAL_OUTPUT_TOKENS,
     REQUEST_ID,
-    obs_model_usage_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +33,9 @@ logger = logging.getLogger(__name__)
 class ObservabilityPlugin(BasePlugin):
     """Tracks usage metrics, timings, and provides structured audit trail.
 
+    All counters live on the plugin instance — no obs keys are written to
+    session state. SQLite telemetry is the authoritative lineage sink.
+
     Observe-only: never returns a value, never blocks execution.
     Logging errors are caught and suppressed.
     """
@@ -43,8 +43,13 @@ class ObservabilityPlugin(BasePlugin):
     def __init__(self, *, name: str = "observability", verbose: bool = False):
         super().__init__(name=name)
         self._verbose = verbose
-        # AR-CRIT-001: accumulators for values that cannot be written via
-        # delta-tracked state in on_event_callback / after_run_callback.
+        # Instance-local counters (not written to session state)
+        self._total_calls: int = 0
+        self._total_input_tokens: int = 0
+        self._total_output_tokens: int = 0
+        self._model_usage: dict[str, dict[str, int]] = {}
+        self._finish_reason_counts: dict[str, int] = {}
+        self._tool_invocation_summary: dict[str, int] = {}
         self._artifact_saves_acc: int = 0
         self._total_execution_time: float | None = None
         self._last_successful_call_id: str | None = None
@@ -71,37 +76,15 @@ class ObservabilityPlugin(BasePlugin):
             pass
         return None
 
-    # ADK plugin after_model_callback state writes are ephemeral.
-    # These summary counters must be re-persisted in
-    # after_agent_callback to appear in final session state.
-    _SUMMARY_COUNTER_KEYS = (
-        OBS_TOTAL_CALLS,
-        OBS_TOTAL_INPUT_TOKENS,
-        OBS_TOTAL_OUTPUT_TOKENS,
-    )
-
     async def after_agent_callback(
         self,
         *,
         agent: BaseAgent,
         callback_context: CallbackContext,
     ) -> types.Content | None:
-        """Record agent exit, persist summary counters and artifacts."""
+        """Record agent exit."""
         try:
             state = callback_context.state
-
-            # Re-persist summary counters so they surface in final
-            # state. Plugin after_model_callback writes are ephemeral.
-            for key in self._SUMMARY_COUNTER_KEYS:
-                val = state.get(key)
-                if val is not None:
-                    state[key] = val
-
-            # AR-CRIT-001: persist artifact saves accumulated by
-            # on_event_callback (which has no delta-tracked channel).
-            if self._artifact_saves_acc > 0:
-                state[OBS_ARTIFACT_SAVES] = self._artifact_saves_acc
-
             agent_name = getattr(agent, "name", "unknown")
             request_id = state.get(REQUEST_ID, "unknown")
             logger.debug(
@@ -135,7 +118,7 @@ class ObservabilityPlugin(BasePlugin):
         callback_context: CallbackContext,
         llm_response: LlmResponse,
     ) -> LlmResponse | None:
-        """Record post-model call metrics: token usage, call counts.
+        """Record post-model call metrics on instance (not session state).
 
         Consumes ``_rlm_pending_request_meta`` from the agent
         (set by ``reasoning_before_model``) for prompt/system
@@ -144,10 +127,8 @@ class ObservabilityPlugin(BasePlugin):
         try:
             state = callback_context.state
 
-            # Increment total calls
-            state[OBS_TOTAL_CALLS] = (
-                state.get(OBS_TOTAL_CALLS, 0) + 1
-            )
+            # Increment total calls on instance
+            self._total_calls += 1
 
             # Extract token usage from response
             usage = llm_response.usage_metadata
@@ -160,31 +141,19 @@ class ObservabilityPlugin(BasePlugin):
                     or 0
                 )
 
-                state[OBS_TOTAL_INPUT_TOKENS] = (
-                    state.get(OBS_TOTAL_INPUT_TOKENS, 0)
-                    + input_tokens
-                )
-                state[OBS_TOTAL_OUTPUT_TOKENS] = (
-                    state.get(OBS_TOTAL_OUTPUT_TOKENS, 0)
-                    + output_tokens
-                )
+                self._total_input_tokens += input_tokens
+                self._total_output_tokens += output_tokens
 
                 model = "unknown"
                 if llm_response.model_version:
                     model = llm_response.model_version
-                model_key = obs_model_usage_key(model)
-                model_usage = state.get(
-                    model_key,
-                    {
-                        "calls": 0,
-                        "input_tokens": 0,
-                        "output_tokens": 0,
-                    },
+                mu = self._model_usage.setdefault(
+                    model,
+                    {"calls": 0, "input_tokens": 0, "output_tokens": 0},
                 )
-                model_usage["calls"] += 1
-                model_usage["input_tokens"] += input_tokens
-                model_usage["output_tokens"] += output_tokens
-                state[model_key] = model_usage
+                mu["calls"] += 1
+                mu["input_tokens"] += input_tokens
+                mu["output_tokens"] += output_tokens
 
             # --- Consume request-side metadata from agent ---
             inv_ctx = getattr(
@@ -204,17 +173,17 @@ class ObservabilityPlugin(BasePlugin):
                 if system_chars is not None:
                     self._last_system_chars = system_chars
 
-            # --- Record finish_reason ---
+            # --- Record finish_reason on instance ---
             finish_reason = (
                 llm_response.finish_reason.name
                 if llm_response.finish_reason
                 else None
             )
             if finish_reason and finish_reason != "STOP":
-                key = (
-                    f"obs:finish_{finish_reason.lower()}_count"
+                key = finish_reason.lower()
+                self._finish_reason_counts[key] = (
+                    self._finish_reason_counts.get(key, 0) + 1
                 )
-                state[key] = state.get(key, 0) + 1
 
             request_id = state.get(REQUEST_ID, "unknown")
             logger.debug(
@@ -233,13 +202,12 @@ class ObservabilityPlugin(BasePlugin):
         tool_args: dict[str, Any],
         tool_context: ToolContext,
     ) -> dict | None:
-        """Record tool invocation."""
+        """Record tool invocation on instance (not session state)."""
         try:
             tool_name = getattr(tool, "name", str(tool))
-            state = tool_context.state
-            summary: dict = state.get(OBS_TOOL_INVOCATION_SUMMARY, {})
-            summary[tool_name] = summary.get(tool_name, 0) + 1
-            state[OBS_TOOL_INVOCATION_SUMMARY] = summary
+            self._tool_invocation_summary[tool_name] = (
+                self._tool_invocation_summary.get(tool_name, 0) + 1
+            )
         except Exception:
             pass
         return None
@@ -264,9 +232,6 @@ class ObservabilityPlugin(BasePlugin):
                 )
 
             # Track artifact operations from event artifact_delta.
-            # AR-CRIT-001: on_event_callback only has invocation_context
-            # (no callback_context), so we accumulate on the plugin instance.
-            # The value is re-persisted via after_agent_callback.
             if event.actions and event.actions.artifact_delta:
                 artifact_count = len(event.actions.artifact_delta)
                 self._artifact_saves_acc += artifact_count
@@ -285,13 +250,11 @@ class ObservabilityPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
     ) -> None:
-        """Record final execution summary."""
+        """Record final execution summary from instance counters."""
         try:
             # AR-CRIT-001: after_run_callback only has invocation_context
             # (no callback_context).  Reads are fine; writes must NOT go
             # to invocation_context.session.state (bypasses delta tracking).
-            # We store computed values on the plugin instance for
-            # programmatic access and use them only for logging here.
             state = invocation_context.session.state  # read-only usage below
             start_time = state.get(INVOCATION_START_TIME, 0)
             total_time = 0.0
@@ -316,9 +279,9 @@ class ObservabilityPlugin(BasePlugin):
             )
             log_args: list = [
                 request_id,
-                state.get(OBS_TOTAL_CALLS, 0),
-                state.get(OBS_TOTAL_INPUT_TOKENS, 0),
-                state.get(OBS_TOTAL_OUTPUT_TOKENS, 0),
+                self._total_calls,
+                self._total_input_tokens,
+                self._total_output_tokens,
                 total_time,
                 answer_len,
             ]

@@ -4,16 +4,33 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-# Full list of scopes requested for Gmail, Drive, Tasks, and GCP (Trace/Logging)
+# Full list of scopes for all Google Workspace APIs + GCP
 SCOPES = [
+    # Gmail
+    'https://mail.google.com/',                              # Full Gmail access (read/compose/send/delete)
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.settings.basic',  # Email settings and filters
+    # Google Drive
     'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/drive.activity',        # File activity record
+    # Google Docs
+    'https://www.googleapis.com/auth/documents',
+    # Google Sheets
+    'https://www.googleapis.com/auth/spreadsheets',
+    # Google Calendar
+    'https://www.googleapis.com/auth/calendar',
+    # Google Tasks
     'https://www.googleapis.com/auth/tasks',
-    'https://www.googleapis.com/auth/youtube.readonly',  # YouTube Data API v3 (search, list videos)
-    'https://www.googleapis.com/auth/cloud-platform',  # Required for Trace/Logging/Telemetry
+    # People / Contacts
+    'https://www.googleapis.com/auth/contacts',
+    'https://www.googleapis.com/auth/contacts.readonly',
+    # YouTube
+    'https://www.googleapis.com/auth/youtube.readonly',
+    # GCP (Trace/Logging/Telemetry)
+    'https://www.googleapis.com/auth/cloud-platform',
 ]
 
 def main():
@@ -45,7 +62,7 @@ def main():
             token.write(creds.to_json())
         
         print("\nSUCCESS: 'token.json' has been created.")
-        print("Your rlm-agent can now access Gmail, Drive, Tasks, Trace, and Logging.")
+        print("Your rlm-agent can now access Gmail, Drive, Docs, Sheets, Calendar, Tasks, Contacts, YouTube, and GCP.")
 
 if __name__ == '__main__':
     main()

@@ -218,12 +218,5 @@
     "final_answer": "42",
     "total_model_calls": 6
   },
-  "expected_state": {
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    }
-  }
+  "expected_state": {}
 }

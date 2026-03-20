@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_auth_error_401",
-  "description": "FM-28 (RPN=6): Single worker dispatch where the worker HTTP response is 401 Unauthorized. Unlike 5xx errors, 4xx ClientErrors are NOT retried by the SDK \u2014 the error propagates directly to on_model_error_callback which sets _result_error=True. REPL code checks result.error and result.error_category. The _classify_error function in worker.py maps status code 401 to 'AUTH' category, but the fake provider's ClientError may not expose .code as an integer attribute, so actual classification may be 'UNKNOWN'.",
+  "description": "FM-28 (RPN=6): Single worker dispatch where the worker HTTP response is 401 Unauthorized. Unlike 5xx errors, 4xx ClientErrors are NOT retried by the SDK — the error propagates directly to on_model_error_callback which sets _result_error=True. REPL code checks result.error and result.error_category. The _classify_error function in worker.py maps status code 401 to 'AUTH' category, but the fake provider's ClientError may not expose .code as an integer attribute, so actual classification may be 'UNKNOWN'.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -93,15 +93,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   },
   "expected_contract": {
@@ -148,9 +139,6 @@
       ]
     },
     "observability": {
-      "obs:tool_invocation_summary": {
-        "execute_code": 1
-      },
       "last_repl_result": {
         "has_output": true,
         "total_llm_calls": 1,
@@ -165,9 +153,6 @@
             "$gte": 0
           }
         }
-      },
-      "obs:total_calls": {
-        "$gt": 0
       }
     }
   },
@@ -185,13 +170,6 @@
             }
           }
         ]
-      },
-      "observability": {
-        "obs:child_summary@d1f0": {
-          "result_preview": {
-            "$contains": "AuthenticationError"
-          }
-        }
       }
     }
   }

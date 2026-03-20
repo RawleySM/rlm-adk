@@ -12,7 +12,7 @@
     {
       "call_index": 0,
       "caller": "reasoning",
-      "note": "Iteration 1: REPL code accesses undefined_variable \u2014 raises NameError. REPLTool returns stderr with the traceback.",
+      "note": "Iteration 1: REPL code accesses undefined_variable — raises NameError. REPLTool returns stderr with the traceback.",
       "status": 200,
       "body": {
         "candidates": [
@@ -113,15 +113,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   }
 }

@@ -48,19 +48,18 @@ CACHE_HIT_COUNT = "cache:hit_count"
 CACHE_MISS_COUNT = "cache:miss_count"
 CACHE_LAST_HIT_KEY = "cache:last_hit_key"
 
-# Observability Keys (session-scoped)
-OBS_TOTAL_INPUT_TOKENS = "obs:total_input_tokens"
-OBS_TOTAL_OUTPUT_TOKENS = "obs:total_output_tokens"
-OBS_TOTAL_CALLS = "obs:total_calls"
-OBS_TOOL_INVOCATION_SUMMARY = "obs:tool_invocation_summary"
-OBS_TOTAL_EXECUTION_TIME = "obs:total_execution_time"
+# Invocation Timing (session-scoped, control-plane)
 INVOCATION_START_TIME = "invocation_start_time"
 
-# Finish Reason Tracking (written by ObservabilityPlugin)
-OBS_FINISH_SAFETY_COUNT = "obs:finish_safety_count"
-OBS_FINISH_RECITATION_COUNT = "obs:finish_recitation_count"
-OBS_FINISH_MAX_TOKENS_COUNT = "obs:finish_max_tokens_count"
 
+# Observability Keys (session-scoped)
+# NOTE: These global accumulator keys are candidates for migration to the
+# lineage plane (SQLite telemetry / agent-local attrs) per the three-plane
+# refactor vision (prompts/lineage_control_plane_REFACTOR.md). They remain
+# in state for now as lightweight run-summary counters. sqlite_tracing
+# already captures authoritative values directly, so these state keys are
+# redundant for telemetry but still used by ObservabilityPlugin's
+# after_agent_callback re-persistence workaround.
 
 # AST Rewrite Instrumentation (written by REPLTool)
 OBS_REWRITE_COUNT = "obs:rewrite_count"
@@ -105,8 +104,6 @@ ARTIFACT_LAST_SAVED_VERSION = "artifact_last_saved_version"
 # LiteLLM Cost Tracking (session-scoped aggregate)
 OBS_LITELLM_TOTAL_COST = "obs:litellm_total_cost"
 
-# Artifact Observability Keys (session-scoped)
-OBS_ARTIFACT_SAVES = "obs:artifact_saves"
 
 # Artifact Configuration Keys (app-scoped)
 APP_ARTIFACT_OFFLOAD_THRESHOLD = "app:artifact_offload_threshold"
@@ -141,7 +138,7 @@ EXPOSED_STATE_KEYS: frozenset[str] = frozenset(
 
 
 DEPTH_SCOPED_KEYS: set[str] = {
-    MESSAGE_HISTORY,
+    CURRENT_DEPTH,
     ITERATION_COUNT,
     FINAL_RESPONSE_TEXT,
     LAST_REPL_RESULT,
@@ -156,7 +153,9 @@ DEPTH_SCOPED_KEYS: set[str] = {
     REPL_DID_EXPAND,
 }
 # NOTE: Only iteration-local keys that need independent state per depth
-# level are included. Global observability keys are excluded.
+# level are included. CURRENT_DEPTH is included because child
+# orchestrators write depth_key(CURRENT_DEPTH, depth) and REPLTool
+# must read the depth-scoped value. Global observability keys are excluded.
 
 
 def depth_key(key: str, depth: int = 0) -> str:
@@ -165,12 +164,17 @@ def depth_key(key: str, depth: int = 0) -> str:
     At depth 0 the original key is returned unchanged.
     At depth N > 0 the key is suffixed with ``@dN`` so nested
     reasoning agents operate on independent state.
+
+    Design note: Fanout scoping (``@dNfM``) is NOT implemented.
+    Sibling children at the same depth share the ``@dN`` namespace.
+    This is acceptable because:
+    - Children run in branch-isolated event streams (dispatch.py)
+    - Completion is read from in-memory agent attrs, not state keys
+    - sqlite_tracing._parse_key() supports @dNfM parsing for future
+      expansion if needed
     """
     if depth == 0:
         return key
     return f"{key}@d{depth}"
 
 
-def obs_model_usage_key(model_name: str) -> str:
-    """Generate the observability key for a specific model's usage stats."""
-    return f"obs:model_usage:{model_name}"

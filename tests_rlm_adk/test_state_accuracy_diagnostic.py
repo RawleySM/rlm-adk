@@ -23,11 +23,6 @@ FIXTURE_DIR = Path("tests_rlm_adk/fixtures/provider_fake")
 # State keys we want to track across events
 TRACKED_KEYS = {
     "iteration_count",
-    "obs:total_input_tokens",
-    "obs:total_output_tokens",
-    "obs:total_calls",
-    "obs:tool_invocation_summary",
-    "obs:finish_max_tokens_count",
     "obs:rewrite_count",
     "last_repl_result",
 }
@@ -143,7 +138,7 @@ async def test_state_accuracy_audit(fixture_name: str, tmp_path: Path):
     with open(fixture_path) as f:
         fixture = json.load(f)
     expected_iterations = fixture.get("expected", {}).get("total_iterations", 0)
-    expected_calls = fixture.get("expected", {}).get("total_model_calls", 0)
+
 
     result = await run_fixture_contract_with_plugins(
         fixture_path,
@@ -193,12 +188,9 @@ async def test_state_accuracy_audit(fixture_name: str, tmp_path: Path):
             f"Final iteration_count={final_iter} != expected={expected_iterations}"
         )
 
-    # 3. obs:total_calls should match expected total_model_calls
-    final_total_calls = result.final_state.get("obs:total_calls", 0)
-    print(
-        f"\n  final obs:total_calls = {final_total_calls}, "
-        f"expected = {expected_calls}"
-    )
+    # 3. obs:total_calls removed from session state — SQLite telemetry
+    # is now the sole source for call counts.
+    print(f"\n  (obs:total_calls no longer in session state — verify via traces DB)")
 
     # 4. Cross-check: last_repl_result should exist
     last_repl = result.final_state.get("last_repl_result")

@@ -1,6 +1,6 @@
 {
   "scenario_id": "structured_output_batched_k1",
-  "description": "Iteration 1: reasoning returns REPL code with llm_query_batched(['prompt'], output_schema=SentimentResult). K=1 exercises the batched code path without ParallelAgent. Worker responds via functionCall \u2014 ends after tool success. Iteration 2: reasoning returns FINAL.",
+  "description": "Iteration 1: reasoning returns REPL code with llm_query_batched(['prompt'], output_schema=SentimentResult). K=1 exercises the batched code path without ParallelAgent. Worker responds via functionCall — ends after tool success. Iteration 2: reasoning returns FINAL.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -43,7 +43,7 @@
     {
       "call_index": 1,
       "caller": "worker",
-      "note": "functionCall: set_model_response with valid SentimentResult \u2014 worker ends after tool success",
+      "note": "functionCall: set_model_response with valid SentimentResult — worker ends after tool success",
       "status": 200,
       "body": {
         "candidates": [

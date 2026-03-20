@@ -32,10 +32,6 @@ from rlm_adk.state import (
     EXPOSED_STATE_KEYS,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    OBS_REWRITE_COUNT,
-    OBS_REWRITE_FAILURE_CATEGORIES,
-    OBS_REWRITE_FAILURE_COUNT,
-    OBS_REWRITE_TOTAL_MS,
     REPL_DID_EXPAND,
     REPL_EXPANDED_CODE,
     REPL_EXPANDED_CODE_HASH,
@@ -207,8 +203,12 @@ class REPLTool(BaseTool):
                 _state_snapshot[key] = val  # Use unscoped key name for clean API
 
         # Inject runtime lineage metadata from the tool/agent for
-        # non-circular test verification (values originate from production
-        # wiring in orchestrator.py, not from fixture-scripted responses).
+        # non-circular test verification. After the CURRENT_DEPTH fix,
+        # _rlm_depth and current_depth show the same value, but they
+        # have independent provenance paths: _rlm_depth comes from the
+        # REPLTool constructor (set by orchestrator), while current_depth
+        # flows through the session state event pipeline. Keeping both
+        # enables cross-check diagnostics when one path fails.
         _state_snapshot["_rlm_depth"] = self._depth
         _state_snapshot["_rlm_fanout_idx"] = self._fanout_idx
         _inv = getattr(tool_context, "_invocation_context", None)
@@ -228,20 +228,9 @@ class REPLTool(BaseTool):
                     _rewrite_ms = (time.perf_counter() - _t0) * 1000
                     self._rewrite_count += 1
                     self._rewrite_total_ms += _rewrite_ms
-                    # Write rewrite instrumentation early -- the count is known
-                    # after the AST transform, before execution begins, so it
-                    # survives execution errors (CancelledError / Exception).
-                    tool_context.state[OBS_REWRITE_COUNT] = self._rewrite_count
-                    tool_context.state[OBS_REWRITE_TOTAL_MS] = round(self._rewrite_total_ms, 3)
                     compiled = compile(tree, "<repl>", "exec")
-                except Exception as rewrite_exc:
-                    # Track rewrite failures separately from execution failures
+                except Exception:
                     self._rewrite_failure_count += 1
-                    tool_context.state[OBS_REWRITE_FAILURE_COUNT] = self._rewrite_failure_count
-                    categories = tool_context.state.get(OBS_REWRITE_FAILURE_CATEGORIES, {})
-                    err_name = type(rewrite_exc).__name__
-                    categories[err_name] = categories.get(err_name, 0) + 1
-                    tool_context.state[OBS_REWRITE_FAILURE_CATEGORIES] = categories
                     raise
                 # Delegate compiled async wrapper to LocalREPL/executor.
                 # The executor installs _repl_exec into the namespace and runs it.

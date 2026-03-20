@@ -524,3 +524,123 @@ Especially remove any wording that implies session-state deltas are the required
 That is the cleanest split for your current architecture because it preserves the real runtime contract — `execute_code` versus validated `set_model_response` on the same reasoning loop — while removing the accidental dependence on session-state mirroring as the main observability channel.   
 
 If you want, I can turn this into a file-by-file implementation checklist with pseudocode patches for each module.
+
+---
+
+# Implementation summary
+
+## Legacy code removal
+
+The following sections contain directives to **stop**, **remove**, or **delete** existing behavior as part of this refactor.
+
+Status key: DONE = already implemented in production code. REMAINING = code still to change.
+
+### — Design decision
+
+**Directive:** **stop** treating session state as the default observability bus
+
+**Status: DONE.** Production callbacks write to agent-local attrs, not state. SQLite tracer reads `llm_request` directly. `post_dispatch_state_patch_fn` writes only `DYN_SKILL_INSTRUCTION`.
+
+---
+
+### 2) Shrink the session-state contract aggressively
+
+**Directive:** **remove** lineage data from state; callbacks should **stop** writing it
+
+**Status: DONE.** All `REASONING_*` constants removed from `state.py`. Zero production write sites. Residual dead references in non-production files:
+
+| Key | Dead reference sites |
+|---|---|
+| `REASONING_VISIBLE_OUTPUT_TEXT` | `experiments/custom_metadata_callback.py:27,112` (import+write); `experiments/test_custom_metadata_e2e.py:41,755-756,590,763` (import+reads); `tests_rlm_adk/test_dashboard_ui_gaps.py:24` (local string constant for UI tests) |
+| `REASONING_THOUGHT_TEXT` | `experiments/custom_metadata_callback.py:25,113`; `experiments/test_custom_metadata_e2e.py:39,591` |
+| `REASONING_THOUGHT_TOKENS` | `experiments/custom_metadata_callback.py:26,118`; `experiments/test_custom_metadata_e2e.py:40,595` |
+| `REASONING_FINISH_REASON` | `experiments/custom_metadata_callback.py:22,115`; `experiments/test_custom_metadata_e2e.py:36,592` |
+| `REASONING_INPUT_TOKENS` | `experiments/custom_metadata_callback.py:23,116`; `experiments/test_custom_metadata_e2e.py:37,349,363,593,615` |
+| `REASONING_OUTPUT_TOKENS` | `experiments/custom_metadata_callback.py:24,117`; `experiments/test_custom_metadata_e2e.py:38,594` |
+| `REASONING_RAW_OUTPUT` | No live `.py` references |
+| `REASONING_PARSED_OUTPUT` | No live `.py` references |
+| `REASONING_PROMPT_CHARS` | No live `.py` references (computed inline in `sqlite_tracing.py:1013-1035`) |
+| `REASONING_SYSTEM_CHARS` | No live `.py` references (computed inline in `sqlite_tracing.py:1026-1035`) |
+| `CONTEXT_WINDOW_SNAPSHOT` | No live `.py` references (removal documented in `sqlite_tracing.py:1014` comment) |
+| `obs:child_summary` | No production write sites. Read-only consumers: `dashboard/live_loader.py:753`; `eval/session_report.py:543` |
+| `obs:worker_error_counts` | No production write sites. Read-only consumer: `eval/trace_reader.py:606` |
+
+**REMAINING:** Clean up `experiments/custom_metadata_callback.py` broken imports. Dashboard/eval readers for `obs:child_summary` and `obs:worker_error_counts` are harmless (query SSE rows from historical data) but could be documented as legacy-only.
+
+---
+
+### 3) Make canonical callbacks write lineage and agent-local completion, not state
+
+**Directive:** **do not** write observability into session state (before_model); **do not** write response observability to state (after_model)
+
+**Status: DONE.** `reasoning_before_model` writes only to `agent._rlm_pending_request_meta` via `object.__setattr__` (`callbacks/reasoning.py:167`). `reasoning_after_model` writes only to `agent._rlm_last_response_meta` (`callbacks/reasoning.py:227`). Zero session-state writes. Two test-only hooks (`cb_reasoning_context` at line 265, `cb_tool_context` at line 310) are correctly segregated.
+
+---
+
+### 5) Simplify orchestrator finalization around `CompletionEnvelope`
+
+**Directive:** **do not** emit `REASONING_RAW_OUTPUT`, `REASONING_PARSED_OUTPUT`, token counts, or response text/thought keys back into session state
+
+**Status: DONE.** None of these keys exist in `orchestrator.py`. Completion reconstructed from agent-local attrs via `_collect_completion` (`orchestrator.py:123-206`): priority chain reads `_rlm_terminal_completion` (line 139), `_rlm_last_response_meta` (line 144), `_structured_result` (line 151), `output_key` (line 149-150). `CompletionEnvelope` defined in `types.py:245`, `render_completion_text` at `types.py:279`. Orchestrator emits only: `FINAL_RESPONSE_TEXT`, `SHOULD_STOP`, `CURRENT_DEPTH`, `ITERATION_COUNT`, `REQUEST_ID`, prompt/skill keys, and two retry-obs keys (`OBS_REASONING_RETRY_COUNT` at line 543, `OBS_REASONING_RETRY_DELAY_MS` at line 544).
+
+---
+
+### 6) Remove child-lineage propagation through shared session state
+
+**Directive:** **remove** `_CHILD_PROPAGATION_KEYS`, `_acc_child_depth_state`; **delete** session-state transport of per-child lineage summaries; **stop** using `flush_fn()` as telemetry transport
+
+**Status: DONE.** `_CHILD_PROPAGATION_KEYS` and `_acc_child_depth_state` were never implemented — exist only in planning docs. `flush_fn` renamed to `post_dispatch_state_patch_fn` (`dispatch.py:550-559`), writes only `DYN_SKILL_INSTRUCTION`. No child `@dN` key propagation into parent state. Child results returned via agent-local `_rlm_terminal_completion` and `LLMResult` fields.
+
+---
+
+### 7) Turn SQLite tracing into the authoritative lineage sink
+
+**Directive:** **stop** depending on `CONTEXT_WINDOW_SNAPSHOT` in state; **stop** relying on session-state events for reasoning lineage
+
+**Status: DONE.** `CONTEXT_WINDOW_SNAPSHOT` removed; `before_model_callback` computes `prompt_chars`/`system_chars` directly from `llm_request` (`sqlite_tracing.py:1013-1035`; removal documented at line 1014). Zero `REASONING_*` reads. `session_state_events` captures only curated working-state keys via `_CURATED_EXACT` (lines 113-120: `current_depth`, `iteration_count`, `should_stop`, `final_response_text`, `last_repl_result`, `skill_instruction`) and `_CURATED_PREFIXES` (lines 103-111: `obs:artifact_*`, `artifact_*`, `repl_*` code keys).
+
+---
+
+### 8) Slim or repurpose `ObservabilityPlugin`
+
+**Directive:** **remove** plugin-side persistence of model-call lineage into state; **delete** per-call observability writes that duplicate the SQLite lineage plane
+
+**Status: REMAINING.** `ObservabilityPlugin` (`plugins/observability.py`) still writes 7 `obs:` keys to session state:
+
+| Key | Written at | Mechanism |
+|---|---|---|
+| `obs:total_calls` | `observability.py:148` (after_model), `:98` (after_agent re-persist) | `callback_context.state` |
+| `obs:total_input_tokens` | `observability.py:163` (after_model), `:98` (after_agent re-persist) | `callback_context.state` |
+| `obs:total_output_tokens` | `observability.py:167` (after_model), `:98` (after_agent re-persist) | `callback_context.state` |
+| `obs:model_usage:<model>` | `observability.py:187` (after_model) | `callback_context.state` |
+| `obs:finish_<reason>_count` | `observability.py:215-217` (after_model) | `callback_context.state` |
+| `obs:tool_invocation_summary` | `observability.py:241-242` (before_tool) | `tool_context.state` |
+| `obs:artifact_saves` | `observability.py:103` (after_agent) | deferred from `on_event_callback` accumulator |
+
+The `after_agent_callback` re-persistence workaround (lines 83-103) exists specifically because `after_model_callback` state writes are ephemeral. `INVOCATION_START_TIME` written at `observability.py:65`.
+
+**Decision needed:** keep as lightweight run-summary counters, or delete and let SQLite telemetry be the sole source. `sqlite_tracing.py` already derives these independently from telemetry rows (`_build_trace_summary_from_telemetry`).
+
+---
+
+### 9) Rework `_rlm_state` exposure for REPL introspection
+
+**Directive:** **do not** expose telemetry-heavy `obs:*` lineage or token-accounting keys by default
+
+**Status: DONE.** `EXPOSED_STATE_KEYS` (`state.py:129-140`) is a `frozenset` of exactly 8 approved keys: `ITERATION_COUNT`, `CURRENT_DEPTH`, `APP_MAX_ITERATIONS`, `APP_MAX_DEPTH`, `LAST_REPL_RESULT`, `STEP_MODE_ENABLED`, `SHOULD_STOP`, `FINAL_RESPONSE_TEXT`. Zero `obs:` keys. Tests explicitly assert exclusion (`test_repl_state_snapshot.py:88`, `test_rlm_state_snapshot_audit.py:136`). REPL snapshot built at `repl_tool.py:201-220`, adds only 3 lineage metadata keys (`_rlm_depth`, `_rlm_fanout_idx`, `_rlm_agent_name`).
+
+---
+
+### 10) Update child result normalization to stop mining shared state
+
+**Directive:** **stop** reading child visible/thought/tokens from shared state
+
+**Status: DONE.** `_read_child_completion` (`dispatch.py:182-276`) uses agent-attr priority chain: P1 `child._rlm_terminal_completion` (line 202), P2 `agent._rlm_terminal_completion` (line 206), P3 `agent._structured_result` (line 224), P4 `child_state[output_key]` from local event-delta accumulator (line 244), P5 error sentinel. No shared session state reads. `_collect_completion` (`orchestrator.py:123-206`) mirrors the same pattern. `CompletionEnvelope` at `types.py:245`.
+
+---
+
+### 12) Docs to update
+
+**Directive:** **remove** wording that implies session-state deltas carry child lineage or structured-output observability
+
+**Status: REMAINING.** Files to audit: `rlm_adk_docs/core_loop.md`, `rlm_adk_docs/dispatch_and_state.md`, `rlm_adk_docs/observability.md`. `observability.md` still references `CONTEXT_WINDOW_SNAPSHOT` at lines 66, 250, 302, 521 as a removed/legacy key (confirm wording is accurate, not prescriptive).

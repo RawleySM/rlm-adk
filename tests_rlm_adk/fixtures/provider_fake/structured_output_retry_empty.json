@@ -1,6 +1,6 @@
 {
   "scenario_id": "structured_output_retry_empty",
-  "description": "Iteration 1: reasoning returns REPL code with llm_query + output_schema. Worker's first functionCall has empty summary field \u2014 WorkerRetryPlugin.extract_error_from_result detects the empty string and returns ToolFailureResponse as the FunctionResponse. Model retries with valid data on second functionCall \u2014 tool succeeds, worker ends. Iteration 2: reasoning returns FINAL. Worker API calls: bad functionCall (empty) + corrected functionCall = 2.",
+  "description": "Iteration 1: reasoning returns REPL code with llm_query + output_schema. Worker's first functionCall has empty summary field — WorkerRetryPlugin.extract_error_from_result detects the empty string and returns ToolFailureResponse as the FunctionResponse. Model retries with valid data on second functionCall — tool succeeds, worker ends. Iteration 2: reasoning returns FINAL. Worker API calls: bad functionCall (empty) + corrected functionCall = 2.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -43,7 +43,7 @@
     {
       "call_index": 1,
       "caller": "worker",
-      "note": "functionCall with EMPTY summary field \u2014 Pydantic validation passes but WorkerRetryPlugin detects empty string",
+      "note": "functionCall with EMPTY summary field — Pydantic validation passes but WorkerRetryPlugin detects empty string",
       "status": 200,
       "body": {
         "candidates": [
@@ -77,7 +77,7 @@
     {
       "call_index": 2,
       "caller": "worker",
-      "note": "corrected functionCall after reflection guidance \u2014 valid args, worker ends after tool success",
+      "note": "corrected functionCall after reflection guidance — valid args, worker ends after tool success",
       "status": 200,
       "body": {
         "candidates": [
@@ -145,15 +145,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   }
 }

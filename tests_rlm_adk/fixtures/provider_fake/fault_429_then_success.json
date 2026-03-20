@@ -55,15 +55,5 @@
     "total_iterations": 0,
     "total_model_calls": 2
   },
-  "expected_state": {
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
-    }
-  }
+  "expected_state": {}
 }

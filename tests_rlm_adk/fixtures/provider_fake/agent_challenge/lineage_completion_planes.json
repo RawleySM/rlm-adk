@@ -313,7 +313,9 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": {"$contains": "Multi-depth analysis complete"},
+    "final_answer": {
+      "$contains": "Multi-depth analysis complete"
+    },
     "total_iterations": 2,
     "total_model_calls": 9
   },
@@ -345,9 +347,9 @@
       ]
     },
     "observability": {
-      "obs:total_calls": 9,
-      "obs:total_input_tokens": {"$gte": 2000},
-      "last_repl_result": {"$not_none": true}
+      "last_repl_result": {
+        "$not_none": true
+      }
     }
   }
 }

@@ -164,7 +164,7 @@ class TestSnapshotInjectedIntoRepl:
         tc = _make_tool_context(
             {
                 scoped_key: fake_repl_result,
-                CURRENT_DEPTH: depth,
+                depth_key(CURRENT_DEPTH, depth): depth,  # depth-scoped
                 APP_MAX_ITERATIONS: 30,
             }
         )
@@ -182,7 +182,7 @@ class TestSnapshotInjectedIntoRepl:
         assert snapshot.get(LAST_REPL_RESULT) == fake_repl_result, (
             f"Expected last_repl_result from depth-scoped lookup, got {snapshot}"
         )
-        # CURRENT_DEPTH is not depth-scoped (not in DEPTH_SCOPED_KEYS)
+        # CURRENT_DEPTH IS depth-scoped (in DEPTH_SCOPED_KEYS)
         assert snapshot.get(CURRENT_DEPTH) == depth
         # iteration_count is depth-scoped and was written by REPLTool as 1
         assert snapshot.get(ITERATION_COUNT) == 1

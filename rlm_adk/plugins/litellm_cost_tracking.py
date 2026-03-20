@@ -72,7 +72,7 @@ class LiteLLMCostTrackingPlugin(BasePlugin):
             )
             self._total_cost += cost
             self.last_call_cost = round(cost, 6)
-            # Session aggregate — state plane (like OBS_TOTAL_INPUT_TOKENS)
+            # Session aggregate — state plane
             callback_context.state[OBS_LITELLM_TOTAL_COST] = round(self._total_cost, 6)
         except Exception as e:
             logger.debug("LiteLLM cost tracking error: %s", e)

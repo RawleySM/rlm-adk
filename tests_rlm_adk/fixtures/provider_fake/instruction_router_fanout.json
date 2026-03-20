@@ -221,7 +221,14 @@
   },
   "expected_contract": {
     "callers": {
-      "sequence": ["reasoning", "worker", "worker", "worker", "worker", "reasoning"],
+      "sequence": [
+        "reasoning",
+        "worker",
+        "worker",
+        "worker",
+        "worker",
+        "reasoning"
+      ],
       "counts": {
         "reasoning": 2,
         "worker": 4

@@ -118,15 +118,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   },
   "expected_contract": {
@@ -179,9 +170,6 @@
       ]
     },
     "observability": {
-      "obs:tool_invocation_summary": {
-        "execute_code": 1
-      },
       "last_repl_result": {
         "has_errors": false,
         "has_output": true,
@@ -197,9 +185,6 @@
             "$gte": 0
           }
         }
-      },
-      "obs:total_calls": {
-        "$gt": 0
       }
     }
   },
@@ -242,17 +227,6 @@
         ]
       },
       "observability": {
-        "obs:child_summary@d1f0": {
-          "error": true,
-          "error_category": "SERVER",
-          "prompt_preview": "What is the status?",
-          "result_preview": {
-            "$contains": "InternalServerError"
-          },
-          "final_answer": {
-            "$contains": "Error"
-          }
-        },
         "last_repl_result": {
           "has_errors": false,
           "has_output": true,

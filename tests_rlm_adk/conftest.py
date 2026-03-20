@@ -55,7 +55,7 @@ def repl_capture(request: pytest.FixtureRequest):
 
     After the test, the fixture writes the captured JSON if a path was given.
     """
-    from tests_rlm_adk.provider_fake.repl_capture_plugin import REPLCapturePlugin
+    from rlm_adk.plugins.repl_capture_plugin import REPLCapturePlugin
 
     capture_path = request.config.getoption("--repl-capture-json")
     if capture_path is None:

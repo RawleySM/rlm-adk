@@ -54,7 +54,7 @@ class TestStepModeOff:
         plugin = StepModePlugin()
         mock_ctx = MagicMock()
         mock_ctx._invocation_context.agent.name = "reasoning_agent"
-        mock_ctx.state = {"current_depth": 0}
+        mock_ctx.state = {"current_depth": 999}  # decoy — step_mode reads depth from agent name, not state
         mock_request = MagicMock()
 
         result = await plugin.before_model_callback(
@@ -76,7 +76,7 @@ class TestStepModeOn:
         plugin = StepModePlugin()
         mock_ctx = MagicMock()
         mock_ctx._invocation_context.agent.name = "reasoning_agent"
-        mock_ctx.state = {"current_depth": 0}
+        mock_ctx.state = {"current_depth": 999}  # decoy — step_mode reads depth from agent name, not state
         mock_request = MagicMock()
 
         # Launch the callback as a background task

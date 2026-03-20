@@ -113,8 +113,7 @@ async def test_rlm_state_snapshot_accuracy(fixture_name: str, tmp_path: Path):
     # Also dump the final state for comparison
     print(f"\n  --- FINAL SESSION STATE (key subset) ---")
     state_keys = [
-        "iteration_count", "obs:total_calls",
-        "obs:total_input_tokens", "obs:total_output_tokens",
+        "iteration_count",
         "obs:rewrite_count",
     ]
     for k in state_keys:

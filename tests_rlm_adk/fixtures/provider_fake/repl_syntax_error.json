@@ -110,15 +110,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   }
 }

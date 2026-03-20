@@ -170,14 +170,6 @@
           }
         }
       ]
-    },
-    "observability": {
-      "counters": {
-        "obs:tool_invocation_summary": {
-          "execute_code": 1
-        },
-        "obs:total_calls": 3
-      }
     }
   },
   "expected_state": {

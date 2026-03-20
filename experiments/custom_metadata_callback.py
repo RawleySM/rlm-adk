@@ -3,9 +3,9 @@
 This callback proves that ADK's custom_metadata field on LlmResponse can carry
 all the metadata currently encoded in LLMResult + depth-scoped state keys.
 
-It writes to BOTH channels:
-  1. llm_response.custom_metadata (new path under test)
-  2. callback_context.state via depth_key (existing path, for dual-channel verification)
+It writes ONLY to llm_response.custom_metadata (the new lineage path).
+The old depth-scoped state-key channel has been removed — those constants
+no longer exist in rlm_adk.state.
 
 Returns None (observe-only, does not alter the response).
 """
@@ -17,16 +17,6 @@ from typing import Any
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
-
-from rlm_adk.state import (
-    REASONING_FINISH_REASON,
-    REASONING_INPUT_TOKENS,
-    REASONING_OUTPUT_TOKENS,
-    REASONING_THOUGHT_TEXT,
-    REASONING_THOUGHT_TOKENS,
-    REASONING_VISIBLE_OUTPUT_TEXT,
-    depth_key,
-)
 
 
 def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]:
@@ -69,9 +59,8 @@ def experimental_after_model_callback(
 ) -> LlmResponse | None:
     """Experimental after_model_callback using custom_metadata for metadata transport.
 
-    Sets llm_response.custom_metadata with all fields currently carried by
-    LLMResult and depth-scoped state keys. Also writes to callback_context.state
-    via depth_key for dual-channel verification.
+    Sets llm_response.custom_metadata with all fields previously carried by
+    LLMResult and depth-scoped state keys.
 
     Returns None (observe-only).
     """
@@ -97,7 +86,7 @@ def experimental_after_model_callback(
         output_tokens = 0
         thought_tokens = 0
 
-    # --- Channel 1: custom_metadata on LlmResponse ---
+    # --- custom_metadata on LlmResponse (sole transport channel) ---
     llm_response.custom_metadata = {
         "rlm_depth": depth,
         "visible_output_text": visible_text,
@@ -107,14 +96,5 @@ def experimental_after_model_callback(
         "output_tokens": output_tokens,
         "thoughts_tokens": thought_tokens,
     }
-
-    # --- Channel 2: depth-scoped state keys (existing path) ---
-    callback_context.state[depth_key(REASONING_VISIBLE_OUTPUT_TEXT, depth)] = visible_text
-    callback_context.state[depth_key(REASONING_THOUGHT_TEXT, depth)] = thought_text
-    if finish_reason is not None:
-        callback_context.state[depth_key(REASONING_FINISH_REASON, depth)] = finish_reason
-    callback_context.state[depth_key(REASONING_INPUT_TOKENS, depth)] = input_tokens
-    callback_context.state[depth_key(REASONING_OUTPUT_TOKENS, depth)] = output_tokens
-    callback_context.state[depth_key(REASONING_THOUGHT_TOKENS, depth)] = thought_tokens
 
     return None

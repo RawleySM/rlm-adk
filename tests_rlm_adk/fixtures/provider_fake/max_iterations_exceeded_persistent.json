@@ -179,15 +179,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   },
   "expected_contract": {
@@ -260,9 +251,6 @@
       ]
     },
     "observability": {
-      "obs:tool_invocation_summary": {
-        "execute_code": 4
-      },
       "last_repl_result": {
         "has_errors": false,
         "has_output": true,
@@ -278,8 +266,7 @@
             "$gte": 0
           }
         }
-      },
-      "obs:total_calls": 5
+      }
     }
   }
 }

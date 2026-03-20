@@ -213,7 +213,7 @@
               "role": "model",
               "parts": [
                 {
-                  "text": "The polymorphic DAG routing completed successfully:\n\n- Phase 1 (Triage): 4 records classified into 3 disposition buckets\n  - exact_match: 1 (V-001 Pfizer)\n  - fuzzy_match: 2 (V-002 Novartis, V-004 3M)\n  - anomaly: 1 (V-003 Mystery Supplier)\n\n- Phase 2 (Routing):\n  - exact_match \u2192 COMMIT (1 record)\n  - fuzzy_match \u2192 comparison agent: V-002 ACCEPT (conf 0.88), V-004 HUMAN_REVIEW (conf 0.65)\n  - anomaly \u2192 QUARANTINE (1 record)\n\nFINAL(DAG routing: 1 committed, 1 accepted, 1 human_review, 1 quarantined. 0 errors.)"
+                  "text": "The polymorphic DAG routing completed successfully:\n\n- Phase 1 (Triage): 4 records classified into 3 disposition buckets\n  - exact_match: 1 (V-001 Pfizer)\n  - fuzzy_match: 2 (V-002 Novartis, V-004 3M)\n  - anomaly: 1 (V-003 Mystery Supplier)\n\n- Phase 2 (Routing):\n  - exact_match → COMMIT (1 record)\n  - fuzzy_match → comparison agent: V-002 ACCEPT (conf 0.88), V-004 HUMAN_REVIEW (conf 0.65)\n  - anomaly → QUARANTINE (1 record)\n\nFINAL(DAG routing: 1 committed, 1 accepted, 1 human_review, 1 quarantined. 0 errors.)"
                 }
               ]
             },
@@ -232,7 +232,7 @@
   ],
   "fault_injections": [],
   "expected": {
-    "final_answer": "The polymorphic DAG routing completed successfully:\n\n- Phase 1 (Triage): 4 records classified into 3 disposition buckets\n  - exact_match: 1 (V-001 Pfizer)\n  - fuzzy_match: 2 (V-002 Novartis, V-004 3M)\n  - anomaly: 1 (V-003 Mystery Supplier)\n\n- Phase 2 (Routing):\n  - exact_match \u2192 COMMIT (1 record)\n  - fuzzy_match \u2192 comparison agent: V-002 ACCEPT (conf 0.88), V-004 HUMAN_REVIEW (conf 0.65)\n  - anomaly \u2192 QUARANTINE (1 record)\n\nFINAL(DAG routing: 1 committed, 1 accepted, 1 human_review, 1 quarantined. 0 errors.)",
+    "final_answer": "The polymorphic DAG routing completed successfully:\n\n- Phase 1 (Triage): 4 records classified into 3 disposition buckets\n  - exact_match: 1 (V-001 Pfizer)\n  - fuzzy_match: 2 (V-002 Novartis, V-004 3M)\n  - anomaly: 1 (V-003 Mystery Supplier)\n\n- Phase 2 (Routing):\n  - exact_match → COMMIT (1 record)\n  - fuzzy_match → comparison agent: V-002 ACCEPT (conf 0.88), V-004 HUMAN_REVIEW (conf 0.65)\n  - anomaly → QUARANTINE (1 record)\n\nFINAL(DAG routing: 1 committed, 1 accepted, 1 human_review, 1 quarantined. 0 errors.)",
     "total_iterations": 1,
     "total_model_calls": 8
   }

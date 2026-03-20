@@ -251,7 +251,7 @@ All constants are defined in `rlm_adk/state.py`.
 |----------|-----------|-------|:------------:|
 | `APP_MAX_DEPTH` | `app:max_depth` | app | No |
 | `APP_MAX_ITERATIONS` | `app:max_iterations` | app | No |
-| `CURRENT_DEPTH` | `current_depth` | session | No |
+| `CURRENT_DEPTH` | `current_depth` | session | Yes |
 | `ITERATION_COUNT` | `iteration_count` | session | Yes |
 | `SHOULD_STOP` | `should_stop` | session | Yes |
 | `POLICY_VIOLATION` | `policy_violation` | session | No |
@@ -260,7 +260,6 @@ All constants are defined in `rlm_adk/state.py`.
 
 | Constant | Key String | Depth-Scoped |
 |----------|-----------|:------------:|
-| `MESSAGE_HISTORY` | `message_history` | Yes |
 | `LAST_REPL_RESULT` | `last_repl_result` | Yes |
 | `FINAL_ANSWER` | `final_answer` | Yes |
 | `REASONING_SUMMARY` | `reasoning_summary` | Yes |

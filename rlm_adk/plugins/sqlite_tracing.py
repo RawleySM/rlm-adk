@@ -36,7 +36,6 @@ from rlm_adk.state import (
     INVOCATION_START_TIME,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    OBS_TOTAL_CALLS,
     SHOULD_STOP,
 )
 
@@ -335,6 +334,9 @@ class SqliteTracingPlugin(BasePlugin):
         # Pending telemetry: callback/tool context id -> (telemetry_id, start_time)
         self._pending_model_telemetry: dict[int, tuple[str, float]] = {}
         self._pending_tool_telemetry: dict[int, tuple[str, float]] = {}
+        # Instance-local counters (no longer read from obs: session state)
+        self._model_call_count: int = 0
+        self._artifact_saves_count: int = 0
         # Monotonic counter for session_state_events per trace
         self._sse_seq: int = 0
         # Legacy: kept for backward compat in agent span tracking
@@ -921,7 +923,7 @@ class SqliteTracingPlugin(BasePlugin):
                     summary.get("finish_recitation_count"),
                     summary.get("finish_max_tokens_count"),
                     summary.get("tool_invocation_summary"),
-                    state.get("obs:artifact_saves"),
+                    self._artifact_saves_count or None,
                     None,  # artifact_bytes_saved: no longer tracked via state
                     None,  # per_iteration_breakdown
                     summary.get("model_usage_summary"),
@@ -1042,9 +1044,8 @@ class SqliteTracingPlugin(BasePlugin):
             session = getattr(inv_ctx, "session", None)
             session_id = getattr(session, "id", None)
 
-            call_number = callback_context.state.get(
-                OBS_TOTAL_CALLS
-            )
+            self._model_call_count += 1
+            call_number = self._model_call_count
             skill_instruction = callback_context.state.get(
                 DYN_SKILL_INSTRUCTION
             )
@@ -1552,6 +1553,9 @@ class SqliteTracingPlugin(BasePlugin):
 
             # Keep artifact_delta tracking (backward compat via SSE)
             if event.actions and event.actions.artifact_delta:
+                self._artifact_saves_count += len(
+                    event.actions.artifact_delta
+                )
                 for art_key, art_ver in event.actions.artifact_delta.items():
                     self._insert_sse(
                         f"artifact_{art_key}",

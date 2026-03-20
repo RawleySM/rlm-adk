@@ -1,6 +1,6 @@
 {
   "scenario_id": "worker_500_retry_exhausted_naive",
-  "description": "FM-09 residual risk (RPN=60): Single worker dispatch where ALL SDK HTTP retry attempts get 500. REPL code does NOT check result.error \u2014 it naively does 'answer = str(result)' and prints it. This exercises the residual risk of silent error consumption: the error message becomes the 'answer' without any error-checking guard. Reasoning returns FINAL with the error string as if it were a real answer.",
+  "description": "FM-09 residual risk (RPN=60): Single worker dispatch where ALL SDK HTTP retry attempts get 500. REPL code does NOT check result.error — it naively does 'answer = str(result)' and prints it. This exercises the residual risk of silent error consumption: the error message becomes the 'answer' without any error-checking guard. Reasoning returns FINAL with the error string as if it were a real answer.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -12,7 +12,7 @@
     {
       "call_index": 0,
       "caller": "reasoning",
-      "note": "Reasoning agent emits execute_code with llm_query. Code DOES NOT check result.error \u2014 naively converts to string and prints.",
+      "note": "Reasoning agent emits execute_code with llm_query. Code DOES NOT check result.error — naively converts to string and prints.",
       "status": 200,
       "body": {
         "candidates": [
@@ -117,15 +117,6 @@
   "expected_state": {
     "last_repl_result": {
       "$not_none": true
-    },
-    "obs:total_calls": {
-      "$gt": 0
-    },
-    "obs:total_input_tokens": {
-      "$gt": 0
-    },
-    "obs:total_output_tokens": {
-      "$gt": 0
     }
   },
   "expected_contract": {
@@ -182,9 +173,6 @@
       ]
     },
     "observability": {
-      "obs:tool_invocation_summary": {
-        "execute_code": 1
-      },
       "last_repl_result": {
         "has_output": true,
         "total_llm_calls": 0,
@@ -199,9 +187,6 @@
             "$gte": 0
           }
         }
-      },
-      "obs:total_calls": {
-        "$gt": 0
       }
     }
   }
