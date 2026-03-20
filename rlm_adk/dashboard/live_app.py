@@ -277,10 +277,13 @@ async def live_dashboard_page() -> None:
 
     async def _poll() -> None:
         changed = await controller.poll()
-        if changed or controller.state.launch_in_progress or controller.state.launch_error:
+        cancel_pending = controller.state.launch_cancelled and not controller.state.launch_in_progress
+        if changed or controller.state.launch_in_progress or controller.state.launch_error or cancel_pending:
             live_ui.refresh_all()
+            if cancel_pending:
+                controller.state.launch_cancelled = False
 
-    ui.timer(0.25, _poll)
+    ui.timer(1.0, _poll)
 
 
 def _session_selector(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
@@ -325,6 +328,10 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
         await controller.launch_replay()
         live_ui.refresh_all()
 
+    async def on_cancel() -> None:
+        await controller.cancel_launch()
+        live_ui.refresh_all()
+
     with ui.element("div").style(
         "display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; "
         "padding-bottom: 0.75rem; margin-bottom: 0.2rem; "
@@ -337,6 +344,25 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
         with ui.element("div").style(
             "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; min-width: 0;"
         ):
+            if controller.state.launch_in_progress:
+                cancel_button = ui.button("Cancel", on_click=on_cancel)
+                cancel_button.props("unelevated")
+                cancel_button.style(
+                    "height: 3.5rem; padding: 0 1.1rem; "
+                    "background: var(--accent-child); color: #05111d; font-weight: 700;"
+                )
+            else:
+                launch_button = ui.button(launch_label, on_click=on_launch)
+                launch_button.props("unelevated")
+                launch_button.style(
+                    "height: 3.5rem; padding: 0 1.1rem; "
+                    "background: var(--accent-root); color: #05111d; font-weight: 700;"
+                )
+                if (
+                    not controller.state.replay_path
+                    and not controller.state.selected_provider_fake_fixture
+                ):
+                    launch_button.disable()
             replay_select = ui.select(
                 options=replay_options,
                 value=controller.state.replay_path or None,
@@ -362,20 +388,6 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
                 with_input=False,
                 on_change=lambda e: controller.set_selected_skills(list(e.value or [])),
             ).style("flex: 1 1 18rem; min-width: 16rem;")
-            launch_button = ui.button(
-                "Launching..." if controller.state.launch_in_progress else launch_label,
-                on_click=on_launch,
-            )
-            launch_button.props("unelevated")
-            launch_button.style(
-                "height: 3.5rem; padding: 0 1.1rem; "
-                "background: var(--accent-root); color: #05111d; font-weight: 700;"
-            )
-            if (
-                not controller.state.replay_path
-                and not controller.state.selected_provider_fake_fixture
-            ):
-                launch_button.disable()
         if not replay_options:
             ui.label("No replay fixtures found under tests_rlm_adk/replay/.").style(
                 "color: var(--accent-warning); font-size: 0.82rem;"
@@ -410,6 +422,10 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
             ui.label(f"Latest launched session: {controller.state.launched_session_id}").style(
                 "color: var(--text-1); font-size: 0.78rem;"
             )
+        if controller.state.run_status == "cancelled":
+            ui.label("Run cancelled.").style(
+                "color: var(--accent-warning); font-size: 0.82rem;"
+            )
         if controller.state.launch_error:
             ui.label(controller.state.launch_error).style(
                 "color: var(--accent-child); font-size: 0.82rem;"
@@ -427,6 +443,7 @@ def _status_badge(status: str) -> None:
         "running": "var(--accent-active)",
         "completed": "var(--accent-root)",
         "error": "var(--accent-child)",
+        "cancelled": "var(--accent-warning)",
         "idle": "var(--text-1)",
     }.get(status, "var(--text-1)")
     with ui.element("div").style(

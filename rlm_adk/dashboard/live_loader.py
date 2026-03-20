@@ -187,6 +187,19 @@ class LiveDashboardLoader:
             active_children=snapshot.stats.active_children,
         )
 
+    def mark_trace_cancelled(self, session_id: str) -> None:
+        """Stamp the running trace row as cancelled with an end_time."""
+        import time
+
+        if not self._db_path.exists():
+            return
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                "UPDATE traces SET status = 'cancelled', end_time = ? "
+                "WHERE session_id = ? AND status = 'running'",
+                (time.time(), session_id),
+            )
+
     def list_sessions(self) -> list[str]:
         return [session_id for session_id, _label in self.list_session_labels()]
 
@@ -314,19 +327,20 @@ class LiveDashboardLoader:
 
         for key in _KNOWN_STATE_KEYS:
             item = state_lookup.get(key)
-            present = False
             preview = ""
             display_text = ""
             token_count = 0
             if item is not None:
                 display_text = _display_text(item.value)
                 preview = display_text[:240]
-                present = bool(display_text)
                 token_count = _estimate_token_count(
                     display_text,
                     total_request_chars,
                     total_request_tokens,
                 )
+            # State keys are never injected into the LLM request;
+            # green (present=True) is reserved for content in the request body.
+            present = False
             banner_items.append(
                 LiveContextBannerItem(
                     label=self._depth_scoped_label(key, invocation.depth),
@@ -1111,6 +1125,8 @@ class LiveDashboardLoader:
     ) -> str:
         if status == "completed":
             return "completed"
+        if status == "cancelled":
+            return "cancelled"
         if status == "error":
             return "error"
         effective_calls = _safe_int(total_calls) or telemetry_model_count

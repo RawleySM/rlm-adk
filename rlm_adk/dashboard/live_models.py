@@ -13,7 +13,7 @@ SourceKind = Literal[
 ]
 
 
-PaneStatus = Literal["running", "idle", "completed", "error"]
+PaneStatus = Literal["running", "idle", "completed", "error", "cancelled"]
 
 
 @dataclass(frozen=True)
@@ -326,6 +326,7 @@ class LiveDashboardState:
     replay_path: str = ""
     selected_skills: list[str] = field(default_factory=list)
     launch_in_progress: bool = False
+    launch_cancelled: bool = False
     launch_error: str | None = None
     launched_session_id: str | None = None
     active_pane_id: str | None = None

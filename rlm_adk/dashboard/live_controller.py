@@ -100,6 +100,7 @@ class LiveDashboardController:
             self.state.last_error = str(exc)
             return None
         self.state.launch_in_progress = True
+        self.state.launch_cancelled = False
         self.state.launch_error = None
         self.state.launched_session_id = handle.session_id
         if handle.session_id not in self.state.available_sessions:
@@ -112,11 +113,28 @@ class LiveDashboardController:
     async def _run_launch(self, handle) -> None:
         try:
             await handle.run()
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             self.state.launch_error = str(exc)
             self.state.last_error = str(exc)
         finally:
             self.state.launch_in_progress = False
+
+    async def cancel_launch(self) -> None:
+        """Cancel the running launch task and stamp the trace as cancelled."""
+        if self._launch_task is None or self._launch_task.done():
+            return
+        self._launch_task.cancel()
+        # Don't await the task — ADK runner cleanup can block the event loop.
+        # Set state immediately; _run_launch's finally block is idempotent.
+        self.state.launch_in_progress = False
+        self.state.launch_cancelled = True
+        if self.state.launched_session_id:
+            try:
+                self.loader.mark_trace_cancelled(self.state.launched_session_id)
+            except Exception:
+                pass
 
     async def select_session(self, session_id: str) -> None:
         self.state.selected_session_id = session_id
