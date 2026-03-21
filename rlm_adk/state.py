@@ -114,9 +114,9 @@ MIGRATION_TIMESTAMP = "migration:timestamp"
 MIGRATION_ERROR = "migration:error"
 
 # Step-Mode Keys (session-scoped)
-STEP_MODE_ENABLED = "step:mode_enabled"       # bool — is step mode active?
-STEP_MODE_PAUSED_AGENT = "step:paused_agent"   # str — name of agent currently paused
-STEP_MODE_PAUSED_DEPTH = "step:paused_depth"   # int — depth of paused agent
+STEP_MODE_ENABLED = "step:mode_enabled"  # bool — is step mode active?
+STEP_MODE_PAUSED_AGENT = "step:paused_agent"  # str — name of agent currently paused
+STEP_MODE_PAUSED_DEPTH = "step:paused_depth"  # int — depth of paused agent
 STEP_MODE_ADVANCE_COUNT = "step:advance_count"  # int — number of advances taken
 
 
@@ -170,11 +170,57 @@ def depth_key(key: str, depth: int = 0) -> str:
     This is acceptable because:
     - Children run in branch-isolated event streams (dispatch.py)
     - Completion is read from in-memory agent attrs, not state keys
-    - sqlite_tracing._parse_key() supports @dNfM parsing for future
-      expansion if needed
+    - parse_depth_key() supports @dNfM parsing for future expansion
     """
     if depth == 0:
         return key
     return f"{key}@d{depth}"
 
 
+# ---- Depth/fanout key parser (shared with sqlite_tracing.py) ----
+
+import re  # noqa: E402
+
+_DEPTH_FANOUT_RE = re.compile(r"^(.+)@d(\d+)(?:f(\d+))?$")
+
+
+def parse_depth_key(raw_key: str) -> tuple[str, int, int | None]:
+    """Parse depth/fanout suffix from a state key.  Inverse of depth_key().
+
+    Returns (base_key, depth, fanout_or_None).
+    """
+    m = _DEPTH_FANOUT_RE.match(raw_key)
+    if m:
+        return m.group(1), int(m.group(2)), int(m.group(3)) if m.group(3) else None
+    return raw_key, 0, None
+
+
+# ---- Curated state key capture set (shared with dispatch.py, sqlite_tracing.py) ----
+
+CURATED_STATE_KEYS: frozenset[str] = frozenset(
+    {
+        CURRENT_DEPTH,
+        ITERATION_COUNT,
+        SHOULD_STOP,
+        FINAL_RESPONSE_TEXT,
+        LAST_REPL_RESULT,
+        DYN_SKILL_INSTRUCTION,
+    }
+)
+
+CURATED_STATE_PREFIXES: tuple[str, ...] = (
+    "obs:artifact_",
+    "artifact_",
+    "last_repl_result",
+    "repl_submitted_code",
+    "repl_expanded_code",
+    "repl_skill_expansion_meta",
+    "repl_did_expand",
+)
+
+
+def should_capture_state_key(base_key: str) -> bool:
+    """Return True if this state key should be captured for observability."""
+    if base_key in CURATED_STATE_KEYS:
+        return True
+    return any(base_key.startswith(p) for p in CURATED_STATE_PREFIXES)

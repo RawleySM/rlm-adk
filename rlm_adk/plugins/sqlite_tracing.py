@@ -10,7 +10,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import sqlite3
 import time
 import uuid
@@ -30,34 +29,23 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from rlm_adk.state import (
-    CURRENT_DEPTH,
     DYN_SKILL_INSTRUCTION,
     FINAL_RESPONSE_TEXT,
     INVOCATION_START_TIME,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    SHOULD_STOP,
+    parse_depth_key,
+    should_capture_state_key,
 )
 
 logger = logging.getLogger(__name__)
 
-# ---- Depth/fanout key parser ----
-
-_DEPTH_FANOUT_RE = re.compile(r"^(.+)@d(\d+)(?:f(\d+))?$")
-
-
-def _parse_key(raw_key: str) -> tuple[str, int, int | None]:
-    """Parse depth/fanout suffix from a state key.
-
-    Returns (base_key, depth, fanout_or_None).
-    """
-    m = _DEPTH_FANOUT_RE.match(raw_key)
-    if m:
-        return m.group(1), int(m.group(2)), int(m.group(3)) if m.group(3) else None
-    return raw_key, 0, None
+# Thin aliases so the rest of the file needs minimal changes.
+_parse_key = parse_depth_key
+_should_capture = should_capture_state_key
 
 
-# ---- Key categorization ----
+# ---- Key categorization (plugin-specific, not shared) ----
 
 
 def _categorize_key(key: str) -> str:
@@ -69,7 +57,13 @@ def _categorize_key(key: str) -> str:
     """
     if key.startswith("obs:artifact_") or key.startswith("artifact_"):
         return "obs_artifact"
-    if key in ("iteration_count", "should_stop", "final_response_text", "current_depth", "policy_violation"):
+    if key in (
+        "iteration_count",
+        "should_stop",
+        "final_response_text",
+        "current_depth",
+        "policy_violation",
+    ):
         return "flow_control"
     if key.startswith("repl_submitted_code"):
         return "repl"
@@ -93,40 +87,6 @@ def _categorize_key(key: str) -> str:
     ):
         return "request_meta"
     return "other"
-
-
-# ---- Curated capture set ----
-
-# Narrowed to working-state keys only; obs:* lineage keys are now
-# captured directly in the telemetry table, not via session_state_events.
-_CURATED_PREFIXES = (
-    "obs:artifact_",
-    "artifact_",
-    "last_repl_result",
-    "repl_submitted_code",
-    "repl_expanded_code",
-    "repl_skill_expansion_meta",
-    "repl_did_expand",
-)
-
-_CURATED_EXACT = frozenset({
-    CURRENT_DEPTH,
-    ITERATION_COUNT,
-    SHOULD_STOP,
-    FINAL_RESPONSE_TEXT,
-    LAST_REPL_RESULT,
-    DYN_SKILL_INSTRUCTION,
-})
-
-
-def _should_capture(base_key: str) -> bool:
-    """Return True if this key should be captured in session_state_events."""
-    if base_key in _CURATED_EXACT:
-        return True
-    for prefix in _CURATED_PREFIXES:
-        if base_key.startswith(prefix):
-            return True
-    return False
 
 
 # ---- Value typing helper ----
@@ -788,12 +748,8 @@ class SqliteTracingPlugin(BasePlugin):
         ).fetchall()
         fr_map = {r.lower(): c for r, c in fr_rows}
         summary["finish_safety_count"] = fr_map.get("safety")
-        summary["finish_recitation_count"] = fr_map.get(
-            "recitation"
-        )
-        summary["finish_max_tokens_count"] = fr_map.get(
-            "max_tokens"
-        )
+        summary["finish_recitation_count"] = fr_map.get("recitation")
+        summary["finish_max_tokens_count"] = fr_map.get("max_tokens")
 
         # Tool invocation summary
         tool_rows = self._conn.execute(
@@ -807,9 +763,7 @@ class SqliteTracingPlugin(BasePlugin):
         ).fetchall()
         if tool_rows:
             tool_summary = {name: cnt for name, cnt in tool_rows}
-            summary["tool_invocation_summary"] = json.dumps(
-                tool_summary
-            )
+            summary["tool_invocation_summary"] = json.dumps(tool_summary)
 
         # Max depth reached from telemetry depth column
         depth_row = self._conn.execute(
@@ -819,9 +773,7 @@ class SqliteTracingPlugin(BasePlugin):
             """,
             (tid,),
         ).fetchone()
-        summary["max_depth_reached"] = (
-            depth_row[0] if depth_row and depth_row[0] else 0
-        )
+        summary["max_depth_reached"] = depth_row[0] if depth_row and depth_row[0] else 0
 
         # Child dispatch counts from tool_call rows at depth > 0
         child_row = self._conn.execute(
@@ -852,9 +804,7 @@ class SqliteTracingPlugin(BasePlugin):
 
         return summary
 
-    async def after_run_callback(
-        self, *, invocation_context: InvocationContext
-    ) -> None:
+    async def after_run_callback(self, *, invocation_context: InvocationContext) -> None:
         """Finalize the trace row with summary stats from telemetry."""
         try:
             if self._conn is None or self._trace_id is None:
@@ -864,9 +814,7 @@ class SqliteTracingPlugin(BasePlugin):
             root_prompt = state.get("root_prompt", "")
             prompt_hash = None
             if root_prompt:
-                prompt_hash = hashlib.sha256(
-                    root_prompt.encode()
-                ).hexdigest()
+                prompt_hash = hashlib.sha256(root_prompt.encode()).hexdigest()
 
             # Build summary from telemetry table rows
             summary = self._build_trace_summary_from_telemetry()
@@ -909,10 +857,7 @@ class SqliteTracingPlugin(BasePlugin):
                     state.get("request_id"),
                     state.get("repo_url"),
                     root_prompt[:500] if root_prompt else None,
-                    (
-                        time.time()
-                        - state.get(INVOCATION_START_TIME, 0)
-                    )
+                    (time.time() - state.get(INVOCATION_START_TIME, 0))
                     if state.get(INVOCATION_START_TIME)
                     else None,
                     summary.get("child_dispatch_count"),
@@ -934,9 +879,7 @@ class SqliteTracingPlugin(BasePlugin):
             )
             self._conn.commit()
         except Exception as e:
-            logger.warning(
-                "SqliteTracingPlugin: after_run failed: %s", e
-            )
+            logger.warning("SqliteTracingPlugin: after_run failed: %s", e)
 
     # ---- Agent callbacks ----
 
@@ -973,19 +916,9 @@ class SqliteTracingPlugin(BasePlugin):
         """Insert a telemetry row for model_call and store ID for pairing."""
         try:
             model = llm_request.model or "unknown"
-            num_contents = (
-                len(llm_request.contents)
-                if llm_request.contents
-                else 0
-            )
-            iteration = callback_context.state.get(
-                ITERATION_COUNT, 0
-            )
-            agent_name = (
-                self._agent_span_stack[-1]
-                if self._agent_span_stack
-                else None
-            )
+            num_contents = len(llm_request.contents) if llm_request.contents else 0
+            iteration = callback_context.state.get(ITERATION_COUNT, 0)
+            agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
 
             # Resolve agent from invocation context
             inv_ctx = getattr(
@@ -996,21 +929,11 @@ class SqliteTracingPlugin(BasePlugin):
             agent = getattr(inv_ctx, "agent", None)
 
             # Compute depth/fanout/parent from agent attrs
-            depth = self._coerce_int(
-                getattr(agent, "_rlm_depth", 0)
-            )
-            fanout_idx = getattr(
-                agent, "_rlm_fanout_idx", None
-            )
-            parent_depth = getattr(
-                agent, "_rlm_parent_depth", None
-            )
-            parent_fanout_idx = getattr(
-                agent, "_rlm_parent_fanout_idx", None
-            )
-            output_schema_name = getattr(
-                agent, "_rlm_output_schema_name", None
-            )
+            depth = self._coerce_int(getattr(agent, "_rlm_depth", 0))
+            fanout_idx = getattr(agent, "_rlm_fanout_idx", None)
+            parent_depth = getattr(agent, "_rlm_parent_depth", None)
+            parent_fanout_idx = getattr(agent, "_rlm_parent_fanout_idx", None)
+            output_schema_name = getattr(agent, "_rlm_output_schema_name", None)
 
             # Compute prompt/system chars directly from
             # llm_request instead of CONTEXT_WINDOW_SNAPSHOT
@@ -1025,9 +948,7 @@ class SqliteTracingPlugin(BasePlugin):
                             if t:
                                 prompt_chars += len(t)
             config = getattr(llm_request, "config", None)
-            sys_inst = getattr(
-                config, "system_instruction", None
-            )
+            sys_inst = getattr(config, "system_instruction", None)
             if sys_inst:
                 si_parts = getattr(sys_inst, "parts", None)
                 if si_parts:
@@ -1038,17 +959,13 @@ class SqliteTracingPlugin(BasePlugin):
 
             # Branch / invocation / session identifiers
             branch = getattr(inv_ctx, "branch", None)
-            invocation_id = getattr(
-                inv_ctx, "invocation_id", None
-            )
+            invocation_id = getattr(inv_ctx, "invocation_id", None)
             session = getattr(inv_ctx, "session", None)
             session_id = getattr(session, "id", None)
 
             self._model_call_count += 1
             call_number = self._model_call_count
-            skill_instruction = callback_context.state.get(
-                DYN_SKILL_INSTRUCTION
-            )
+            skill_instruction = callback_context.state.get(DYN_SKILL_INSTRUCTION)
 
             telemetry_id = self._new_id()
             start_time = time.time()
@@ -1073,9 +990,10 @@ class SqliteTracingPlugin(BasePlugin):
                 session_id=session_id,
                 output_schema_name=output_schema_name,
             )
-            self._pending_model_telemetry[
-                self._pending_key(callback_context)
-            ] = (telemetry_id, start_time)
+            self._pending_model_telemetry[self._pending_key(callback_context)] = (
+                telemetry_id,
+                start_time,
+            )
         except Exception as e:
             logger.warning(
                 "SqliteTracingPlugin: before_model failed: %s",
@@ -1097,9 +1015,7 @@ class SqliteTracingPlugin(BasePlugin):
                 None,
             )
             if pending is None and self._pending_model_telemetry:
-                _, pending = (
-                    self._pending_model_telemetry.popitem()
-                )
+                _, pending = self._pending_model_telemetry.popitem()
 
             tokens_in = 0
             tokens_out = 0
@@ -1131,25 +1047,19 @@ class SqliteTracingPlugin(BasePlugin):
             if llm_response.finish_reason:
                 finish_reason = (
                     llm_response.finish_reason.name
-                    if hasattr(
-                        llm_response.finish_reason, "name"
-                    )
+                    if hasattr(llm_response.finish_reason, "name")
                     else str(llm_response.finish_reason)
                 )
 
             # Extract custom_metadata["rlm"] lineage
             rlm_meta = None
-            custom_meta = getattr(
-                llm_response, "custom_metadata", None
-            )
+            custom_meta = getattr(llm_response, "custom_metadata", None)
             if isinstance(custom_meta, dict):
                 rlm_meta = custom_meta.get("rlm")
             custom_metadata_json = None
             if rlm_meta is not None:
                 try:
-                    custom_metadata_json = json.dumps(
-                        rlm_meta, default=str
-                    )
+                    custom_metadata_json = json.dumps(rlm_meta, default=str)
                 except (TypeError, ValueError):
                     pass
 
@@ -1180,44 +1090,28 @@ class SqliteTracingPlugin(BasePlugin):
                     "finish_reason": finish_reason,
                 }
                 if custom_metadata_json:
-                    update_kwargs[
-                        "custom_metadata_json"
-                    ] = custom_metadata_json
+                    update_kwargs["custom_metadata_json"] = custom_metadata_json
                 update_kwargs.update(lineage_kwargs)
                 if llm_response.error_code:
                     update_kwargs["status"] = "error"
-                    update_kwargs["error_type"] = str(
-                        llm_response.error_code
-                    )
-                    update_kwargs["error_message"] = str(
-                        llm_response.error_message or ""
-                    )[:500]
-                self._update_telemetry(
-                    telemetry_id, **update_kwargs
-                )
+                    update_kwargs["error_type"] = str(llm_response.error_code)
+                    update_kwargs["error_message"] = str(llm_response.error_message or "")[:500]
+                self._update_telemetry(telemetry_id, **update_kwargs)
             else:
                 # Standalone telemetry row
                 standalone_id = self._new_id()
                 insert_kw: dict[str, Any] = {
                     "end_time": end_time,
                     "duration_ms": 0,
-                    "model": (
-                        llm_response.model_version or "unknown"
-                    ),
+                    "model": (llm_response.model_version or "unknown"),
                     "input_tokens": tokens_in,
                     "output_tokens": tokens_out,
                     "thought_tokens": thought_tokens,
                     "finish_reason": finish_reason,
-                    "status": (
-                        "error"
-                        if llm_response.error_code
-                        else "ok"
-                    ),
+                    "status": ("error" if llm_response.error_code else "ok"),
                 }
                 if custom_metadata_json:
-                    insert_kw[
-                        "custom_metadata_json"
-                    ] = custom_metadata_json
+                    insert_kw["custom_metadata_json"] = custom_metadata_json
                 insert_kw.update(lineage_kwargs)
                 self._insert_telemetry(
                     standalone_id,
@@ -1276,45 +1170,25 @@ class SqliteTracingPlugin(BasePlugin):
             tool_name = getattr(tool, "name", str(tool))
             telemetry_id = self._new_id()
             start_time = time.time()
-            agent_name = (
-                self._agent_span_stack[-1]
-                if self._agent_span_stack
-                else None
-            )
-            tool_depth = self._coerce_int(
-                getattr(tool, "_depth", 0)
-            )
+            agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
+            tool_depth = self._coerce_int(getattr(tool, "_depth", 0))
             iteration = None
             state = getattr(tool_context, "state", None)
             if hasattr(state, "get"):
                 depth_key_name = (
-                    "iteration_count"
-                    if tool_depth == 0
-                    else f"iteration_count@d{tool_depth}"
+                    "iteration_count" if tool_depth == 0 else f"iteration_count@d{tool_depth}"
                 )
                 iteration = state.get(depth_key_name)
 
             # Resolve agent for scope fields
-            inv_ctx = getattr(
-                tool_context, "_invocation_context", None
-            )
+            inv_ctx = getattr(tool_context, "_invocation_context", None)
             agent = getattr(inv_ctx, "agent", None)
-            fanout_idx = getattr(
-                agent, "_rlm_fanout_idx", None
-            )
-            parent_depth = getattr(
-                agent, "_rlm_parent_depth", None
-            )
-            parent_fanout_idx = getattr(
-                agent, "_rlm_parent_fanout_idx", None
-            )
-            output_schema_name = getattr(
-                agent, "_rlm_output_schema_name", None
-            )
+            fanout_idx = getattr(agent, "_rlm_fanout_idx", None)
+            parent_depth = getattr(agent, "_rlm_parent_depth", None)
+            parent_fanout_idx = getattr(agent, "_rlm_parent_fanout_idx", None)
+            output_schema_name = getattr(agent, "_rlm_output_schema_name", None)
             branch = getattr(inv_ctx, "branch", None)
-            invocation_id = getattr(
-                inv_ctx, "invocation_id", None
-            )
+            invocation_id = getattr(inv_ctx, "invocation_id", None)
             session = getattr(inv_ctx, "session", None)
             session_id = getattr(session, "id", None)
 
@@ -1323,16 +1197,10 @@ class SqliteTracingPlugin(BasePlugin):
                 "tool_call",
                 start_time,
                 tool_name=tool_name,
-                tool_args_keys=json.dumps(
-                    list(tool_args.keys())
-                ),
+                tool_args_keys=json.dumps(list(tool_args.keys())),
                 agent_name=agent_name,
                 depth=tool_depth,
-                iteration=(
-                    self._coerce_int(iteration)
-                    if iteration is not None
-                    else None
-                ),
+                iteration=(self._coerce_int(iteration) if iteration is not None else None),
                 fanout_idx=fanout_idx,
                 parent_depth=parent_depth,
                 parent_fanout_idx=parent_fanout_idx,
@@ -1341,9 +1209,7 @@ class SqliteTracingPlugin(BasePlugin):
                 session_id=session_id,
                 output_schema_name=output_schema_name,
             )
-            self._pending_tool_telemetry[
-                self._pending_key(tool_context)
-            ] = (
+            self._pending_tool_telemetry[self._pending_key(tool_context)] = (
                 telemetry_id,
                 start_time,
             )
@@ -1375,19 +1241,10 @@ class SqliteTracingPlugin(BasePlugin):
                     "end_time": end_time,
                     "duration_ms": duration_ms,
                     "result_preview": str(result)[:500],
-                    "result_payload": _serialize_payload(
-                        result
-                    ),
+                    "result_payload": _serialize_payload(result),
                 }
-                if (
-                    isinstance(result, dict)
-                    and result.get("call_number") is not None
-                ):
-                    update_kwargs[
-                        "call_number"
-                    ] = self._coerce_int(
-                        result.get("call_number")
-                    )
+                if isinstance(result, dict) and result.get("call_number") is not None:
+                    update_kwargs["call_number"] = self._coerce_int(result.get("call_number"))
 
                 # Persist decision_mode / lineage from
                 # _rlm_lineage_status on the agent
@@ -1407,128 +1264,59 @@ class SqliteTracingPlugin(BasePlugin):
                 )
 
                 if tool_name == "set_model_response":
-                    update_kwargs[
-                        "decision_mode"
-                    ] = "set_model_response"
-                    update_kwargs[
-                        "structured_outcome"
-                    ] = lineage_status.get(
-                        "structured_outcome"
-                    )
-                    is_terminal = bool(
-                        lineage_status.get("terminal")
-                    )
-                    update_kwargs[
-                        "terminal_completion"
-                    ] = int(is_terminal)
+                    update_kwargs["decision_mode"] = "set_model_response"
+                    update_kwargs["structured_outcome"] = lineage_status.get("structured_outcome")
+                    is_terminal = bool(lineage_status.get("terminal"))
+                    update_kwargs["terminal_completion"] = int(is_terminal)
                     # Only persist validated_output_json for
                     # terminal validated payloads, not retries.
                     if is_terminal:
-                        update_kwargs[
-                            "validated_output_json"
-                        ] = json.dumps(result, default=str)
+                        update_kwargs["validated_output_json"] = json.dumps(result, default=str)
                 elif tool_name == "execute_code":
-                    update_kwargs[
-                        "decision_mode"
-                    ] = "execute_code"
+                    update_kwargs["decision_mode"] = "execute_code"
 
                 # REPL enrichment
-                if tool_name == "execute_code" and isinstance(
-                    result, dict
-                ):
-                    state = getattr(
-                        tool_context, "state", None
-                    )
+                if tool_name == "execute_code" and isinstance(result, dict):
+                    state = getattr(tool_context, "state", None)
                     repl_state = self._resolve_repl_state(
                         state,
-                        tool_depth=getattr(
-                            tool, "_depth", None
-                        ),
+                        tool_depth=getattr(tool, "_depth", None),
                     )
                     stdout = result.get("stdout")
                     stderr = result.get("stderr")
                     if repl_state is not None:
-                        update_kwargs[
-                            "repl_has_errors"
-                        ] = int(
-                            bool(
-                                repl_state.get(
-                                    "has_errors", False
-                                )
-                            )
+                        update_kwargs["repl_has_errors"] = int(
+                            bool(repl_state.get("has_errors", False))
                         )
-                        update_kwargs[
-                            "repl_has_output"
-                        ] = int(
-                            bool(
-                                repl_state.get(
-                                    "has_output", False
-                                )
-                            )
+                        update_kwargs["repl_has_output"] = int(
+                            bool(repl_state.get("has_output", False))
                         )
-                        update_kwargs[
-                            "repl_llm_calls"
-                        ] = repl_state.get(
+                        update_kwargs["repl_llm_calls"] = repl_state.get(
                             "total_llm_calls",
                             0,
                         )
-                        trace_summary = repl_state.get(
-                            "trace_summary"
-                        )
+                        trace_summary = repl_state.get("trace_summary")
                         if trace_summary is not None:
-                            update_kwargs[
-                                "repl_trace_summary"
-                            ] = json.dumps(trace_summary)
+                            update_kwargs["repl_trace_summary"] = json.dumps(trace_summary)
                     else:
-                        update_kwargs[
-                            "repl_has_errors"
-                        ] = int(
-                            bool(
-                                result.get("has_errors")
-                                or stderr
-                            )
+                        update_kwargs["repl_has_errors"] = int(
+                            bool(result.get("has_errors") or stderr)
                         )
-                        update_kwargs[
-                            "repl_has_output"
-                        ] = int(
-                            bool(
-                                result.get("has_output")
-                                or stdout
-                                or result.get("output")
-                            )
+                        update_kwargs["repl_has_output"] = int(
+                            bool(result.get("has_output") or stdout or result.get("output"))
                         )
-                        update_kwargs[
-                            "repl_llm_calls"
-                        ] = result.get(
+                        update_kwargs["repl_llm_calls"] = result.get(
                             "total_llm_calls",
-                            (
-                                1
-                                if result.get(
-                                    "llm_calls_made"
-                                )
-                                else 0
-                            ),
+                            (1 if result.get("llm_calls_made") else 0),
                         )
-                    update_kwargs[
-                        "repl_llm_calls"
-                    ] = self._coerce_int(
+                    update_kwargs["repl_llm_calls"] = self._coerce_int(
                         update_kwargs["repl_llm_calls"],
                     )
-                    update_kwargs[
-                        "repl_stdout_len"
-                    ] = len(stdout or "")
-                    update_kwargs[
-                        "repl_stderr_len"
-                    ] = len(stderr or "")
-                    update_kwargs[
-                        "repl_stdout"
-                    ] = stdout or ""
-                    update_kwargs[
-                        "repl_stderr"
-                    ] = stderr or ""
-                self._update_telemetry(
-                    telemetry_id, **update_kwargs
-                )
+                    update_kwargs["repl_stdout_len"] = len(stdout or "")
+                    update_kwargs["repl_stderr_len"] = len(stderr or "")
+                    update_kwargs["repl_stdout"] = stdout or ""
+                    update_kwargs["repl_stderr"] = stderr or ""
+                self._update_telemetry(telemetry_id, **update_kwargs)
         except Exception as e:
             logger.warning(
                 "SqliteTracingPlugin: after_tool failed: %s",
@@ -1553,9 +1341,7 @@ class SqliteTracingPlugin(BasePlugin):
 
             # Keep artifact_delta tracking (backward compat via SSE)
             if event.actions and event.actions.artifact_delta:
-                self._artifact_saves_count += len(
-                    event.actions.artifact_delta
-                )
+                self._artifact_saves_count += len(event.actions.artifact_delta)
                 for art_key, art_ver in event.actions.artifact_delta.items():
                     self._insert_sse(
                         f"artifact_{art_key}",

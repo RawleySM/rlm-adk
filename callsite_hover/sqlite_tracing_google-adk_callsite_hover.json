@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/plugins/sqlite_tracing.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/vigilant-gould/rlm_adk/plugins/sqlite_tracing.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
