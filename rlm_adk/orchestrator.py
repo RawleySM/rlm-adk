@@ -268,7 +268,9 @@ class RLMOrchestratorAgent(BaseAgent):
         # to REPLTool which applies minimal working-state patches after
         # each code execution.
         post_dispatch_state_patch_fn = None
+        _child_event_queue: asyncio.Queue[Event] | None = None
         if self.worker_pool is not None:
+            _child_event_queue = asyncio.Queue()
             self.worker_pool.ensure_initialized()
             (
                 llm_query_async,
@@ -282,6 +284,7 @@ class RLMOrchestratorAgent(BaseAgent):
                 depth=self.depth,
                 instruction_router=self.instruction_router,
                 fanout_idx=self.fanout_idx,
+                child_event_queue=_child_event_queue,
             )
             repl.set_async_llm_query_fns(llm_query_async, llm_query_batched_async)
 
@@ -499,6 +502,13 @@ class RLMOrchestratorAgent(BaseAgent):
                 try:
                     async for event in self.reasoning_agent.run_async(ctx):
                         yield event
+                        # Drain child events accumulated during tool execution
+                        if _child_event_queue is not None:
+                            while not _child_event_queue.empty():
+                                try:
+                                    yield _child_event_queue.get_nowait()
+                                except asyncio.QueueEmpty:
+                                    break
                     break
                 except Exception as exc:
                     transient = is_transient_error(exc)
@@ -549,6 +559,14 @@ class RLMOrchestratorAgent(BaseAgent):
                     author=self.name,
                     actions=EventActions(state_delta=retry_state_delta),
                 )
+
+            # Final drain of any remaining child events after reasoning loop
+            if _child_event_queue is not None:
+                while not _child_event_queue.empty():
+                    try:
+                        yield _child_event_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
 
             # --- Finalize from CompletionEnvelope ---
             completion = _collect_completion(

@@ -16,7 +16,7 @@
       "instances": [
         {
           "name": "set_model_response_tool",
-          "line": 334
+          "line": 337
         }
       ],
       "hover": {
@@ -28,35 +28,35 @@
       "instances": [
         {
           "name": null,
-          "line": 476
+          "line": 479
         },
         {
           "name": null,
-          "line": 485
+          "line": 488
         },
         {
           "name": null,
-          "line": 547
+          "line": 557
         },
         {
           "name": null,
-          "line": 576
+          "line": 594
         },
         {
           "name": null,
-          "line": 590
+          "line": 608
         },
         {
           "name": null,
-          "line": 602
+          "line": 620
         },
         {
           "name": null,
-          "line": 615
+          "line": 633
         },
         {
           "name": null,
-          "line": 515
+          "line": 525
         }
       ],
       "hover": {
@@ -68,23 +68,23 @@
       "instances": [
         {
           "name": null,
-          "line": 479
+          "line": 482
         },
         {
           "name": null,
-          "line": 550
+          "line": 560
         },
         {
           "name": null,
-          "line": 579
+          "line": 597
         },
         {
           "name": null,
-          "line": 605
+          "line": 623
         },
         {
           "name": null,
-          "line": 518
+          "line": 528
         }
       ],
       "hover": {

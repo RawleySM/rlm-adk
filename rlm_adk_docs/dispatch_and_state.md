@@ -241,6 +241,60 @@ The `structured_output.outcome` field takes one of: `not_applicable`, `validated
 
 ---
 
+## Child Event Re-Emission
+
+Child orchestrators run inside `_run_child()` which consumes their events into a local
+`_child_state` dict. Without re-emission, these events never reach the ADK Runner's
+plugin loop — meaning `SqliteTracingPlugin.on_event_callback` never fires for child
+state changes, and `session_state_events` has zero rows with `key_depth > 0`.
+
+### Queue mechanism
+
+`create_dispatch_closures()` accepts an optional `child_event_queue: asyncio.Queue[Event]`.
+When provided, `_run_child()` filters each child's `state_delta` through
+`should_capture_state_key()` and pushes curated events onto the queue with
+`put_nowait()`.
+
+The orchestrator's `_run_async_impl()` drains the queue after each yielded event
+from `reasoning_agent.run_async(ctx)`:
+
+```
+dispatch._run_child()                    orchestrator._run_async_impl()
+  async for _event in child.run_async:     async for event in reasoning_agent.run_async:
+    if curated state-delta:                    yield event
+      queue.put_nowait(event)  ──────>         while not queue.empty():
+                                                   yield queue.get_nowait()
+```
+
+A final drain runs after the reasoning loop completes to catch edge cases where
+the last tool call produces child events but reasoning_agent terminates without
+yielding another event.
+
+### Curated filter
+
+Only state keys matching `CURATED_STATE_KEYS` (exact) or `CURATED_STATE_PREFIXES`
+(startswith) are re-emitted. Both sets are defined in `rlm_adk/state.py` and shared
+with `sqlite_tracing.py`. Non-curated keys (obs counters, request metadata, cache
+keys) are filtered out to keep the event stream focused on working state.
+
+### Event metadata
+
+Re-emitted events carry `custom_metadata`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rlm_child_event` | `bool` | Always `True` — tag for filtering |
+| `child_depth` | `int` | Depth of the child that produced the event |
+| `child_fanout_idx` | `int` | Fanout index within a batch |
+
+### Causal ordering
+
+Child events accumulate during REPL tool execution (which triggers `_run_child`).
+They drain after the tool-response event and appear before the next LLM call.
+This is a natural consequence of the asyncio.Queue bridge.
+
+---
+
 ## State Key Reference
 
 All constants are defined in `rlm_adk/state.py`.
@@ -549,6 +603,8 @@ This pattern is enforced in `dispatch.py` after each `llm_query_batched_async` c
 - **2026-03-18 00:00** — `dispatch_and_state.md`: Added "Per-Iteration vs Cumulative Keys" section documenting cumulative dispatch counters (`obs:*_total`), mapping table, initialization semantics, and rationale for `_rlm_state` introspection stability.
 - **2026-03-19 12:40** — `state.py`: Removed 12 dead state key definitions (`OBS_CHILD_DISPATCH_COUNT`, `OBS_CHILD_ERROR_COUNTS`, `OBS_CHILD_DISPATCH_LATENCY_MS`, `OBS_CHILD_TOTAL_BATCH_DISPATCHES`, cumulative `_TOTAL` variants, `OBS_STRUCTURED_OUTPUT_FAILURES`, `OBS_BUG13_SUPPRESS_COUNT`, `OBS_PER_ITERATION_TOKEN_BREAKDOWN`, `OBS_ARTIFACT_BYTES_SAVED`). `dispatch.py`: Removed 5 dead local accumulators (`_acc_child_dispatches`, `_acc_child_batch_dispatches`, `_acc_child_latencies`, `_acc_child_error_counts`, `_acc_structured_output_failures`) — accumulated but never read. Sqlite tracer derives equivalent metrics from its telemetry table. Part of three-plane (state/lineage/completion) cleanup.
 - **2026-03-19 13:01** — `state.py`: Added `OBS_LITELLM_TOTAL_COST` constant for `litellm_cost_tracking.py` (was bare string). `litellm_cost_tracking.py`: Per-call cost moved from state to plugin instance attr (lineage data, not state); total cost now uses constant.
+
+- **2026-03-21 16:30** — `state.py`: Added `parse_depth_key()`, `should_capture_state_key()`, `CURATED_STATE_KEYS`, `CURATED_STATE_PREFIXES` — extracted from `sqlite_tracing.py` for sharing with `dispatch.py`. `dispatch.py`: Added `child_event_queue` parameter to `create_dispatch_closures()`; `_run_child` filters and pushes curated child state-delta events onto queue. Added "Child Event Re-Emission" doc section. `[session: 1cffccc7]`
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

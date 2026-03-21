@@ -3,16 +3,43 @@
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
+    "Event",
+    "EventActions",
     "InvocationContext"
   ],
-  "call_sites": [],
+  "call_sites": [
+    {
+      "symbol": "Event",
+      "instances": [
+        {
+          "name": null,
+          "line": 332
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass Event(\n    *,\n    model_version: str | None = None,\n    content: Content | None = None,\n    grounding_metadata: GroundingMetadata | None = None,\n    partial: bool | None = None,\n    turn_complete: bool | None = None,\n    finish_reason: FinishReason | None = None,\n    error_code: str | None = None,\n    error_message: str | None = None,\n    interrupted: bool | None = None,\n    custom_metadata: dict[str, Any] | None = None,\n    usage_metadata: GenerateContentResponseUsageMetadata | None = None,\n    live_session_resumption_update: LiveServerSessionResumptionUpdate | None = None,\n    input_transcription: Transcription | None = None,\n    output_transcription: Transcription | None = None,\n    avg_logprobs: float | None = None,\n    logprobs_result: LogprobsResult | None = None,\n    cache_metadata: CacheMetadata | None = None,\n    citation_metadata: CitationMetadata | None = None,\n    interaction_id: str | None = None,\n    invocation_id: str = '',\n    author: str,\n    actions: EventActions = EventActions,\n    long_running_tool_ids: set[str] | None = None,\n    branch: str | None = None,\n    id: str = '',\n    timestamp: float = lambda : datetime.now().timestamp()\n)\n```\n---\nRepresents an event in a conversation between agents and users.\n\nIt is used to store the content of the conversation, as well as the actions\ntaken by the agents like function calls, etc."
+      }
+    },
+    {
+      "symbol": "EventActions",
+      "instances": [
+        {
+          "name": null,
+          "line": 336
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass EventActions(\n    *,\n    skip_summarization: bool | None = None,\n    state_delta: dict[str, object] = dict,\n    artifact_delta: dict[str, int] = dict,\n    transfer_to_agent: str | None = None,\n    escalate: bool | None = None,\n    requested_auth_configs: dict[str, AuthConfig] = dict,\n    requested_tool_confirmations: dict[str, ToolConfirmation] = dict,\n    compaction: EventCompaction | None = None,\n    end_of_agent: bool | None = None,\n    agent_state: dict[str, Any] | None = None,\n    rewind_before_invocation_id: str | None = None\n)\n```\n---\nRepresents the actions attached to an event."
+      }
+    }
+  ],
   "type_annotations": [
     {
       "symbol": "InvocationContext",
       "usages": [
         {
           "context": "param:ctx",
-          "line": 110
+          "line": 111
         }
       ],
       "hover": {

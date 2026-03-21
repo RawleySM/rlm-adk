@@ -25,10 +25,11 @@ import time
 from typing import Any
 
 from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event, EventActions
 from pydantic import BaseModel
 
 from rlm_adk.repl.trace import DataFlowTracker
-from rlm_adk.state import DYN_SKILL_INSTRUCTION
+from rlm_adk.state import DYN_SKILL_INSTRUCTION, parse_depth_key, should_capture_state_key
 from rlm_adk.types import (
     CompletionEnvelope,
     LLMResult,
@@ -114,6 +115,7 @@ def create_dispatch_closures(
     max_depth: int = 5,
     instruction_router: Any = None,
     fanout_idx: int = 0,
+    child_event_queue: "asyncio.Queue[Event] | None" = None,
 ) -> tuple[Any, Any, Any]:
     """Create dispatch closures for child orchestrator sub-LM calls.
 
@@ -199,13 +201,9 @@ def create_dispatch_closures(
         agent = getattr(child, "reasoning_agent", None)
 
         # Priority 1 & 2: CompletionEnvelope
-        envelope = getattr(
-            child, "_rlm_terminal_completion", None
-        )
+        envelope = getattr(child, "_rlm_terminal_completion", None)
         if envelope is None:
-            envelope = getattr(
-                agent, "_rlm_terminal_completion", None
-            )
+            envelope = getattr(agent, "_rlm_terminal_completion", None)
 
         if isinstance(envelope, CompletionEnvelope):
             return {
@@ -215,15 +213,11 @@ def create_dispatch_closures(
                 "parsed_output": envelope.validated_output,
                 "raw_output": envelope.raw_output,
                 "finish_reason": envelope.finish_reason,
-                "reasoning_summary": (
-                    envelope.reasoning_summary or ""
-                ),
+                "reasoning_summary": (envelope.reasoning_summary or ""),
             }
 
         # Priority 3: _structured_result (any validated type)
-        structured = getattr(
-            agent, "_structured_result", None
-        )
+        structured = getattr(agent, "_structured_result", None)
         if structured is not None:
             text = render_completion_text(structured)
             return {
@@ -237,10 +231,7 @@ def create_dispatch_closures(
             }
 
         # Priority 4: output_key fallback
-        output_key = (
-            getattr(agent, "output_key", None)
-            or f"reasoning_output@d{child_depth}"
-        )
+        output_key = getattr(agent, "output_key", None) or f"reasoning_output@d{child_depth}"
         raw = child_state.get(output_key)
         if raw is not None:
             text = render_completion_text(raw)
@@ -285,16 +276,11 @@ def create_dispatch_closures(
         # Preserve the raw model object for create_child_orchestrator
         # so _resolve_model()'s CRIT-1 check can pass LiteLlm objects
         # through unchanged.  str() only for logging / LLMResult.model.
-        raw_model = (
-            model
-            if model is not None
-            else dispatch_config.other_model
-        )
+        raw_model = model if model is not None else dispatch_config.other_model
         target_model = str(raw_model)
         if depth + 1 >= max_depth:
             result = LLMResult(
-                f"[DEPTH_LIMIT] Cannot dispatch at depth "
-                f"{depth + 1} (max_depth={max_depth})",
+                f"[DEPTH_LIMIT] Cannot dispatch at depth {depth + 1} (max_depth={max_depth})",
                 error=True,
                 error_category="DEPTH_LIMIT",
                 model=target_model,
@@ -331,36 +317,51 @@ def create_dispatch_closures(
                 child_ctx.branch = f"{ctx.branch}.{branch_suffix}" if ctx.branch else branch_suffix
                 async for _event in child.run_async(child_ctx):
                     actions = getattr(_event, "actions", None)
-                    state_delta = getattr(actions, "state_delta", None)
+                    state_delta = getattr(actions, "state_delta", None) if actions else None
                     if isinstance(state_delta, dict):
                         _child_state.update(state_delta)
+                        # Push curated state-delta events onto queue for parent re-emission
+                        if child_event_queue is not None:
+                            curated = {
+                                k: v
+                                for k, v in state_delta.items()
+                                if should_capture_state_key(parse_depth_key(k)[0])
+                            }
+                            if curated:
+                                child_event_queue.put_nowait(
+                                    Event(
+                                        invocation_id=ctx.invocation_id,
+                                        author=_event.author or f"child_d{depth + 1}f{fanout_idx}",
+                                        branch=child_ctx.branch,
+                                        actions=EventActions(state_delta=curated),
+                                        custom_metadata={
+                                            "rlm_child_event": True,
+                                            "child_depth": depth + 1,
+                                            "child_fanout_idx": fanout_idx,
+                                        },
+                                    )
+                                )
 
             child_depth = depth + 1
             completion = _read_child_completion(
-                child, child_depth, _child_state,
+                child,
+                child_depth,
+                _child_state,
             )
             answer = completion["text"]
 
             elapsed_ms = (time.perf_counter() - child_start) * 1000
 
             if answer:
-                parsed_payload = completion.get(
-                    "parsed_output"
-                )
+                parsed_payload = completion.get("parsed_output")
                 raw_payload = completion.get("raw_output")
                 is_error = bool(completion.get("error"))
-                error_category = completion.get(
-                    "error_category"
-                )
-                finish_reason = completion.get(
-                    "finish_reason"
-                )
+                error_category = completion.get("error_category")
+                finish_reason = completion.get("finish_reason")
                 _child_result = LLMResult(
                     answer,
                     error=is_error,
-                    error_category=(
-                        error_category if is_error else None
-                    ),
+                    error_category=(error_category if is_error else None),
                     model=target_model,
                     raw_output=raw_payload,
                     parsed=parsed_payload,
@@ -369,40 +370,32 @@ def create_dispatch_closures(
                 )
             else:
                 error_text = (
-                    "[Child structured output validation "
-                    "exhausted before producing a result]"
+                    "[Child structured output validation exhausted before producing a result]"
                     if output_schema is not None
-                    else "[Child orchestrator produced "
-                    "no answer]"
+                    else "[Child orchestrator produced no answer]"
                 )
                 _child_result = LLMResult(
                     error_text,
                     error=True,
                     error_category=(
-                        "SCHEMA_VALIDATION_EXHAUSTED"
-                        if output_schema is not None
-                        else "NO_RESULT"
+                        "SCHEMA_VALIDATION_EXHAUSTED" if output_schema is not None else "NO_RESULT"
                     ),
                     model=target_model,
                     wall_time_ms=round(elapsed_ms, 2),
                 )
         except Exception as e:
-            elapsed_ms = (
-                (time.perf_counter() - child_start) * 1000
-            )
+            elapsed_ms = (time.perf_counter() - child_start) * 1000
             logger.error(
                 "Child dispatch error at depth %d: %s",
-                depth + 1, e,
+                depth + 1,
+                e,
             )
             cat = (
                 "SCHEMA_VALIDATION_EXHAUSTED"
                 if output_schema is not None
                 else (
                     _classify_error(e)
-                    if (
-                        hasattr(e, "code")
-                        or hasattr(e, "status_code")
-                    )
+                    if (hasattr(e, "code") or hasattr(e, "status_code"))
                     else "UNKNOWN"
                 )
             )
@@ -415,16 +408,10 @@ def create_dispatch_closures(
             )
         finally:
             if _child_result is not None and not _call_logged:
-                _build_call_log(
-                    prompt, _child_result, elapsed_ms
-                )
+                _build_call_log(prompt, _child_result, elapsed_ms)
                 _call_logged = True
             # Clean up child's REPL
-            if (
-                hasattr(child, "repl")
-                and child.repl is not None
-                and not child.persistent
-            ):
+            if hasattr(child, "repl") and child.repl is not None and not child.persistent:
                 try:
                     child.repl.cleanup()
                 except Exception:
