@@ -297,6 +297,8 @@ class SqliteTracingPlugin(BasePlugin):
         # Instance-local counters (no longer read from obs: session state)
         self._model_call_count: int = 0
         self._artifact_saves_count: int = 0
+        # Deferred tool lineage entries (flushed when agent callbacks complete)
+        self._deferred_tool_lineage: list[dict[str, Any]] = []
         # Monotonic counter for session_state_events per trace
         self._sse_seq: int = 0
         # Legacy: kept for backward compat in agent span tracking
@@ -645,6 +647,7 @@ class SqliteTracingPlugin(BasePlugin):
             self._agent_span_stack.clear()
             self._pending_model_telemetry.clear()
             self._pending_tool_telemetry.clear()
+            self._deferred_tool_lineage.clear()
             self._sse_seq = 0
             if self._conn is not None:
                 # Build config snapshot from state and env vars
@@ -807,6 +810,7 @@ class SqliteTracingPlugin(BasePlugin):
     async def after_run_callback(self, *, invocation_context: InvocationContext) -> None:
         """Finalize the trace row with summary stats from telemetry."""
         try:
+            self._flush_deferred_tool_lineage()
             if self._conn is None or self._trace_id is None:
                 return
             state = invocation_context.session.state
@@ -897,8 +901,9 @@ class SqliteTracingPlugin(BasePlugin):
     async def after_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
     ) -> types.Content | None:
-        """Pop agent from context stack."""
+        """Pop agent from context stack and flush deferred lineage."""
         try:
+            self._flush_deferred_tool_lineage()
             if self._agent_span_stack:
                 self._agent_span_stack.pop()
         except Exception as e:
@@ -915,6 +920,7 @@ class SqliteTracingPlugin(BasePlugin):
     ) -> LlmResponse | None:
         """Insert a telemetry row for model_call and store ID for pairing."""
         try:
+            self._flush_deferred_tool_lineage()
             model = llm_request.model or "unknown"
             num_contents = len(llm_request.contents) if llm_request.contents else 0
             iteration = callback_context.state.get(ITERATION_COUNT, 0)
@@ -1051,30 +1057,29 @@ class SqliteTracingPlugin(BasePlugin):
                     else str(llm_response.finish_reason)
                 )
 
-            # Extract custom_metadata["rlm"] lineage
+            # Build lineage from agent attrs (plugin fires before agent's
+            # after_model_callback, so custom_metadata isn't populated yet).
+            inv_ctx = getattr(callback_context, "_invocation_context", None)
+            agent = getattr(inv_ctx, "agent", None) if inv_ctx else None
             rlm_meta = None
-            custom_meta = getattr(llm_response, "custom_metadata", None)
-            if isinstance(custom_meta, dict):
-                rlm_meta = custom_meta.get("rlm")
+            if agent is not None:
+                rlm_meta = {
+                    "agent_name": getattr(agent, "name", "unknown"),
+                    "depth": getattr(agent, "_rlm_depth", 0),
+                    "fanout_idx": getattr(agent, "_rlm_fanout_idx", None),
+                    "parent_depth": getattr(agent, "_rlm_parent_depth", None),
+                    "parent_fanout_idx": getattr(agent, "_rlm_parent_fanout_idx", None),
+                    "output_schema_name": getattr(agent, "_rlm_output_schema_name", None),
+                    "branch": getattr(inv_ctx, "branch", None),
+                    "invocation_id": getattr(inv_ctx, "invocation_id", None),
+                    "session_id": getattr(getattr(inv_ctx, "session", None), "id", None),
+                }
             custom_metadata_json = None
             if rlm_meta is not None:
                 try:
                     custom_metadata_json = json.dumps(rlm_meta, default=str)
                 except (TypeError, ValueError):
                     pass
-
-            # Project lineage fields from rlm metadata
-            # into dedicated telemetry columns.
-            lineage_kwargs: dict[str, Any] = {}
-            if isinstance(rlm_meta, dict):
-                dm = rlm_meta.get("decision_mode")
-                if dm:
-                    lineage_kwargs["decision_mode"] = dm
-                so = rlm_meta.get("structured_outcome")
-                if so and so != "not_applicable":
-                    lineage_kwargs["structured_outcome"] = so
-                if rlm_meta.get("terminal"):
-                    lineage_kwargs["terminal_completion"] = 1
 
             end_time = time.time()
 
@@ -1091,7 +1096,6 @@ class SqliteTracingPlugin(BasePlugin):
                 }
                 if custom_metadata_json:
                     update_kwargs["custom_metadata_json"] = custom_metadata_json
-                update_kwargs.update(lineage_kwargs)
                 if llm_response.error_code:
                     update_kwargs["status"] = "error"
                     update_kwargs["error_type"] = str(llm_response.error_code)
@@ -1112,7 +1116,6 @@ class SqliteTracingPlugin(BasePlugin):
                 }
                 if custom_metadata_json:
                     insert_kw["custom_metadata_json"] = custom_metadata_json
-                insert_kw.update(lineage_kwargs)
                 self._insert_telemetry(
                     standalone_id,
                     "model_call",
@@ -1155,6 +1158,37 @@ class SqliteTracingPlugin(BasePlugin):
         except Exception as e:
             logger.warning("SqliteTracingPlugin: on_model_error failed: %s", e)
         return None
+
+    # ---- Deferred lineage flush ----
+
+    def _flush_deferred_tool_lineage(self) -> None:
+        """Flush deferred tool lineage entries.
+
+        Called at points where agent callbacks have completed
+        (before_model, after_agent, after_run), so _rlm_lineage_status
+        is now populated by worker_retry.after_tool_cb.
+        """
+        for entry in self._deferred_tool_lineage:
+            try:
+                agent = entry["agent"]
+                status = getattr(agent, "_rlm_lineage_status", None) or {}
+                kw: dict[str, Any] = {}
+                so = status.get("structured_outcome")
+                if so:
+                    kw["structured_outcome"] = so
+                is_terminal = bool(status.get("terminal"))
+                kw["terminal_completion"] = int(is_terminal)
+                if is_terminal and entry.get("result") is not None:
+                    kw["validated_output_json"] = json.dumps(
+                        entry["result"], default=str
+                    )
+                if kw:
+                    self._update_telemetry(entry["telemetry_id"], **kw)
+            except Exception as e:
+                logger.warning(
+                    "SqliteTracingPlugin: deferred lineage flush failed: %s", e
+                )
+        self._deferred_tool_lineage.clear()
 
     # ---- Tool callbacks ----
 
@@ -1208,6 +1242,7 @@ class SqliteTracingPlugin(BasePlugin):
                 invocation_id=invocation_id,
                 session_id=session_id,
                 output_schema_name=output_schema_name,
+                decision_mode=tool_name,
             )
             self._pending_tool_telemetry[self._pending_key(tool_context)] = (
                 telemetry_id,
@@ -1246,32 +1281,23 @@ class SqliteTracingPlugin(BasePlugin):
                 if isinstance(result, dict) and result.get("call_number") is not None:
                     update_kwargs["call_number"] = self._coerce_int(result.get("call_number"))
 
-                # Persist decision_mode / lineage from
-                # _rlm_lineage_status on the agent
+                # Persist decision_mode / lineage
                 inv_ctx = getattr(
                     tool_context,
                     "_invocation_context",
                     None,
                 )
                 agent = getattr(inv_ctx, "agent", None)
-                lineage_status = (
-                    getattr(
-                        agent,
-                        "_rlm_lineage_status",
-                        None,
-                    )
-                    or {}
-                )
 
                 if tool_name == "set_model_response":
                     update_kwargs["decision_mode"] = "set_model_response"
-                    update_kwargs["structured_outcome"] = lineage_status.get("structured_outcome")
-                    is_terminal = bool(lineage_status.get("terminal"))
-                    update_kwargs["terminal_completion"] = int(is_terminal)
-                    # Only persist validated_output_json for
-                    # terminal validated payloads, not retries.
-                    if is_terminal:
-                        update_kwargs["validated_output_json"] = json.dumps(result, default=str)
+                    # Defer structured fields — _rlm_lineage_status is set by
+                    # worker_retry.after_tool_cb which fires AFTER plugin callbacks.
+                    self._deferred_tool_lineage.append({
+                        "telemetry_id": telemetry_id,
+                        "agent": agent,
+                        "result": result,
+                    })
                 elif tool_name == "execute_code":
                     update_kwargs["decision_mode"] = "execute_code"
 
