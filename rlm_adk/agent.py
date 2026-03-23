@@ -46,7 +46,6 @@ from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.plugins.step_mode import StepModePlugin
 from rlm_adk.skills import (
-    build_enabled_skill_instruction_blocks,
     normalize_enabled_skill_names,
 )
 from rlm_adk.utils.prompts import (
@@ -201,8 +200,6 @@ def create_reasoning_agent(
     retry_config: dict[str, Any] | None = None,
     *,
     tools: list | None = None,
-    include_skills: bool = True,
-    enabled_skills: Iterable[str] | None = None,
     name: str = "reasoning_agent",
     output_key: str = "reasoning_output",
     include_contents: str = "default",
@@ -253,11 +250,6 @@ def create_reasoning_agent(
             )
         )
 
-    # Append skill instructions to static instruction (parent only)
-    if include_skills:
-        for block in build_enabled_skill_instruction_blocks(enabled_skills):
-            static_instruction = static_instruction + "\n" + block
-
     gcc = _build_generate_content_config(retry_config) if not litellm_active else None
 
     resolved_model = _resolve_model(model) if litellm_active else model
@@ -304,7 +296,6 @@ def create_rlm_orchestrator(
         dynamic_instruction=dynamic_instruction,
         thinking_budget=thinking_budget,
         retry_config=retry_config,
-        enabled_skills=resolved_enabled_skills,
     )
 
     # Default WorkerPool if none provided
@@ -368,7 +359,6 @@ def create_child_orchestrator(
         model,
         static_instruction=RLM_CHILD_STATIC_INSTRUCTION,
         thinking_budget=thinking_budget,
-        include_skills=False,
         name=f"child_reasoning_d{depth}",
         output_key=f"reasoning_output@d{depth}",
         # output_schema intentionally NOT set on LlmAgent — the orchestrator
@@ -427,9 +417,12 @@ def _default_plugins(
     if sqlite_tracing or _sqlite_env:
         try:
             from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
-            plugins.append(SqliteTracingPlugin(
-                db_path=str(_package_dir() / ".adk" / "traces.db"),
-            ))
+
+            plugins.append(
+                SqliteTracingPlugin(
+                    db_path=str(_package_dir() / ".adk" / "traces.db"),
+                )
+            )
         except ImportError:
             logger.debug("SqliteTracingPlugin not available, skipping")
     _langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
@@ -439,6 +432,7 @@ def _default_plugins(
     if _repl_trace_env > 0:
         try:
             from rlm_adk.plugins.repl_tracing import REPLTracingPlugin
+
             plugins.append(REPLTracingPlugin())
         except ImportError:
             logger.debug("REPLTracingPlugin not available, skipping")
@@ -448,6 +442,7 @@ def _default_plugins(
         try:
             from rlm_adk.plugins.google_cloud_analytics import GoogleCloudAnalyticsPlugin
             from rlm_adk.plugins.google_cloud_tracing import GoogleCloudTracingPlugin
+
             plugins.append(GoogleCloudTracingPlugin())
             plugins.append(GoogleCloudAnalyticsPlugin())
         except ImportError:
@@ -456,15 +451,19 @@ def _default_plugins(
     _snapshot_env = os.getenv("RLM_CONTEXT_SNAPSHOTS", "").lower() in ("1", "true", "yes")
     if _snapshot_env:
         from rlm_adk.plugins.context_snapshot import ContextWindowSnapshotPlugin
+
         _adk_dir = str(_package_dir() / ".adk")
-        plugins.append(ContextWindowSnapshotPlugin(
-            output_path=f"{_adk_dir}/context_snapshots.jsonl",
-            output_capture_path=f"{_adk_dir}/model_outputs.jsonl",
-        ))
+        plugins.append(
+            ContextWindowSnapshotPlugin(
+                output_path=f"{_adk_dir}/context_snapshots.jsonl",
+                output_capture_path=f"{_adk_dir}/model_outputs.jsonl",
+            )
+        )
 
     if _is_litellm_active():
         try:
             from rlm_adk.plugins.litellm_cost_tracking import LiteLLMCostTrackingPlugin
+
             plugins.append(LiteLLMCostTrackingPlugin())
         except ImportError:
             logger.debug("LiteLLMCostTrackingPlugin not available, skipping")
@@ -527,8 +526,13 @@ def create_rlm_app(
         enabled_skills=enabled_skills,
         retry_config=retry_config,
     )
-    resolved_plugins = plugins if plugins is not None else _default_plugins(
-        langfuse=langfuse, sqlite_tracing=sqlite_tracing,
+    resolved_plugins = (
+        plugins
+        if plugins is not None
+        else _default_plugins(
+            langfuse=langfuse,
+            sqlite_tracing=sqlite_tracing,
+        )
     )
     return App(
         name="rlm_adk",
@@ -641,7 +645,9 @@ def create_rlm_runner(
 
 def _root_agent_model() -> str:
     """Resolve model used by ADK CLI-discoverable root_agent."""
-    return os.getenv("RLM_ADK_MODEL", "gemini-3.1-pro-preview") #AGENT: DO NOT CHANGE WITHOUT ASKING USER
+    return os.getenv(
+        "RLM_ADK_MODEL", "gemini-3.1-pro-preview"
+    )  # AGENT: DO NOT CHANGE WITHOUT ASKING USER
 
 
 # ADK CLI entrypoint (`adk run rlm_adk`, `adk web`) discovers the ``app``

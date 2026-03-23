@@ -131,6 +131,20 @@ PROMPT_SKILL_REGISTRY: dict[str, PromptSkillRegistration] = {
 DEFAULT_ENABLED_SKILL_NAMES: tuple[str, ...] = tuple(PROMPT_SKILL_REGISTRY.keys())
 
 
+def collect_skill_objects(enabled_skills: Iterable[str] | None) -> list[Skill]:
+    """Collect ADK Skill objects for enabled skills that have instructions.
+
+    Skills whose ``build_instruction_block()`` returns ``""`` (e.g. ping)
+    are filtered out — they have no L2 instructions for ``load_skill`` to return.
+    """
+    names = normalize_enabled_skill_names(enabled_skills)
+    return [
+        PROMPT_SKILL_REGISTRY[name].skill
+        for name in names
+        if PROMPT_SKILL_REGISTRY[name].build_instruction_block() != ""
+    ]
+
+
 def normalize_enabled_skill_names(enabled_skills: Iterable[str] | None) -> tuple[str, ...]:
     """Return validated prompt-visible skill names in registry order."""
     if enabled_skills is None:
@@ -149,10 +163,7 @@ def build_enabled_skill_instruction_blocks(
 ) -> list[str]:
     """Build prompt blocks for the selected prompt-visible skills."""
     names = normalize_enabled_skill_names(enabled_skills)
-    return [
-        PROMPT_SKILL_REGISTRY[name].build_instruction_block()
-        for name in names
-    ]
+    return [PROMPT_SKILL_REGISTRY[name].build_instruction_block() for name in names]
 
 
 def selected_skill_summaries(

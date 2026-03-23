@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-17 -->
+<!-- validated: 2026-03-22 -->
 
 # Skills & Prompt System
 
@@ -33,6 +33,7 @@ Repository URL: {repo_url?}
 Original query: {root_prompt?}
 Additional context: {test_context?}
 Skill instruction: {skill_instruction?}
+User context: {user_ctx_manifest?}
 """)
 ```
 
@@ -76,7 +77,7 @@ Condensed version (~1/3 the size of `RLM_STATIC_INSTRUCTION`) used by child orch
 - Repomix code examples and `probe_repo`/`pack_repo`/`shard_repo` references
 - Skill instruction blocks
 
-Children don't get repomix because they operate on data passed via their prompt, not raw repositories. This is controlled by `include_repomix=False` in `create_child_orchestrator()`.
+Children don't get repomix because they operate on data passed via their prompt, not raw repositories. This is controlled by `include_skills=False` in `create_child_orchestrator()`.
 
 ---
 
@@ -97,9 +98,112 @@ The callback also records per-invocation accounting: `REASONING_PROMPT_CHARS`, `
 
 ## 5. Skill System
 
-**File:** `/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/repomix_skill.py`
+**Files:** `rlm_adk/skills/catalog.py`, `rlm_adk/skills/repomix_skill.py`, `rlm_adk/skills/polya_narrative_skill.py`
 
-Skills use ADK's `google.adk.skills.models.Skill` and `Frontmatter` classes:
+Skills are the mechanism by which complex, multi-step algorithms are compressed into single-line function calls that the reasoning LLM can invoke inside `execute_code`. The skill system serves two roles simultaneously: it is **API documentation** the model reads to learn what abstractions are available, and it is a **runtime delivery mechanism** that makes those abstractions callable in the REPL.
+
+### 5.1 Google ADK Skill Architecture (Upstream)
+
+ADK's native skill system (preview, `@experimental(FeatureName.SKILL_TOOLSET)`) uses a **hybrid prompt-injection + tool-use** activation model with three content layers:
+
+| Layer | Content | When Loaded | Mechanism |
+|-------|---------|-------------|-----------|
+| **L1 — Frontmatter** | Name + description (max 1024 chars) | Always in system prompt | `format_skills_as_xml()` → `<available_skills>` XML |
+| **L2 — Instructions** | Full markdown body (`SKILL.md`) | On-demand via tool call | `load_skill(name="...")` tool response |
+| **L3 — Resources** | `references/`, `assets/`, `scripts/` | On-demand via tool call | `load_skill_resource(skill_name="...", path="...")` |
+
+**Native activation flow:**
+
+1. A `SkillToolset` is attached to the agent's `tools` list, containing `Skill` objects.
+2. Before every LLM request, `SkillToolset.process_llm_request()` injects the L1 XML index into `system_instruction` along with a prompt telling the model: *"If a skill seems relevant, you MUST use the `load_skill` tool."*
+3. The model reads the XML index, decides a skill is relevant, and makes a **function call** to `load_skill(name="greeting-skill")`.
+4. The tool returns the full L2 instructions as a tool response. The model then follows those instructions.
+5. If the model needs supplementary material, it calls `load_skill_resource` to fetch L3 content.
+
+This is **context-efficient**: only lightweight L1 metadata (names + descriptions) occupies permanent system prompt space. Full instructions are loaded on-demand via tool-use turns, keeping the baseline context footprint small. The model acts as the router — there is no automatic skill injection based on query matching.
+
+**Key ADK source files:**
+
+| File | Role |
+|------|------|
+| `google.adk.skills.models` | `Skill`, `Frontmatter`, `Resources` data models |
+| `google.adk.skills.prompt` | `format_skills_as_xml(frontmatters) -> str` |
+| `google.adk.tools.skill_toolset` | `SkillToolset`, `LoadSkillTool`, `LoadSkillResourceTool` |
+| `google.adk.tools.base_toolset` | `BaseToolset.process_llm_request()` hook |
+
+### 5.2 RLM-ADK Hybrid: RLMSkillToolset
+
+RLM-ADK implements a hybrid prompt-injection + tool-use model via `RLMSkillToolset` (`rlm_adk/skills/skill_toolset.py`). The installed ADK does not ship a `SkillToolset` class; RLM-ADK builds its own as a `BaseTool` subclass.
+
+| Aspect | RLMSkillToolset (hybrid) |
+|--------|--------------------------|
+| Discovery | L1 XML injected into `system_instruction` via `process_llm_request()` on every LLM call |
+| Full instructions | On-demand via `load_skill` tool call (L2) |
+| Activation trigger | Model calls `load_skill(skill_name=...)` — a tool-use turn |
+| State tracking | `skill_last_loaded`, `skill_load_count`, `skill_loaded_names` written via `tool_context.state` (AR-CRIT-001) |
+| Skill invocation | Model reads returned instructions, then calls `execute_code` with function call or synthetic import |
+| Context cost | Low (L1 only until activated); full L2 loaded on demand |
+| Telemetry | `load_skill` calls flow through all three data planes (completion, lineage, state events) |
+
+**Wiring:** The orchestrator creates `RLMSkillToolset(enabled_skills=...)` at depth 0 only and appends it to the reasoning agent's tools list alongside `REPLTool` and `SetModelResponseTool`. Children (depth > 0) never get skill tools — they operate on data passed via their prompt.
+
+**Lineage is automatic:** `sqlite_tracing.py`'s `before_tool_callback` captures depth, fanout_idx, branch, and invocation_id for all tool calls including `load_skill`. The `after_tool_callback` enriches telemetry rows with `decision_mode="load_skill"`, `skill_name_loaded`, and `skill_instructions_len`.
+
+**REPL delivery modes unchanged:** `collect_repl_globals()` (Mode 1) and `activate_side_effect_modules()` (Mode 2) remain orthogonal to how the model discovers skills. After `load_skill` returns the API docs, the model still calls `execute_code` with `probe_repo()` or `from rlm_repl_skills.polya_narrative import ...`.
+
+### 5.3 The `<available_skills>` XML Discovery Block
+
+Each skill produces a structured XML discovery block via `format_skills_as_xml()` from `google.adk.skills.prompt`. For a single skill:
+
+```xml
+<available_skills>
+<skill>
+<name>
+repomix-repl-helpers
+</name>
+<description>
+Pre-built REPL functions for packing, probing, and sharding git repositories...
+</description>
+</skill>
+</available_skills>
+```
+
+In RLM-ADK, each skill's `build_instruction_block()` produces the XML discovery block followed immediately by the full markdown instructions:
+
+```python
+# repomix_skill.py:81-87
+def build_skill_instruction_block() -> str:
+    discovery_xml = format_skills_as_xml([REPOMIX_SKILL.frontmatter])
+    return f"\n{discovery_xml}\n{REPOMIX_SKILL.instructions}"
+```
+
+The XML block serves as a **structured discovery token** — a machine-readable envelope the model can quickly scan to determine whether a skill is relevant to the current task. The full markdown instructions that follow provide the API documentation the model needs to actually use the skill.
+
+The resulting `static_instruction` seen by the reasoning agent looks like:
+
+```
+[base RLM_STATIC_INSTRUCTION — tool descriptions, REPL capabilities, strategy examples]
+
+<available_skills>
+  <skill><name>repomix-repl-helpers</name><description>...</description></skill>
+</available_skills>
+
+## repomix-repl-helpers — Pre-built REPL Functions
+[function signatures, parameter docs, usage examples]
+
+<available_skills>
+  <skill><name>polya-narrative</name><description>...</description></skill>
+</available_skills>
+
+## polya-narrative — Iterative Refinement
+[synthetic import examples, result types, cycle documentation]
+```
+
+### 5.4 Skill Definition
+
+**Files:** `rlm_adk/skills/repomix_skill.py`, `rlm_adk/skills/polya_narrative_skill.py`
+
+Skills use ADK's `Skill` and `Frontmatter` Pydantic models as data containers:
 
 ```python
 from google.adk.skills.models import Skill, Frontmatter
@@ -113,22 +217,206 @@ REPOMIX_SKILL = Skill(
 )
 ```
 
-**`build_skill_instruction_block()`** returns the skill discovery XML (via `format_skills_as_xml()`) concatenated with the full instructions text. This block is appended to `static_instruction` in `create_reasoning_agent()`:
+The `Frontmatter` carries the L1 discovery metadata (name + description). The `instructions` string carries the full L2 API documentation. RLM-ADK does not use `Resources` (L3) since skill content is entirely self-contained in the instruction markdown.
+
+### 5.5 Skill Catalog
+
+**File:** `rlm_adk/skills/catalog.py`
+
+All prompt-visible skills are registered in a central catalog. Each entry is a `PromptSkillRegistration` dataclass:
 
 ```python
-# agent.py line 204-208
-if include_repomix:
-    from rlm_adk.skills.repomix_skill import build_skill_instruction_block
-    static_instruction = static_instruction + "\n" + build_skill_instruction_block()
+@dataclass(frozen=True)
+class PromptSkillRegistration:
+    skill: Skill                                              # ADK Skill object (frontmatter + instructions)
+    build_instruction_block: Callable[[], str]                 # Returns XML discovery + instructions
+    repl_globals_factory: Callable[[], dict[str, Any]] | None  # REPL globals to inject (optional)
+    side_effect_modules: tuple[str, ...]                       # Modules to import for source-expansion registration
 ```
 
-Skills are injected once at root level only (`include_repomix=True` for root, `False` for children).
+The four fields capture the full skill contract:
+- `skill` — the ADK `Skill` object carrying frontmatter and instructions
+- `build_instruction_block` — produces the prompt content (XML + markdown) for `static_instruction`
+- `repl_globals_factory` — returns a dict to merge into `repl.globals` (Mode 1 delivery, see 5.7)
+- `side_effect_modules` — module paths whose import triggers `register_skill_export()` calls (Mode 2 delivery, see 5.7)
+
+A skill may set `repl_globals_factory`, `side_effect_modules`, both, or neither. The ping skill sets only `side_effect_modules` with an empty `build_instruction_block` (REPL-only, no prompt injection). The repomix skill sets only `repl_globals_factory`. The Polya skill sets only `side_effect_modules`.
+
+The `PROMPT_SKILL_REGISTRY` dict maps skill names to their `PromptSkillRegistration`. All registered skills are enabled by default via `DEFAULT_ENABLED_SKILL_NAMES`.
+
+**Key catalog functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `normalize_enabled_skill_names(names)` | Validates and returns skill names in registry order |
+| `collect_skill_objects(names)` | Returns ADK `Skill` objects for enabled skills that have instructions (used by `RLMSkillToolset`) |
+| `build_enabled_skill_instruction_blocks(names)` | Builds prompt instruction blocks for selected skills (legacy, no longer called by agent factory) |
+| `collect_repl_globals(names)` | Merges REPL globals from all enabled skills with a `repl_globals_factory` |
+| `activate_side_effect_modules(names)` | Imports side-effect modules to trigger `register_skill_export()` for source-expandable skills |
+| `selected_skill_summaries(names)` | Returns `(name, description)` tuples for selected skills |
+
+### 5.6 Skill Discovery via RLMSkillToolset
+
+**Files:** `rlm_adk/skills/skill_toolset.py`, `rlm_adk/orchestrator.py`
+
+Skill instructions are no longer pre-baked into `static_instruction` at agent creation. Instead, `RLMSkillToolset` handles both discovery (L1) and on-demand loading (L2):
+
+```python
+# orchestrator.py — skill toolset wiring (depth == 0 only)
+if self.depth == 0 and self.enabled_skills:
+    from rlm_adk.skills.skill_toolset import RLMSkillToolset
+    skill_toolset = RLMSkillToolset(enabled_skills=self.enabled_skills)
+    tools = [repl_tool, set_model_response_tool, skill_toolset]
+```
+
+On each LLM request, `RLMSkillToolset.process_llm_request()`:
+1. Calls `format_skills_as_xml(frontmatters)` to build the L1 XML discovery block
+2. Appends it to `system_instruction` via `llm_request.append_instructions()`
+3. Registers the `load_skill` function declaration via `BaseTool.process_llm_request()`
+
+When the model calls `load_skill(skill_name="...")`:
+1. Returns `{skill_name, instructions, frontmatter}` — the full L2 content
+2. Writes state keys via `tool_context.state` (AR-CRIT-001 compliant)
+
+Child orchestrators (depth > 0) do not get skill tools. They receive `RLM_CHILD_STATIC_INSTRUCTION` which is ~1/3 the size and contains no skill documentation.
+
+### 5.7 Two Runtime Delivery Modes
+
+**File:** `rlm_adk/orchestrator.py` (lines 302-305)
+
+The orchestrator uses catalog-driven calls to activate skills at runtime:
+
+```python
+# orchestrator.py:302-305
+from rlm_adk.skills.catalog import activate_side_effect_modules, collect_repl_globals
+
+repl.globals.update(collect_repl_globals(self.enabled_skills))
+activate_side_effect_modules(self.enabled_skills)
+```
+
+These calls happen after the REPL is created but before the reasoning agent runs. They activate the two delivery modes:
+
+| Mode | Mechanism | Use When | Example |
+|------|-----------|----------|---------|
+| **Mode 1: REPL Globals** | `collect_repl_globals()` → `repl.globals.update()` | Skill wraps heavy native dependencies with no `llm_query()` calls | `probe_repo()`, `pack_repo()`, `shard_repo()` |
+| **Mode 2: Source Expansion** | `activate_side_effect_modules()` → `importlib.import_module()` → `register_skill_export()` | Skill implementation contains `llm_query()` / `llm_query_batched()` calls | `run_polya_narrative()`, `run_recursive_ping()` |
+
+**Why two modes exist — the AST rewriter constraint:**
+
+The choice between modes is not arbitrary. It is driven by whether the skill's implementation calls `llm_query()`:
+
+- **Mode 1 (REPL globals)** injects real Python function objects directly into the REPL namespace. The LLM calls them with no import statement. This works for pure utility functions (repomix) because those functions never call `llm_query()` — they run entirely in the host process.
+
+- **Mode 2 (source expansion)** stores skill source as raw strings. When the LLM writes `from rlm_repl_skills.<module> import <symbol>`, REPLTool intercepts the synthetic import, resolves the dependency graph, and inlines all source into the submitted code string. This is **required** when the skill calls `llm_query()` because the AST rewriter (`rewrite_for_async`) transforms `llm_query(p)` → `await llm_query_async(p)` and promotes containing functions to `async def`. The rewriter only operates on the submitted code text — it cannot see inside injected function objects. Source expansion makes `llm_query()` calls visible to the rewriter by inlining them into the code string.
+
+**Lazy loading:** `_repomix_globals_factory()` (`catalog.py:63-67`) uses a lazy import pattern — `repomix_helpers` is imported only when the factory is called at invocation time, not at catalog import time. This avoids pulling in heavy dependencies for runs that don't need them.
+
+**Process-global registry:** The `_registry` singleton in `skill_registry.py` is process-global. Once `activate_side_effect_modules()` imports a skill module, its `register_skill_export()` calls populate the registry for the lifetime of the process. `importlib.import_module()` is idempotent (Python's module cache), so repeated invocations are safe.
+
+### 5.8 Full Skill Activation Lifecycle
+
+The end-to-end flow from skill definition to LLM invocation:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  AGENT CONSTRUCTION (once)                                         │
+│                                                                     │
+│  create_rlm_app()                                                   │
+│    → create_rlm_orchestrator()                                      │
+│        → create_reasoning_agent()   (no skill injection here)       │
+│            → LlmAgent(static_instruction=base_prompt)               │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  INVOCATION STARTUP (per run)                                       │
+│                                                                     │
+│  RLMOrchestratorAgent._run_async_impl(ctx)                          │
+│    → repl = LocalREPL()                                             │
+│    → repl.globals.update(collect_repl_globals())                    │
+│        → injects probe_repo, pack_repo, shard_repo (Mode 1)        │
+│    → activate_side_effect_modules()                                 │
+│        → imports polya/ping modules (Mode 2)                        │
+│        → register_skill_export() populates SkillRegistry            │
+│    → repl_tool = REPLTool(repl, ...)                                │
+│    → skill_toolset = RLMSkillToolset(enabled_skills=...)            │
+│    → reasoning_agent.tools = [repl_tool, smr_tool, skill_toolset]   │
+│    → reasoning_agent.run_async(ctx)                                 │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  LLM STEP (per model call — process_llm_request fires)             │
+│                                                                     │
+│  RLMSkillToolset.process_llm_request():                             │
+│    → format_skills_as_xml(frontmatters) → L1 XML discovery block    │
+│    → llm_request.append_instructions([xml])                         │
+│    → registers load_skill FunctionDeclaration                       │
+│                                                                     │
+│  Model sees in system_instruction:                                  │
+│    <available_skills>                                               │
+│      <skill><name>repomix-repl-helpers</name>                       │
+│             <description>Pre-built REPL functions...</description>  │
+│      </skill>                                                       │
+│    </available_skills>                                               │
+│                                                                     │
+│  Model decides skill is relevant → calls load_skill(name="...")     │
+│    → returns {skill_name, instructions, frontmatter}                │
+│    → writes skill_last_loaded, skill_load_count, skill_loaded_names │
+│                                                                     │
+│  Model reads L2 instructions, writes execute_code call:             │
+│    Mode 1: probe_repo("https://github.com/org/repo")               │
+│    Mode 2: from rlm_repl_skills.polya_narrative import ...          │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  REPL EXECUTION (REPLTool.run_async)                                │
+│                                                                     │
+│  1. expand_skill_imports(code)          [repl_tool.py:177-195]      │
+│     → SkillRegistry.expand()                                        │
+│     → finds synthetic ImportFrom (rlm_repl_skills.*)                │
+│     → resolves transitive requires dependencies                     │
+│     → topological sort all exports                                  │
+│     → inlines source, removes synthetic import                      │
+│                                                                     │
+│  2. has_llm_calls(expanded_code)        [repl_tool.py:223]          │
+│     → True if expanded source contains llm_query() calls            │
+│                                                                     │
+│  3. rewrite_for_async(expanded_code)    [repl_tool.py:227]          │
+│     → llm_query(p) → await llm_query_async(p)                      │
+│     → promote containing functions to async def                     │
+│     → wrap in async def _repl_exec(): ... return locals()           │
+│                                                                     │
+│  4. repl.execute_code_async(compiled)                               │
+│     → function runs, dispatches child LLMs via llm_query_async      │
+│     → returns result to model as tool response                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**The model's perspective is simple:** it reads skill documentation in its system prompt, decides which skill is relevant, and calls `execute_code` with code that follows the documented API. The model never sees the synthetic import expansion, AST rewriting, or async transformation — those are implementation details of the REPL execution layer.
+
+### 5.9 Skill Activation Flow Summary
+
+| Step | RLMSkillToolset |
+|------|----------------|
+| 1. Discovery | `process_llm_request()` injects L1 XML into `system_instruction` before every LLM call |
+| 2. Model reads | Sees `<available_skills>` XML index + `load_skill` tool declaration |
+| 3. Activation | Model calls `load_skill(skill_name="...")` — a **tool-use turn** |
+| 4. Instructions | Returned as `load_skill` tool response (L2 markdown) |
+| 5. State tracking | `skill_last_loaded`, `skill_load_count`, `skill_loaded_names` written via `tool_context.state` |
+| 6. Invocation | Model calls `execute_code` with function call or synthetic import |
+| 7. Telemetry | `decision_mode="load_skill"` + `skill_name_loaded` + `skill_instructions_len` in telemetry table |
+
+**Key insight:** ADK native skills optimize for **breadth** (many skills, low baseline context cost, on-demand loading). RLM-ADK skills optimize for **depth** (few skills with rich API docs, zero-latency access, enabling the model to write correct single-line function calls on the first attempt).
+
+Adding a new skill to the catalog automatically wires its prompt injection, REPL globals, and side-effect modules without touching `agent.py` or `orchestrator.py` code.
 
 ---
 
 ## 6. repomix-repl-helpers Skill
 
-The only skill currently defined. Provides three pre-loaded REPL functions (injected into `REPL.globals` by the orchestrator):
+The repomix skill provides three pre-loaded REPL functions (injected into `REPL.globals` via the catalog's `repl_globals_factory`):
 
 ### `probe_repo(source, calculate_tokens=True) -> ProbeResult`
 Quick stats without the full packed content.
@@ -172,7 +460,7 @@ A source-expandable REPL skill that orchestrates iterative narrative refinement 
 
 The skill registers itself through **two** mechanisms simultaneously:
 
-1. **ADK Skill discovery** — `POLYA_NARRATIVE_SKILL` (a `google.adk.skills.models.Skill` with `Frontmatter`) is appended to `static_instruction` via `build_polya_skill_instruction_block()` in `create_reasoning_agent()`. This gives the reasoning agent an `<available_skills>` XML block describing the skill's purpose and usage.
+1. **ADK Skill discovery** — `POLYA_NARRATIVE_SKILL` (a `google.adk.skills.models.Skill` with `Frontmatter`) is registered in `PROMPT_SKILL_REGISTRY` and surfaced to the model via `RLMSkillToolset`. The toolset injects an `<available_skills>` XML block into `system_instruction` and provides a `load_skill` tool for on-demand L2 instruction loading.
 
 2. **Source-expandable REPL exports** — 12 `ReplSkillExport` entries registered at import time under the synthetic module `rlm_repl_skills.polya_narrative`. When the model writes `from rlm_repl_skills.polya_narrative import run_polya_narrative`, the skill registry inlines all source transitively.
 
@@ -295,24 +583,43 @@ def build_my_skill_block() -> str:
     return f"\n{discovery_xml}\n{MY_SKILL.instructions}"
 ```
 
-### Step 2: Append to static_instruction
+### Step 2: Register in the Catalog
 
-In `create_reasoning_agent()` (`agent.py`), append the skill block:
-
-```python
-from rlm_adk.skills.my_skill import build_my_skill_block
-static_instruction = static_instruction + "\n" + build_my_skill_block()
-```
-
-### Step 3: Inject functions into REPL globals
-
-In `orchestrator.py` `_run_async_impl()`, inject callable functions:
+Add a `PromptSkillRegistration` entry to `PROMPT_SKILL_REGISTRY` in `rlm_adk/skills/catalog.py`:
 
 ```python
-repl.globals["my_function"] = my_function
+from rlm_adk.skills.my_skill import MY_SKILL, build_my_skill_block
+
+PROMPT_SKILL_REGISTRY: dict[str, PromptSkillRegistration] = {
+    # ... existing entries ...
+    MY_SKILL.frontmatter.name: PromptSkillRegistration(
+        skill=MY_SKILL,
+        build_instruction_block=build_my_skill_block,
+        repl_globals_factory=_my_globals_factory,     # optional: for repl.globals injection
+        side_effect_modules=("rlm_adk.skills.my_skill",),  # optional: for source-expandable imports
+    ),
+}
 ```
 
-### Step 4: Reference in REPL code
+The catalog automatically handles instruction block injection (via `build_enabled_skill_instruction_blocks()`), REPL globals injection (via `collect_repl_globals()`), and side-effect module activation (via `activate_side_effect_modules()`). No changes to `agent.py` or `orchestrator.py` are needed.
+
+### Step 3: (Optional) Inject functions into REPL globals
+
+If your skill provides pure utility functions (no `llm_query()` calls), define a `repl_globals_factory` on the catalog entry:
+
+```python
+def _my_globals_factory() -> dict[str, Any]:
+    from rlm_adk.skills.my_helpers import my_function
+    return {"my_function": my_function}
+```
+
+The orchestrator calls `collect_repl_globals()` which merges all enabled skills' factories into `repl.globals`.
+
+### Step 4: (Optional) Export to `skills/__init__.py`
+
+Re-export the `Skill` object and any public symbols from `rlm_adk/skills/__init__.py` if external callers need direct access.
+
+### Step 5: Reference in REPL code
 
 The agent can now call `my_function()` directly in `execute_code` blocks -- no imports needed.
 
@@ -437,9 +744,17 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 | RLM_STATIC_INSTRUCTION | `rlm_adk/utils/prompts.py` | Main system prompt (no template processing) |
 | RLM_DYNAMIC_INSTRUCTION | `rlm_adk/utils/prompts.py` | Template with `{var?}` placeholders |
 | RLM_CHILD_STATIC_INSTRUCTION | `rlm_adk/utils/prompts.py` | Condensed prompt for depth > 0 |
+| PROMPT_SKILL_REGISTRY | `rlm_adk/skills/catalog.py` | Central registry of all prompt-visible skills |
+| PromptSkillRegistration | `rlm_adk/skills/catalog.py` | Dataclass: skill + builder + globals factory + side-effect modules |
+| normalize_enabled_skill_names() | `rlm_adk/skills/catalog.py` | Validates and orders requested skill names |
+| build_enabled_skill_instruction_blocks() | `rlm_adk/skills/catalog.py` | Builds prompt blocks for selected skills |
+| collect_repl_globals() | `rlm_adk/skills/catalog.py` | Merges REPL globals from enabled skills' factories |
+| activate_side_effect_modules() | `rlm_adk/skills/catalog.py` | Imports modules to trigger source-expansion registration |
 | REPOMIX_SKILL | `rlm_adk/skills/repomix_skill.py` | Skill definition + build function |
 | build_skill_instruction_block() | `rlm_adk/skills/repomix_skill.py` | Returns XML discovery + instructions |
-| create_reasoning_agent() | `rlm_adk/agent.py` | Wires static + dynamic + skills |
+| RLMSkillToolset | `rlm_adk/skills/skill_toolset.py` | Hybrid L1 XML injection + `load_skill` tool + state tracking |
+| collect_skill_objects() | `rlm_adk/skills/catalog.py` | Returns ADK Skill objects for skills with instructions |
+| create_reasoning_agent() | `rlm_adk/agent.py` | Wires static + dynamic instructions (skills wired by orchestrator) |
 | reasoning_before_model | `rlm_adk/callbacks/reasoning.py` | Merges dynamic into system_instruction |
 | SkillRegistry | `rlm_adk/repl/skill_registry.py` | Synthetic import expansion registry |
 | register_skill_export() | `rlm_adk/repl/skill_registry.py` | Module-level registration API |
@@ -447,7 +762,7 @@ Details will be documented in a future `dynamic_skills.md` when the implementati
 | DYN_SKILL_INSTRUCTION | `rlm_adk/state.py` | Dynamic skill instruction state key |
 | POLYA_NARRATIVE_SKILL | `rlm_adk/skills/polya_narrative_skill.py` | Skill definition + build function (Polya loop) |
 | build_polya_skill_instruction_block() | `rlm_adk/skills/polya_narrative_skill.py` | Returns XML discovery + instructions |
-| run_polya_narrative | `rlm_repl_skills.polya_narrative` (synthetic) | Main orchestrator: Understand→Plan→Implement→Reflect |
+| run_polya_narrative | `rlm_repl_skills.polya_narrative` (synthetic) | Main orchestrator: Understand->Plan->Implement->Reflect |
 | ping skill module | `rlm_adk/skills/repl_skills/ping.py` | First expandable skill (recursive ping) |
 
 ---
@@ -479,13 +794,6 @@ object.__setattr__(self.reasoning_agent, "tools", [repl_tool])
 ## Recent Changes
 
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
-
-- **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-10 09:40** — Added section 8 (Source-Expandable REPL Skills) documenting skill registry, expansion contract, and ping skill module.
-- **2026-03-12 13:25** — `prompts.py`, `orchestrator.py`, `state.py`, `dispatch.py`: Instruction router feature — `{skill_instruction?}` placeholder in dynamic instruction, `DYN_SKILL_INSTRUCTION` state key, `before_agent_callback` seeding, flush_fn parent restoration.
-- **2026-03-13 10:50** — Moved `skills/repl_skills/polya_narrative.py` → `skills/polya_narrative_skill.py`. Added ADK `Skill` object (`POLYA_NARRATIVE_SKILL`) with `Frontmatter` + `instructions` following the repomix pattern. Added `build_polya_skill_instruction_block()` for XML discovery injection. `skills/__init__.py` now exports `POLYA_NARRATIVE_SKILL`. Skill is now discoverable by the reasoning agent via `<available_skills>` XML in static instruction — no instruction_router needed for depth-0 activation.
-- **2026-03-17 14:35** — `skills/__init__.py`: Added `normalize_enabled_skill_names()` and `build_enabled_skill_instruction_blocks()` exports. `skills/catalog.py`: New skill catalog module. `prompts.py`: Updated child static instruction and dynamic instruction templates.
-- **2026-03-17 16:55** — `catalog.py`: Extended `PromptSkillRegistration` with `repl_globals_factory` and `side_effect_modules` fields. Added `collect_repl_globals()` and `activate_side_effect_modules()` catalog functions. Added ping skill entry to `PROMPT_SKILL_REGISTRY`. `orchestrator.py`: Replaced hardwired repomix/polya/ping imports (lines 278-287) with catalog-driven `collect_repl_globals()` and `activate_side_effect_modules()` calls. `agent.py`: Renamed `include_repomix` parameter to `include_skills` in `create_reasoning_agent()` and `create_child_orchestrator()`.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

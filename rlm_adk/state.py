@@ -83,6 +83,11 @@ REPL_EXPANDED_CODE_HASH = "repl_expanded_code_hash"
 REPL_SKILL_EXPANSION_META = "repl_skill_expansion_meta"
 REPL_DID_EXPAND = "repl_did_expand"
 
+# Skill Loading Keys (session-scoped, written by RLMSkillToolset wrapper)
+SKILL_LAST_LOADED = "skill_last_loaded"  # str: name of last skill loaded
+SKILL_LOAD_COUNT = "skill_load_count"  # int: total load_skill calls this session
+SKILL_LOADED_NAMES = "skill_loaded_names"  # list[str]: ordered list of all skills loaded
+
 
 # API/Messaging Keys
 REQUEST_ID = "request_id"
@@ -209,13 +214,16 @@ CURATED_STATE_KEYS: frozenset[str] = frozenset(
 )
 
 CURATED_STATE_PREFIXES: tuple[str, ...] = (
-    "obs:artifact_",
+    "obs:",
     "artifact_",
+    "skill_",
     "last_repl_result",
     "repl_submitted_code",
     "repl_expanded_code",
     "repl_skill_expansion_meta",
     "repl_did_expand",
+    "reasoning_",
+    "final_answer",
 )
 
 

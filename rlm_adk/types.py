@@ -20,9 +20,7 @@ class ReasoningOutput(BaseModel):
     """
 
     final_answer: str = Field(description="Complete final answer to the query.")
-    reasoning_summary: str = Field(
-        default="", description="Brief reasoning summary."
-    )
+    reasoning_summary: str = Field(default="", description="Brief reasoning summary.")
 
 
 class ReasoningObservability(BaseModel):
@@ -107,7 +105,9 @@ class LLMResult(str):
     """
 
     error: bool = False
-    error_category: str | None = None  # TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT, NETWORK, FORMAT, UNKNOWN
+    error_category: str | None = (
+        None  # TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT, NETWORK, FORMAT, UNKNOWN
+    )
     http_status: int | None = None
     finish_reason: str | None = None  # STOP, SAFETY, RECITATION, MAX_TOKENS
     input_tokens: int = 0
@@ -244,6 +244,7 @@ class REPLResult(BaseModel):
 
 class CompletionEnvelope(BaseModel):
     """Canonical in-memory result object per reasoning run."""
+
     terminal: bool
     mode: Literal["structured", "text", "error"]
     output_schema_name: str | None = None
@@ -258,6 +259,7 @@ class CompletionEnvelope(BaseModel):
 
 class LineageEnvelope(BaseModel):
     """Canonical provenance payload per model/tool decision."""
+
     version: Literal["v1"] = "v1"
     agent_name: str
     depth: int
@@ -268,10 +270,15 @@ class LineageEnvelope(BaseModel):
     invocation_id: str | None = None
     session_id: str | None = None
     output_schema_name: str | None = None
-    decision_mode: Literal["execute_code", "set_model_response", "unknown"] = "unknown"
+    decision_mode: Literal[
+        "execute_code",
+        "set_model_response",
+        "load_skill",
+        "load_skill_resource",
+        "unknown",
+    ] = "unknown"
     structured_outcome: Literal[
-        "not_applicable", "validated", "retry_requested",
-        "retry_exhausted", "incomplete", "error"
+        "not_applicable", "validated", "retry_requested", "retry_exhausted", "incomplete", "error"
     ] = "not_applicable"
     terminal: bool = False
 
@@ -289,9 +296,7 @@ def render_completion_text(validated_output: Any, fallback_text: str = "") -> st
         fa = validated_output.get("final_answer")
         if isinstance(fa, str) and fa.strip():
             return fa
-        return json.dumps(
-            validated_output, sort_keys=True, separators=(",", ":")
-        )
+        return json.dumps(validated_output, sort_keys=True, separators=(",", ":"))
     if isinstance(validated_output, str):
         return validated_output
     if validated_output is not None:

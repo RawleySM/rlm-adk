@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-13 -->
+<!-- validated: 2026-03-22 -->
 
 # Configuration Reference
 
@@ -81,8 +81,8 @@ All factories are in `rlm_adk/agent.py`. The call hierarchy is: `create_rlm_runn
 | `create_rlm_runner(model, ...)` | `Runner` | App + plugins + session service + artifact service. For programmatic and test use — the ADK CLI is the primary entrypoint (see section 3.1). |
 | `create_rlm_app(model, ...)` | `App` | App with root orchestrator and plugins. The module-level `app` symbol is what the ADK CLI discovers. Session/artifact services come from `services.py` (CLI) or from `create_rlm_runner()` (programmatic). |
 | `create_rlm_orchestrator(model, ...)` | `RLMOrchestratorAgent` | Orchestrator wrapping a reasoning agent with WorkerPool and REPL. |
-| `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator for recursive dispatch at depth > 0. Uses condensed static instruction, no repomix. |
-| `create_reasoning_agent(model, ...)` | `LlmAgent` | Configures the core LLM agent with instructions, planner, callbacks, and retry config. |
+| `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator for recursive dispatch at depth > 0. Uses condensed static instruction, no repomix. `fanout_idx` disambiguates artifact filenames in batched dispatch. |
+| `create_reasoning_agent(model, ...)` | `LlmAgent` | Configures the core LLM agent with instructions, planner, callbacks, and retry config. Skill discovery and loading are handled by `RLMSkillToolset` wired by the orchestrator at runtime (not baked into `static_instruction`). `output_schema` is intentionally NOT accepted — the orchestrator wires `SetModelResponseTool` at runtime to avoid duplicate tool injection. |
 
 ### create_rlm_runner
 
@@ -103,6 +103,8 @@ def create_rlm_runner(
     langfuse: bool = False,
     sqlite_tracing: bool = True,
     instruction_router: Any = None,
+    enabled_skills: Iterable[str] | None = None,
+    retry_config: dict[str, Any] | None = None,
 ) -> Runner
 ```
 
@@ -112,19 +114,19 @@ Resolves services: `session_service` defaults to `_default_session_service()` (S
 
 ```python
 def create_child_orchestrator(
-    model: str,
+    model: str | Any,
     depth: int,
     prompt: str,
     worker_pool: WorkerPool | None = None,
-    max_iterations: int = 10,
     thinking_budget: int = 512,
     output_schema: type | None = None,
     fanout_idx: int = 0,
+    parent_fanout_idx: int | None = None,
     instruction_router: Any = None,
 ) -> RLMOrchestratorAgent
 ```
 
-Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/repo docs). Depth-suffixed names: `child_orchestrator_d{depth}`, `reasoning_output@d{depth}`. Lower thinking budget (512 vs 1024) for cost control.
+Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/repo docs). Depth-suffixed names: `child_orchestrator_d{depth}`, `reasoning_output@d{depth}`. Lower thinking budget (512 vs 1024) for cost control. `fanout_idx` disambiguates artifact filenames when multiple children are dispatched in a batch. `parent_fanout_idx` tracks the parent's position in its own batch for lineage.
 
 `instruction_router: Any = None` is also accepted by `create_rlm_orchestrator()` and `create_rlm_app()`, and is threaded through the full factory chain to `create_dispatch_closures()`.
 
@@ -138,6 +140,8 @@ Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/rep
 
 | Plugin | Condition | Notes |
 |--------|-----------|-------|
+| `DashboardAutoLaunchPlugin` | Always included | First in plugin list; auto-launches dashboard UI |
+| `StepModePlugin` | Always included | Dormant when step mode is off; pauses before each model call when active. Uses `StepGate` async gate singleton (`step_gate.py`). State keys: `step:mode_enabled`, `step:paused_agent`, `step:paused_depth`, `step:advance_count`. Source: `plugins/step_mode.py`. |
 | `ObservabilityPlugin` | Always included | `verbose=True` when `RLM_ADK_DEBUG=1` |
 
 ### On by default
@@ -155,7 +159,7 @@ Called by dispatch closures. Uses `RLM_CHILD_STATIC_INSTRUCTION` (no repomix/rep
 | `GoogleCloudTracingPlugin` | `RLM_ADK_CLOUD_OBS=1` | Silently skipped if import fails |
 | `GoogleCloudAnalyticsPlugin` | `RLM_ADK_CLOUD_OBS=1` | Silently skipped if import fails |
 | `ContextWindowSnapshotPlugin` | `RLM_CONTEXT_SNAPSHOTS=1` | Writes `.adk/context_snapshots.jsonl` and `.adk/model_outputs.jsonl` |
-| `LiteLLMCostTrackingPlugin` | Automatic if LiteLLM is configured | Tracks API costs based on model mappings |
+| `LiteLLMCostTrackingPlugin` | Automatic if LiteLLM is configured | Tracks API costs based on model mappings. Writes `obs:litellm_total_cost` state key (`OBS_LITELLM_TOTAL_COST`). |
 | `MigrationPlugin` | Enabled if `RLM_POSTGRES_URL` exists | Manages database schema migrations |
 
 When `plugins=` is passed explicitly to `create_rlm_app()` or `create_rlm_runner()`, it overrides the default list entirely.
@@ -360,13 +364,7 @@ The reasoning agent must be created with `include_contents="default"`. This tell
 
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
-- **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-09 13:15** — `agent.py`: Added `fanout_idx: int = 0` parameter to `create_child_orchestrator()` for artifact filename disambiguation.
-- **2026-03-12 15:10** — `agent.py`: Added `instruction_router` parameter to `create_rlm_orchestrator()`, `create_child_orchestrator()`, and `create_rlm_app()`. Added `fanout_idx` to `create_child_orchestrator()`.
-- **2026-03-13 11:30** — `services.py`: New file. ADK CLI service registry overriding built-in `sqlite://` and `file://` schemes with WAL-pragma'd session and file artifact factories. No CLI flags needed. Added section 3.1 documenting service registry. `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()`.
-- **2026-03-13 17:45** — `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` via `build_polya_skill_instruction_block()` (same `include_repomix` guard as repomix).
-- **2026-03-18 12:29** — `agent.py`: Added `StepModePlugin` import and wired into `_default_plugins()` before `ObservabilityPlugin`. Always instantiated (dormant when off). `state.py`: Added `STEP_MODE_ENABLED`, `STEP_MODE_PAUSED_AGENT`, `STEP_MODE_PAUSED_DEPTH`, `STEP_MODE_ADVANCE_COUNT` keys; `STEP_MODE_ENABLED` added to `EXPOSED_STATE_KEYS`. New `step_gate.py`: `StepGate` async gate singleton. New `plugins/step_mode.py`: `StepModePlugin(BasePlugin)` with `before_model_callback`. `run_service.py`: Added `list_provider_fake_fixtures()`. Dashboard files (`live_app.py`, `live_controller.py`, `live_models.py`): Step-mode toggle, Next Step button, provider-fake fixture dropdown.
-- **2026-03-19 13:01** — `agent.py`: Removed `output_schema` param from `create_reasoning_agent()` — trap that causes duplicate `SetModelResponseTool` (orchestrator wires it at runtime). Removed dead `max_iterations` param from `create_child_orchestrator()`. `state.py`: Added `OBS_LITELLM_TOTAL_COST` constant. Part of three-plane cleanup.
+<!-- Entries A-F (2026-03-09 through 2026-03-19) incorporated into main body on 2026-03-22. -->
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

@@ -335,7 +335,21 @@ class RLMOrchestratorAgent(BaseAgent):
         # in worker_retry.py) handles retry suppression.
         schema = self.output_schema or ReasoningOutput
         set_model_response_tool = SetModelResponseTool(schema)
-        object.__setattr__(self.reasoning_agent, "tools", [repl_tool, set_model_response_tool])
+
+        # Skill toolset — parent orchestrator only (depth == 0)
+        skill_toolset = None
+        if self.depth == 0 and self.enabled_skills:
+            try:
+                from rlm_adk.skills.skill_toolset import RLMSkillToolset
+
+                skill_toolset = RLMSkillToolset(enabled_skills=self.enabled_skills)
+            except ImportError:
+                logger.warning("RLMSkillToolset not available, skills will not be tool-loadable")
+
+        tools = [repl_tool, set_model_response_tool]
+        if skill_toolset is not None:
+            tools.append(skill_toolset)
+        object.__setattr__(self.reasoning_agent, "tools", tools)
         # Tag lineage attrs for telemetry (read by reasoning callbacks)
         _ra = self.reasoning_agent
         object.__setattr__(_ra, "_rlm_depth", self.depth)

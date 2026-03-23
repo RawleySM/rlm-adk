@@ -6,6 +6,7 @@ from rlm_adk.skills.catalog import (
     activate_side_effect_modules,
     build_enabled_skill_instruction_blocks,
     collect_repl_globals,
+    collect_skill_objects,
     normalize_enabled_skill_names,
     selected_skill_summaries,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "activate_side_effect_modules",
     "build_enabled_skill_instruction_blocks",
     "collect_repl_globals",
+    "collect_skill_objects",
     "normalize_enabled_skill_names",
     "selected_skill_summaries",
 ]

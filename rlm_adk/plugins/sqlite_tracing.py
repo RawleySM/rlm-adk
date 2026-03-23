@@ -75,6 +75,8 @@ def _categorize_key(key: str) -> str:
         return "repl"
     if key.startswith("last_repl_result"):
         return "repl"
+    if key.startswith("skill_"):
+        return "skill"
     if key.startswith("cache:"):
         return "cache"
     if key in (
@@ -227,6 +229,8 @@ CREATE TABLE IF NOT EXISTS telemetry (
     terminal_completion INTEGER,
     custom_metadata_json TEXT,
     validated_output_json TEXT,
+    skill_name_loaded   TEXT,
+    skill_instructions_len INTEGER,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -407,6 +411,8 @@ class SqliteTracingPlugin(BasePlugin):
                 ("terminal_completion", "INTEGER"),
                 ("custom_metadata_json", "TEXT"),
                 ("validated_output_json", "TEXT"),
+                ("skill_name_loaded", "TEXT"),
+                ("skill_instructions_len", "INTEGER"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -1179,15 +1185,11 @@ class SqliteTracingPlugin(BasePlugin):
                 is_terminal = bool(status.get("terminal"))
                 kw["terminal_completion"] = int(is_terminal)
                 if is_terminal and entry.get("result") is not None:
-                    kw["validated_output_json"] = json.dumps(
-                        entry["result"], default=str
-                    )
+                    kw["validated_output_json"] = json.dumps(entry["result"], default=str)
                 if kw:
                     self._update_telemetry(entry["telemetry_id"], **kw)
             except Exception as e:
-                logger.warning(
-                    "SqliteTracingPlugin: deferred lineage flush failed: %s", e
-                )
+                logger.warning("SqliteTracingPlugin: deferred lineage flush failed: %s", e)
         self._deferred_tool_lineage.clear()
 
     # ---- Tool callbacks ----
@@ -1293,13 +1295,27 @@ class SqliteTracingPlugin(BasePlugin):
                     update_kwargs["decision_mode"] = "set_model_response"
                     # Defer structured fields — _rlm_lineage_status is set by
                     # worker_retry.after_tool_cb which fires AFTER plugin callbacks.
-                    self._deferred_tool_lineage.append({
-                        "telemetry_id": telemetry_id,
-                        "agent": agent,
-                        "result": result,
-                    })
+                    self._deferred_tool_lineage.append(
+                        {
+                            "telemetry_id": telemetry_id,
+                            "agent": agent,
+                            "result": result,
+                        }
+                    )
                 elif tool_name == "execute_code":
                     update_kwargs["decision_mode"] = "execute_code"
+                elif tool_name == "load_skill":
+                    update_kwargs["decision_mode"] = "load_skill"
+                    if isinstance(result, dict):
+                        update_kwargs["skill_name_loaded"] = result.get("skill_name")
+                        instructions = result.get("instructions", "")
+                        update_kwargs["skill_instructions_len"] = (
+                            len(instructions) if instructions else 0
+                        )
+                elif tool_name == "load_skill_resource":
+                    update_kwargs["decision_mode"] = "load_skill_resource"
+                    if isinstance(result, dict):
+                        update_kwargs["skill_name_loaded"] = result.get("skill_name")
 
                 # REPL enrichment
                 if tool_name == "execute_code" and isinstance(result, dict):
