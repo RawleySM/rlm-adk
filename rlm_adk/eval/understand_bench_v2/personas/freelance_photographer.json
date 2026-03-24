@@ -1,0 +1,22 @@
+{
+  "persona_id": "freelance_photographer",
+  "name": "Sofia Rodriguez",
+  "difficulty_target": "medium",
+  "filing_status": "Single",
+  "age": 34,
+  "occupation": "Freelance Photographer",
+  "state": "CA",
+  "income_sources": ["1099-NEC (multiple)", "W-2 (part-time)"],
+  "key_complexity": "Mixed income, Schedule C business expenses, mileage log, receipt photos, home office",
+  "document_formats_typical": {
+    "w2": "pdf",
+    "1099_nec": ["pdf", "jpg"],
+    "mileage_log": "xlsx",
+    "receipt_photos": ["jpg", "heic"],
+    "home_office_measurements": "txt",
+    "bank_statement": "pdf",
+    "intake": "md",
+    "equipment_depreciation": "xlsx"
+  },
+  "narrative": "Sofia is a freelance photographer who also works part-time at a gallery. She has multiple 1099-NECs from clients (some emailed as PDFs, one she photographed with her phone as a JPG). She tracks her mileage in an Excel spreadsheet, snaps photos of receipts with her iPhone (HEIC format), and keeps home office measurements in a text file. Her bank statements come as PDFs from Chase. This persona tests the agent's ability to handle image OCR, spreadsheet parsing, and mixed format processing for Schedule C."
+}

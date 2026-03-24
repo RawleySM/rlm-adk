@@ -1,0 +1,28 @@
+{
+  "persona_id": "retired_investor",
+  "name": "Robert & Patricia Wallace",
+  "difficulty_target": "hard",
+  "filing_status": "MFJ",
+  "age": 68,
+  "occupation": "Retired (former VP Finance)",
+  "state": "FL",
+  "income_sources": ["1099-R (pension)", "1099-DIV (multiple)", "1099-INT", "1099-B", "K-1 (trust)", "Social Security"],
+  "key_complexity": "Complex investment income, trust K-1, multi-broker 1099-B with cost basis issues, RMD tracking, QBI from trust, charitable giving substantiation",
+  "document_formats_typical": {
+    "1099_r": "pdf",
+    "1099_div": ["pdf", "csv"],
+    "1099_int": "pdf",
+    "1099_b": ["pdf", "csv", "xlsx"],
+    "k1": "pdf",
+    "brokerage_statement": ["pdf", "xlsx"],
+    "charitable_receipts": ["pdf", "jpg", "png"],
+    "medical_expenses": "xlsx",
+    "property_tax_bill": "jpg",
+    "bank_statement": ["pdf", "html"],
+    "prior_year_return": "pdf",
+    "trust_document": "pdf",
+    "ssa_1099": "pdf",
+    "handwritten_notes": "jpg"
+  },
+  "narrative": "Robert and Patricia are retired with complex investment income. Their brokerage 1099-Bs come from three different firms in different formats (Fidelity PDF, Schwab CSV, Vanguard Excel). They have a family trust K-1, charitable donation receipts including photos of handwritten church contribution records, medical expense tracking in Excel, and a property tax bill photographed from the county mailing. Patricia keeps handwritten notes about their charitable giving. This persona is the format-diversity stress test — testing PDF form extraction, multi-format financial table interpretation, image OCR on receipts and handwritten notes, and complex cross-referencing across documents."
+}

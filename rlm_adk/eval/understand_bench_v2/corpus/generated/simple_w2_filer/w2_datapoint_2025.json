@@ -1,0 +1,41 @@
+{
+  "form_type": "W-2",
+  "tax_year": 2025,
+  "employer": {
+    "name": "Datapoint Systems LLC",
+    "ein": "74-3456789",
+    "address": {
+      "street": "8900 Shoal Creek Blvd, Suite 400",
+      "city": "Austin",
+      "state": "TX",
+      "zip": "78757"
+    }
+  },
+  "employee": {
+    "name": "Marcus W. Chen",
+    "ssn_last4": "7823",
+    "address": {
+      "street": "4521 Elm Creek Blvd, Apt 302",
+      "city": "Austin",
+      "state": "TX",
+      "zip": "78749"
+    }
+  },
+  "box_1_wages": 92000.00,
+  "box_2_federal_tax_withheld": 13248.00,
+  "box_3_social_security_wages": 92000.00,
+  "box_4_social_security_tax_withheld": 5704.00,
+  "box_5_medicare_wages": 92000.00,
+  "box_6_medicare_tax_withheld": 1334.00,
+  "box_12": [
+    {"code": "D", "amount": 6500.00, "description": "401(k) elective deferrals"}
+  ],
+  "box_13_statutory_employee": false,
+  "box_13_retirement_plan": true,
+  "box_13_third_party_sick_pay": false,
+  "box_14_other": [],
+  "box_15_state": null,
+  "box_16_state_wages": null,
+  "box_17_state_tax_withheld": null,
+  "note": "Texas has no state income tax"
+}

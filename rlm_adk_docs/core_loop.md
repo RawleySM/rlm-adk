@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-12 -->
+<!-- validated: 2026-03-22 -->
 
 # RLM-ADK Core Loop Reference
 
@@ -8,7 +8,7 @@ The core loop: an LLM reasoning agent writes Python code, which executes in a sa
 
 ## 1. RLMOrchestratorAgent
 
-**File:** `rlm_adk/orchestrator.py` (class at line 188)
+**File:** `rlm_adk/orchestrator.py` (class at line 209)
 
 `RLMOrchestratorAgent(BaseAgent)` is a Pydantic model. All dynamic attribute writes use `object.__setattr__()`.
 
@@ -21,8 +21,12 @@ The core loop: an LLM reasoning agent writes Python code, which executes in a sa
 | `worker_pool` | `Any` | `None` | `DispatchConfig` for child dispatch |
 | `repl` | `Any` | `None` | Pre-configured `LocalREPL` (optional) |
 | `depth` | `int` | `0` | Nesting depth (0 = root) |
+| `fanout_idx` | `int` | `0` | Index within a batched dispatch |
 | `output_schema` | `Any` | `None` | Pydantic schema for structured output |
 | `instruction_router` | `Any` | `None` | `Callable[[int, int], str]` for dynamic skill instructions |
+| `enabled_skills` | `tuple[str, ...]` | `()` | Activated skill names for catalog-driven injection |
+| `parent_depth` | `int \| None` | `None` | Parent orchestrator's depth (lineage tracking) |
+| `parent_fanout_idx` | `int \| None` | `None` | Parent orchestrator's fanout index (lineage tracking) |
 
 The single entry point is `_run_async_impl(ctx) -> AsyncGenerator[Event, None]`.
 
@@ -32,24 +36,30 @@ The single entry point is `_run_async_impl(ctx) -> AsyncGenerator[Event, None]`.
 
 The orchestrator does NOT manually iterate. It wires tools onto the reasoning agent at runtime, then delegates entirely to ADK's native tool-calling loop.
 
-### What `_run_async_impl` does (orchestrator.py, lines 216-481)
+### What `_run_async_impl` does (orchestrator.py, lines 242-658)
 
 ```
 1. Create LocalREPL (or reuse self.repl)
-2. Create dispatch closures -> (llm_query_async, llm_query_batched_async, flush_fn)
+2. Create dispatch closures -> (llm_query_async, llm_query_batched_async, post_dispatch_state_patch_fn)
    (passes instruction_router + fanout_idx for skill instruction routing)
+2b. If worker_pool present: create _child_event_queue (asyncio.Queue), pass to create_dispatch_closures
 3. Inject async query fns + skill helpers into REPL globals
-4. Build REPLTool(repl, max_calls, flush_fn)
+4. Build REPLTool(repl, max_calls, post_dispatch_state_patch_fn, telemetry_finalizer, depth, fanout_idx)
 5. Build SetModelResponseTool(output_schema)
+5b. Inject _rlm_state snapshot into REPL globals before each code execution
+    (from EXPOSED_STATE_KEYS, depth-scoped where applicable, plus runtime lineage:
+     _rlm_depth, _rlm_fanout_idx, _rlm_agent_name)
 6. Wire both onto reasoning_agent.tools via object.__setattr__
 6b. If instruction_router: compute skill_instruction, write DYN_SKILL_INSTRUCTION to initial state,
     wire before_agent_callback on reasoning_agent to seed callback_context.state
 7. Yield initial state delta Event (CURRENT_DEPTH, ITERATION_COUNT, REQUEST_ID)
 8. Yield user Content Event with root_prompt
 9. Delegate: async for event in reasoning_agent.run_async(ctx): yield event
-10. Extract final answer from output_key in session state
-11. Yield final Content Event with answer (or error)
-12. Cleanup: clear tools, callbacks; destroy REPL if not persistent
+   After each yielded event: drain _child_event_queue (if present), yielding child events
+10. Final drain of _child_event_queue before _collect_completion
+11. Extract final answer via _collect_completion (CompletionEnvelope)
+12. Yield final Content Event with answer (or error)
+13. Cleanup: clear tools, callbacks; destroy REPL if not persistent
 ```
 
 ADK's loop (step 9) handles: model invocation, tool call detection, tool execution, retry on schema validation failure, and loop termination when `set_model_response` succeeds.
@@ -60,7 +70,7 @@ Transient HTTP errors (408, 429, 500-504) are retried with exponential backoff: 
 
 ## 3. REPLTool
 
-**File:** `rlm_adk/tools/repl_tool.py` (class at line 40)
+**File:** `rlm_adk/tools/repl_tool.py` (class at line 50)
 
 ADK `BaseTool` with `name="execute_code"`. The model calls it via function calling.
 
@@ -71,8 +81,10 @@ REPLTool(
     repl: LocalREPL,
     max_calls: int = 60,
     trace_holder: list | None = None,
-    flush_fn: Callable[[], dict] | None = None,
+    post_dispatch_state_patch_fn: Callable[[], dict] | None = None,
+    telemetry_finalizer: Callable[[int, dict], None] | None = None,
     depth: int = 0,
+    fanout_idx: int = 0,
     summarization_threshold: int = 5000,
 )
 ```
@@ -89,7 +101,7 @@ REPLTool(
 }
 ```
 
-### Execution flow inside run_async (lines 93-277)
+### Execution flow inside run_async (lines 120-355)
 
 ```
 1. Persist submitted code metadata to tool_context.state
@@ -98,14 +110,17 @@ REPLTool(
 4. Expand synthetic skill imports (expand_skill_imports())
    -> If expansion occurred, write REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH,
       REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND to tool_context.state
-5. AST detection: has_llm_calls(expanded_code)?
+5. Build _rlm_state snapshot from EXPOSED_STATE_KEYS (depth-scoped where applicable)
+   -> Inject runtime lineage metadata: _rlm_depth, _rlm_fanout_idx, _rlm_agent_name
+   -> Write into repl.globals["_rlm_state"] (read-only, AR-CRIT-001 compliant)
+6. AST detection: has_llm_calls(expanded_code)?
    YES -> rewrite_for_async(expanded_code) -> compile -> exec -> await _repl_exec()
           Uses repl.execute_code_async()
    NO  -> repl.execute_code() (sync, with timeout)
-6. Call flush_fn() to snapshot dispatch accumulators into tool_context.state
-7. Write LAST_REPL_RESULT summary dict to tool_context.state
-8. If output > summarization_threshold, set skip_summarization = True
-9. Filter locals to JSON-serializable values and return
+7. Call post_dispatch_state_patch_fn() to apply working-state patches into tool_context.state
+8. Write LAST_REPL_RESULT summary dict to tool_context.state
+9. If output > summarization_threshold, set skip_summarization = True
+10. Filter locals to JSON-serializable values and return
 ```
 
 ### Skill Import Expansion Pass (Step 4)
@@ -130,7 +145,7 @@ The expanded code is what flows into `has_llm_calls()` and `rewrite_for_async()`
 
 When `call_count > max_calls`, returns `stderr: "REPL call limit reached. Submit your final answer now."` Default is 60 for REPLTool constructor, but the orchestrator passes `max_iterations` (default 30 from `RLM_MAX_ITERATIONS` env var).
 
-On `CancelledError` or `Exception`: flushes accumulators, writes partial `LAST_REPL_RESULT`, returns error in `stderr`. The tool never raises -- always returns a dict so ADK can continue.
+On `CancelledError` or `Exception`: applies working-state patches, writes partial `LAST_REPL_RESULT`, returns error in `stderr`. The tool never raises -- always returns a dict so ADK can continue.
 
 ---
 
@@ -292,7 +307,8 @@ Runner.run_async(user_id, session_id, new_message)
 RLMOrchestratorAgent._run_async_impl(ctx)
   |
   +-- Create LocalREPL
-  +-- Create dispatch closures (llm_query_async, flush_fn)
+  +-- Create dispatch closures (llm_query_async, post_dispatch_state_patch_fn)
+  +-- Create _child_event_queue (asyncio.Queue) if worker_pool present
   +-- Inject query fns + skill helpers into REPL
   +-- Build REPLTool + SetModelResponseTool
   +-- Wire tools onto reasoning_agent
@@ -309,9 +325,11 @@ reasoning_agent.run_async(ctx)  [ADK native loop]
   |       |
   |       +-- execute_code:
   |       |     REPLTool.run_async(code=...)
+  |       |       +-- Build _rlm_state snapshot -> repl.globals
   |       |       +-- AST check -> sync or async execution
-  |       |       +-- flush_fn() -> tool_context.state
+  |       |       +-- post_dispatch_state_patch_fn() -> tool_context.state
   |       |       +-- Return {stdout, stderr, variables}
+  |       |     Drain _child_event_queue (yield child events)
   |       |     Loop back to model invocation
   |       |
   |       +-- set_model_response:
@@ -320,8 +338,11 @@ reasoning_agent.run_async(ctx)  [ADK native loop]
   |             If invalid: retry (up to 2 retries)
   |
   v
-Orchestrator extracts final answer from session state
-  +-- _collect_reasoning_completion() normalizes the payload
+Final drain of _child_event_queue
+  |
+  v
+Orchestrator extracts final answer via _collect_completion()
+  +-- CompletionEnvelope normalizes the payload
   +-- Save artifact
   +-- Yield final Content Event with answer
   |
@@ -391,7 +412,7 @@ When `depth + 1 >= max_depth`, dispatch returns an error `LLMResult` immediately
 
 ### Adding custom plugins
 
-Create a `BasePlugin` subclass and wire it in `_default_plugins()` (`rlm_adk/agent.py`). Plugins are passed to `App(plugins=[...])` or `create_rlm_runner(plugins=[...])`.
+Create a `BasePlugin` subclass and wire it in `_default_plugins()` (`rlm_adk/agent.py`). Plugins are passed to `App(plugins=[...])` or `create_rlm_runner(plugins=[...])`. The default plugin list is: `DashboardAutoLaunchPlugin`, `StepModePlugin`, `ObservabilityPlugin` (always), plus conditionally: `SqliteTracingPlugin`, `LangfuseTracingPlugin`, `REPLTracingPlugin`, `GoogleCloudTracingPlugin`, `GoogleCloudAnalyticsPlugin`, `ContextWindowSnapshotPlugin`, and `LiteLLMCostTrackingPlugin`.
 
 ### Environment variables
 
@@ -413,11 +434,11 @@ Create a `BasePlugin` subclass and wire it in `_default_plugins()` (`rlm_adk/age
 
 | Factory | Returns | Purpose |
 |---------|---------|---------|
-| `create_reasoning_agent(model, ...)` | `LlmAgent` | Main reasoning sub-agent with callbacks, planner, and config |
-| `create_rlm_orchestrator(model, ...)` | `RLMOrchestratorAgent` | Root orchestrator with reasoning agent + worker pool |
-| `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator with condensed instructions |
+| `create_reasoning_agent(model, ...)` | `LlmAgent` | Main reasoning sub-agent with callbacks, planner, and config. `output_schema` is intentionally NOT accepted -- the orchestrator wires `SetModelResponseTool(schema)` at runtime. |
+| `create_rlm_orchestrator(model, ...)` | `RLMOrchestratorAgent` | Root orchestrator with reasoning agent + worker pool. Accepts `instruction_router`. |
+| `create_child_orchestrator(model, depth, prompt, ...)` | `RLMOrchestratorAgent` | Child orchestrator with condensed instructions. Accepts `fanout_idx`, `instruction_router`, `parent_fanout_idx`. |
 | `create_rlm_app(model, ...)` | `App` | Full ADK App with plugins. The module-level `app` symbol is what `adk run` discovers. |
-| `create_rlm_runner(model, ...)` | `Runner` | App + session service + artifact service. For programmatic/test use — the ADK CLI (`adk run rlm_adk`) is the primary entrypoint and wires services via `services.py` instead. |
+| `create_rlm_runner(model, ...)` | `Runner` | App + session service + artifact service. Accepts `instruction_router`. For programmatic/test use — the ADK CLI (`adk run rlm_adk`) is the primary entrypoint and wires services via `services.py` instead. |
 
 ### Root vs child differences
 
@@ -475,18 +496,7 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
-- **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-09 13:15** — `orchestrator.py`: Added `fanout_idx` Pydantic field to `RLMOrchestratorAgent`, threaded to REPLTool and `save_final_answer()`.
-- **2026-03-09 13:15** — `repl_tool.py`: Added `fanout_idx` to `REPLTool.__init__()`, threaded to `save_repl_code()` with depth and fanout_idx.
-- **2026-03-09 13:15** — `agent.py`: Added `fanout_idx` to `create_child_orchestrator()`, passed to `RLMOrchestratorAgent`.
-- **2026-03-10 10:22** — `repl_tool.py`: Documented skill import expansion pass (step 4) in REPL execution pipeline.
-- **2026-03-12 14:37** — `orchestrator.py`: Added `instruction_router` field to `RLMOrchestratorAgent`. `_run_async_impl` now seeds `DYN_SKILL_INSTRUCTION` into initial state and wires `before_agent_callback` for skill instruction propagation.
-- **2026-03-13 09:45** — `agent.py`: Added `instruction_router` parameter to `create_rlm_runner()` (pass-through to `create_rlm_app()`). New `services.py` registers CLI service factories; does not affect the core loop or factory chain.
-- **2026-03-13 16:10** — `orchestrator.py`: Side-effect import of polya_narrative skill moved from `skills.repl_skills.polya_narrative` to `skills.polya_narrative_skill`. `agent.py`: `create_reasoning_agent()` now appends polya-narrative skill instructions to `static_instruction` alongside repomix (under `include_repomix` guard).
-- **2026-03-17 13:49** — `repl_tool.py`: Added `_rlm_state` snapshot injection before code execution. Builds a fresh dict from `EXPOSED_STATE_KEYS` (depth-scoped where applicable) and injects into `repl.globals` each `run_async()` call. Read-only — AR-CRIT-001 compliant.
-- **2026-03-18 12:29** — `agent.py`: `_default_plugins()` now includes `StepModePlugin()` before `ObservabilityPlugin`. Plugin's `before_model_callback` awaits `StepGate` singleton when step mode is on (zero overhead when off, always returns `None`). Pauses each agent's model call independently (including parallel workers).
-- **2026-03-19 13:01** — `agent.py`: Removed `output_schema` param from `create_reasoning_agent()` to prevent duplicate `SetModelResponseTool` trap. Orchestrator wires schema at runtime. Removed dead `max_iterations` from `create_child_orchestrator()`. Part of three-plane cleanup.
-- **2026-03-19 15:00** — `repl_tool.py`: `_rlm_state` snapshot now includes runtime lineage metadata (`_rlm_depth`, `_rlm_fanout_idx`, `_rlm_agent_name`) injected from REPLTool fields and invocation context. Enables non-circular test verification — values originate from production orchestrator wiring, not fixture-scripted responses.
+<!-- All entries through 2026-03-22 incorporated into main body. -->
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

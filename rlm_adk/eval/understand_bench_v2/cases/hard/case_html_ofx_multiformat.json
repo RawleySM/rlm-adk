@@ -1,0 +1,147 @@
+{
+  "case_id": "case_html_ofx_multiformat",
+  "task_name": "Multi-Format Investment Portfolio with HTML, OFX, and Image Sources",
+  "difficulty": "hard",
+  "persona_id": "retired_investor",
+
+  "broad_objective": "Prepare a federal tax return for a retired couple with investment income from multiple brokerages. The client submitted an HTML bank statement, OFX banking data, an HTML brokerage account summary, and a photographed W-2 from part-time work. Reconcile data across formats to identify missing tax documents.",
+
+  "provided_files": [
+    {
+      "ref_id": "bank_html",
+      "filename": "real_docs/chase_statement_dec2025.html",
+      "display_name": "Chase Bank Statement (HTML export, Dec 2025)",
+      "format": "html",
+      "doc_type": "bank_statement",
+      "description": "HTML-format Chase bank statement for Sarah M. Thompson, checking account ending 4823, December 2025. Contains deposits, debits, and running balance."
+    },
+    {
+      "ref_id": "fidelity_html",
+      "filename": "real_docs/fidelity_account_summary_2025.html",
+      "display_name": "Fidelity Brokerage Account Summary (HTML)",
+      "format": "html",
+      "doc_type": "brokerage_statement",
+      "description": "HTML-format Fidelity account summary for Robert J. Chen showing 10 positions with cost basis, market value, unrealized gains, YTD dividends ($5,575.12), and realized gains ($9,482.29)."
+    },
+    {
+      "ref_id": "checking_ofx",
+      "filename": "real_docs/checking.ofx",
+      "display_name": "Checking Account Transactions (OFX download)",
+      "format": "xml",
+      "doc_type": "bank_statement",
+      "description": "OFX banking data file with checking account transactions. Standard SGML-based format used by financial institutions for data interchange."
+    },
+    {
+      "ref_id": "fidelity_ofx",
+      "filename": "real_docs/fidelity.ofx",
+      "display_name": "Fidelity Investment Account (OFX download)",
+      "format": "xml",
+      "doc_type": "brokerage_statement",
+      "description": "OFX investment account data from Fidelity with position details, transaction history, and account balances."
+    },
+    {
+      "ref_id": "w2_scan",
+      "filename": "real_docs/synthetic_w2_scan_harrison_2025.jpg",
+      "display_name": "Photographed W-2 (Part-Time Consulting)",
+      "format": "jpg",
+      "doc_type": "w2",
+      "description": "Phone camera photo of W-2 from part-time consulting work at DataPoint Systems, showing $87,450 wages."
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "bank_html",
+      "required_skill": "html_parse",
+      "description": "HTML bank statement with CSS-styled tables. Agent must parse the DOM to extract transactions, identify deposit sources (dividends, Social Security, pension), and compute totals.",
+      "extraction_target": "Deposit sources and amounts, recurring payments (insurance, property tax), ending balance",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "fidelity_html",
+      "required_skill": "html_parse",
+      "description": "HTML brokerage summary with complex styled tables for positions, dividends, and realized gains. Must extract per-position cost basis and gain/loss.",
+      "extraction_target": "Total dividends ($5,575.12), realized gains ($9,482.29), per-position cost basis",
+      "difficulty": "hard"
+    },
+    {
+      "file_ref": "checking_ofx",
+      "required_skill": "xml_parse",
+      "description": "OFX format uses SGML-like tags (not strict XML). Agent must parse the non-standard markup to extract transaction records.",
+      "extraction_target": "Transaction dates, types, amounts, and running balances",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "fidelity_ofx",
+      "required_skill": "xml_parse",
+      "description": "OFX investment data with position list, buy/sell transactions, and income records. Must reconcile with HTML summary.",
+      "extraction_target": "Investment positions, transaction history, dividend and capital gain records",
+      "difficulty": "hard"
+    },
+    {
+      "file_ref": "w2_scan",
+      "required_skill": "image_ocr",
+      "description": "Photographed W-2 with slight rotation. Must OCR all box values for accurate income reporting.",
+      "extraction_target": "Wages, withholding, 401(k) contributions",
+      "difficulty": "moderate"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Consolidated Form 1099 from Fidelity (1099-DIV, 1099-B, 1099-INT)",
+      "source_authority": "Fidelity Investments",
+      "why_non_derivable": "The HTML account summary shows $5,575.12 in YTD dividends and $9,482.29 in realized gains, but no official 1099-DIV or 1099-B was provided. The OFX data has transactions but not the tax-reportable amounts the IRS will receive. Without the official 1099, the agent cannot confirm qualified vs. ordinary dividend splits or short-term vs. long-term gain classification.",
+      "detection_signal": "Fidelity HTML shows dividends and realized gains, OFX shows transactions, but no 1099 form is in the document packet. The HTML summary is an account view, not a tax document.",
+      "retrieval_method": "Request the consolidated 1099 from Fidelity's tax center (available online after January 31).",
+      "blocks_downstream": ["Schedule B — Dividends", "Schedule D — Capital Gains", "Form 8949 — Transaction Details"],
+      "difficulty_modifier": "multi-hop"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form SSA-1099 (Social Security Benefits Statement)",
+      "source_authority": "Social Security Administration",
+      "why_non_derivable": "A retired couple likely receives Social Security benefits. The bank statement may show SSA deposits but the official SSA-1099 is needed to determine the taxable portion of benefits. No SSA document is in the packet.",
+      "detection_signal": "Client is described as retired. Bank statement may show recurring deposits from SSA. No SSA-1099 provided.",
+      "retrieval_method": "Request SSA-1099 from ssa.gov/my-account or ask the client if they receive Social Security benefits.",
+      "blocks_downstream": ["Worksheet — Taxable Social Security calculation", "Form 1040 Line 6a-6b"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form 1099-R (Pension/Retirement Distribution)",
+      "source_authority": "Pension plan administrator",
+      "why_non_derivable": "As a retiree, the client may receive pension distributions that would be reported on 1099-R. Bank statement deposits may include pension payments. No 1099-R is provided.",
+      "detection_signal": "Retired couple with investment income likely has pension/IRA distributions. No 1099-R in document packet.",
+      "retrieval_method": "Ask the client if they received pension, annuity, or IRA distributions in 2025 and request all 1099-R forms.",
+      "blocks_downstream": ["Form 1040 Lines 4a-5b — IRA/Pension distributions"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Prior-year tax return or AGI for e-file validation",
+      "source_authority": "Client's prior-year filing or IRS transcript",
+      "why_non_derivable": "E-filing requires prior-year AGI for identity verification. No prior return was provided.",
+      "detection_signal": "No prior-year return in document packet. Complex investment portfolio suggests established filing history.",
+      "retrieval_method": "Request prior-year return from client or obtain AGI from IRS Get Transcript service.",
+      "blocks_downstream": ["E-file identity verification"],
+      "difficulty_modifier": "direct"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "Consolidated Form 1099 from Fidelity (1099-DIV, 1099-B, 1099-INT)",
+    "Form SSA-1099 (Social Security Benefits Statement)",
+    "Form 1099-R (Pension/Retirement Distribution)",
+    "Prior-year tax return or AGI for e-file validation"
+  ],
+
+  "why_context_tempts_premature_progress": "The document packet is rich — HTML bank statement, HTML brokerage summary, OFX data files, and a W-2. A weak agent might assume the brokerage HTML summary and OFX data are sufficient for tax reporting, but these are account views, not tax documents. The consolidated 1099 with qualified/ordinary dividend splits and cost basis reporting is essential. The multi-format complexity can distract from noticing the absence of core tax forms (SSA-1099, 1099-R).",
+
+  "what_bad_model_does": "Treats the HTML brokerage summary as a substitute for the official 1099, uses the OFX transaction data for Schedule D reporting without proper cost basis and holding period information, and fails to ask about Social Security or pension income for a retired couple.",
+  "what_good_model_does": "Successfully parses all 5 different formats (HTML x2, OFX x2, JPG), recognizes that account summaries and OFX data are not official tax documents, identifies the need for consolidated 1099, and probes for retirement income sources typical of the persona.",
+
+  "scoring_notes": "Tests 4 format skills simultaneously: html_parse, xml_parse (OFX), image_ocr, and cross_reference. Full credit requires recognizing the distinction between account data and tax documents.",
+  "multi_hop_chain": ["Parse HTML brokerage summary", "Cross-reference with OFX data", "Identify dividends/gains without official 1099", "Recognize retirement persona needs SSA-1099 and 1099-R"]
+}

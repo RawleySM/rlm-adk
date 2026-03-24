@@ -1,0 +1,180 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/provider_fake/instrumented_runner.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "BaseAgent",
+    "BasePlugin",
+    "BaseTool",
+    "CallbackContext",
+    "FileArtifactService",
+    "LlmRequest",
+    "LlmResponse",
+    "Runner",
+    "ToolContext"
+  ],
+  "call_sites": [
+    {
+      "symbol": "FileArtifactService",
+      "instances": [
+        {
+          "name": "artifact_service",
+          "line": 747
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass FileArtifactService(root_dir: Path | str)\n```\n---\nInitializes the file-based artifact service.\n\nArgs:  \n&nbsp;&nbsp;root\\_dir: The directory that will contain artifact data."
+      }
+    },
+    {
+      "symbol": "Runner",
+      "instances": [
+        {
+          "name": "runner",
+          "line": 748
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass Runner(\n    *,\n    app: App | None = None,\n    app_name: str | None = None,\n    agent: BaseAgent | None = None,\n    plugins: List[BasePlugin] | None = None,\n    artifact_service: BaseArtifactService | None = None,\n    session_service: BaseSessionService,\n    memory_service: BaseMemoryService | None = None,\n    credential_service: Any | None = None,\n    plugin_close_timeout: float = 5,\n    auto_create_session: bool = False\n)\n```\n---\nInitializes the Runner.\n\nDevelopers should provide either an `app` instance or both `app_name` and\n`agent`. When `app` is provided, `app_name` can optionally override the\napp's name (useful for deployment scenarios like Agent Engine where the\nresource name differs from the app's identifier). However, `agent` should\nnot be provided when `app` is provided. Providing `app` is the recommended\nway to create a runner.\n\nArgs:  \n&nbsp;&nbsp;&nbsp;&nbsp;app: An optional `App` instance. If provided, `agent` should not be  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;specified. `app_name` can optionally override `app.name`.  \n&nbsp;&nbsp;&nbsp;&nbsp;app\\_name: The application name of the runner. Required if `app` is not  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;provided. If `app` is provided, this can optionally override `app.name`\n(e.g., for deployment scenarios where a resource name differs from the\napp identifier).  \n&nbsp;&nbsp;&nbsp;&nbsp;agent: The root agent to run. Required if `app` is not provided. Should  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;not be provided when `app` is provided.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugins: Deprecated. A list of plugins for the runner. Please use the  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`app` argument to provide plugins instead.  \n&nbsp;&nbsp;&nbsp;&nbsp;artifact\\_service: The artifact service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;session\\_service: The session service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;memory\\_service: The memory service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;credential\\_service: The credential service for the runner.  \n&nbsp;&nbsp;&nbsp;&nbsp;plugin\\_close\\_timeout: The timeout in seconds for plugin close methods.  \n&nbsp;&nbsp;&nbsp;&nbsp;auto\\_create\\_session: Whether to automatically create a session when  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;not found. Defaults to False. If False, a missing session raises\nValueError with a helpful message.\n\nRaises:  \n&nbsp;&nbsp;&nbsp;&nbsp;ValueError: If `app` is provided along with `agent` or `plugins`, or if  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`app` is not provided but either `app_name` or `agent` is missing."
+      }
+    }
+  ],
+  "type_annotations": [
+    {
+      "symbol": "BasePlugin",
+      "usages": [
+        {
+          "context": "base:InstrumentationPlugin",
+          "line": 68
+        },
+        {
+          "context": "variable:plugins",
+          "line": 703
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BasePlugin\n```\n---\nBase class for creating plugins.\n\nPlugins provide a structured way to intercept and modify agent, tool, and\nLLM behaviors at critical execution points in a callback manner. While agent\ncallbacks apply to a particular agent, plugins applies globally to all\nagents added in the runner. Plugins are best used for adding custom behaviors\nlike logging, monitoring, caching, or modifying requests and responses at key\nstages.\n\nA plugin can implement one or more methods of callbacks, but should not\nimplement the same method of callback for multiple times.\n\nRelation with [Agent callbacks](https://google.github.io/adk-docs/callbacks/):\n\n\\*\\*Execution Order\\*\\*\nSimilar to Agent callbacks, Plugins are executed in the order they are\nregistered. However, Plugin and Agent Callbacks are executed sequentially,\nwith Plugins takes precedence over agent callbacks. When the callback in a\nplugin returns a value, it will short circuit all remaining plugins and\nagent callbacks, causing all remaining plugins and agent callbacks\nto be skipped.\n\n\\*\\*Change Propagation\\*\\*\nPlugins and agent callbacks can both modify the value of the input parameters,\nincluding agent input, tool input, and LLM request/response, etc. They work in\nthe exactly same way. The modifications will be visible and passed to the next\ncallback in the chain. For example, if a plugin modifies the tool input with\nbefore\\_tool\\_callback, the modified tool input will be passed to the\nbefore\\_tool\\_callback of the next plugin, and further passed to the agent\ncallbacks if not short-circuited.\n\nTo use a plugin, implement the desired callback methods and pass an instance\nof your custom plugin class to the ADK Runner.\n\nExamples:  \n&nbsp;&nbsp;&nbsp;&nbsp;A simple plugin that logs every tool call.\n\n```\n>>> class ToolLoggerPlugin(BasePlugin):\n..   def __init__(self):\n..     super().__init__(name=\"tool_logger\")\n..\n..   async def before_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict[str, Any],\ntool_context:\nToolContext\n..   ):\n..     print(f\"[{self.name}] Calling tool '{tool.name}' with args:\n{tool_args}\")\n..\n..   async def after_tool_callback(\n..       self, *, tool: BaseTool, tool_args: dict, tool_context:\nToolContext, result: dict\n..   ):\n..     print(f\"[{self.name}] Tool '{tool.name}' finished with result:\n{result}\")\n..\n>>> # Add the plugin to ADK Runner\n>>> # runner = Runner(\n>>> #     ...\n>>> #     plugins=[ToolLoggerPlugin(), AgentPolicyPlugin()],\n>>> # )\n```"
+      }
+    },
+    {
+      "symbol": "BaseAgent",
+      "usages": [
+        {
+          "context": "param:agent",
+          "line": 110
+        },
+        {
+          "context": "param:agent",
+          "line": 120
+        },
+        {
+          "context": "param:agent",
+          "line": 145
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BaseAgent\n```\n---\nBase class for all agents in Agent Development Kit."
+      }
+    },
+    {
+      "symbol": "CallbackContext",
+      "usages": [
+        {
+          "context": "param:callback_context",
+          "line": 110
+        },
+        {
+          "context": "param:callback_context",
+          "line": 121
+        },
+        {
+          "context": "param:callback_context",
+          "line": 146
+        },
+        {
+          "context": "param:callback_context",
+          "line": 171
+        },
+        {
+          "context": "param:callback_context",
+          "line": 226
+        },
+        {
+          "context": "param:callback_context",
+          "line": 504
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(type) CallbackContext = Context\n```\n---\nThe context within an agent run."
+      }
+    },
+    {
+      "symbol": "LlmRequest",
+      "usages": [
+        {
+          "context": "param:llm_request",
+          "line": 172
+        },
+        {
+          "context": "param:llm_request",
+          "line": 504
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) LlmRequest\n```\n---\nLLM request class that allows passing in tools, output schema and system\n\ninstructions to the model.\n\nAttributes:  \n&nbsp;&nbsp;model: The model name.  \n&nbsp;&nbsp;contents: The contents to send to the model.  \n&nbsp;&nbsp;config: Additional config for the generate content request.  \n&nbsp;&nbsp;tools\\_dict: The tools dictionary.  \n&nbsp;&nbsp;cache\\_config: Context cache configuration for this request.  \n&nbsp;&nbsp;cache\\_metadata: Cache metadata from previous requests, used for cache management."
+      }
+    },
+    {
+      "symbol": "LlmResponse",
+      "usages": [
+        {
+          "context": "return",
+          "line": 173
+        },
+        {
+          "context": "param:llm_response",
+          "line": 227
+        },
+        {
+          "context": "return",
+          "line": 228
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) LlmResponse\n```\n---\nLLM response class that provides the first candidate response from the\n\nmodel if available. Otherwise, returns error code and message.\n\nAttributes:  \n&nbsp;&nbsp;content: The content of the response.  \n&nbsp;&nbsp;grounding\\_metadata: The grounding metadata of the response.  \n&nbsp;&nbsp;partial: Indicates whether the text content is part of an unfinished text  \n&nbsp;&nbsp;&nbsp;&nbsp;stream. Only used for streaming mode and when the content is plain text.  \n&nbsp;&nbsp;turn\\_complete: Indicates whether the response from the model is complete.  \n&nbsp;&nbsp;&nbsp;&nbsp;Only used for streaming mode.  \n&nbsp;&nbsp;error\\_code: Error code if the response is an error. Code varies by model.  \n&nbsp;&nbsp;error\\_message: Error message if the response is an error.  \n&nbsp;&nbsp;interrupted: Flag indicating that LLM was interrupted when generating the  \n&nbsp;&nbsp;&nbsp;&nbsp;content. Usually it's due to user interruption during a bidi streaming.  \n&nbsp;&nbsp;custom\\_metadata: The custom metadata of the LlmResponse.  \n&nbsp;&nbsp;input\\_transcription: Audio transcription of user input.  \n&nbsp;&nbsp;output\\_transcription: Audio transcription of model output.  \n&nbsp;&nbsp;avg\\_logprobs: Average log probability of the generated tokens.  \n&nbsp;&nbsp;logprobs\\_result: Detailed log probabilities for chosen and top candidate tokens."
+      }
+    },
+    {
+      "symbol": "BaseTool",
+      "usages": [
+        {
+          "context": "param:tool",
+          "line": 280
+        },
+        {
+          "context": "param:tool",
+          "line": 313
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BaseTool\n```\n---\nThe base class for all tools."
+      }
+    },
+    {
+      "symbol": "ToolContext",
+      "usages": [
+        {
+          "context": "param:tool_context",
+          "line": 282
+        },
+        {
+          "context": "param:tool_context",
+          "line": 315
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(type) ToolContext = Context\n```\n---\nThe context within an agent run."
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/vigilant-gould/rlm_adk/plugins/sqlite_tracing.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/plugins/sqlite_tracing.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -20,7 +20,7 @@
       "usages": [
         {
           "context": "base:SqliteTracingPlugin",
-          "line": 304
+          "line": 259
         }
       ],
       "hover": {
@@ -32,15 +32,15 @@
       "usages": [
         {
           "context": "param:invocation_context",
-          "line": 680
+          "line": 639
         },
         {
           "context": "param:invocation_context",
-          "line": 856
+          "line": 807
         },
         {
           "context": "param:invocation_context",
-          "line": 1542
+          "line": 1369
         }
       ],
       "hover": {
@@ -52,11 +52,11 @@
       "usages": [
         {
           "context": "param:agent",
-          "line": 944
+          "line": 888
         },
         {
           "context": "param:agent",
-          "line": 955
+          "line": 899
         }
       ],
       "hover": {
@@ -68,27 +68,27 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 944
+          "line": 888
         },
         {
           "context": "param:callback_context",
-          "line": 955
+          "line": 899
         },
         {
           "context": "param:callback_context",
-          "line": 970
+          "line": 915
         },
         {
           "context": "param:callback_context",
-          "line": 1089
+          "line": 1010
         },
         {
           "context": "param:callback_context",
-          "line": 1238
+          "line": 1132
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) CallbackContext\n```\n---\nThe context of various callbacks within an agent run."
+        "markdown": "```python\n(type) CallbackContext = Context\n```\n---\nThe context within an agent run."
       }
     },
     {
@@ -96,11 +96,11 @@
       "usages": [
         {
           "context": "param:llm_request",
-          "line": 971
+          "line": 916
         },
         {
           "context": "param:llm_request",
-          "line": 1239
+          "line": 1133
         }
       ],
       "hover": {
@@ -112,19 +112,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 972
+          "line": 917
         },
         {
           "context": "param:llm_response",
-          "line": 1090
+          "line": 1011
         },
         {
           "context": "return",
-          "line": 1091
+          "line": 1012
         },
         {
           "context": "return",
-          "line": 1241
+          "line": 1135
         }
       ],
       "hover": {
@@ -136,11 +136,11 @@
       "usages": [
         {
           "context": "param:tool",
-          "line": 1270
+          "line": 1191
         },
         {
           "context": "param:tool",
-          "line": 1357
+          "line": 1251
         }
       ],
       "hover": {
@@ -152,15 +152,15 @@
       "usages": [
         {
           "context": "param:tool_context",
-          "line": 1272
+          "line": 1193
         },
         {
           "context": "param:tool_context",
-          "line": 1359
+          "line": 1253
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) ToolContext\n```\n---\nThe context of the tool.\n\nThis class provides the context for a tool invocation, including access to\nthe invocation context, function call ID, event actions, and authentication\nresponse. It also provides methods for requesting credentials, retrieving\nauthentication responses, listing artifacts, and searching memory.\n\nAttributes:  \n&nbsp;&nbsp;invocation\\_context: The invocation context of the tool.  \n&nbsp;&nbsp;function\\_call\\_id: The function call id of the current tool call. This id was  \n&nbsp;&nbsp;&nbsp;&nbsp;returned in the function call event from LLM to identify a function call.\nIf LLM didn't return this id, ADK will assign one to it. This id is used\nto map function call response to the original function call.  \n&nbsp;&nbsp;event\\_actions: The event actions of the current tool call.  \n&nbsp;&nbsp;tool\\_confirmation: The tool confirmation of the current tool call."
+        "markdown": "```python\n(type) ToolContext = Context\n```\n---\nThe context within an agent run."
       }
     },
     {
@@ -168,11 +168,11 @@
       "usages": [
         {
           "context": "param:event",
-          "line": 1542
+          "line": 1369
         },
         {
           "context": "return",
-          "line": 1543
+          "line": 1370
         }
       ],
       "hover": {

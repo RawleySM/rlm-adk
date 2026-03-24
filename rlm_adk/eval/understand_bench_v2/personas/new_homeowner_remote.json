@@ -1,0 +1,24 @@
+{
+  "persona_id": "new_homeowner_remote",
+  "name": "Emily Park",
+  "difficulty_target": "medium",
+  "filing_status": "Single",
+  "age": 29,
+  "occupation": "Remote Marketing Manager",
+  "state": "CO",
+  "income_sources": ["W-2 (remote, employer in NY)", "1099-INT"],
+  "key_complexity": "Multi-state (CO resident, NY employer), new home purchase with mortgage interest, home office deduction, student loan interest",
+  "document_formats_typical": {
+    "w2": "pdf",
+    "1099_int": "json",
+    "1098": "pdf",
+    "1098_e": "pdf",
+    "mortgage_closing": "pdf",
+    "property_tax_bill": "pdf",
+    "home_office_measurements": "xlsx",
+    "bank_statement": "csv",
+    "intake": "md",
+    "prior_year_return": "pdf"
+  },
+  "narrative": "Emily bought her first home in Colorado while working remotely for a NYC company. Her W-2 shows NY employer, but she lives and works in CO full time. She has mortgage interest (1098), student loan interest (1098-E), and wants to take the home office deduction. Her bank provides statements as CSV, her 1099-INT from the online savings account comes as JSON export, and her property tax bill and closing disclosure are PDFs. The multi-state angle (CO/NY) creates complexity around state filing requirements."
+}

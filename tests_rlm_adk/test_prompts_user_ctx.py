@@ -37,13 +37,6 @@ def test_static_instruction_has_llm_query_docs():
     assert "llm_query_batched(prompts)" in RLM_STATIC_INSTRUCTION
 
 
-def test_static_instruction_has_repo_helpers():
-    """Static instruction should reference probe_repo, pack_repo, shard_repo."""
-    assert "probe_repo" in RLM_STATIC_INSTRUCTION
-    assert "pack_repo" in RLM_STATIC_INSTRUCTION
-    assert "shard_repo" in RLM_STATIC_INSTRUCTION
-
-
 def test_static_instruction_has_completion_section():
     """Static instruction should document set_model_response."""
     assert "set_model_response" in RLM_STATIC_INSTRUCTION

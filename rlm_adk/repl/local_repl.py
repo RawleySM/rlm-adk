@@ -5,9 +5,10 @@ Provides sandboxed Python code execution with:
 - Context loading (context_0, context_1, ...)
 - FINAL_VAR and SHOW_VARS helpers
 - stdout/stderr capture
-- Slots for async llm_query/llm_query_batched closures (injected by orchestrator)
+- Slots for llm_query/llm_query_batched closures (injected by orchestrator)
 """
 
+import asyncio
 import concurrent.futures
 import contextvars
 import io
@@ -213,15 +214,6 @@ class LocalREPL:
         self.globals["llm_query"] = llm_query_fn
         self.globals["llm_query_batched"] = llm_query_batched_fn
 
-    def set_async_llm_query_fns(
-        self,
-        llm_query_async_fn: Callable,
-        llm_query_batched_async_fn: Callable,
-    ) -> None:
-        """Set async LM query functions for AST-rewritten code."""
-        self.globals["llm_query_async"] = llm_query_async_fn
-        self.globals["llm_query_batched_async"] = llm_query_batched_async_fn
-
     def _final_var(self, variable_name: str) -> str:
         """Return the value of a variable as a final answer."""
         variable_name = variable_name.strip().strip("\"'")
@@ -325,6 +317,78 @@ class LocalREPL:
 
             return stdout, stderr, success
 
+    def _execute_code_threadsafe(
+        self, code: str, trace: REPLTrace | None = None,
+    ) -> tuple[str, str, bool]:
+        """Lock-free execution for thread-bridge mode.
+
+        Unlike ``_execute_code_inner`` this method does NOT acquire
+        ``_EXEC_LOCK`` and does NOT call ``os.chdir()``.  Instead it
+        uses ContextVar-based stdout/stderr capture and ``_make_cwd_open``
+        for CWD-safe file access.  This prevents deadlocks when the REPL
+        runs in a worker thread while the event loop holds the lock.
+
+        Returns ``(stdout, stderr, success)`` -- same contract as
+        ``_execute_code_inner``.
+        """
+        trace_level = int(os.environ.get("RLM_REPL_TRACE", "0"))
+
+        combined = {**self.globals, **self.locals}
+        # Inject CWD-safe open() directly into the namespace so that
+        # user code calling open("file.txt", ...) resolves against
+        # temp_dir rather than the process CWD.  We also patch __builtins__
+        # so that code using builtins.open() is redirected as well.
+        cwd_open = self._make_cwd_open()
+        combined["open"] = cwd_open
+        builtins = combined.get("__builtins__")
+        if isinstance(builtins, dict):
+            builtins["open"] = cwd_open
+
+        # ContextVar-based stdout/stderr capture
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        stdout_token = _capture_stdout.set(stdout_buf)
+        stderr_token = _capture_stderr.set(stderr_buf)
+
+        # Register trace callbacks if needed
+        pre_cb = post_cb = None
+        if trace is not None and trace_level >= 1:
+            pre_cb, post_cb = self._executor.register_trace_callbacks(
+                trace, trace_level,
+            )
+
+        try:
+            stdout, stderr, success = self._executor.execute_sync(code, combined)
+        finally:
+            _capture_stdout.reset(stdout_token)
+            _capture_stderr.reset(stderr_token)
+            if pre_cb is not None:
+                self._executor.unregister_trace_callbacks(pre_cb, post_cb)
+
+        # Merge any ContextVar-captured output with executor output
+        cv_stdout = stdout_buf.getvalue()
+        cv_stderr = stderr_buf.getvalue()
+        if cv_stdout:
+            stdout = cv_stdout + stdout
+        if cv_stderr:
+            stderr = cv_stderr + stderr
+
+        if success:
+            for key, value in combined.items():
+                if key not in self.globals and not key.startswith("_"):
+                    self.locals[key] = value
+            last_expr = combined.get("_last_expr")
+            if last_expr is not None:
+                self.locals["_last_expr"] = last_expr
+            else:
+                self.locals.pop("_last_expr", None)
+            self._last_exec_error = None
+        else:
+            self._last_exec_error = stderr.strip().split("\n")[-1] if stderr.strip() else None
+            self.locals.pop("_last_expr", None)
+
+        return stdout, stderr, success
+
     def execute_code(self, code: str, trace: REPLTrace | None = None) -> REPLResult:
         """Execute code synchronously in the sandboxed namespace.
 
@@ -366,6 +430,53 @@ class LocalREPL:
             trace=trace.to_dict() if trace else None,
         )
 
+    async def execute_code_threaded(
+        self, code: str, trace: REPLTrace | None = None,
+    ) -> REPLResult:
+        """Execute code in a worker thread via the thread bridge.
+
+        Creates a one-shot ``ThreadPoolExecutor`` and runs
+        ``_execute_code_threadsafe`` in it via ``loop.run_in_executor``.
+        This is the execution path used when the thread bridge is active
+        (REPL code may call sync ``llm_query()`` which dispatches back
+        to the event loop via ``run_coroutine_threadsafe``).
+
+        Returns a ``REPLResult`` matching the contract of ``execute_code``.
+        """
+        start_time = time.perf_counter()
+        self._pending_llm_calls.clear()
+
+        if trace is not None:
+            trace.execution_mode = "thread_bridge"
+
+        loop = asyncio.get_running_loop()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            stdout, stderr, _success = await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor, self._execute_code_threadsafe, code, trace,
+                ),
+                timeout=self.sync_timeout,
+            )
+        except TimeoutError:
+            stdout = ""
+            stderr = (
+                f"\nTimeoutError: Thread-bridge execution exceeded "
+                f"{self.sync_timeout}s timeout"
+            )
+            self._last_exec_error = stderr.strip()
+        finally:
+            executor.shutdown(wait=False)
+
+        return REPLResult(
+            stdout=stdout,
+            stderr=stderr,
+            locals=self.locals.copy(),
+            execution_time=time.perf_counter() - start_time,
+            llm_calls=self._pending_llm_calls.copy(),
+            trace=trace.to_dict() if trace else None,
+        )
+
     def _make_cwd_open(self):
         """Return an open() wrapper that resolves relative paths against self.temp_dir.
 
@@ -381,104 +492,6 @@ class LocalREPL:
             return builtin_open(file, *args, **kwargs)
 
         return _cwd_open
-
-    async def execute_code_async(
-        self,
-        code: str,
-        repl_exec_fn: Any = None,
-        trace: REPLTrace | None = None,
-        *,
-        compiled: Any = None,
-    ) -> REPLResult:
-        """Execute AST-rewritten async code.
-
-        Does NOT call os.chdir() to avoid modifying process-global state.
-        Instead, injects a custom open() that resolves relative paths against
-        self.temp_dir, and sets _repl_cwd for code that needs the working dir.
-
-        Args:
-            code: The original code (before AST rewriting -- for reference/logging)
-            repl_exec_fn: Legacy: pre-extracted async function from AST rewriter.
-                Deprecated in favor of ``compiled``.
-            trace: Optional REPLTrace accumulator for this code block
-            compiled: Compiled code object containing async def _repl_exec().
-                When provided, the executor installs and runs _repl_exec from
-                the compiled code object, replacing the old exec()-in-REPLTool path.
-        """
-        start_time = time.perf_counter()
-        self._pending_llm_calls.clear()
-
-        stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
-        tok_out = _capture_stdout.set(stdout_buf)
-        tok_err = _capture_stderr.set(stderr_buf)
-        # Also replace sys.stdout/stderr directly: the _TaskLocalStream proxy
-        # installed at module load may have been displaced (e.g. by pytest
-        # capture), so the ContextVar route alone is not reliable.
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        # Inject cwd-aware open() and _repl_cwd into REPL namespace
-        # instead of calling os.chdir() (FM-27: avoid process-global state).
-        old_open = self.globals.get("__builtins__", {}).get("open")
-        self.globals.setdefault("__builtins__", {})["open"] = self._make_cwd_open()
-        self.globals["_repl_cwd"] = self.temp_dir
-        try:
-            sys.stdout, sys.stderr = stdout_buf, stderr_buf
-
-            if trace is not None:
-                # Inject trace into the globals the compiled function sees
-                self.globals["_rlm_trace"] = trace
-                trace.start_time = time.perf_counter()
-                trace.execution_mode = "async"
-
-            if compiled is not None:
-                # New path: delegate to executor for the async wrapper.
-                # capture=False because we already redirect sys.stdout/stderr.
-                ns = {**self.globals, **self.locals}
-                _, _, new_locals = await self._executor.execute_async(
-                    compiled, ns, capture=False,
-                )
-            elif repl_exec_fn is not None:
-                # Legacy path: caller already extracted the async function
-                new_locals = await repl_exec_fn()
-            else:
-                raise ValueError("Either compiled or repl_exec_fn must be provided")
-
-            if trace is not None:
-                trace.end_time = time.perf_counter()
-
-            # Update locals with results
-            if isinstance(new_locals, dict):
-                for key, value in new_locals.items():
-                    if not key.startswith("_"):
-                        self.locals[key] = value
-
-            stdout = stdout_buf.getvalue()
-            stderr = stderr_buf.getvalue()
-            self._last_exec_error = None
-        except Exception as e:
-            stdout = stdout_buf.getvalue()
-            stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
-            self._last_exec_error = f"{type(e).__name__}: {e}"
-            if trace is not None:
-                trace.end_time = time.perf_counter()
-        finally:
-            sys.stdout, sys.stderr = old_stdout, old_stderr
-            _capture_stdout.reset(tok_out)
-            _capture_stderr.reset(tok_err)
-            # Restore original open() builtin
-            if old_open is not None:
-                self.globals.setdefault("__builtins__", {})["open"] = old_open
-            # Clean up trace and _repl_cwd from globals
-            self.globals.pop("_rlm_trace", None)
-            self.globals.pop("_repl_cwd", None)
-
-        return REPLResult(
-            stdout=stdout,
-            stderr=stderr,
-            locals=self.locals.copy(),
-            execution_time=time.perf_counter() - start_time,
-            llm_calls=self._pending_llm_calls.copy(),
-            trace=trace.to_dict() if trace else None,
-        )
 
     def cleanup(self) -> None:
         """Clean up temp directory, executor, and reset state."""

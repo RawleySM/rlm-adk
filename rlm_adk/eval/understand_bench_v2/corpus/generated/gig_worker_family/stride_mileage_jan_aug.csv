@@ -1,0 +1,42 @@
+Date,Category,Miles,From,To,Notes
+01/03/2025,Rideshare,87.2,Home,Various,Uber shifts
+01/04/2025,Rideshare,92.1,Home,Various,Uber + Lyft
+01/05/2025,Delivery,45.3,Home,Various,DoorDash evening
+01/07/2025,Rideshare,78.6,Home,Various,Uber
+01/08/2025,Rideshare,83.4,Home,Various,Uber + Lyft
+01/10/2025,Delivery,51.2,Home,Various,DoorDash
+01/11/2025,Rideshare,95.7,Home,Various,Uber Saturday
+01/12/2025,Rideshare,68.3,Home,Various,Uber Sunday
+01/14/2025,Rideshare,82.1,Home,Various,Uber
+01/15/2025,Rideshare,79.8,Home,Various,Uber + Lyft
+01/17/2025,Delivery,48.9,Home,Various,DoorDash
+01/18/2025,Rideshare,101.3,Home,Various,Uber Saturday busy
+01/19/2025,Rideshare,72.4,Home,Various,Uber Sunday
+01/21/2025,Rideshare,85.6,Home,Various,Uber
+01/22/2025,Rideshare,77.9,Home,Various,Uber
+01/24/2025,Delivery,52.1,Home,Various,DoorDash
+01/25/2025,Rideshare,98.7,Home,Various,Uber Saturday
+01/26/2025,Rideshare,64.5,Home,Various,Uber Sunday short
+01/28/2025,Rideshare,81.3,Home,Various,Uber
+01/29/2025,Rideshare,76.2,Home,Various,Uber + Lyft
+01/31/2025,Delivery,44.8,Home,Various,DoorDash
+02/01/2025,Rideshare,93.5,Home,Various,Uber Saturday
+02/03/2025,Rideshare,84.1,Home,Various,Uber
+02/04/2025,Rideshare,79.3,Home,Various,Uber
+02/05/2025,Delivery,47.6,Home,Various,DoorDash
+02/07/2025,Rideshare,88.2,Home,Various,Uber
+02/08/2025,Rideshare,102.4,Home,Various,Uber Saturday busy
+02/10/2025,Rideshare,76.8,Home,Various,Uber
+02/11/2025,Rideshare,82.5,Home,Various,Uber + Lyft
+02/12/2025,Delivery,53.7,Home,Various,DoorDash
+02/14/2025,Rideshare,91.2,Home,Various,Uber Valentine's surge
+02/15/2025,Rideshare,108.3,Home,Various,Uber Saturday surge
+02/17/2025,Rideshare,80.4,Home,Various,Uber
+02/18/2025,Rideshare,75.6,Home,Various,Uber
+02/19/2025,Delivery,49.8,Home,Various,DoorDash
+02/21/2025,Rideshare,86.9,Home,Various,Uber
+02/22/2025,Rideshare,97.1,Home,Various,Uber Saturday
+02/24/2025,Rideshare,83.2,Home,Various,Uber
+02/25/2025,Rideshare,78.4,Home,Various,Uber
+02/26/2025,Delivery,46.3,Home,Various,DoorDash
+02/28/2025,Rideshare,89.7,Home,Various,Uber

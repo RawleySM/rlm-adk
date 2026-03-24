@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ADK Replay InputFile",
+  "description": "Schema for the --replay JSON file consumed by `adk run --replay`. Defined by google.adk.cli.cli.InputFile. Only two top-level fields exist; all agent behavior is driven through state keys or query prompts.",
+  "type": "object",
+  "required": ["state", "queries"],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "type": "object",
+      "description": "Initial session state passed to session_service.create_session(). Keys are arbitrary strings; values are any JSON-serializable type. A `_time` field is auto-injected at runtime with the current ISO timestamp.",
+      "additionalProperties": {
+        "description": "Arbitrary session state value (string, number, boolean, object, array, or null)."
+      }
+    },
+    "queries": {
+      "type": "array",
+      "description": "User prompts submitted sequentially. Each query creates a new invocation against the same session.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  }
+}

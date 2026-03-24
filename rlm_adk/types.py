@@ -275,6 +275,8 @@ class LineageEnvelope(BaseModel):
         "set_model_response",
         "load_skill",
         "load_skill_resource",
+        "list_skills",
+        "run_skill_script",
         "unknown",
     ] = "unknown"
     structured_outcome: Literal[

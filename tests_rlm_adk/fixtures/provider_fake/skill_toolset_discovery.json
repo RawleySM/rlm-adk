@@ -1,0 +1,118 @@
+{
+  "scenario_id": "skill_toolset_discovery",
+  "description": "Cycle 25: SkillToolset L1/L2 discovery e2e. Reasoning agent first calls load_skill to get L2 instructions for recursive-ping, then calls execute_code with trivial code, then calls set_model_response. Validates: SkillToolset injects <available_skills> XML into system_instruction (L1), and load_skill returns L2 instructions from SKILL.md.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent calls load_skill to get L2 instructions for recursive-ping.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "load_skill",
+                    "args": {
+                      "name": "recursive-ping"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 220
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "After seeing L2 instructions, reasoning agent calls execute_code with trivial code.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "print('skill loaded successfully')"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 30,
+          "totalTokenCount": 330
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning agent calls set_model_response to finish.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "SkillToolset discovery verified. recursive-ping skill loaded with L2 instructions.",
+                      "reasoning_summary": "Called load_skill to get L2 instructions, confirmed recursive-ping available via L1 XML."
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 440
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "SkillToolset discovery verified. recursive-ping skill loaded with L2 instructions.",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

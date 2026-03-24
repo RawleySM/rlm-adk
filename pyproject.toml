@@ -19,7 +19,7 @@ classifiers = [
 
 dependencies = [
     "anthropic>=0.75.0",
-    "google-adk>=1.2.0",
+    "google-adk>=1.27",
     "google-genai>=1.56.0",
     "langfuse>=3.14.0",
     "openai>=2.14.0",
@@ -35,6 +35,9 @@ dependencies = [
     "ipython>=8.0",
     "debugpy>=1.8",
     "pydantic>=2.12.5",
+    "typer>=0.21.0",
+    "google-api-python-client>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
 ]
 
 [project.urls]

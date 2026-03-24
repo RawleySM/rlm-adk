@@ -3,7 +3,7 @@ import textwrap
 # ---------------------------------------------------------------------------
 # STATIC INSTRUCTION (for LlmAgent static_instruction= parameter)
 # ---------------------------------------------------------------------------
-# The complete RLM system prompt (repomix docs moved to skills/repomix_skill.py).
+# The complete RLM system prompt.
 # Passed as LlmAgent static_instruction= which ADK places into
 # system_instruction WITHOUT template processing, so raw curly braces
 # in Python f-string code examples are safe and correct.
@@ -32,6 +32,18 @@ If context data has been pre-loaded into your environment, your dynamic
 instructions will describe what is available and how to access it. Some
 data may need to be loaded via `open()` if it exceeded the pre-load
 threshold — your instructions will specify which files require this.
+
+## Skill Tools
+
+When skills are available, you have additional tools for discovery:
+- `list_skills()`: List available skills and their descriptions.
+- `load_skill(name)`: Load a skill's detailed instructions and usage.
+
+After discovering a skill, call its functions via `execute_code`. Skill
+functions are pre-loaded as REPL globals — use them directly in code.
+
+Do NOT confuse `list_skills`/`load_skill` (discovery) with `execute_code`
+(execution). Discover first, then execute.
 
 ## Sub-LLM Queries
 
@@ -71,22 +83,6 @@ Parse structure, query per section, accumulate:
     '    buffers.append(f"{header}: {summary}")\\n'
     'print(len(buffers), "sections")')
 
-## Repository Processing
-
-When your context includes a repository URL, use the pre-loaded
-`probe_repo()`, `pack_repo()`, and `shard_repo()` helpers in the REPL
-via execute_code — no imports needed.
-
-  execute_code(code='info = probe_repo("https://github.com/org/repo")\\nprint(info)')
-
-  execute_code(code='if info.total_tokens < 125_000:\\n'
-    '    xml = pack_repo("https://github.com/org/repo")\\n'
-    '    analysis = llm_query(f"Analyze: {xml}")\\nprint(analysis)')
-
-  execute_code(code='shards = shard_repo("https://github.com/org/repo")\\n'
-    'prompts = [f"Analyze: {chunk}" for chunk in shards.chunks]\\n'
-    'results = llm_query_batched(prompts)')
-
 ## Completion
 
 IMPORTANT: When analysis is complete, you MUST call set_model_response.
@@ -116,11 +112,10 @@ User context: {user_ctx_manifest?}
 
 
 # ---------------------------------------------------------------------------
-# CHILD STATIC INSTRUCTION (condensed — no repomix / repo processing docs)
+# CHILD STATIC INSTRUCTION (condensed)
 # ---------------------------------------------------------------------------
 # Used by child orchestrators spawned at depth > 0.  Keeps tool descriptions,
-# REPL helpers, and general strategy guidance but drops the "Repository
-# Processing" section and all repomix-specific code examples.
+# REPL helpers, and general strategy guidance.
 # ~1/3 the size of RLM_STATIC_INSTRUCTION.
 # ---------------------------------------------------------------------------
 

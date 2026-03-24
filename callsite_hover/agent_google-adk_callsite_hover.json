@@ -19,7 +19,7 @@
       "instances": [
         {
           "name": null,
-          "line": 165
+          "line": 161
         }
       ],
       "hover": {
@@ -31,11 +31,11 @@
       "instances": [
         {
           "name": null,
-          "line": 265
+          "line": 254
         }
       ],
       "hover": {
-        "markdown": "```python\nclass LlmAgent(\n    *,\n    name: str,\n    description: str = '',\n    sub_agents: list[BaseAgent] = list,\n    before_agent_callback: BeforeAgentCallback | None = None,\n    after_agent_callback: AfterAgentCallback | None = None,\n    model: str | BaseLlm = '',\n    instruction: str | InstructionProvider = '',\n    global_instruction: str | InstructionProvider = '',\n    static_instruction: ContentUnion | None = None,\n    tools: list[ToolUnion] = list,\n    generate_content_config: GenerateContentConfig | None = None,\n    disallow_transfer_to_parent: bool = False,\n    disallow_transfer_to_peers: bool = False,\n    include_contents: Literal['default', 'none'] = 'default',\n    input_schema: type[BaseModel] | None = None,\n    output_schema: type[BaseModel] | None = None,\n    output_key: str | None = None,\n    planner: BasePlanner | None = None,\n    code_executor: BaseCodeExecutor | None = None,\n    before_model_callback: BeforeModelCallback | None = None,\n    after_model_callback: AfterModelCallback | None = None,\n    on_model_error_callback: OnModelErrorCallback | None = None,\n    before_tool_callback: BeforeToolCallback | None = None,\n    after_tool_callback: AfterToolCallback | None = None,\n    on_tool_error_callback: OnToolErrorCallback | None = None\n)\n```\n---\nLLM-based Agent."
+        "markdown": "```python\nclass LlmAgent(\n    *,\n    name: str,\n    description: str = '',\n    sub_agents: list[BaseAgent] = list,\n    before_agent_callback: BeforeAgentCallback | None = None,\n    after_agent_callback: AfterAgentCallback | None = None,\n    model: str | BaseLlm = '',\n    instruction: str | InstructionProvider = '',\n    global_instruction: str | InstructionProvider = '',\n    static_instruction: ContentUnion | None = None,\n    tools: list[ToolUnion] = list,\n    generate_content_config: GenerateContentConfig | None = None,\n    disallow_transfer_to_parent: bool = False,\n    disallow_transfer_to_peers: bool = False,\n    include_contents: Literal['default', 'none'] = 'default',\n    input_schema: type[BaseModel] | None = None,\n    output_schema: SchemaType | None = None,\n    output_key: str | None = None,\n    planner: BasePlanner | None = None,\n    code_executor: BaseCodeExecutor | None = None,\n    before_model_callback: BeforeModelCallback | None = None,\n    after_model_callback: AfterModelCallback | None = None,\n    on_model_error_callback: OnModelErrorCallback | None = None,\n    before_tool_callback: BeforeToolCallback | None = None,\n    after_tool_callback: AfterToolCallback | None = None,\n    on_tool_error_callback: OnToolErrorCallback | None = None\n)\n```\n---\nLLM-based Agent."
       }
     },
     {
@@ -43,11 +43,11 @@
       "instances": [
         {
           "name": null,
-          "line": 533
+          "line": 534
         }
       ],
       "hover": {
-        "markdown": "```python\nclass App(\n    *,\n    name: str,\n    root_agent: BaseAgent,\n    plugins: list[BasePlugin] = list,\n    events_compaction_config: Any | None = None,\n    context_cache_config: Any | None = None,\n    resumability_config: Any | None = None\n)\n```\n---\nRepresents an LLM-backed agentic application.\n\nAn `App` is the top-level container for an agentic system powered by LLMs.\nIt manages a root agent (`root_agent`), which serves as the root of an agent\ntree, enabling coordination and communication across all agents in the\nhierarchy.\nThe `plugins` are application-wide components that provide shared capabilities\nand services to the entire system."
+        "markdown": "```python\nclass App(\n    *,\n    name: str,\n    root_agent: BaseAgent,\n    plugins: list[BasePlugin] = list,\n    events_compaction_config: Any | None = None,\n    context_cache_config: ContextCacheConfig | None = None,\n    resumability_config: Any | None = None\n)\n```\n---\nRepresents an LLM-backed agentic application.\n\nAn `App` is the top-level container for an agentic system powered by LLMs.\nIt manages a root agent (`root_agent`), which serves as the root of an agent\ntree, enabling coordination and communication across all agents in the\nhierarchy.\nThe `plugins` are application-wide components that provide shared capabilities\nand services to the entire system."
       }
     },
     {
@@ -55,7 +55,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 634
+          "line": 635
         }
       ],
       "hover": {
@@ -67,7 +67,7 @@
       "instances": [
         {
           "name": "planner",
-          "line": 249
+          "line": 243
         }
       ],
       "hover": {
@@ -79,7 +79,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 632
+          "line": 633
         }
       ],
       "hover": {
@@ -93,19 +93,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 406
+          "line": 393
         },
         {
           "context": "param:plugins",
-          "line": 484
+          "line": 480
         },
         {
           "context": "param:plugins",
-          "line": 549
+          "line": 550
         },
         {
           "context": "variable:plugins",
-          "line": 421
+          "line": 408
         }
       ],
       "hover": {
@@ -117,7 +117,7 @@
       "usages": [
         {
           "context": "param:artifact_service",
-          "line": 551
+          "line": 552
         }
       ],
       "hover": {
@@ -129,7 +129,7 @@
       "usages": [
         {
           "context": "param:session_service",
-          "line": 552
+          "line": 553
         }
       ],
       "hover": {

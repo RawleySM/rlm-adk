@@ -1,0 +1,22 @@
+{
+  "persona_id": "gig_worker_family",
+  "name": "Jamal & Aisha Thompson",
+  "difficulty_target": "medium",
+  "filing_status": "MFJ",
+  "age": 31,
+  "occupation": "Rideshare driver + Daycare worker",
+  "state": "GA",
+  "income_sources": ["1099-NEC (Uber)", "1099-NEC (Lyft)", "1099-NEC (DoorDash)", "W-2 (daycare center)"],
+  "key_complexity": "Multiple gig 1099s, mileage tracking, childcare credit (own kids in wife's daycare), EITC eligibility, marketplace insurance 1095-A",
+  "document_formats_typical": {
+    "w2": "pdf",
+    "1099_nec": ["pdf", "csv"],
+    "mileage_log": ["csv", "jpg"],
+    "1095_a": "pdf",
+    "childcare_receipt": "txt",
+    "bank_statement": ["csv", "html"],
+    "intake": "md",
+    "estimated_payment_records": "txt"
+  },
+  "narrative": "Jamal drives for Uber, Lyft, and DoorDash while Aisha works at a daycare center (W-2). They have two young children who attend the daycare where Aisha works (complicating the childcare credit). Jamal's mileage log is partly in a CSV export from a mileage app and partly in photos of a handwritten notebook. Their bank statements come as CSV exports and HTML downloads. They got marketplace insurance (1095-A) and may qualify for EITC. This tests mixed gig income processing, EITC eligibility analysis, and childcare credit complications."
+}

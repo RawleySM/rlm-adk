@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/catalog.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/obsolete/catalog.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -12,7 +12,7 @@
       "instances": [
         {
           "name": "_PING_SKILL",
-          "line": 71
+          "line": 62
         }
       ],
       "hover": {
@@ -24,11 +24,11 @@
       "instances": [
         {
           "name": null,
-          "line": 72
+          "line": 63
         }
       ],
       "hover": {
-        "markdown": "```python\nclass Frontmatter(\n    *,\n    name: str,\n    description: str,\n    license: str | None = None,\n    compatibility: str | None = None,\n    allowed_tools: str | None = None,\n    metadata: dict[str, str] = {}\n)\n```\n---\nL1 skill content: metadata parsed from SKILL.md frontmatter for skill discovery.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;name: Skill name in kebab-case (required).  \n&nbsp;&nbsp;&nbsp;&nbsp;description: What the skill does and when the model should use it  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(required).  \n&nbsp;&nbsp;&nbsp;&nbsp;license: License for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;compatibility: Compatibility information for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;allowed\\_tools: Tool patterns the skill requires (optional, experimental).  \n&nbsp;&nbsp;&nbsp;&nbsp;metadata: Key-value pairs for client-specific properties (defaults to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;empty dict)."
+        "markdown": "```python\nclass Frontmatter(\n    *,\n    name: str,\n    description: str,\n    license: str | None = None,\n    compatibility: str | None = None,\n    allowed-tools: str | None = None,\n    metadata: dict[str, Any] = {}\n)\n```\n---\nL1 skill content: metadata parsed from SKILL.md for skill discovery.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;name: Skill name in kebab-case (required).  \n&nbsp;&nbsp;&nbsp;&nbsp;description: What the skill does and when the model should use it  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(required).  \n&nbsp;&nbsp;&nbsp;&nbsp;license: License for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;compatibility: Compatibility information for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;allowed\\_tools: A space-delimited list of tools that are pre-approved to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;run (optional, experimental). Accepts both `allowed_tools` and the\nYAML-friendly `allowed-tools` key. For more details, see  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;https://agentskills.io/specification#allowed-tools-field.  \n&nbsp;&nbsp;&nbsp;&nbsp;metadata: Key-value pairs for client-specific properties (defaults to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;empty dict). For example, to include additional tools, use the\n`adk_additional_tools` key with a list of tools."
       }
     }
   ],

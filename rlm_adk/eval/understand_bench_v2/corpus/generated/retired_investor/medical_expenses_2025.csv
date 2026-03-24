@@ -1,0 +1,36 @@
+Date,Provider,Description,Amount Billed,Insurance Paid,Out of Pocket,Category
+2025-01-10,Dr. Sarah Kim (PCP),Annual physical,$350.00,$280.00,$70.00,Preventive
+2025-01-15,CVS Pharmacy,Prescriptions (Jan),$245.00,$190.00,$55.00,Prescriptions
+2025-02-03,NCH Healthcare,Blood work / lab panel,$420.00,$336.00,$84.00,Lab
+2025-02-15,CVS Pharmacy,Prescriptions (Feb),$245.00,$190.00,$55.00,Prescriptions
+2025-03-01,Dr. James Ortiz (Ortho),Knee consultation,$275.00,$220.00,$55.00,Specialist
+2025-03-08,MRI Associates,Knee MRI,$1800.00,$1440.00,$360.00,Imaging
+2025-03-15,CVS Pharmacy,Prescriptions (Mar),$245.00,$190.00,$55.00,Prescriptions
+2025-04-12,NCH Baker Hospital,Knee replacement surgery,$48500.00,$42000.00,$6500.00,Surgery
+2025-04-12,Anesthesia Associates,Anesthesia services,$3200.00,$2560.00,$640.00,Surgery
+2025-04-13,NCH Baker Hospital,Hospital stay (2 nights),$6400.00,$5120.00,$1280.00,Hospital
+2025-04-15,CVS Pharmacy,Post-surgery prescriptions,$380.00,$280.00,$100.00,Prescriptions
+2025-04-20,Naples Physical Therapy,PT session 1,$175.00,$140.00,$35.00,Therapy
+2025-04-25,Naples Physical Therapy,PT session 2,$175.00,$140.00,$35.00,Therapy
+2025-05-02,Naples Physical Therapy,PT session 3,$175.00,$140.00,$35.00,Therapy
+2025-05-09,Naples Physical Therapy,PT session 4,$175.00,$140.00,$35.00,Therapy
+2025-05-15,CVS Pharmacy,Prescriptions (May),$245.00,$190.00,$55.00,Prescriptions
+2025-05-16,Naples Physical Therapy,PT session 5,$175.00,$140.00,$35.00,Therapy
+2025-05-23,Naples Physical Therapy,PT session 6,$175.00,$140.00,$35.00,Therapy
+2025-06-01,Dr. James Ortiz,Follow-up appointment,$200.00,$160.00,$40.00,Specialist
+2025-06-10,Naples Physical Therapy,PT session 7,$175.00,$140.00,$35.00,Therapy
+2025-06-15,CVS Pharmacy,Prescriptions (Jun),$245.00,$190.00,$55.00,Prescriptions
+2025-06-17,Naples Physical Therapy,PT session 8,$175.00,$140.00,$35.00,Therapy
+2025-07-01,Dr. Sarah Kim (PCP),Check-up,$200.00,$160.00,$40.00,Office Visit
+2025-07-15,CVS Pharmacy,Prescriptions (Jul),$245.00,$190.00,$55.00,Prescriptions
+2025-08-15,CVS Pharmacy,Prescriptions (Aug),$245.00,$190.00,$55.00,Prescriptions
+2025-08-20,Dr. Lisa Chen (Derm),Skin check,$225.00,$180.00,$45.00,Specialist
+2025-09-01,Vision Center,Eye exam + glasses,$485.00,$200.00,$285.00,Vision
+2025-09-15,CVS Pharmacy,Prescriptions (Sep),$245.00,$190.00,$55.00,Prescriptions
+2025-10-15,CVS Pharmacy,Prescriptions (Oct),$245.00,$190.00,$55.00,Prescriptions
+2025-10-28,Dr. James Ortiz,6-month knee follow-up,$200.00,$160.00,$40.00,Specialist
+2025-11-15,CVS Pharmacy,Prescriptions (Nov),$245.00,$190.00,$55.00,Prescriptions
+2025-11-20,Dental Associates,Dental cleaning + x-rays,$380.00,$250.00,$130.00,Dental
+2025-12-01,Dr. Sarah Kim (PCP),Annual wellness visit,$350.00,$280.00,$70.00,Preventive
+2025-12-15,CVS Pharmacy,Prescriptions (Dec),$245.00,$190.00,$55.00,Prescriptions
+2025-12-18,Hearing Center,Hearing test + aids,$4200.00,$1500.00,$2700.00,Hearing

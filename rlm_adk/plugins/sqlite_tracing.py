@@ -67,16 +67,8 @@ def _categorize_key(key: str) -> str:
         return "flow_control"
     if key.startswith("repl_submitted_code"):
         return "repl"
-    if key.startswith("repl_expanded_code"):
-        return "repl"
-    if key.startswith("repl_skill_expansion_meta"):
-        return "repl"
-    if key.startswith("repl_did_expand"):
-        return "repl"
     if key.startswith("last_repl_result"):
         return "repl"
-    if key.startswith("skill_"):
-        return "skill"
     if key.startswith("cache:"):
         return "cache"
     if key in (
@@ -85,7 +77,6 @@ def _categorize_key(key: str) -> str:
         "repo_url",
         "root_prompt",
         "skill_instruction",
-        "enabled_skills",
     ):
         return "request_meta"
     return "other"
@@ -1306,16 +1297,22 @@ class SqliteTracingPlugin(BasePlugin):
                     update_kwargs["decision_mode"] = "execute_code"
                 elif tool_name == "load_skill":
                     update_kwargs["decision_mode"] = "load_skill"
+                    # Extract skill name from tool response if available
                     if isinstance(result, dict):
-                        update_kwargs["skill_name_loaded"] = result.get("skill_name")
-                        instructions = result.get("instructions", "")
-                        update_kwargs["skill_instructions_len"] = (
-                            len(instructions) if instructions else 0
+                        update_kwargs["skill_name_loaded"] = result.get("name", "")
+                        update_kwargs["skill_instructions_len"] = len(
+                            result.get("instructions", "")
                         )
                 elif tool_name == "load_skill_resource":
                     update_kwargs["decision_mode"] = "load_skill_resource"
-                    if isinstance(result, dict):
-                        update_kwargs["skill_name_loaded"] = result.get("skill_name")
+                elif tool_name == "list_skills":
+                    update_kwargs["decision_mode"] = "list_skills"
+                elif tool_name == "run_skill_script":
+                    update_kwargs["decision_mode"] = "run_skill_script"
+                # NOTE: _adk_activated_skill_* keys are intentionally NOT
+                # added to CURATED_STATE_PREFIXES. Skill activation tracking
+                # flows through the telemetry table's skill_name_loaded
+                # column (reviewer refinement #4).
 
                 # REPL enrichment
                 if tool_name == "execute_code" and isinstance(result, dict):

@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chase Checking Statement - December 2025</title>
+    <style>
+        /* Reset and base */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 9pt;
+            color: #1a1a1a;
+            background: #fff;
+            line-height: 1.4;
+        }
+        @page {
+            size: 8.5in 11in;
+            margin: 0.5in 0.6in;
+        }
+        @media print {
+            body { background: #fff; }
+            .page { box-shadow: none; border: none; margin: 0; padding: 0; }
+        }
+
+        .page {
+            max-width: 7.5in;
+            margin: 0 auto;
+            padding: 0.4in 0;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #117aca;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-placeholder {
+            width: 40px;
+            height: 40px;
+            background: #117aca;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .logo-placeholder svg {
+            width: 24px;
+            height: 24px;
+        }
+        .bank-name {
+            font-size: 22pt;
+            font-weight: 700;
+            color: #117aca;
+            letter-spacing: -0.5px;
+        }
+        .statement-label {
+            text-align: right;
+            font-size: 8pt;
+            color: #555;
+        }
+        .statement-label .title {
+            font-size: 12pt;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 2px;
+        }
+
+        /* Account info bar */
+        .account-bar {
+            display: flex;
+            justify-content: space-between;
+            background: #f0f6fc;
+            border: 1px solid #d4e4f7;
+            border-radius: 4px;
+            padding: 10px 14px;
+            margin-bottom: 14px;
+            font-size: 8.5pt;
+        }
+        .account-bar .label {
+            color: #555;
+            font-size: 7pt;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .account-bar .value {
+            font-weight: 600;
+            font-size: 9pt;
+        }
+
+        /* Summary boxes */
+        .summary-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .summary-box {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px 12px;
+            text-align: center;
+        }
+        .summary-box .label {
+            font-size: 7pt;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .summary-box .amount {
+            font-size: 13pt;
+            font-weight: 700;
+            color: #1a1a1a;
+        }
+        .summary-box .amount.positive { color: #0a7c42; }
+        .summary-box .amount.negative { color: #c0392b; }
+
+        /* Section headers */
+        .section-header {
+            background: #117aca;
+            color: white;
+            font-size: 9pt;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 3px 3px 0 0;
+            margin-top: 14px;
+        }
+
+        /* Transaction table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5pt;
+            margin-bottom: 6px;
+        }
+        table thead th {
+            background: #f5f5f5;
+            border-bottom: 2px solid #117aca;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 7.5pt;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            color: #444;
+        }
+        table thead th.amount-col {
+            text-align: right;
+        }
+        table tbody td {
+            padding: 5px 8px;
+            border-bottom: 1px solid #eee;
+            vertical-align: top;
+        }
+        table tbody tr:nth-child(even) {
+            background: #fafcfe;
+        }
+        table tbody td.amount {
+            text-align: right;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 8.5pt;
+            white-space: nowrap;
+        }
+        table tbody td.amount.credit {
+            color: #0a7c42;
+        }
+        table tbody td.amount.debit {
+            color: #1a1a1a;
+        }
+        table tbody td.balance {
+            text-align: right;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 8.5pt;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        table tbody td.date {
+            white-space: nowrap;
+            width: 70px;
+        }
+        table tbody td.description {
+            width: 55%;
+        }
+        .desc-detail {
+            font-size: 7pt;
+            color: #888;
+        }
+
+        /* Totals row */
+        table tfoot td {
+            padding: 6px 8px;
+            border-top: 2px solid #117aca;
+            font-weight: 700;
+            font-size: 9pt;
+        }
+        table tfoot td.amount {
+            text-align: right;
+            font-family: 'Consolas', 'Courier New', monospace;
+        }
+
+        /* Daily balance section */
+        .balance-summary {
+            margin-top: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .balance-summary table {
+            margin-bottom: 0;
+        }
+        .balance-summary th {
+            background: #f0f6fc;
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: 24px;
+            border-top: 2px solid #117aca;
+            padding-top: 10px;
+            font-size: 7pt;
+            color: #666;
+            line-height: 1.5;
+        }
+        .footer .fdic {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 6px 8px;
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 3px;
+        }
+        .fdic-badge {
+            background: #1a5276;
+            color: white;
+            font-size: 7pt;
+            font-weight: 700;
+            padding: 3px 6px;
+            border-radius: 2px;
+            white-space: nowrap;
+        }
+        .footer-cols {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+        }
+        .footer-col {
+            flex: 1;
+        }
+        .page-number {
+            text-align: right;
+            font-size: 7pt;
+            color: #999;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <!-- Header -->
+    <div class="header">
+        <div class="logo-area">
+            <div class="logo-placeholder">
+                <svg viewBox="0 0 24 24" fill="white"><path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L19.18 7.5 12 10.82 4.82 7.5 12 4.18z"/></svg>
+            </div>
+            <div class="bank-name">CHASE</div>
+        </div>
+        <div class="statement-label">
+            <div class="title">Checking Statement</div>
+            <div>Statement Period: December 1 &ndash; 31, 2025</div>
+            <div>Page 1 of 1</div>
+        </div>
+    </div>
+
+    <!-- Account Info Bar -->
+    <div class="account-bar">
+        <div>
+            <div class="label">Account Holder</div>
+            <div class="value">SARAH M. THOMPSON</div>
+        </div>
+        <div>
+            <div class="label">Account Number</div>
+            <div class="value">******4823</div>
+        </div>
+        <div>
+            <div class="label">Account Type</div>
+            <div class="value">Chase Total Checking</div>
+        </div>
+        <div>
+            <div class="label">Routing Number</div>
+            <div class="value">021000021</div>
+        </div>
+    </div>
+
+    <!-- Summary Boxes -->
+    <div class="summary-row">
+        <div class="summary-box">
+            <div class="label">Opening Balance</div>
+            <div class="amount">$8,432.17</div>
+        </div>
+        <div class="summary-box">
+            <div class="label">Total Deposits &amp; Credits</div>
+            <div class="amount positive">+$6,847.92</div>
+        </div>
+        <div class="summary-box">
+            <div class="label">Total Withdrawals &amp; Debits</div>
+            <div class="amount negative">-$5,913.56</div>
+        </div>
+        <div class="summary-box">
+            <div class="label">Closing Balance</div>
+            <div class="amount">$9,366.53</div>
+        </div>
+    </div>
+
+    <!-- Deposits & Credits -->
+    <div class="section-header">Deposits and Credits</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th class="amount-col">Amount</th>
+                <th class="amount-col">Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="date">12/01</td>
+                <td class="description">ACH Direct Deposit &mdash; ACME CORP PAYROLL<div class="desc-detail">Ref #PPD 8827341920</div></td>
+                <td class="amount credit">+$2,847.63</td>
+                <td class="balance">$11,279.80</td>
+            </tr>
+            <tr>
+                <td class="date">12/06</td>
+                <td class="description">Zelle Payment From &mdash; DAVID THOMPSON<div class="desc-detail">Memo: rent share dec</div></td>
+                <td class="amount credit">+$725.00</td>
+                <td class="balance">$10,792.33</td>
+            </tr>
+            <tr>
+                <td class="date">12/11</td>
+                <td class="description">Mobile Deposit &mdash; Check #1847<div class="desc-detail">Image available online</div></td>
+                <td class="amount credit">+$250.00</td>
+                <td class="balance">$9,374.63</td>
+            </tr>
+            <tr>
+                <td class="date">12/15</td>
+                <td class="description">ACH Direct Deposit &mdash; ACME CORP PAYROLL<div class="desc-detail">Ref #PPD 8827345104</div></td>
+                <td class="amount credit">+$2,847.63</td>
+                <td class="balance">$10,309.76</td>
+            </tr>
+            <tr>
+                <td class="date">12/22</td>
+                <td class="description">Transfer From Savings &mdash; CHASE SAVINGS ...9217<div class="desc-detail">Online transfer</div></td>
+                <td class="amount credit">+$150.00</td>
+                <td class="balance">$9,684.76</td>
+            </tr>
+            <tr>
+                <td class="date">12/31</td>
+                <td class="description">Interest Payment<div class="desc-detail">Annual Percentage Yield Earned 0.01%</div></td>
+                <td class="amount credit">+$27.66</td>
+                <td class="balance">$9,366.53</td>
+            </tr>
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="2">Total Deposits and Credits (6 items)</td>
+                <td class="amount">$6,847.92</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- Withdrawals & Debits -->
+    <div class="section-header">Withdrawals and Debits</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th class="amount-col">Amount</th>
+                <th class="amount-col">Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="date">12/02</td>
+                <td class="description">Online Bill Pay &mdash; PACIFIC GAS &amp; ELECTRIC<div class="desc-detail">Confirmation #BPY-7291038</div></td>
+                <td class="amount debit">-$187.43</td>
+                <td class="balance">$11,092.37</td>
+            </tr>
+            <tr>
+                <td class="date">12/03</td>
+                <td class="description">Recurring Payment &mdash; NETFLIX.COM<div class="desc-detail">Card ending 5501</div></td>
+                <td class="amount debit">-$22.99</td>
+                <td class="balance">$11,069.38</td>
+            </tr>
+            <tr>
+                <td class="date">12/04</td>
+                <td class="description">Debit Card Purchase &mdash; WHOLE FOODS MKT #10847<div class="desc-detail">SAN FRANCISCO CA</div></td>
+                <td class="amount debit">-$94.17</td>
+                <td class="balance">$10,975.21</td>
+            </tr>
+            <tr>
+                <td class="date">12/05</td>
+                <td class="description">Online Bill Pay &mdash; COMCAST XFINITY<div class="desc-detail">Confirmation #BPY-7291204</div></td>
+                <td class="amount debit">-$89.99</td>
+                <td class="balance">$10,885.22</td>
+            </tr>
+            <tr>
+                <td class="date">12/05</td>
+                <td class="description">Recurring Payment &mdash; SPOTIFY USA<div class="desc-detail">Card ending 5501</div></td>
+                <td class="amount debit">-$17.89</td>
+                <td class="balance">$10,867.33</td>
+            </tr>
+            <tr>
+                <td class="date">12/08</td>
+                <td class="description">ACH Withdrawal &mdash; CHASE CREDIT CARD PAYMENT<div class="desc-detail">Autopay - minimum payment</div></td>
+                <td class="amount debit">-$450.00</td>
+                <td class="balance">$10,417.33</td>
+            </tr>
+            <tr>
+                <td class="date">12/09</td>
+                <td class="description">Debit Card Purchase &mdash; SHELL OIL 57442190847<div class="desc-detail">SAN FRANCISCO CA</div></td>
+                <td class="amount debit">-$62.34</td>
+                <td class="balance">$10,354.99</td>
+            </tr>
+            <tr>
+                <td class="date">12/10</td>
+                <td class="description">ATM Withdrawal &mdash; CHASE ATM 94102<div class="desc-detail">345 MARKET ST SAN FRANCISCO CA</div></td>
+                <td class="amount debit">-$300.00</td>
+                <td class="balance">$10,054.99</td>
+            </tr>
+            <tr>
+                <td class="date">12/10</td>
+                <td class="description">Zelle Payment To &mdash; JENNIFER NGUYEN<div class="desc-detail">Memo: dinner split</div></td>
+                <td class="amount debit">-$46.36</td>
+                <td class="balance">$10,008.63</td>
+            </tr>
+            <tr>
+                <td class="date">12/12</td>
+                <td class="description">Debit Card Purchase &mdash; TARGET T-2247<div class="desc-detail">SAN FRANCISCO CA</div></td>
+                <td class="amount debit">-$133.50</td>
+                <td class="balance">$9,875.13</td>
+            </tr>
+            <tr>
+                <td class="date">12/13</td>
+                <td class="description">Online Bill Pay &mdash; STATE FARM INSURANCE<div class="desc-detail">Policy #SF-8840127</div></td>
+                <td class="amount debit">-$156.50</td>
+                <td class="balance">$9,718.63</td>
+            </tr>
+            <tr>
+                <td class="date">12/16</td>
+                <td class="description">ACH Withdrawal &mdash; PLANET FITNESS<div class="desc-detail">Monthly membership</div></td>
+                <td class="amount debit">-$24.99</td>
+                <td class="balance">$10,284.77</td>
+            </tr>
+            <tr>
+                <td class="date">12/18</td>
+                <td class="description">Debit Card Purchase &mdash; AMAZON.COM*RT4KL92M1<div class="desc-detail">AMZN.COM/BILL WA</div></td>
+                <td class="amount debit">-$247.83</td>
+                <td class="balance">$10,036.94</td>
+            </tr>
+            <tr>
+                <td class="date">12/19</td>
+                <td class="description">Wire Transfer Out &mdash; WELLS FARGO ACCT ENDING 6104<div class="desc-detail">Ref #WR-2025121900834 / Fee $25.00</div></td>
+                <td class="amount debit">-$1,525.00</td>
+                <td class="balance">$8,511.94</td>
+            </tr>
+            <tr>
+                <td class="date">12/20</td>
+                <td class="description">Recurring Payment &mdash; ADOBE CREATIVE CLOUD<div class="desc-detail">Card ending 5501</div></td>
+                <td class="amount debit">-$59.99</td>
+                <td class="balance">$8,451.95</td>
+            </tr>
+            <tr>
+                <td class="date">12/21</td>
+                <td class="description">Debit Card Purchase &mdash; TRADER JOE'S #643<div class="desc-detail">SAN FRANCISCO CA</div></td>
+                <td class="amount debit">-$67.19</td>
+                <td class="balance">$8,384.76</td>
+            </tr>
+            <tr>
+                <td class="date">12/23</td>
+                <td class="description">Online Transfer To &mdash; CHASE SAVINGS ...9217<div class="desc-detail">Scheduled transfer</div></td>
+                <td class="amount debit">-$500.00</td>
+                <td class="balance">$9,184.76</td>
+            </tr>
+            <tr>
+                <td class="date">12/27</td>
+                <td class="description">Debit Card Purchase &mdash; COSTCO WHSE #1243<div class="desc-detail">DALY CITY CA</div></td>
+                <td class="amount debit">-$218.52</td>
+                <td class="balance">$8,966.24</td>
+            </tr>
+            <tr>
+                <td class="date">12/29</td>
+                <td class="description">Online Bill Pay &mdash; AT&amp;T WIRELESS<div class="desc-detail">Confirmation #BPY-7293811</div></td>
+                <td class="amount debit">-$85.21</td>
+                <td class="balance">$8,881.03</td>
+            </tr>
+            <tr>
+                <td class="date">12/30</td>
+                <td class="description">ACH Withdrawal &mdash; RENT PAYMENT TO PARKSIDE APTS<div class="desc-detail">Unit 4B - January 2026</div></td>
+                <td class="amount debit">-$1,623.66</td>
+                <td class="balance">$7,257.37</td>
+            </tr>
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="2">Total Withdrawals and Debits (20 items)</td>
+                <td class="amount">$5,913.56</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- Daily Balance Summary -->
+    <div class="section-header">Daily Ending Balance Summary</div>
+    <div class="balance-summary">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th><th style="text-align:right">Balance</th>
+                    <th>Date</th><th style="text-align:right">Balance</th>
+                    <th>Date</th><th style="text-align:right">Balance</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>12/01</td><td class="balance">$11,279.80</td>
+                    <td>12/12</td><td class="balance">$9,875.13</td>
+                    <td>12/22</td><td class="balance">$9,684.76</td>
+                </tr>
+                <tr>
+                    <td>12/05</td><td class="balance">$10,867.33</td>
+                    <td>12/15</td><td class="balance">$10,309.76</td>
+                    <td>12/27</td><td class="balance">$8,966.24</td>
+                </tr>
+                <tr>
+                    <td>12/10</td><td class="balance">$10,008.63</td>
+                    <td>12/19</td><td class="balance">$8,511.94</td>
+                    <td>12/31</td><td class="balance">$9,366.53</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div class="footer-cols">
+            <div class="footer-col">
+                <strong>JPMorgan Chase Bank, N.A.</strong><br>
+                Member FDIC. Equal Housing Lender.<br>
+                P.O. Box 659754, San Antonio, TX 78265-9754
+            </div>
+            <div class="footer-col" style="text-align: center;">
+                Customer Service: 1-800-935-9935<br>
+                Outside the U.S.: 1-713-262-3300<br>
+                TTY/TDD: 1-800-242-7383
+            </div>
+            <div class="footer-col" style="text-align: right;">
+                chase.com<br>
+                Statement Date: January 2, 2026<br>
+                Acct: ******4823
+            </div>
+        </div>
+        <div class="fdic">
+            <span class="fdic-badge">FDIC</span>
+            <span>Your deposits at this institution are insured by the Federal Deposit Insurance Corporation up to at least $250,000 per depositor. For details, visit <strong>fdic.gov</strong> or call 1-877-275-3342. If you believe there is a discrepancy in your account, please contact us immediately. You have 60 days from the statement date to report any errors or unauthorized transactions.</span>
+        </div>
+    </div>
+    <div class="page-number">Page 1 of 1 &nbsp;|&nbsp; Statement ID: STM-2025-4823-1202</div>
+
+</div>
+</body>
+</html>

@@ -45,9 +45,6 @@ from rlm_adk.plugins.dashboard_auto_launch import DashboardAutoLaunchPlugin
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.plugins.step_mode import StepModePlugin
-from rlm_adk.skills import (
-    normalize_enabled_skill_names,
-)
 from rlm_adk.utils.prompts import (
     RLM_CHILD_STATIC_INSTRUCTION,
     RLM_DYNAMIC_INSTRUCTION,
@@ -209,7 +206,7 @@ def create_reasoning_agent(
     Args:
         model: The LLM model identifier.
         static_instruction: Stable system prompt content (code examples, REPL
-            guidance, repomix docs).  Passed as LlmAgent ``static_instruction=``
+            guidance).  Passed as LlmAgent ``static_instruction=``
             which ADK places into ``system_instruction`` *without* template
             processing, so raw curly braces in code examples are safe.
         dynamic_instruction: Template string with ``{var?}`` state-variable
@@ -289,7 +286,7 @@ def create_rlm_orchestrator(
     enabled_skills: Iterable[str] | None = None,
 ) -> RLMOrchestratorAgent:
     """Create the RLMOrchestratorAgent with the reasoning sub-agent."""
-    resolved_enabled_skills = normalize_enabled_skill_names(enabled_skills)
+    resolved_enabled_skills = tuple(enabled_skills) if enabled_skills else ()
     reasoning = create_reasoning_agent(
         model,
         static_instruction=static_instruction,

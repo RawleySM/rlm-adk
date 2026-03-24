@@ -1,0 +1,102 @@
+{
+  "case_id": "case_multisheet_brokerage",
+  "task_name": "Multi-Sheet Brokerage Statement with Cost Basis Reconciliation",
+  "difficulty": "hard",
+  "persona_id": "retired_investor",
+
+  "broad_objective": "Prepare a federal tax return for a retiree with a Fidelity brokerage account. The client provided a multi-sheet Excel brokerage statement (5 sheets: Account Summary, Holdings, Transactions, Dividends & Interest, Realized Gains) and an HTML bank statement. Cross-reference the sheets to verify tax-reportable amounts and identify missing official tax documents.",
+
+  "provided_files": [
+    {
+      "ref_id": "brokerage_xlsx",
+      "filename": "real_docs/fidelity_brokerage_statement_2025.xlsx",
+      "display_name": "Fidelity Brokerage Statement (5-sheet Excel)",
+      "format": "xlsx",
+      "doc_type": "brokerage_statement",
+      "description": "Multi-sheet Excel workbook with Account Summary, Holdings (10 positions with cost basis), Transactions (28 entries), Dividends & Interest breakdown (ordinary/qualified/cap gain/foreign tax), and Realized Gains (3 sales with holding periods). Total account value $287,925.07."
+    },
+    {
+      "ref_id": "bank_html",
+      "filename": "real_docs/chase_statement_dec2025.html",
+      "display_name": "Chase Bank Statement (HTML export, Dec 2025)",
+      "format": "html",
+      "doc_type": "bank_statement",
+      "description": "HTML-format Chase bank statement showing deposits and debits for December 2025."
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "brokerage_xlsx",
+      "required_skill": "excel_multi_sheet",
+      "description": "5-sheet workbook requires navigating between sheets: Account Summary for totals, Holdings for position-level detail, Transactions for trade history, Dividends & Interest for 1099-DIV amounts (ordinary vs qualified vs cap gain distributions vs foreign tax paid), and Realized Gains for Schedule D/Form 8949 data. Agent must cross-reference between sheets to verify internal consistency.",
+      "extraction_target": "Total dividends ($5,575.12), qualified dividend split, foreign tax paid, realized gains by holding period (ST: $2,351, LT: $754.50), cap gain distributions ($1,114.50)",
+      "difficulty": "hard"
+    },
+    {
+      "file_ref": "bank_html",
+      "required_skill": "html_parse",
+      "description": "HTML bank statement to cross-reference ACH transfers from brokerage account.",
+      "extraction_target": "Deposit/withdrawal amounts that correspond to brokerage transfers",
+      "difficulty": "routine"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Fidelity Consolidated Form 1099 (1099-DIV, 1099-B, 1099-INT)",
+      "source_authority": "Fidelity Investments",
+      "why_non_derivable": "The Excel brokerage statement is an account-level report, not an official tax document. The Dividends & Interest sheet shows amounts by transaction, but the official 1099-DIV is needed for the IRS-reported qualified dividend amount, Section 199A dividends, and exempt-interest dividends. The Realized Gains sheet has cost basis and holding periods, but the 1099-B is needed for the official cost basis reporting to the IRS (which may differ due to wash sales or adjustments). The Excel data cannot substitute for the official tax form.",
+      "detection_signal": "Excel statement has 5 detailed sheets but no IRS form numbers. The Dividends & Interest sheet has qualified/ordinary splits but these are account-level estimates, not the official 1099-DIV figures. Realized Gains sheet lacks wash sale adjustment indicators.",
+      "retrieval_method": "Request the consolidated 1099 from Fidelity's Tax Documents section (available after January 31). Check for revised 1099s through mid-February.",
+      "blocks_downstream": ["Schedule B — Dividends and Interest", "Schedule D — Capital Gains", "Form 8949 — Transaction Details", "Form 1116 — Foreign Tax Credit"],
+      "difficulty_modifier": "multi-hop"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form 1099-INT from Chase Bank",
+      "source_authority": "Chase Bank",
+      "why_non_derivable": "The HTML bank statement shows December transactions but does not include full-year interest earned. If the checking or savings account earned $10+ in interest, Chase would issue a 1099-INT.",
+      "detection_signal": "Bank statement provided but no 1099-INT. Client likely has savings or interest-bearing checking.",
+      "retrieval_method": "Ask client to check Chase Tax Documents online or request 1099-INT from Chase.",
+      "blocks_downstream": ["Schedule B — Interest Income"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form SSA-1099 (Social Security Benefits)",
+      "source_authority": "Social Security Administration",
+      "why_non_derivable": "Client is retired with a significant investment portfolio. Very likely receives Social Security benefits. No SSA-1099 in the document packet.",
+      "detection_signal": "Retired persona with investment income. Bank statement may show SSA deposits. No Social Security documentation provided.",
+      "retrieval_method": "Ask if client receives Social Security and request SSA-1099 from my.ssa.gov.",
+      "blocks_downstream": ["Form 1040 Lines 6a-6b — Social Security Benefits"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "computational",
+      "artifact_name": "Wash sale analysis across all brokerage accounts",
+      "source_authority": "Client's complete trading records across all accounts",
+      "why_non_derivable": "The Realized Gains sheet shows 3 sales, but the NVDA sale on 11/15 (short-term gain of $2,351) was followed by a VXUS purchase on 11/20. If the client has other brokerage accounts where they bought substantially identical securities within 30 days of a sale, wash sale rules could disallow losses. The Excel data covers only this one Fidelity account.",
+      "detection_signal": "NVDA sold 11/15 at a gain, so wash sales don't apply to gains. But JNJ sold 6/15 — need to verify no repurchase within 30 days across all accounts. The Transactions sheet shows no JNJ repurchase in this account, but other accounts are unknown.",
+      "retrieval_method": "Ask client if they have other brokerage accounts and whether they repurchased any of the sold securities (GOOGL, JNJ, NVDA) within 30 days before or after the sale dates.",
+      "blocks_downstream": ["Form 8949 — Wash Sale Adjustments", "Schedule D — Net Capital Gain"],
+      "difficulty_modifier": "multi-hop"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "Fidelity Consolidated Form 1099 (1099-DIV, 1099-B, 1099-INT)",
+    "Form SSA-1099 (Social Security Benefits)",
+    "Form 1099-INT from Chase Bank",
+    "Wash sale analysis across all brokerage accounts"
+  ],
+
+  "why_context_tempts_premature_progress": "The 5-sheet Excel workbook is impressively detailed — it has dividends broken out by qualified/ordinary/cap gain, realized gains with holding periods and acquisition dates, and even foreign tax paid. A weak agent will treat this as complete tax data and proceed to file. But the Excel statement is an account view, not an official tax document. The IRS receives the 1099 from Fidelity, not the client's Excel export. Amounts may differ due to reclassifications, wash sales, and return-of-capital adjustments that only appear on the final 1099.",
+
+  "what_bad_model_does": "Uses the Excel Dividends & Interest sheet directly for Schedule B, copies the Realized Gains sheet to Form 8949 without questioning whether these are the official IRS-reported figures. Ignores the multi-sheet structure and processes only one sheet.",
+  "what_good_model_does": "Navigates all 5 sheets, cross-references Account Summary totals against detailed sheets, recognizes the distinction between account-level data and official tax documents, identifies that the consolidated 1099 is needed for IRS-reconciled figures, and probes for Social Security income given the retired persona.",
+
+  "scoring_notes": "Primary test of excel_multi_sheet skill. Full credit requires: (1) evidence of reading multiple sheets (not just Sheet 1), (2) cross-referencing data between sheets, (3) recognizing that Excel data != official 1099, (4) identifying all 4 missing artifacts.",
+  "multi_hop_chain": ["Parse Account Summary sheet", "Navigate to Holdings sheet for positions", "Cross-ref with Dividends & Interest for tax splits", "Check Realized Gains for holding periods", "Recognize this is NOT the official 1099", "Identify need for consolidated 1099 + SSA-1099"]
+}

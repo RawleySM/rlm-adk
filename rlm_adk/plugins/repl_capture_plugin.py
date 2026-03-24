@@ -23,12 +23,6 @@ from typing import Any
 
 from google.adk.plugins.base_plugin import BasePlugin
 
-from rlm_adk.state import (
-    REPL_DID_EXPAND,
-    REPL_EXPANDED_CODE,
-    depth_key,
-)
-
 
 def _repl_globals_inventory(repl_globals: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a static inventory of known REPL namespace injections.
@@ -128,14 +122,6 @@ class REPLCapturePlugin(BasePlugin):
 
         depth = pending["depth"]
 
-        # Read expanded code from state (if skill expansion occurred)
-        expanded_code = tool_context.state.get(
-            depth_key(REPL_EXPANDED_CODE, depth)
-        )
-        did_expand = bool(tool_context.state.get(
-            depth_key(REPL_DID_EXPAND, depth)
-        ))
-
         # Read the _rlm_state snapshot that was active during execution
         rlm_state = None
         repl = getattr(tool, "repl", None)
@@ -163,8 +149,6 @@ class REPLCapturePlugin(BasePlugin):
             "fanout_idx": pending["fanout_idx"],
             "agent_name": pending["agent_name"],
             "submitted_code": pending["submitted_code"],
-            "expanded_code": expanded_code,
-            "did_expand": did_expand,
             "stdout": stdout,
             "stderr": stderr,
             "variables": _safe_serialize(variables),

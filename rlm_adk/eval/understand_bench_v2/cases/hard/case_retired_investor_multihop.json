@@ -1,0 +1,149 @@
+{
+  "case_id": "case_retired_investor_multihop",
+  "task_name": "Retired Investor — Multi-Format Investment Income with Trust K-1 Chain",
+  "difficulty": "hard",
+  "persona_id": "retired_investor",
+
+  "broad_objective": "Prepare and file a federal tax return (MFJ) for a retired couple with complex investment income from multiple brokerages, a family trust K-1 with QBI, rental income, significant medical expenses, charitable donations with mixed substantiation, and RMD compliance for an inherited IRA.",
+
+  "provided_files": [
+    {
+      "ref_id": "intake",
+      "filename": "generated/retired_investor/intake_notes.md",
+      "display_name": "Taxpayer Intake Notes",
+      "format": "md",
+      "doc_type": "intake_questionnaire",
+      "description": "Detailed in-person meeting notes with document inventory, known gaps, and investment concerns"
+    },
+    {
+      "ref_id": "medical",
+      "filename": "generated/retired_investor/medical_expenses_2025.csv",
+      "display_name": "Medical Expense Tracker (2025)",
+      "format": "csv",
+      "doc_type": "medical_expense_summary",
+      "description": "CSV spreadsheet tracking all medical expenses with provider, amounts billed, insurance paid, and out-of-pocket costs"
+    },
+    {
+      "ref_id": "rental",
+      "filename": "generated/retired_investor/rental_income_expense_2025.csv",
+      "display_name": "Rental Income & Expense Tracker (Bonita Springs Condo)",
+      "format": "csv",
+      "doc_type": "bank_statement",
+      "description": "Monthly rental income and expense tracking for the Bonita Springs rental property"
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "medical",
+      "required_skill": "csv_parse",
+      "description": "Medical expense CSV with multiple providers, insurance amounts, and out-of-pocket costs. Agent must sum out-of-pocket column and compare to 7.5% AGI threshold.",
+      "extraction_target": "Total out-of-pocket medical expenses and preliminary Schedule A deductibility assessment",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "medical",
+      "required_skill": "financial_table_interpret",
+      "description": "Agent must understand the relationship between billed, insurance-paid, and out-of-pocket columns to correctly compute the deductible amount.",
+      "extraction_target": "Deductible medical expense total (out-of-pocket only, exceeding 7.5% AGI floor)",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "rental",
+      "required_skill": "csv_parse",
+      "description": "Rental income/expense CSV with monthly breakdown. Agent must handle vacancy months (June-July show $0 income) and categorize expenses correctly for Schedule E.",
+      "extraction_target": "Annual rental income, total expenses by category, and net rental income/loss",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "rental",
+      "required_skill": "currency_normalization",
+      "description": "Dollar amounts in the CSV have dollar signs and commas that need parsing. Some rows have $0.00 entries.",
+      "extraction_target": "Clean numeric values for all financial columns",
+      "difficulty": "routine"
+    },
+    {
+      "file_ref": "intake",
+      "required_skill": "cross_reference",
+      "description": "Intake notes reference many documents that should be in a binder but aren't provided as files. Agent must cross-reference the 'Documents in the Binder' list against provided_files to identify what's actually available vs. what's referenced but missing.",
+      "extraction_target": "Gap analysis between referenced documents and provided files",
+      "difficulty": "hard"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "cross_domain",
+      "artifact_name": "2025 K-1 from Wallace Family Trust",
+      "source_authority": "Wallace Family Trust trustee or trust's tax preparer",
+      "why_non_derivable": "The intake notes confirm the 2024 K-1 is in the binder but the 2025 K-1 has not yet been received. The trust K-1 reports ordinary income (~$12,000 estimated from prior year), QBI ($3,200 prior year), and potentially other items. Without the 2025 K-1, neither the income nor the QBI deduction can be determined. The K-1 may also reveal new items not present in prior years.",
+      "detection_signal": "Intake notes explicitly state: 'K-1 from Wallace Family Trust — 2024 ONLY (not 2025 yet)' and under Missing: '2025 K-1 from Wallace Family Trust (not yet received)'",
+      "retrieval_method": "Contact the trust's tax preparer or trustee to request the 2025 K-1. If the trust return (Form 1041) hasn't been filed yet, the taxpayer may need to file an extension.",
+      "blocks_downstream": ["Step 2: Inventory Income Sources", "Step 6: Handle Special Situations — QBI deduction", "Step 7: Compute Tax Liability"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "historical",
+      "artifact_name": "Cost basis records for pre-1995 Fidelity stock purchases",
+      "source_authority": "Taxpayer's personal records, old paper brokerage statements, or Fidelity historical records request",
+      "why_non_derivable": "The intake notes state that the Fidelity 1099-B has transactions where cost basis is 'N/A' for shares bought in the 1990s before electronic records. Without the original purchase price, the capital gain/loss cannot be correctly computed. The IRS requires the taxpayer to determine and report cost basis; Fidelity cannot provide it for pre-electronic records.",
+      "detection_signal": "Intake notes state: 'Fidelity 1099-B has some transactions where cost basis is listed as N/A — these are shares Robert bought in the 1990s before electronic records. He has old paper statements in a filing cabinet but hasn't dug them out.'",
+      "retrieval_method": "Ask Robert to locate the old paper brokerage statements in his filing cabinet. If unavailable, use Fidelity's historical records request service or estimate basis using historical stock prices on the known purchase dates.",
+      "blocks_downstream": ["Step 6: Handle Special Situations — Capital gains/losses computation"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Church charitable giving substantiation letter (for donations exceeding $250)",
+      "source_authority": "First Presbyterian Church financial secretary or office",
+      "why_non_derivable": "The intake notes indicate ~$8,400 in church giving tracked in Patricia's handwritten notebook. IRS requires a written acknowledgment from the charity for any single contribution of $250 or more. Weekly giving likely includes individual contributions over $250 or Patricia may have made lump-sum contributions. The handwritten notebook is not a valid substitute for the church's written acknowledgment.",
+      "detection_signal": "Intake mentions church giving of ~$8,400 tracked in a handwritten notebook. Under Missing: 'Church giving substantiation letter (need written acknowledgment for donations over $250).' The intake explicitly flags this gap.",
+      "retrieval_method": "Contact First Presbyterian Church and request a year-end giving statement or written acknowledgment letter for 2025 contributions.",
+      "blocks_downstream": ["Step 4: Determine Deduction Strategy — Charitable deduction"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Corrected Schwab 1099 verification and consolidated brokerage 1099s (Fidelity, Schwab, Vanguard)",
+      "source_authority": "Fidelity, Charles Schwab, and Vanguard brokerage accounts",
+      "why_non_derivable": "The intake notes reference a 47-page Fidelity consolidated 1099, both original and corrected Schwab 1099s, and a Vanguard 1099-R — but NONE of these are in the provided files. Only intake notes, medical expenses, and rental tracking are provided. All brokerage and retirement distribution documents are referenced but not uploaded.",
+      "detection_signal": "Intake notes list extensive brokerage documents 'in the binder' including Fidelity (47-page PDF), Schwab corrected 1099, Vanguard 1099-R, and Regions 1099-INT. Cross-referencing against provided_files reveals none are actually provided.",
+      "retrieval_method": "Request the taxpayer upload or provide the binder contents: Fidelity consolidated 1099, corrected Schwab 1099, Vanguard 1099-R, and Regions 1099-INT. Confirm the corrected Schwab 1099 supersedes the original.",
+      "blocks_downstream": ["Step 2: Inventory Income Sources", "Step 6: Handle Special Situations — Capital gains", "Step 7: Compute Tax Liability"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "computational",
+      "artifact_name": "Inherited IRA RMD calculation verification (Vanguard, 10-year rule)",
+      "source_authority": "Vanguard IRA account statements, IRS Publication 590-B, and SECURE Act 2.0 rules",
+      "why_non_derivable": "The intake notes mention the Wallaces want to 'confirm the RMD amount was correct based on Patricia's inherited IRA balance and the new 10-year rule.' The 10-year rule for inherited IRAs (SECURE Act) has complex requirements depending on when the original owner died and whether the beneficiary is an eligible designated beneficiary. This requires the prior-year IRA balance, the original owner's death date, and Patricia's relationship to the original owner — none of which are provided.",
+      "detection_signal": "Intake notes state concern about RMD verification under 'the new 10-year rule' for Patricia's inherited IRA at Vanguard.",
+      "retrieval_method": "Request the Vanguard inherited IRA year-end statement (12/31/2024 balance), the date of death of the original IRA owner, and Patricia's beneficiary designation type. Consult IRS Publication 590-B for the applicable distribution rules.",
+      "blocks_downstream": ["Step 3: Identify Adjustments to Income", "Step 7: Compute Tax Liability — penalty assessment"],
+      "difficulty_modifier": "multi-hop"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "Corrected Schwab 1099 verification and consolidated brokerage 1099s (Fidelity, Schwab, Vanguard)",
+    "2025 K-1 from Wallace Family Trust",
+    "Cost basis records for pre-1995 Fidelity stock purchases",
+    "Inherited IRA RMD calculation verification (Vanguard, 10-year rule)",
+    "Church charitable giving substantiation letter (for donations exceeding $250)"
+  ],
+
+  "why_context_tempts_premature_progress": "The intake notes are extremely detailed — they describe nearly every document and its contents, give dollar estimates for most income and deduction items, and even list known gaps. A weak agent may treat the intake notes as authoritative data and proceed to compute the return using the described amounts ($42,000 pension, $38,400 SS, ~$12,000 trust income, etc.) without requiring the actual source documents. The medical expense CSV and rental tracker seem complete, giving a false sense of document completeness.",
+
+  "what_bad_model_does": "Uses intake note dollar amounts as direct input, attempts to prepare the return with only the three provided files, overlooks that all brokerage 1099s and retirement distribution forms are described but not provided, and computes the medical deduction without knowing AGI",
+  "what_good_model_does": "Cross-references the 'Documents in the Binder' list against provided_files, identifies that zero brokerage/retirement documents are actually available despite extensive descriptions, flags the K-1 as not yet received, identifies the cost basis gap as a separate blocker from the missing 1099-Bs, and recognizes the RMD verification as a multi-hop dependency requiring account balance + death date + beneficiary type",
+
+  "scoring_notes": "This is the format-diversity stress test. Full credit requires: (1) identifying the massive gap between described and provided documents, (2) distinguishing between the K-1 not-yet-received vs. documents described-but-not-uploaded, (3) recognizing the cost basis issue as separate from the missing 1099-B, (4) identifying the RMD verification as requiring multiple prerequisite data points.",
+
+  "multi_hop_chain": [
+    "Corrected Schwab 1099 verification and consolidated brokerage 1099s (Fidelity, Schwab, Vanguard)",
+    "2025 K-1 from Wallace Family Trust",
+    "Cost basis records for pre-1995 Fidelity stock purchases",
+    "Inherited IRA RMD calculation verification (Vanguard, 10-year rule)",
+    "Church charitable giving substantiation letter (for donations exceeding $250)"
+  ]
+}

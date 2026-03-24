@@ -1,0 +1,75 @@
+{
+  "case_id": "case_bank_interest_missing",
+  "task_name": "Bank Statement Hints at Unreported Interest Income",
+  "difficulty": "easy",
+  "persona_id": "simple_w2_filer",
+
+  "broad_objective": "Prepare and e-file a single-filer federal tax return for a software developer with one W-2 and standard deduction.",
+
+  "provided_files": [
+    {
+      "ref_id": "intake",
+      "filename": "generated/simple_w2_filer/intake_notes.md",
+      "display_name": "Taxpayer Intake Notes",
+      "format": "md",
+      "doc_type": "intake_questionnaire",
+      "description": "Self-service portal questionnaire — notes say 'no investment accounts' but bank statement tells a different story"
+    },
+    {
+      "ref_id": "w2_datapoint",
+      "filename": "generated/simple_w2_filer/w2_datapoint_2025.json",
+      "display_name": "W-2 from Datapoint Systems LLC",
+      "format": "json",
+      "doc_type": "w2",
+      "description": "Structured W-2 data"
+    },
+    {
+      "ref_id": "bank_stmt",
+      "filename": "generated/simple_w2_filer/bank_statement_dec2025.csv",
+      "display_name": "Chase Bank Statement (Dec 2025)",
+      "format": "csv",
+      "doc_type": "bank_statement",
+      "description": "Monthly bank statement — note the 'TRANSFER TO SAVINGS' entry suggesting a savings account that would earn interest"
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "bank_stmt",
+      "required_skill": "csv_parse",
+      "description": "Agent must parse the CSV and notice the 'TRANSFER TO SAVINGS' transaction, which implies a savings account that likely earned interest, contradicting the intake note that says 'no investment accounts.'",
+      "extraction_target": "Detection of savings account transfers suggesting unreported interest income",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "bank_stmt",
+      "required_skill": "cross_reference",
+      "description": "Agent must cross-reference the bank statement (showing savings transfers) with the intake notes (claiming no investment accounts) to identify the contradiction.",
+      "extraction_target": "Contradiction between stated 'no investments' and actual savings account activity",
+      "difficulty": "moderate"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "1099-INT from Chase savings account",
+      "source_authority": "Chase Bank / JPMorgan Chase",
+      "why_non_derivable": "The bank statement shows monthly transfers to a savings account ($500/month in December alone). A savings account earning interest should generate a 1099-INT if interest exceeds $10/year. The intake notes say 'no investment accounts' but a high-yield savings account is not what most people think of as an 'investment.' The 1099-INT may have been issued but not recognized by the taxpayer.",
+      "detection_signal": "Bank statement line: 'TRANSFER TO SAVINGS -$500.00'. This implies a savings account with ongoing deposits. With current high-yield savings rates (4-5% APY), even a modest balance would generate reportable interest.",
+      "retrieval_method": "Ask the taxpayer if they received a 1099-INT from Chase for their savings account. If unsure, they can check their Chase account online under Tax Documents, or call Chase customer service.",
+      "blocks_downstream": ["Step 2: Inventory Income Sources"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": ["1099-INT from Chase savings account"],
+
+  "why_context_tempts_premature_progress": "The intake notes explicitly say 'no investment accounts, no crypto' which seems definitive. The W-2 is clean, the filing is simple. A weak agent takes the intake at face value. But the bank statement contains a signal (savings transfer) that contradicts the intake, requiring cross-document inference.",
+
+  "what_bad_model_does": "Accepts the intake note at face value that there are no investment accounts, processes the bank CSV without noticing the savings transfer pattern",
+  "what_good_model_does": "Parses the bank CSV, notices the savings transfer, cross-references with intake notes, identifies the contradiction, and asks about potential 1099-INT",
+
+  "scoring_notes": "This case tests cross-document inference. The signal is subtle — the bank statement hints at a savings account, which contradicts the intake questionnaire. Full credit requires the agent to make this connection.",
+  "multi_hop_chain": null
+}

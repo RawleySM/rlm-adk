@@ -6,11 +6,13 @@ from typing import Any
 
 from nicegui import ui
 
+from rlm_adk.dashboard.components.flow_context_inspector import render_flow_context_inspector
+from rlm_adk.dashboard.components.flow_transcript import render_flow_transcript
 from rlm_adk.dashboard.components.live_context_viewer import render_live_context_viewer
 from rlm_adk.dashboard.components.live_invocation_tree import render_live_invocation_tree
 from rlm_adk.dashboard.live_controller import LiveDashboardController, LiveDashboardUI
 from rlm_adk.dashboard.live_loader import LiveDashboardLoader
-from rlm_adk.skills import selected_skill_summaries
+from rlm_adk.dashboard.run_service import resolve_fixture_file_path
 
 _LIVE_PAGE_CSS = """
 <style>
@@ -31,6 +33,38 @@ _LIVE_PAGE_CSS = """
   .live-dashboard .q-field__native,
   .live-dashboard .q-placeholder {
     color: var(--text-0) !important;
+  }
+  .flow-nav-rail {
+    width: 4rem;
+    min-width: 4rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+    border-right: 1px solid var(--border-1);
+    background: rgba(11,16,32,0.96);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .flow-nav-btn {
+    width: 2.8rem;
+    height: 2.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    border: 1px solid var(--border-1);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .flow-nav-btn:hover {
+    background: rgba(87,199,255,0.12);
+  }
+  .flow-nav-btn--active {
+    background: rgba(87,199,255,0.18);
+    border-color: var(--accent-root);
   }
   .live-context-viewer {
     position: fixed;
@@ -99,6 +133,164 @@ _LIVE_PAGE_CSS = """
   });
   window.addEventListener('load', initDrag);
   setTimeout(initDrag, 0);
+})();
+</script>
+<script>
+/* ── Dev overlay: hold Ctrl+Shift+Z/X/C to show element labels at 3 abstraction levels ── */
+(() => {
+  if (window.__rlmDevOverlayInstalled) return;
+  window.__rlmDevOverlayInstalled = true;
+
+  const OV = 'rlm-dev-overlay';
+  const OV_BOX = 'rlm-dev-overlay-box';
+  let active = null;
+
+  /* ── Level definitions ── */
+  const LEVELS = {
+    /* Z — Sections & panes: structural regions + bordered container panes */
+    z: {
+      tag: 'Section',
+      bg: '#2196F3',
+      outline: 'rgba(33,150,243,0.5)',
+      select() {
+        const hits = new Set();
+        /* Known structural classes */
+        document.querySelectorAll(
+          '.live-dashboard, .flow-nav-rail, .live-context-viewer, .live-context-viewer__shell'
+        ).forEach(el => hits.add(el));
+        /* Sticky header */
+        document.querySelectorAll('[style*="position: sticky"]').forEach(el => hits.add(el));
+        /* NiceGUI containers with child NiceGUI IDs (structural parents) */
+        document.querySelectorAll('[id^="c"]').forEach(el => {
+          if (el.querySelector('[id^="c"]') && el.getBoundingClientRect().height > 80) {
+            const depth = _niceguiDepth(el);
+            if (depth <= 3) hits.add(el);
+          }
+        });
+        /* Bordered panes: containers with border styling, child IDs, and meaningful size */
+        document.querySelectorAll('[id][style*="border"]').forEach(el => {
+          const s = el.getAttribute('style') || '';
+          if (s.indexOf('border-radius: 999px') > -1) return; /* skip pill chips */
+          if (!el.querySelector('[id^="c"]')) return;          /* must be a container */
+          const r = el.getBoundingClientRect();
+          if (r.height > 100 && r.width > 200) hits.add(el);  /* meaningful pane size */
+        });
+        return [...hits].filter(_visible);
+      },
+    },
+    /* X — Widgets: interactive Quasar components + pill-shaped chips */
+    x: {
+      tag: 'Widget',
+      bg: '#FF9800',
+      outline: 'rgba(255,152,0,0.45)',
+      select() {
+        const hits = new Set();
+        document.querySelectorAll(
+          '.q-btn, .q-toggle, .q-select, .q-field, ' +
+          '[role="switch"], [role="combobox"], [role="button"], ' +
+          'button, .flow-nav-btn'
+        ).forEach(el => hits.add(el));
+        /* All pill-shaped chips (clickable or display-only) */
+        document.querySelectorAll('[style*="border-radius: 999px"]')
+          .forEach(el => hits.add(el));
+        return [...hits].filter(_visible);
+      },
+    },
+    /* C — Non-widget elements: text leaves + structural containers, excluding widgets */
+    c: {
+      tag: 'Text',
+      bg: '#f44336',
+      outline: null,
+      select() {
+        return [...document.querySelectorAll('[id]')].filter(el => {
+          if (!_visible(el)) return false;
+          /* Skip if this element IS or is INSIDE a widget or pill chip */
+          if (el.closest('.q-btn, .q-toggle, .q-select, .q-field, [role="switch"], [role="combobox"], [role="button"], button, .flow-nav-btn')) return false;
+          if (el.closest('[style*="border-radius: 999px"]') || el.matches('[style*="border-radius: 999px"]')) return false;
+          const text = el.textContent?.trim();
+          return text && text.length > 0;
+        });
+      },
+    },
+  };
+
+  function _visible(el) {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function _niceguiDepth(el) {
+    let d = 0, node = el.parentElement;
+    while (node) {
+      if (node.id && /^c\d+$/.test(node.id)) d++;
+      node = node.parentElement;
+    }
+    return d;
+  }
+
+  function show(level) {
+    if (active === level) return;
+    clear();
+    active = level;
+    const cfg = LEVELS[level];
+    const els = cfg.select();
+    const scrollY = window.scrollY;
+
+    els.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      const id = el.id ? '#' + el.id : (el.className?.split?.(' ')[0] || el.tagName.toLowerCase());
+
+      /* Label badge */
+      const lbl = document.createElement('div');
+      lbl.className = OV;
+      lbl.textContent = cfg.tag + ': ' + id;
+      lbl.style.cssText =
+        'position:absolute;z-index:100000;pointer-events:none;border-radius:2px;' +
+        'font:bold 10px/1.3 monospace;padding:1px 4px;white-space:nowrap;opacity:0.92;' +
+        'background:' + cfg.bg + ';color:#fff;';
+      lbl.style.top = (rect.top + scrollY) + 'px';
+      lbl.style.left = rect.left + 'px';
+      document.body.appendChild(lbl);
+
+      /* Outline box (sections & widgets only) */
+      if (cfg.outline) {
+        const box = document.createElement('div');
+        box.className = OV_BOX;
+        box.style.cssText =
+          'position:absolute;z-index:99999;pointer-events:none;' +
+          'border:2px solid ' + cfg.outline + ';border-radius:4px;' +
+          'background:' + cfg.outline.replace(/[\d.]+\)$/, '0.08)') + ';';
+        box.style.top = (rect.top + scrollY) + 'px';
+        box.style.left = rect.left + 'px';
+        box.style.width = rect.width + 'px';
+        box.style.height = rect.height + 'px';
+        document.body.appendChild(box);
+      }
+    });
+  }
+
+  function clear() {
+    document.querySelectorAll('.' + OV + ',.' + OV_BOX).forEach(n => n.remove());
+    active = null;
+  }
+
+  /* Capture-phase listener: toggle on press (not hold-to-show).
+     Press Ctrl+Shift+Z to show sections, press again to hide.
+     Pressing a different level while one is active switches to the new level. */
+  document.addEventListener('keydown', e => {
+    if (e.repeat) return;  /* ignore key-repeat while held */
+    if (!e.ctrlKey || !e.shiftKey) return;
+    const k = e.key.toLowerCase();
+    if (k in LEVELS) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (active === k) {
+        clear();           /* same key again → toggle off */
+      } else {
+        show(k);           /* different key or none active → show */
+      }
+    }
+  }, true);
 })();
 </script>
 """
@@ -197,17 +389,32 @@ async def live_dashboard_page() -> None:
                 "background: rgba(26,35,56,0.52);"
             ):
                 _launch_panel(controller, live_ui)
-                _session_meta_row(
-                    "User Query",
-                    [
+                if session_summary.user_query:
+                    _query_chips = [
                         (
-                            _truncate_chip_text(
-                                session_summary.user_query, fallback="No query captured"
-                            ),
-                            session_summary.user_query or "No query captured.",
+                            _truncate_chip_text(session_summary.user_query, fallback=""),
+                            session_summary.user_query,
                             "user-query",
                         )
-                    ],
+                    ]
+                else:
+                    _fixture_queries = _on_deck_fixture_queries(controller)
+                    if _fixture_queries:
+                        _query_chips = [
+                            (
+                                _truncate_chip_text(q, fallback=""),
+                                q,
+                                f"fixture-query-{i}",
+                            )
+                            for i, q in enumerate(_fixture_queries)
+                        ]
+                    else:
+                        _query_chips = [
+                            ("No query captured", "No query captured.", "user-query")
+                        ]
+                _session_meta_row(
+                    "User Query",
+                    _query_chips,
                     controller=controller,
                     refresh_viewer=text_panel_body,
                 )
@@ -233,29 +440,30 @@ async def live_dashboard_page() -> None:
     @ui.refreshable
     def invocation_section() -> None:
         with ui.element("div").classes("live-dashboard"):
-            render_live_invocation_tree(
-                controller.state.run_state.invocation_nodes if controller.state.run_state else [],
-                on_open_context=lambda invocation, item, lineage: _open_invocation_context_viewer(
-                    controller,
-                    text_panel_body,
-                    invocation,
+            if controller.state.view_mode == "flow":
+                _render_flow_view(controller, live_ui, text_panel_body)
+            else:
+                render_live_invocation_tree(
+                    controller.state.run_state.invocation_nodes
+                    if controller.state.run_state
+                    else [],
+                    on_open_context=lambda invocation,
                     item,
-                    lineage,
-                ),
-                on_select_iteration=lambda pane_id, invocation_id: _select_iteration(
-                    controller,
-                    live_ui,
-                    pane_id,
-                    invocation_id,
-                ),
-                on_open_repl_output=lambda invocation_id, text, label: _open_repl_output_viewer(
-                    controller,
-                    text_panel_body,
-                    invocation_id,
-                    text,
-                    label,
-                ),
-            )
+                    lineage: _open_invocation_context_viewer(
+                        controller,
+                        text_panel_body,
+                        invocation,
+                        item,
+                        lineage,
+                    ),
+                    on_open_repl_output=lambda invocation_id, text, label: _open_repl_output_viewer(
+                        controller,
+                        text_panel_body,
+                        invocation_id,
+                        text,
+                        label,
+                    ),
+                )
 
     live_ui.register(header_section)
     live_ui.register(invocation_section)
@@ -265,20 +473,33 @@ async def live_dashboard_page() -> None:
         ui.element("div")
         .classes("live-dashboard")
         .style(
-            "min-height: 100vh; width: 100%; background: radial-gradient(circle at top left, "
+            "min-height: 100vh; width: 100%; display: flex; flex-direction: column; "
+            "background: radial-gradient(circle at top left, "
             "rgba(87,199,255,0.12), transparent 24%), "
             "radial-gradient(circle at top right, rgba(255,107,159,0.12), transparent 24%), "
             "linear-gradient(180deg, var(--bg-0), #060912);"
         )
     ):
         header_section()
-        invocation_section()
+        with ui.element("div").style("display: flex; flex: 1; min-height: 0; width: 100%;"):
+            # Nav rail
+            _nav_rail(controller, live_ui)
+            # Main content area
+            with ui.element("div").style("flex: 1; min-width: 0; overflow-y: auto;"):
+                invocation_section()
         text_panel_body()
 
     async def _poll() -> None:
         changed = await controller.poll()
-        cancel_pending = controller.state.launch_cancelled and not controller.state.launch_in_progress
-        if changed or controller.state.launch_in_progress or controller.state.launch_error or cancel_pending:
+        cancel_pending = (
+            controller.state.launch_cancelled and not controller.state.launch_in_progress
+        )
+        if (
+            changed
+            or controller.state.launch_in_progress
+            or controller.state.launch_error
+            or cancel_pending
+        ):
             live_ui.refresh_all()
             if cancel_pending:
                 controller.state.launch_cancelled = False
@@ -309,18 +530,45 @@ def _session_selector(controller: LiveDashboardController, live_ui: LiveDashboar
     ).style("min-width: 28rem;")
 
 
+def _on_deck_fixture_queries(controller: LiveDashboardController) -> list[str]:
+    """Read the ``queries`` list from the on-deck replay/provider-fake fixture."""
+    import json as _json
+
+    if controller.state.replay_path:
+        kind, value = "replay", controller.state.replay_path
+    elif controller.state.selected_provider_fake_fixture:
+        kind, value = "provider_fake", controller.state.selected_provider_fake_fixture
+    else:
+        return []
+    path = resolve_fixture_file_path(kind, value)
+    if path is None or not path.exists():
+        return []
+    try:
+        with path.open() as fh:
+            data = _json.load(fh)
+        return list(data.get("queries") or [])
+    except Exception:
+        return []
+
+
 def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
-    skill_options = [name for name, _ in selected_skill_summaries(None)]
     replay_options = controller.state.available_replay_fixtures
     pf_options = controller.state.available_provider_fake_fixtures
 
-    if controller.state.selected_provider_fake_fixture:
-        header_label = "Launch Fixture"
-        launch_label = "Launch Fixture"
-    elif controller.state.replay_path:
+    # ── Derive on-deck fixture state ──
+    if controller.state.replay_path:
+        on_deck_label = controller.state.replay_path.split("/")[-1].replace(".json", "")
+        on_deck_kind = "replay"
         header_label = "Launch Replay"
         launch_label = "Launch Replay"
+    elif controller.state.selected_provider_fake_fixture:
+        on_deck_label = controller.state.selected_provider_fake_fixture
+        on_deck_kind = "provider-fake"
+        header_label = "Launch Fixture"
+        launch_label = "Launch Fixture"
     else:
+        on_deck_label = ""
+        on_deck_kind = ""
         header_label = "Launch"
         launch_label = "Launch"
 
@@ -330,6 +578,18 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
 
     async def on_cancel() -> None:
         await controller.cancel_launch()
+        live_ui.refresh_all()
+
+    def on_replay_change(e) -> None:
+        controller.set_replay_path(str(e.value or ""))
+        live_ui.refresh_all()
+
+    def on_pf_change(e) -> None:
+        controller.set_provider_fake_fixture(str(e.value or ""))
+        live_ui.refresh_all()
+
+    def on_open_on_deck() -> None:
+        controller.open_on_deck_fixture_viewer()
         live_ui.refresh_all()
 
     with ui.element("div").style(
@@ -342,8 +602,9 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
             "text-transform: uppercase; letter-spacing: 0.06em;"
         )
         with ui.element("div").style(
-            "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; min-width: 0;"
+            "display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; min-width: 0;"
         ):
+            # ── Launch / Cancel button ──
             if controller.state.launch_in_progress:
                 cancel_button = ui.button("Cancel", on_click=on_cancel)
                 cancel_button.props("unelevated")
@@ -358,74 +619,70 @@ def _launch_panel(controller: LiveDashboardController, live_ui: LiveDashboardUI)
                     "height: 3.5rem; padding: 0 1.1rem; "
                     "background: var(--accent-root); color: #05111d; font-weight: 700;"
                 )
-                if (
-                    not controller.state.replay_path
-                    and not controller.state.selected_provider_fake_fixture
-                ):
+                if not on_deck_label:
                     launch_button.disable()
+
+            # ── On-deck fixture chip ──
+            if on_deck_label:
+                with (
+                    ui.element("div")
+                    .style(
+                        "display: inline-flex; align-items: center; gap: 0.45rem; "
+                        "padding: 0.4rem 0.85rem; border-radius: 999px; cursor: pointer; "
+                        "border: 1.5px solid var(--accent-root); "
+                        "background: rgba(87,199,255,0.15); height: 2.4rem;"
+                    )
+                    .on("click", on_open_on_deck)
+                ):
+                    ui.label(on_deck_kind).style(
+                        "color: var(--accent-root); font-size: 0.72rem; font-weight: 700; "
+                        "text-transform: uppercase; letter-spacing: 0.06em;"
+                    )
+                    ui.label(on_deck_label).style(
+                        "color: var(--text-0); font-size: 0.82rem; font-weight: 600;"
+                    )
+            else:
+                with ui.element("div").style(
+                    "display: inline-flex; align-items: center; "
+                    "padding: 0.4rem 0.85rem; border-radius: 999px; "
+                    "border: 1px dashed var(--border-1); "
+                    "background: transparent; height: 2.4rem;"
+                ):
+                    ui.label("No fixture on deck").style(
+                        "color: var(--text-1); font-size: 0.78rem; font-style: italic;"
+                    )
+
+            # ── Spacer pushes dropdowns right ──
+            ui.element("div").style("flex: 1 1 0;")
+
+            # ── Fixture selection dropdowns (right-aligned) ──
             replay_select = ui.select(
                 options=replay_options,
                 value=controller.state.replay_path or None,
-                label="Replay fixture",
+                label="Select live replay",
                 with_input=False,
-                on_change=lambda e: controller.set_replay_path(str(e.value or "")),
+                on_change=on_replay_change,
             )
-            replay_select.style("flex: 2 1 24rem; min-width: 18rem;")
+            replay_select.style("flex: 1 1 14rem; min-width: 14rem;")
             if not replay_options:
                 replay_select.disable()
             ui.select(
                 options=pf_options,
                 value=controller.state.selected_provider_fake_fixture or None,
-                label="Provider-fake fixture",
+                label="Select provider-fake",
                 with_input=False,
-                on_change=lambda e: controller.set_provider_fake_fixture(str(e.value or "")),
-            ).style("flex: 2 1 24rem; min-width: 18rem;")
-            ui.select(
-                options=skill_options,
-                value=controller.state.selected_skills,
-                label="Prompt-visible skills",
-                multiple=True,
-                with_input=False,
-                on_change=lambda e: controller.set_selected_skills(list(e.value or [])),
-            ).style("flex: 1 1 18rem; min-width: 16rem;")
+                on_change=on_pf_change,
+            ).style("flex: 1 1 14rem; min-width: 14rem;")
         if not replay_options:
             ui.label("No replay fixtures found under tests_rlm_adk/replay/.").style(
                 "color: var(--accent-warning); font-size: 0.82rem;"
             )
-        with ui.element("div").style(
-            "display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem;"
-        ):
-            if controller.state.replay_path:
-                with ui.element("div").style(
-                    "display: inline-flex; align-items: center; min-width: 0; "
-                    "padding: 0.32rem 0.68rem; border-radius: 999px; "
-                    "border: 1px solid var(--border-1); "
-                    "background: rgba(87,199,255,0.12);"
-                ):
-                    ui.label(controller.state.replay_path).style(
-                        "color: var(--text-0); font-size: 0.78rem;"
-                    )
-        with ui.element("div").style(
-            "display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem;"
-        ):
-            for name, description in selected_skill_summaries(controller.state.selected_skills):
-                with ui.element("div").style(
-                    "display: inline-flex; align-items: center; min-width: 0; "
-                    "padding: 0.32rem 0.68rem; border-radius: 999px; "
-                    "border: 1px solid var(--border-1); "
-                    "background: rgba(230,237,247,0.06);"
-                ):
-                    ui.label(name).style("color: var(--text-0); font-size: 0.78rem;").tooltip(
-                        description
-                    )
         if controller.state.launched_session_id:
             ui.label(f"Latest launched session: {controller.state.launched_session_id}").style(
                 "color: var(--text-1); font-size: 0.78rem;"
             )
         if controller.state.run_status == "cancelled":
-            ui.label("Run cancelled.").style(
-                "color: var(--accent-warning); font-size: 0.82rem;"
-            )
+            ui.label("Run cancelled.").style("color: var(--accent-warning); font-size: 0.82rem;")
         if controller.state.launch_error:
             ui.label(controller.state.launch_error).style(
                 "color: var(--accent-child); font-size: 0.82rem;"
@@ -615,19 +872,129 @@ def _open_text_viewer(
     refresh_viewer.refresh()
 
 
-def _select_iteration(
-    controller: LiveDashboardController,
-    live_ui: LiveDashboardUI,
-    pane_id: str,
-    invocation_id: str,
-) -> None:
-    controller.select_iteration(pane_id, invocation_id)
-    live_ui.refresh_all()
-
-
 def _close_context_viewer(
     controller: LiveDashboardController,
     refresh_viewer,
 ) -> None:
     controller.close_context_viewer()
     refresh_viewer.refresh()
+
+
+def _nav_rail(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
+    """Render the left nav rail with view toggle icons."""
+    with ui.element("div").classes("flow-nav-rail"):
+        # Flow view button
+        flow_active = "flow-nav-btn--active" if controller.state.view_mode == "flow" else ""
+        with (
+            ui.element("div")
+            .classes(f"flow-nav-btn {flow_active}")
+            .on("click", lambda: _set_view_mode("flow", controller, live_ui))
+        ):
+            ui.label("\u2261").style(
+                "color: var(--text-0); font-size: 1.3rem; font-weight: 700;"
+            ).tooltip("Transcript")
+
+        # Tree view button
+        tree_active = "flow-nav-btn--active" if controller.state.view_mode == "tree" else ""
+        with (
+            ui.element("div")
+            .classes(f"flow-nav-btn {tree_active}")
+            .on("click", lambda: _set_view_mode("tree", controller, live_ui))
+        ):
+            ui.label("\u25e8").style(
+                "color: var(--text-0); font-size: 1.3rem; font-weight: 700;"
+            ).tooltip("Tree")
+
+
+def _set_view_mode(
+    mode: str,
+    controller: LiveDashboardController,
+    live_ui: LiveDashboardUI,
+) -> None:
+    controller.state.view_mode = mode
+    live_ui.refresh_all()
+
+
+def _render_flow_view(
+    controller: LiveDashboardController,
+    live_ui: LiveDashboardUI,
+    text_panel_body,
+) -> None:
+    """Render the flow transcript with optional context inspector sidebar."""
+    transcript = controller.flow_transcript()
+
+    with ui.element("div").style("display: flex; flex: 1; min-width: 0; width: 100%;"):
+        # Main transcript column
+        with ui.element("div").style(
+            "flex: 1; min-width: 0; padding: 0.75rem 1rem; overflow-y: auto;"
+        ):
+            ui.label("Recursive Notebook Flow").style(
+                "color: var(--text-0); font-size: 1.1rem; font-weight: 800; margin-bottom: 0.65rem;"
+            )
+            render_flow_transcript(
+                transcript,
+                on_open_context=lambda pane_id, item: _open_flow_context(
+                    controller, text_panel_body, pane_id, item
+                ),
+                on_open_child_window=lambda child: _open_child_window(controller, child),
+            )
+
+        # Context inspector sidebar
+        if transcript.inspector is not None:
+            inspector = transcript.inspector
+            # Enrich with session skills
+            session_summary = controller.session_summary()
+            from rlm_adk.dashboard.flow_models import FlowInspectorData
+
+            enriched = FlowInspectorData(
+                state_items=inspector.state_items,
+                skills=session_summary.registered_skills,
+                return_value_json=inspector.return_value_json,
+                selected_pane_id=inspector.selected_pane_id,
+                context_items=inspector.context_items,
+            )
+            render_flow_context_inspector(
+                enriched,
+                on_click_item=lambda item: _open_flow_state_item(controller, text_panel_body, item),
+            )
+
+
+def _open_flow_context(
+    controller: LiveDashboardController,
+    refresh_viewer,
+    pane_id: str,
+    item,
+) -> None:
+    """Open context viewer for a flow context chip, using the clicked card's pane."""
+    pane = controller._pane_by_id(pane_id)
+    invocation = controller.selected_invocation(pane)
+    lineage = controller.selected_invocation_lineage()
+    if invocation is not None:
+        controller.open_invocation_context_viewer(invocation, item, lineage)
+        refresh_viewer.refresh()
+
+
+def _open_flow_state_item(
+    controller: LiveDashboardController,
+    refresh_viewer,
+    item,
+) -> None:
+    """Open context viewer for a state item from the inspector."""
+    value_text = item.value if isinstance(item.value, str) else repr(item.value)
+    controller.open_text_viewer(
+        label=item.base_key,
+        text=value_text,
+        raw_key=item.raw_key,
+    )
+    refresh_viewer.refresh()
+
+
+def _open_child_window(
+    controller: LiveDashboardController,
+    child,
+) -> None:
+    """Open a child pane in a new browser window."""
+    if not child.pane_id or not controller.state.selected_session_id:
+        return
+    url = f"/live/session/{controller.state.selected_session_id}/pane/{child.pane_id}"
+    ui.run_javascript(f'window.open("{url}", "_blank")')

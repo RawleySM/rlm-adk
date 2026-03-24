@@ -1,0 +1,21 @@
+# ADK Replay InputFile — field inventory
+# Source: google.adk.cli.cli.InputFile (Pydantic BaseModel)
+# Only two fields. No skills, tools, or agent_config extension points.
+
+state: object (required) — initial session state; arbitrary key-value pairs
+queries: array<string> (required, minItems=1) — user prompts submitted sequentially
+
+# Common state keys observed across project fixtures:
+# state["app:max_iterations"]: int — orchestrator iteration ceiling
+# state["app:max_depth"]: int — max recursive dispatch depth
+# state["repo_url"]: string — target repository URL
+# state["root_prompt"]: string — root-level prompt override
+# state["test_context"]: string — inline context for smoke tests
+# state["user_ctx_manifest"]: string — manifest of user-provided files
+# state["user_provided_ctx"]: object — user context data map
+# state["user_provided_ctx_exceeded"]: bool — context size exceeded flag
+# state["usr_provided_files_serialized"]: array — serialized file list
+# state["usr_provided_files_unserialized"]: array — raw file list
+#
+# Runtime-injected (not in source JSON):
+# state["_time"]: string (ISO 8601) — injected by ADK CLI at runtime

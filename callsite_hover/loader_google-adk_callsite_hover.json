@@ -1,0 +1,36 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/loader.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "Frontmatter",
+    "Skill"
+  ],
+  "call_sites": [
+    {
+      "symbol": "Frontmatter",
+      "instances": [
+        {
+          "name": "fm",
+          "line": 192
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass Frontmatter(\n    *,\n    name: str,\n    description: str,\n    license: str | None = None,\n    compatibility: str | None = None,\n    allowed-tools: str | None = None,\n    metadata: dict[str, Any] = {}\n)\n```\n---\nL1 skill content: metadata parsed from SKILL.md for skill discovery.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;name: Skill name in kebab-case (required).  \n&nbsp;&nbsp;&nbsp;&nbsp;description: What the skill does and when the model should use it  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(required).  \n&nbsp;&nbsp;&nbsp;&nbsp;license: License for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;compatibility: Compatibility information for the skill (optional).  \n&nbsp;&nbsp;&nbsp;&nbsp;allowed\\_tools: A space-delimited list of tools that are pre-approved to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;run (optional, experimental). Accepts both `allowed_tools` and the\nYAML-friendly `allowed-tools` key. For more details, see  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;https://agentskills.io/specification#allowed-tools-field.  \n&nbsp;&nbsp;&nbsp;&nbsp;metadata: Key-value pairs for client-specific properties (defaults to  \n&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;empty dict). For example, to include additional tools, use the\n`adk_additional_tools` key with a list of tools."
+      }
+    },
+    {
+      "symbol": "Skill",
+      "instances": [
+        {
+          "name": null,
+          "line": 194
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass Skill(\n    *,\n    frontmatter: Frontmatter,\n    instructions: str,\n    resources: Resources = Resources()\n)\n```\n---\nComplete skill representation including frontmatter, instructions, and resources.\n\nA skill combines:\n- L1: Frontmatter for discovery (name, description).\n- L2: Instructions from SKILL.md body, loaded when skill is triggered.\n- L3: Resources including additional instructions, assets, and scripts,\nloaded as needed.\n\nAttributes:  \n&nbsp;&nbsp;&nbsp;&nbsp;frontmatter: Parsed skill frontmatter from SKILL.md.  \n&nbsp;&nbsp;&nbsp;&nbsp;instructions: L2 skill content: markdown instruction from SKILL.md body.  \n&nbsp;&nbsp;&nbsp;&nbsp;resources: L3 skill content: additional instructions, assets, and scripts."
+      }
+    }
+  ],
+  "type_annotations": []
+}

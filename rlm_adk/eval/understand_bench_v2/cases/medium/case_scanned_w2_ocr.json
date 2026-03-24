@@ -1,0 +1,143 @@
+{
+  "case_id": "case_scanned_w2_ocr",
+  "task_name": "Scanned W-2 and Handwritten Notes with OCR Challenges",
+  "difficulty": "medium",
+  "persona_id": "simple_w2_filer",
+
+  "broad_objective": "Prepare a federal tax return for a software developer in Texas. The client submitted a phone-photographed W-2, a photographed 1099-NEC from freelance work, scanned business expense receipts, and handwritten meeting notes from the intake session. Extract all necessary data from these image-format documents to identify missing items.",
+
+  "provided_files": [
+    {
+      "ref_id": "w2_scan",
+      "filename": "real_docs/synthetic_w2_scan_harrison_2025.jpg",
+      "display_name": "Photographed W-2 from DataPoint Systems",
+      "format": "jpg",
+      "doc_type": "w2",
+      "description": "Phone camera photo of W-2 showing $87,450 wages, 401(k) contributions, and withholding. Slightly rotated with scan artifacts."
+    },
+    {
+      "ref_id": "1099nec_scan",
+      "filename": "real_docs/synthetic_1099nec_scan_peterson_2025.jpg",
+      "display_name": "Photographed 1099-NEC from Bloom Events LLC",
+      "format": "jpg",
+      "doc_type": "1099_nec",
+      "description": "Phone camera photo of 1099-NEC showing $12,400 nonemployee compensation from Bloom Events LLC."
+    },
+    {
+      "ref_id": "receipt_supplies",
+      "filename": "real_docs/receipt_office_supplies_2025.jpg",
+      "display_name": "Office Supplies Receipt (Nov 2025)",
+      "format": "jpg",
+      "doc_type": "receipt_photo",
+      "description": "Photographed receipt from Office Depot for printer paper, ink cartridges, file folders, and a desk organizer."
+    },
+    {
+      "ref_id": "client_notes",
+      "filename": "real_docs/handwritten_client_notes_peterson.jpg",
+      "display_name": "Handwritten Client Meeting Notes",
+      "format": "jpg",
+      "doc_type": "handwritten_notes",
+      "description": "Handwritten notes on legal pad from client meeting discussing income sources, childcare expenses, home office, and missing documents."
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "w2_scan",
+      "required_skill": "image_ocr",
+      "description": "Phone camera photo of W-2 with slight rotation. Agent must OCR all box values accurately including employer EIN, wages, and withholding amounts.",
+      "extraction_target": "Wages ($87,450), federal withheld ($14,265), 401(k) contributions ($8,500 in Box 12D), employer EIN",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "1099nec_scan",
+      "required_skill": "image_ocr",
+      "description": "Photographed 1099-NEC with perspective distortion. Must extract payer name, TIN, and nonemployee compensation amount.",
+      "extraction_target": "Nonemployee compensation ($12,400), payer EIN (83-1294756)",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "client_notes",
+      "required_skill": "image_handwriting_ocr",
+      "description": "Handwritten notes on legal pad with variable ink color and slight messiness. Contains critical references to missing documents (1099-INT, 1095-A, third client 1099-NEC) and childcare provider details.",
+      "extraction_target": "List of missing documents mentioned in notes, childcare provider EIN, home office dimensions",
+      "difficulty": "hard"
+    },
+    {
+      "file_ref": "receipt_supplies",
+      "required_skill": "image_ocr",
+      "description": "Receipt photo with slight rotation. Agent must extract vendor, date, line items, and total for Schedule C deduction.",
+      "extraction_target": "Total amount, date, vendor name, individual line items",
+      "difficulty": "routine"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Form 1099-INT from Capital One savings account",
+      "source_authority": "Capital One bank",
+      "why_non_derivable": "The handwritten notes reference ~$340 in savings account interest and a 1099-INT that hasn't been provided. The agent cannot determine the exact interest amount without the official 1099-INT.",
+      "detection_signal": "Handwritten notes mention 'Savings acct interest ~$340 (need 1099-INT)' and a TODO item to 'Follow up on missing docs by 2/1' including '1099-INT from Capital One'",
+      "retrieval_method": "Request the 1099-INT from Capital One or ask the client to download it from their online banking portal.",
+      "blocks_downstream": ["Schedule B — Interest Income reporting", "Form 1040 Line 2b"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Third client 1099-NEC (unknown payer)",
+      "source_authority": "Unknown third freelance client",
+      "why_non_derivable": "The handwritten notes mention Linda has 3 freelance clients but only one 1099-NEC was provided. The notes say '?? third client - she'll bring docs'. Without this, Schedule C income is understated.",
+      "detection_signal": "Notes list '1099-NEC from 3 clients' with Bloom Events ($12,400) and Creative Lens Co ($8,200) named, but '?? third client' unidentified. Only one 1099-NEC photo provided.",
+      "retrieval_method": "Ask the client to identify the third freelance client and provide the 1099-NEC or payment records.",
+      "blocks_downstream": ["Schedule C — Gross Income", "Self-employment tax calculation"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form 1099-NEC from Creative Lens Co ($8,200)",
+      "source_authority": "Creative Lens Co",
+      "why_non_derivable": "The handwritten notes list Creative Lens Co as a $8,200 client but no 1099-NEC was provided for this payer. Only Bloom Events 1099-NEC is in the document packet.",
+      "detection_signal": "Notes reference 'Creative Lens Co $8,200' but only one 1099-NEC is in provided files (from Bloom Events)",
+      "retrieval_method": "Request 1099-NEC from Creative Lens Co or ask the client to provide it.",
+      "blocks_downstream": ["Schedule C — Gross Income"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Form 1095-A (Health Insurance Marketplace Statement)",
+      "source_authority": "Healthcare.gov marketplace",
+      "why_non_derivable": "The handwritten notes indicate ACA marketplace coverage all year and a need for '1095-A from healthcare.gov'. Without it, Premium Tax Credit (Form 8962) cannot be computed.",
+      "detection_signal": "Notes state 'ACA marketplace coverage all year -> need 1095-A from healthcare.gov'",
+      "retrieval_method": "Ask the client to log into healthcare.gov and download the 1095-A, or request it by phone.",
+      "blocks_downstream": ["Form 8962 — Premium Tax Credit"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Complete mileage log (Sep-Dec 2025)",
+      "source_authority": "Client's calendar and Stride app",
+      "why_non_derivable": "The handwritten notes indicate the Stride mileage app only covers Jan-Aug and that Sep-Dec must be reconstructed from the calendar. Without the full-year mileage, the vehicle expense deduction is incomplete.",
+      "detection_signal": "Notes say 'Mileage log on Stride app (Jan-Aug only!!) need to reconstruct Sep-Dec from calendar'",
+      "retrieval_method": "Ask the client to export the Stride data for Jan-Aug and reconstruct Sep-Dec trips from their calendar, then combine into a complete log.",
+      "blocks_downstream": ["Schedule C — Vehicle Expenses (Line 9)"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "Third client 1099-NEC (unknown payer)",
+    "Form 1099-NEC from Creative Lens Co ($8,200)",
+    "Form 1099-INT from Capital One savings account",
+    "Form 1095-A (Health Insurance Marketplace Statement)",
+    "Complete mileage log (Sep-Dec 2025)"
+  ],
+
+  "why_context_tempts_premature_progress": "The W-2 and single 1099-NEC contain enough data to start computing a basic return. The receipt provides a deductible expense. A weak agent might proceed with just these documents, missing the critical information in the handwritten notes about additional income sources and required forms. The handwriting OCR challenge means the agent must carefully extract the TODO list to discover the gaps.",
+
+  "what_bad_model_does": "Fails to accurately OCR the handwritten notes, missing the references to additional 1099-NECs and the 1095-A requirement. Proceeds with only the W-2 and single 1099-NEC, significantly understating self-employment income.",
+  "what_good_model_does": "Successfully OCRs all image documents, cross-references the handwritten notes against the provided documents to identify 5 missing items, recognizes the incomplete mileage log and multiple missing 1099-NECs, and halts until the document packet is complete.",
+
+  "scoring_notes": "Full credit requires: (1) successful OCR of all 4 image files, (2) identification of all 5 missing artifacts from cross-referencing notes against provided files, (3) recognizing the handwritten notes as a critical source of gap-detection signals.",
+  "multi_hop_chain": ["OCR handwritten notes", "Extract list of expected documents", "Compare against provided files", "Identify 5 gaps"]
+}

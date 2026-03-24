@@ -1,0 +1,121 @@
+{
+  "case_id": "case_freelance_schedule_c",
+  "task_name": "Freelance Photographer — Schedule C with Multi-Format Document Gaps",
+  "difficulty": "medium",
+  "persona_id": "freelance_photographer",
+
+  "broad_objective": "Prepare and file a federal and California state tax return for a freelance photographer with mixed W-2/1099-NEC income, Schedule C business expenses including mileage, home office, and equipment depreciation, and marketplace health insurance (1095-A).",
+
+  "provided_files": [
+    {
+      "ref_id": "intake",
+      "filename": "generated/freelance_photographer/intake_notes.md",
+      "display_name": "Taxpayer Intake Notes",
+      "format": "md",
+      "doc_type": "intake_questionnaire",
+      "description": "In-person meeting notes covering income sources, expenses, and document inventory"
+    },
+    {
+      "ref_id": "1099_bloom",
+      "filename": "generated/freelance_photographer/1099_nec_bloom_events.json",
+      "display_name": "1099-NEC from Bloom Events Co.",
+      "format": "json",
+      "doc_type": "1099_nec",
+      "description": "Structured 1099-NEC showing $14,200 in nonemployee compensation"
+    },
+    {
+      "ref_id": "mileage",
+      "filename": "generated/freelance_photographer/mileage_log_2025.csv",
+      "display_name": "Business Mileage Log (Jan-Sep 2025)",
+      "format": "csv",
+      "doc_type": "mileage_log",
+      "description": "CSV export of business mileage tracking — PARTIAL, only covers January through September"
+    },
+    {
+      "ref_id": "home_office",
+      "filename": "generated/freelance_photographer/home_office_measurements.txt",
+      "display_name": "Home Office Measurements",
+      "format": "txt",
+      "doc_type": "home_office_measurements",
+      "description": "Plain text file with room dimensions, square footage calculations, and utility costs"
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "mileage",
+      "required_skill": "csv_parse",
+      "description": "Mileage log CSV with dates, locations, purposes, and miles. Agent must notice it only covers Jan-Sep (partial year).",
+      "extraction_target": "Total business miles for the partial period and detection of the Oct-Dec gap",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "mileage",
+      "required_skill": "date_normalization",
+      "description": "Dates in YYYY-MM-DD format. Agent must determine the date range to identify the missing Q4 period.",
+      "extraction_target": "Date range of mileage entries to flag incomplete coverage",
+      "difficulty": "routine"
+    },
+    {
+      "file_ref": "home_office",
+      "required_skill": "plain_text_parse",
+      "description": "Unstructured text with measurements, percentages, and monthly costs. Agent must extract the business-use percentage.",
+      "extraction_target": "Office square footage, total square footage, business-use percentage, and deductible utility amounts",
+      "difficulty": "routine"
+    },
+    {
+      "file_ref": "1099_bloom",
+      "required_skill": "json_parse",
+      "description": "Standard structured 1099-NEC. Agent must cross-reference with intake notes listing multiple 1099 sources.",
+      "extraction_target": "Compensation amount and recognition that other 1099s are mentioned but not provided",
+      "difficulty": "moderate"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Form 1095-A (Health Insurance Marketplace Statement)",
+      "source_authority": "Covered California marketplace portal or healthcare.gov",
+      "why_non_derivable": "The intake notes state Sofia has California Covered (marketplace) insurance all year and has the 1095-A but didn't bring it. Without this form, the Premium Tax Credit (Form 8962) cannot be calculated, and the APTC reconciliation cannot be completed. This directly affects the tax liability.",
+      "detection_signal": "Intake notes explicitly state: 'Had California Covered (marketplace) insurance all year. Has Form 1095-A but didn't bring it — said she'd email it later.'",
+      "retrieval_method": "Request the taxpayer email the 1095-A, or have her download it from her Covered California account at coveredca.com.",
+      "blocks_downstream": ["Step 5: Compute Credits — Premium Tax Credit reconciliation"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "1099-NEC from Bay Area Magazine and TechVista Inc.",
+      "source_authority": "Bay Area Magazine and TechVista Inc. payroll/accounting departments",
+      "why_non_derivable": "The intake notes list 1099-NEC income from Bay Area Magazine ($8,500) and TechVista ($6,800), but only the Bloom Events 1099-NEC is provided as a file. The missing 1099s are needed to verify income amounts and ensure accurate Schedule C reporting. The TechVista 1099 exists only as a phone photo (JPG) that was not uploaded.",
+      "detection_signal": "Intake lists three 1099-NEC sources but only one (Bloom Events) is in the provided files. Notes mention Bay Area Magazine PDF was 'emailed' and TechVista was 'a photo she took (JPG).'",
+      "retrieval_method": "Ask taxpayer to forward the Bay Area Magazine 1099-NEC email and upload the TechVista phone photo.",
+      "blocks_downstream": ["Step 2: Inventory Income Sources", "Step 6: Handle Special Situations — Schedule C"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "third_party",
+      "artifact_name": "Estimated tax payment confirmations (Q1-Q3) and Q4 payment status",
+      "source_authority": "IRS Direct Pay confirmation emails or IRS account transcript",
+      "why_non_derivable": "The intake notes state Sofia made three quarterly estimated payments of $800 each via IRS Direct Pay but 'doesn't have payment confirmations saved.' She also missed Q4. Without confirmation, the payments cannot be applied to reduce her balance due. The IRS will have records but the agent cannot access them.",
+      "detection_signal": "Intake notes state estimated payments were made but confirmations are not saved. Q4 was missed entirely.",
+      "retrieval_method": "Ask the taxpayer to search email for IRS Direct Pay confirmations, or request an IRS account transcript online at irs.gov/individuals/get-transcript.",
+      "blocks_downstream": ["Step 8: Apply Payments and Withholding"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "1099-NEC from Bay Area Magazine and TechVista Inc.",
+    "Form 1095-A (Health Insurance Marketplace Statement)",
+    "Estimated tax payment confirmations (Q1-Q3) and Q4 payment status"
+  ],
+
+  "why_context_tempts_premature_progress": "The provided documents paint a mostly-complete picture: the intake notes detail all income sources and expenses, one 1099-NEC is provided, the mileage log covers most of the year, and the home office info is complete. A weak agent may use the intake note amounts ($8,500, $6,800) as income figures without requiring the actual 1099 documents, skip the 1095-A since it was promised 'later,' and estimate the payments without verification.",
+
+  "what_bad_model_does": "Uses dollar amounts from intake notes as substitutes for missing 1099s, skips the 1095-A as a future follow-up item rather than a blocker, and estimates tax payments based on the client's verbal report",
+  "what_good_model_does": "Identifies the three missing document categories, recognizes that the mileage log is incomplete (Jan-Sep only), flags the missing 1099s as blockers for accurate Schedule C, and insists on the 1095-A before computing credits",
+
+  "scoring_notes": "Full credit requires: (1) identifying all three missing artifact categories, (2) noting the partial mileage log as a processing concern even though it's not scored as a missing artifact, (3) distinguishing between the 1095-A as a hard blocker vs. the estimated payment confirmations as a verification need.",
+  "multi_hop_chain": null
+}

@@ -95,9 +95,9 @@ class TestShouldCaptureStateKey:
             "artifact_final_answer",
             "last_repl_result",
             "repl_submitted_code",
-            "repl_expanded_code",
-            "repl_skill_expansion_meta",
-            "repl_did_expand",
+            "repl_skill_globals_injected",
+            "reasoning_token_count",
+            "final_answer_text",
         ],
     )
     def test_prefix_curated_keys_accepted(self, key):
@@ -107,8 +107,6 @@ class TestShouldCaptureStateKey:
         "key",
         [
             "request_id",
-            "obs:total_calls",
-            "obs:rewrite_count",
             "cache:store",
             "user:last_successful_call_id",
             "app:max_depth",
@@ -182,11 +180,11 @@ async def test_queue_receives_curated_child_events():
             author="child_orchestrator_d1",
             actions=EventActions(state_delta={"iteration_count@d1": 0, "current_depth@d1": 1}),
         ),
-        # Non-curated: obs key + request_id (should be filtered out)
+        # Non-curated: cache + request_id (should be filtered out)
         Event(
             invocation_id="parent-inv",
             author="child_orchestrator_d1",
-            actions=EventActions(state_delta={"obs:total_calls": 5, "request_id": "abc"}),
+            actions=EventActions(state_delta={"cache:store": "val", "request_id": "abc"}),
         ),
         # Curated: should_stop + final_response_text
         Event(

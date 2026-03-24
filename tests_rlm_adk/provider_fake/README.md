@@ -105,15 +105,18 @@ python -m rlm_adk.dashboard
 ```
 tests_rlm_adk/
   provider_fake/
-    __init__.py           Package marker
-    __main__.py           CLI entry point (argparse)
-    server.py             FakeGeminiServer (aiohttp)
-    fixtures.py           ScenarioRouter, ContractResult
-    contract_runner.py    run_fixture_contract(), run_fixture_contract_with_plugins()
-    conftest.py           pytest fixtures (fake_gemini)
+    __init__.py              Package marker
+    __main__.py              CLI entry point (argparse)
+    server.py                FakeGeminiServer (aiohttp)
+    fixtures.py              ScenarioRouter, ContractResult
+    contract_runner.py       run_fixture_contract(), run_fixture_contract_with_plugins()
+    instrumented_runner.py   InstrumentationPlugin + run_fixture_contract_instrumented()
+    stdout_parser.py         ParsedLog, parse_stdout() — tagged line parser
+    expected_lineage.py      ExpectedLineage, assertion framework, run_all_assertions()
+    conftest.py              pytest fixtures (fake_gemini)
   fixtures/
     provider_fake/
-      *.json              Fixture files (14 scenarios)
+      *.json                 Fixture files (59 scenarios)
 ```
 
 ## Fixture Schema
@@ -195,6 +198,7 @@ tests_rlm_adk/
 | `exec_sandbox_codegen`         | 2          | 0       | REPL code generation + execution          |
 | `skill_helper`                 | 2          | 1       | Skill helper dispatch                     |
 | `request_body_comprehensive`   | 3          | 2       | Request body data-flow gaps (G1-G9), callback state hooks, skill frontmatter |
+| `skill_arch_test`              | 1          | 1       | Skill expansion + thread-bridge child dispatch + dynamic instruction + observability |
 
 ## Contract Runner API
 
@@ -242,6 +246,57 @@ The e2e test suite has three groups:
 - **Group A**: Contract validation — parametrized over all fixture JSON files
 - **Group B**: Plugin + artifact integration — observability state, artifact persistence
 - **Group C**: Tracing integration — SqliteTracingPlugin DB assertions, REPL trace events
+
+## Instrumented Runner API
+
+For architecture introspection E2E tests that need full pipeline observability
+beyond contract validation, `instrumented_runner.py` extends the contract runner with:
+
+- **`InstrumentationPlugin`**: Fires for ALL agents (root + child orchestrators + workers).
+  Emits `[PLUGIN:hook:agent:key=value]`, `[STATE:scope:key=value]`, `[TIMING:label=ms]` tagged lines.
+- **`make_dyn_instr_capture_hook()`**: Captures the first `systemInstruction` from the LLM request
+  and prints `[DYN_INSTR:key=value]` verification tags for template placeholder resolution.
+- **Local callback hooks**: Wired on root orchestrator + reasoning_agent for agent-internal
+  attribute access (`_rlm_depth`, `_rlm_fanout_idx`).
+
+### Programmatic
+
+```python
+from tests_rlm_adk.provider_fake.instrumented_runner import (
+    run_fixture_contract_instrumented,
+)
+
+result = await run_fixture_contract_instrumented(
+    Path("tests_rlm_adk/fixtures/provider_fake/skill_arch_test.json"),
+    traces_db_path=str(tmp_path / "traces.db"),
+    tmpdir=str(tmp_path),
+)
+assert result.passed, result.diagnostics()
+```
+
+| Function                                 | Plugins                          | Use Case                              |
+|------------------------------------------|----------------------------------|---------------------------------------|
+| `run_fixture_contract_instrumented()`    | Instr + Obs + Tracing + REPL    | Architecture lineage, state timeline  |
+
+### Assertion Framework
+
+The `stdout_parser.py` and `expected_lineage.py` modules provide a structured
+assertion framework for validating tagged pipeline output:
+
+```python
+from tests_rlm_adk.provider_fake.stdout_parser import parse_stdout
+from tests_rlm_adk.provider_fake.expected_lineage import (
+    build_skill_arch_test_lineage,
+    run_all_assertions,
+)
+
+log = parse_stdout(result.repl_stdout + "\n" + result.instrumentation_log)
+lineage = build_skill_arch_test_lineage()
+report = run_all_assertions(log, lineage)
+report.raise_if_failed()
+```
+
+Assertion groups: `test_skill`, `plugin_hook`, `state_key`, `timing`, `ordering`, `dyn_instr`, `repl_trace`.
 
 ## Env Vars Set During Fixture Runs
 

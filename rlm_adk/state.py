@@ -24,7 +24,7 @@ FINAL_RESPONSE_TEXT = "final_response_text"
 # Context Metadata Keys (used by callbacks/observability)
 REPO_URL = "repo_url"
 ROOT_PROMPT = "root_prompt"
-ENABLED_SKILLS = "enabled_skills"
+# ENABLED_SKILLS removed — skill catalog system reset
 
 # Dynamic Instruction State Keys (session-scoped for ADK instruction template resolution)
 # These match the {var?} placeholders in RLM_DYNAMIC_INSTRUCTION so ADK can
@@ -77,16 +77,8 @@ REPL_SUBMITTED_CODE_PREVIEW = "repl_submitted_code_preview"
 REPL_SUBMITTED_CODE_HASH = "repl_submitted_code_hash"
 REPL_SUBMITTED_CODE_CHARS = "repl_submitted_code_chars"
 
-# Skill Expansion Observability Keys
-REPL_EXPANDED_CODE = "repl_expanded_code"
-REPL_EXPANDED_CODE_HASH = "repl_expanded_code_hash"
-REPL_SKILL_EXPANSION_META = "repl_skill_expansion_meta"
-REPL_DID_EXPAND = "repl_did_expand"
-
-# Skill Loading Keys (session-scoped, written by RLMSkillToolset wrapper)
-SKILL_LAST_LOADED = "skill_last_loaded"  # str: name of last skill loaded
-SKILL_LOAD_COUNT = "skill_load_count"  # int: total load_skill calls this session
-SKILL_LOADED_NAMES = "skill_loaded_names"  # list[str]: ordered list of all skills loaded
+# Skill Loading Keys
+REPL_SKILL_GLOBALS_INJECTED = "repl_skill_globals_injected"
 
 
 # API/Messaging Keys
@@ -138,6 +130,9 @@ EXPOSED_STATE_KEYS: frozenset[str] = frozenset(
         STEP_MODE_ENABLED,
         SHOULD_STOP,
         FINAL_RESPONSE_TEXT,
+        # Extensions for dynamic instruction verification
+        DYN_USER_CTX_MANIFEST,
+        DYN_SKILL_INSTRUCTION,
     }
 )
 
@@ -152,10 +147,6 @@ DEPTH_SCOPED_KEYS: set[str] = {
     REPL_SUBMITTED_CODE_PREVIEW,
     REPL_SUBMITTED_CODE_HASH,
     REPL_SUBMITTED_CODE_CHARS,
-    REPL_EXPANDED_CODE,
-    REPL_EXPANDED_CODE_HASH,
-    REPL_SKILL_EXPANSION_META,
-    REPL_DID_EXPAND,
 }
 # NOTE: Only iteration-local keys that need independent state per depth
 # level are included. CURRENT_DEPTH is included because child
@@ -216,12 +207,9 @@ CURATED_STATE_KEYS: frozenset[str] = frozenset(
 CURATED_STATE_PREFIXES: tuple[str, ...] = (
     "obs:",
     "artifact_",
-    "skill_",
     "last_repl_result",
+    "repl_skill_globals",
     "repl_submitted_code",
-    "repl_expanded_code",
-    "repl_skill_expansion_meta",
-    "repl_did_expand",
     "reasoning_",
     "final_answer",
 )

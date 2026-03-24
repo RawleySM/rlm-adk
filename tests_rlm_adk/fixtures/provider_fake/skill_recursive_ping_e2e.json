@@ -1,0 +1,119 @@
+{
+  "scenario_id": "skill_recursive_ping_e2e",
+  "description": "Cycle 26: Recursive-ping capstone e2e. Reasoning agent calls execute_code with run_recursive_ping(). The skill function calls llm_query() via thread bridge, dispatching a child orchestrator at depth=1. Child responds via set_model_response. Parent REPL resumes, prints result. Reasoning agent calls set_model_response with final answer.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent calls execute_code to run run_recursive_ping. The skill function is auto-imported via collect_skill_repl_globals.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = run_recursive_ping('ping test', starting_layer=0, max_layer=1)\nprint(f'ping_result={result}')\nprint(f'response={result.response}')"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 60,
+          "totalTokenCount": 360
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Child orchestrator at depth=1 responding to llm_query('[layer0] ping test'). Child uses set_model_response to return.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "ping_ok",
+                      "reasoning_summary": "Responded to ping."
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 80,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 100
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning agent sees REPL output with ping result and calls set_model_response.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Recursive ping completed. Child dispatch via thread bridge returned ping_ok. Result propagated to parent REPL.",
+                      "reasoning_summary": "run_recursive_ping called llm_query via thread bridge, child at depth=1 responded with ping_ok."
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 550
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Recursive ping completed. Child dispatch via thread bridge returned ping_ok. Result propagated to parent REPL.",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

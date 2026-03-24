@@ -4,7 +4,6 @@ Replaces regex-parsed ```repl code blocks with a proper ADK tool that the
 model calls via function calling. The tool:
 
 - Executes Python code in a persistent LocalREPL environment
-- Detects llm_query calls and routes through the AST rewriter for async execution
 - Enforces a configurable call limit
 - Records execution traces when a trace_holder list is provided
 - Applies minimal working-state patches via post_dispatch_state_patch_fn
@@ -23,19 +22,13 @@ from google.adk.tools import BaseTool, ToolContext
 from google.genai.types import FunctionDeclaration, Schema, Type
 
 from rlm_adk.artifacts import save_repl_code
-from rlm_adk.repl.ast_rewriter import has_llm_calls, rewrite_for_async
 from rlm_adk.repl.local_repl import LocalREPL
-from rlm_adk.repl.skill_registry import expand_skill_imports
 from rlm_adk.repl.trace import REPLTrace
 from rlm_adk.state import (
     DEPTH_SCOPED_KEYS,
     EXPOSED_STATE_KEYS,
     ITERATION_COUNT,
     LAST_REPL_RESULT,
-    REPL_DID_EXPAND,
-    REPL_EXPANDED_CODE,
-    REPL_EXPANDED_CODE_HASH,
-    REPL_SKILL_EXPANSION_META,
     REPL_STATE_SNAPSHOT,
     REPL_SUBMITTED_CODE,
     REPL_SUBMITTED_CODE_CHARS,
@@ -51,8 +44,7 @@ class REPLTool(BaseTool):
     """ADK tool that executes Python code in a persistent REPL environment.
 
     Variables persist between calls. Returns stdout, stderr, and current
-    variable values. Supports both sync code and async code containing
-    llm_query/llm_query_batched calls (auto-detected via AST analysis).
+    variable values.
     """
 
     def __init__(
@@ -89,9 +81,6 @@ class REPLTool(BaseTool):
         self._depth = depth
         self._fanout_idx = fanout_idx
         self._summarization_threshold = summarization_threshold
-        self._rewrite_count = 0
-        self._rewrite_total_ms = 0.0
-        self._rewrite_failure_count = 0
 
     def _get_declaration(self) -> FunctionDeclaration:
         return FunctionDeclaration(
@@ -169,30 +158,7 @@ class REPLTool(BaseTool):
             else:
                 self.trace_holder.append(trace)
 
-        # Expand synthetic skill imports before AST analysis.
-        # Expansion errors (unknown module/symbol, name conflicts) are caught
-        # and returned as stderr so they follow the same structured response
-        # contract as other execution errors.
-        try:
-            expansion = expand_skill_imports(code)
-        except RuntimeError as expand_exc:
-            return {
-                "stdout": "",
-                "stderr": f"SkillExpansionError: {expand_exc}",
-                "variables": {},
-                "llm_calls_made": False,
-                "call_number": self._call_count,
-            }
-        exec_code = expansion.expanded_code
-        if expansion.did_expand:
-            exec_code_hash = hashlib.sha256(exec_code.encode()).hexdigest()
-            tool_context.state[depth_key(REPL_EXPANDED_CODE, self._depth)] = exec_code
-            tool_context.state[depth_key(REPL_EXPANDED_CODE_HASH, self._depth)] = exec_code_hash
-            tool_context.state[depth_key(REPL_SKILL_EXPANSION_META, self._depth)] = {
-                "symbols": expansion.expanded_symbols,
-                "modules": expansion.expanded_modules,
-            }
-            tool_context.state[depth_key(REPL_DID_EXPAND, self._depth)] = True
+        exec_code = code
 
         # Build read-only state snapshot for REPL introspection.
         _state_snapshot: dict[str, Any] = {}
@@ -219,137 +185,126 @@ class REPLTool(BaseTool):
 
         self.repl.globals[REPL_STATE_SNAPSHOT] = _state_snapshot
 
+        # Unified result variable for the finally-based telemetry finalizer
+        _final_result: dict | None = None
         try:
-            if has_llm_calls(exec_code):
-                llm_calls_made = True
-                try:
-                    _t0 = time.perf_counter()
-                    tree = rewrite_for_async(exec_code)
-                    _rewrite_ms = (time.perf_counter() - _t0) * 1000
-                    self._rewrite_count += 1
-                    self._rewrite_total_ms += _rewrite_ms
-                    compiled = compile(tree, "<repl>", "exec")
-                except Exception:
-                    self._rewrite_failure_count += 1
-                    raise
-                # Delegate compiled async wrapper to LocalREPL/executor.
-                # The executor installs _repl_exec into the namespace and runs it.
-                result = await self.repl.execute_code_async(
-                    code,
-                    trace=trace,
-                    compiled=compiled,
-                )
-            else:
-                result = self.repl.execute_code(exec_code, trace=trace)
-        except asyncio.CancelledError as exc:
-            # OG-04 fix: ensure end_time is set so trace summary is non-negative
-            if trace is not None and trace.start_time and not trace.end_time:
-                trace.end_time = time.perf_counter()
-            # Apply working-state patch (e.g. skill instruction restore)
+            try:
+                result = await self.repl.execute_code_threaded(exec_code, trace=trace)
+            except asyncio.CancelledError as exc:
+                # OG-04 fix: ensure end_time is set so trace summary is non-negative
+                if trace is not None and trace.start_time and not trace.end_time:
+                    trace.end_time = time.perf_counter()
+                # Apply working-state patch (e.g. skill instruction restore)
+                if self._patch_fn is not None:
+                    for k, v in self._patch_fn().items():
+                        tool_context.state[k] = v
+                # Write LAST_REPL_RESULT even on cancellation for observability
+                tool_context.state[
+                    depth_key(LAST_REPL_RESULT, self._depth)
+                ] = {
+                    "code_blocks": 1,
+                    "has_errors": True,
+                    "has_output": False,
+                    "total_llm_calls": len(
+                        self.repl._pending_llm_calls
+                    ),
+                    "stdout_preview": "",
+                    "stdout": "",
+                    "stderr": f"CancelledError: {exc}",
+                    "cancelled": True,
+                    "execution_mode": trace.execution_mode if trace else "thread_bridge",
+                }
+                _final_result = {
+                    "stdout": "",
+                    "stderr": f"CancelledError: {exc}",
+                    "variables": {},
+                    "llm_calls_made": llm_calls_made,
+                    "call_number": self._call_count,
+                }
+                return _final_result
+            except Exception as exc:
+                # OG-04 fix: ensure end_time is set so trace summary is non-negative
+                if trace is not None and trace.start_time and not trace.end_time:
+                    trace.end_time = time.perf_counter()
+                # Apply working-state patch (e.g. skill instruction restore)
+                if self._patch_fn is not None:
+                    for k, v in self._patch_fn().items():
+                        tool_context.state[k] = v
+                # Write LAST_REPL_RESULT even on exception for observability
+                tool_context.state[
+                    depth_key(LAST_REPL_RESULT, self._depth)
+                ] = {
+                    "code_blocks": 1,
+                    "has_errors": True,
+                    "has_output": False,
+                    "total_llm_calls": len(
+                        self.repl._pending_llm_calls
+                    ),
+                    "stdout_preview": "",
+                    "stdout": "",
+                    "stderr": f"{type(exc).__name__}: {exc}",
+                    "execution_mode": trace.execution_mode if trace else "thread_bridge",
+                }
+                _final_result = {
+                    "stdout": "",
+                    "stderr": f"{type(exc).__name__}: {exc}",
+                    "variables": {},
+                    "llm_calls_made": llm_calls_made,
+                    "call_number": self._call_count,
+                }
+                return _final_result
+
+            # Apply minimal working-state patch after dispatch
             if self._patch_fn is not None:
                 for k, v in self._patch_fn().items():
                     tool_context.state[k] = v
-            # Write LAST_REPL_RESULT even on cancellation for observability
-            tool_context.state[
-                depth_key(LAST_REPL_RESULT, self._depth)
-            ] = {
+
+            # Determine execution mode from trace or default
+            exec_mode = trace.execution_mode if trace else "thread_bridge"
+
+            # Write LAST_REPL_RESULT summary for observability plugins
+            last_repl: dict[str, Any] = {
                 "code_blocks": 1,
-                "has_errors": True,
-                "has_output": False,
-                "total_llm_calls": len(
-                    self.repl._pending_llm_calls
-                ),
-                "stdout_preview": "",
-                "stdout": "",
-                "stderr": f"CancelledError: {exc}",
-                "cancelled": True,
+                "has_errors": bool(result.stderr),
+                "has_output": bool(result.stdout),
+                "total_llm_calls": len(result.llm_calls),
+                "stdout_preview": result.stdout[:500],
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "submitted_code_chars": len(code),
+                "submitted_code_hash": code_hash,
+                "execution_mode": exec_mode,
             }
-            cancel_result = {
-                "stdout": "",
-                "stderr": f"CancelledError: {exc}",
-                "variables": {},
-                "llm_calls_made": llm_calls_made,
+            if trace is not None:
+                last_repl["trace_summary"] = trace.summary()
+            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = last_repl
+
+            # Skip ADK's post-tool summarization call for large outputs to save tokens
+            output_len = len(result.stdout) + len(result.stderr)
+            if output_len >= self._summarization_threshold:
+                tool_context.actions.skip_summarization = True
+
+            # Extract JSON-serializable variables from REPL locals.
+            # We attempt json.dumps to catch nested non-serializable objects
+            # (e.g., a dict containing module references) that would cause ADK's
+            # deepcopy to fail with TypeError.
+            variables: dict[str, Any] = {}
+            for k, v in result.locals.items():
+                if isinstance(v, (int, float, str, bool, list, dict)):
+                    try:
+                        json.dumps(v)
+                        variables[k] = v
+                    except (TypeError, ValueError, OverflowError, RecursionError):
+                        pass  # Skip non-serializable values (incl. circular refs)
+
+            _final_result = {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "variables": variables,
+                "llm_calls_made": bool(result.llm_calls),
                 "call_number": self._call_count,
             }
-            self._finalize_telemetry(tool_context, cancel_result)
-            return cancel_result
-        except Exception as exc:
-            # OG-04 fix: ensure end_time is set so trace summary is non-negative
-            if trace is not None and trace.start_time and not trace.end_time:
-                trace.end_time = time.perf_counter()
-            # Apply working-state patch (e.g. skill instruction restore)
-            if self._patch_fn is not None:
-                for k, v in self._patch_fn().items():
-                    tool_context.state[k] = v
-            # Write LAST_REPL_RESULT even on exception for observability
-            tool_context.state[
-                depth_key(LAST_REPL_RESULT, self._depth)
-            ] = {
-                "code_blocks": 1,
-                "has_errors": True,
-                "has_output": False,
-                "total_llm_calls": len(
-                    self.repl._pending_llm_calls
-                ),
-                "stdout_preview": "",
-                "stdout": "",
-                "stderr": f"{type(exc).__name__}: {exc}",
-            }
-            exc_result = {
-                "stdout": "",
-                "stderr": f"{type(exc).__name__}: {exc}",
-                "variables": {},
-                "llm_calls_made": llm_calls_made,
-                "call_number": self._call_count,
-            }
-            self._finalize_telemetry(tool_context, exc_result)
-            return exc_result
-
-        # Apply minimal working-state patch after dispatch
-        if self._patch_fn is not None:
-            for k, v in self._patch_fn().items():
-                tool_context.state[k] = v
-
-        # Write LAST_REPL_RESULT summary for observability plugins
-        last_repl: dict[str, Any] = {
-            "code_blocks": 1,
-            "has_errors": bool(result.stderr),
-            "has_output": bool(result.stdout),
-            "total_llm_calls": len(result.llm_calls),
-            "stdout_preview": result.stdout[:500],
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "submitted_code_chars": len(code),
-            "submitted_code_hash": code_hash,
-        }
-        if trace is not None:
-            last_repl["trace_summary"] = trace.summary()
-        tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = last_repl
-
-        # Skip ADK's post-tool summarization call for large outputs to save tokens
-        output_len = len(result.stdout) + len(result.stderr)
-        if output_len >= self._summarization_threshold:
-            tool_context.actions.skip_summarization = True
-
-        # Extract JSON-serializable variables from REPL locals.
-        # We attempt json.dumps to catch nested non-serializable objects
-        # (e.g., a dict containing module references) that would cause ADK's
-        # deepcopy to fail with TypeError.
-        variables: dict[str, Any] = {}
-        for k, v in result.locals.items():
-            if isinstance(v, (int, float, str, bool, list, dict)):
-                try:
-                    json.dumps(v)
-                    variables[k] = v
-                except (TypeError, ValueError, OverflowError, RecursionError):
-                    pass  # Skip non-serializable values (incl. circular refs)
-
-        normal_result = {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "variables": variables,
-            "llm_calls_made": llm_calls_made,
-            "call_number": self._call_count,
-        }
-        self._finalize_telemetry(tool_context, normal_result)
-        return normal_result
+            return _final_result
+        finally:
+            if _final_result is not None:
+                self._finalize_telemetry(tool_context, _final_result)

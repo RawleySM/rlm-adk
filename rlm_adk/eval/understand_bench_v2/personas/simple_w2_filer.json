@@ -1,0 +1,18 @@
+{
+  "persona_id": "simple_w2_filer",
+  "name": "Marcus Chen",
+  "difficulty_target": "easy",
+  "filing_status": "Single",
+  "age": 28,
+  "occupation": "Software Developer",
+  "state": "TX",
+  "income_sources": ["W-2"],
+  "key_complexity": "Single employer, standard deduction, no state income tax",
+  "document_formats_typical": {
+    "w2": "pdf",
+    "intake": "md",
+    "bank_statement": "csv",
+    "prior_year_return": "pdf"
+  },
+  "narrative": "Marcus is a straightforward filer — one W-2 from his employer, standard deduction, lives in Texas (no state income tax). His documents come in the formats you'd expect from a tech worker: PDF W-2 from his employer's payroll system, bank statements downloaded as CSV, and a prior year return as a PDF from TurboTax."
+}

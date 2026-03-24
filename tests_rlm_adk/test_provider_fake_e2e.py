@@ -49,6 +49,17 @@ _WORKER_FIXTURE_EXCLUSIONS = {
     "worker_empty_response",
     "worker_empty_response_finish_reason",
     "worker_safety_finish",
+    # Skill fixtures require enabled_skills= which the generic runner doesn't pass.
+    # Tested in their own dedicated test files.
+    "skill_toolset_discovery",
+    "skill_recursive_ping_e2e",
+    "skill_thread_bridge",
+    "skill_arch_test",
+    # Legacy skill fixtures from pre-thread-bridge era (AST rewriter).
+    # skill_expansion used source expansion which was removed in Phase 0B.
+    # skill_helper used old skill system patterns also removed.
+    "skill_expansion",
+    "skill_helper",
 }
 
 

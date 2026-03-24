@@ -1,0 +1,69 @@
+{
+  "case_id": "case_html_bank_interest",
+  "task_name": "HTML Bank Statement with Hidden Interest Income Gap",
+  "difficulty": "easy",
+  "persona_id": "simple_w2_filer",
+
+  "broad_objective": "Prepare a simple federal tax return for a single filer with W-2 income. The client provided their bank statement as an HTML export from Chase Online Banking. Identify any missing tax documents needed for a complete return.",
+
+  "provided_files": [
+    {
+      "ref_id": "w2_json",
+      "filename": "generated/simple_w2_filer/w2_datapoint_2025.json",
+      "display_name": "W-2 from DataPoint Systems LLC",
+      "format": "json",
+      "doc_type": "w2",
+      "description": "Structured W-2 data with wages, withholding, and 401(k) contribution in Box 12"
+    },
+    {
+      "ref_id": "bank_html",
+      "filename": "real_docs/chase_statement_dec2025.html",
+      "display_name": "Chase Bank Statement (HTML export, Dec 2025)",
+      "format": "html",
+      "doc_type": "bank_statement",
+      "description": "HTML-format Chase bank statement showing deposits, debits, transfers, and running balance for December 2025."
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "bank_html",
+      "required_skill": "html_parse",
+      "description": "HTML bank statement with styled tables. Agent must parse the DOM to extract transactions and identify any interest credits that would trigger a 1099-INT requirement.",
+      "extraction_target": "Transaction list, any interest payments, deposit sources to verify against W-2",
+      "difficulty": "routine"
+    },
+    {
+      "file_ref": "w2_json",
+      "required_skill": "json_parse",
+      "description": "Standard JSON W-2. Agent must extract wages and identify 401(k) contribution for Saver's Credit evaluation.",
+      "extraction_target": "Wages ($87,450), Box 12D 401(k) contribution ($8,500)",
+      "difficulty": "routine"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Form 1099-INT if bank account earned interest",
+      "source_authority": "Chase Bank",
+      "why_non_derivable": "The HTML bank statement may show interest credits. If the account earned $10+ in interest during the year, Chase would issue a 1099-INT. The December statement alone cannot confirm the full-year interest total. The agent should flag this as a potential missing document.",
+      "detection_signal": "Bank statement is from a checking account. If any 'Interest Payment' transactions appear, the agent should ask about the 1099-INT. Even if no interest appears in December, the account may have earned interest in other months.",
+      "retrieval_method": "Ask the client if they received any 1099-INT from Chase or check their Chase online tax documents.",
+      "blocks_downstream": ["Schedule B — Interest Income", "Form 1040 Line 2b"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "Form 1099-INT if bank account earned interest"
+  ],
+
+  "why_context_tempts_premature_progress": "The W-2 provides all the data needed for a basic return with standard deduction. The bank statement seems supplementary. A weak agent will compute the return from the W-2 alone without checking the bank statement for interest income signals.",
+
+  "what_bad_model_does": "Ignores the HTML bank statement entirely or parses it but doesn't check for interest income transactions. Proceeds with W-2-only return.",
+  "what_good_model_does": "Parses the HTML bank statement, scans transactions for interest credits, and asks the client about full-year interest income and whether a 1099-INT was received from Chase.",
+
+  "scoring_notes": "Tests html_parse skill in a simple context. The key insight is that the agent must parse the HTML and check for interest transactions, not just ignore a non-PDF bank statement.",
+  "multi_hop_chain": null
+}

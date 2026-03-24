@@ -64,7 +64,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) CallbackContext\n```\n---\nThe context of various callbacks within an agent run."
+        "markdown": "```python\n(type) CallbackContext = Context\n```\n---\nThe context within an agent run."
       }
     },
     {
@@ -120,7 +120,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) ToolContext\n```\n---\nThe context of the tool.\n\nThis class provides the context for a tool invocation, including access to\nthe invocation context, function call ID, event actions, and authentication\nresponse. It also provides methods for requesting credentials, retrieving\nauthentication responses, listing artifacts, and searching memory.\n\nAttributes:  \n&nbsp;&nbsp;invocation\\_context: The invocation context of the tool.  \n&nbsp;&nbsp;function\\_call\\_id: The function call id of the current tool call. This id was  \n&nbsp;&nbsp;&nbsp;&nbsp;returned in the function call event from LLM to identify a function call.\nIf LLM didn't return this id, ADK will assign one to it. This id is used\nto map function call response to the original function call.  \n&nbsp;&nbsp;event\\_actions: The event actions of the current tool call.  \n&nbsp;&nbsp;tool\\_confirmation: The tool confirmation of the current tool call."
+        "markdown": "```python\n(type) ToolContext = Context\n```\n---\nThe context within an agent run."
       }
     },
     {

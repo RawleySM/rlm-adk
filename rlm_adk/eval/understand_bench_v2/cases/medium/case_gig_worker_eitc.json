@@ -1,0 +1,121 @@
+{
+  "case_id": "case_gig_worker_eitc",
+  "task_name": "Gig Worker Family — Multi-Format 1099s, EITC, and Childcare Credit Complications",
+  "difficulty": "medium",
+  "persona_id": "gig_worker_family",
+
+  "broad_objective": "Prepare and file federal and Georgia state tax returns (MFJ) for a gig worker family with multiple 1099-NEC income sources (rideshare + delivery), W-2 income, two dependents, marketplace insurance (1095-A), EITC eligibility, and childcare credit with an employee discount complication.",
+
+  "provided_files": [
+    {
+      "ref_id": "intake",
+      "filename": "generated/gig_worker_family/intake_notes.md",
+      "display_name": "Taxpayer Intake Notes",
+      "format": "md",
+      "doc_type": "intake_questionnaire",
+      "description": "Phone call notes covering gig income, childcare at wife's employer, EITC questions"
+    },
+    {
+      "ref_id": "doordash_1099",
+      "filename": "generated/gig_worker_family/doordash_1099_nec.csv",
+      "display_name": "DoorDash 1099-NEC (CSV export)",
+      "format": "csv",
+      "doc_type": "1099_nec",
+      "description": "CSV-format 1099-NEC exported from DoorDash driver dashboard — non-standard format"
+    },
+    {
+      "ref_id": "mileage_stride",
+      "filename": "generated/gig_worker_family/stride_mileage_jan_aug.csv",
+      "display_name": "Stride Mileage Log (Jan-Aug 2025)",
+      "format": "csv",
+      "doc_type": "mileage_log",
+      "description": "CSV export from Stride mileage tracking app — covers January through August only"
+    },
+    {
+      "ref_id": "childcare",
+      "filename": "generated/gig_worker_family/childcare_receipt.txt",
+      "display_name": "Childcare Receipt from Sunshine Learning Center",
+      "format": "txt",
+      "doc_type": "childcare_receipt",
+      "description": "Text receipt showing employee-discounted childcare rate and provider EIN"
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "doordash_1099",
+      "required_skill": "csv_parse",
+      "description": "1099-NEC data in CSV format (non-standard). Agent must recognize this as a 1099-NEC even though it's a CSV, not a PDF or JSON.",
+      "extraction_target": "Nonemployee compensation amount ($8,523.47)",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "mileage_stride",
+      "required_skill": "csv_parse",
+      "description": "Mileage log with dates in MM/DD/YYYY format. Agent must notice it only covers Jan-Aug and that Sep-Dec is missing.",
+      "extraction_target": "Total miles logged and detection of partial-year coverage",
+      "difficulty": "moderate"
+    },
+    {
+      "file_ref": "mileage_stride",
+      "required_skill": "date_normalization",
+      "description": "Dates in MM/DD/YYYY format (different from the intake notes which use Month YYYY). Agent must normalize to determine date range.",
+      "extraction_target": "Earliest and latest dates to confirm coverage gap",
+      "difficulty": "routine"
+    },
+    {
+      "file_ref": "childcare",
+      "required_skill": "plain_text_parse",
+      "description": "Unstructured text receipt. Agent must extract the actual amount paid ($4,800), the standard rate ($14,400), the discount amount, and the provider EIN for Form 2441.",
+      "extraction_target": "Actual childcare cost paid, provider EIN, and the employee discount details for credit calculation",
+      "difficulty": "moderate"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Lyft 1099-NEC",
+      "source_authority": "Lyft driver dashboard or Lyft tax document center",
+      "why_non_derivable": "The intake notes state Jamal drove for Lyft and earned approximately $12,000, but the 1099-NEC cannot be found. The Uber 1099 (PDF) was described as provided but is not in the provided files, and the Lyft 1099 was explicitly noted as missing. Without the actual 1099, the income amount cannot be verified.",
+      "detection_signal": "Intake notes state: 'Lyft 1099-NEC — they can't find it, Jamal says it should be in my email somewhere.' Also listed under Missing items.",
+      "retrieval_method": "Have Jamal log into his Lyft driver dashboard (drivers.lyft.com) and download the 2025 1099-NEC from the Tax Information section, or search email for 'Lyft tax' or '1099'.",
+      "blocks_downstream": ["Step 2: Inventory Income Sources", "Step 6: Handle Special Situations — Schedule C"],
+      "difficulty_modifier": "direct"
+    },
+    {
+      "category": "document",
+      "artifact_name": "Uber 1099-NEC (PDF)",
+      "source_authority": "Uber driver dashboard tax documents",
+      "why_non_derivable": "The intake notes describe the Uber 1099-NEC as 'provided (PDF)' but it is NOT in the provided_files. Only the DoorDash CSV and Stride mileage are provided. The agent must notice this discrepancy between what the intake says was uploaded and what's actually available.",
+      "detection_signal": "Intake notes list 'Uber 1099-NEC (PDF)' under Documents Provided, but cross-referencing with actual provided_files reveals it's absent.",
+      "retrieval_method": "Ask the taxpayer to re-upload the Uber 1099-NEC from the client portal, or download it from drivers.uber.com under Tax Information.",
+      "blocks_downstream": ["Step 2: Inventory Income Sources", "Step 6: Handle Special Situations — Schedule C"],
+      "difficulty_modifier": "inferential"
+    },
+    {
+      "category": "user_attestation",
+      "artifact_name": "Employer coverage affordability determination (Aisha's declined employer health plan)",
+      "source_authority": "Sunshine Learning Center HR department or benefits enrollment packet",
+      "why_non_derivable": "The intake notes state Aisha was offered employer coverage at $450/month for a family plan but chose marketplace instead. For APTC reconciliation (Form 8962), the agent must verify whether the employer coverage was 'affordable' under ACA rules (employee-only premium < 9.12% of household income for 2025). If affordable, the family may not be eligible for APTC and could owe back the subsidy. This requires the employee-only premium cost, not just the family plan cost.",
+      "detection_signal": "Intake notes mention Aisha 'was offered employer coverage but it was too expensive ($450/month for family plan).' The $450 is the family rate, but ACA affordability is based on the employee-only rate, which is not stated.",
+      "retrieval_method": "Request the employee benefits enrollment packet or ask Aisha/HR for the employee-only (self-only) premium cost for the employer health plan.",
+      "blocks_downstream": ["Step 5: Compute Credits — Premium Tax Credit reconciliation"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": [
+    "Uber 1099-NEC (PDF)",
+    "Lyft 1099-NEC",
+    "Employer coverage affordability determination (Aisha's declined employer health plan)"
+  ],
+
+  "why_context_tempts_premature_progress": "The DoorDash CSV, mileage log, and childcare receipt provide enough data to start building the Schedule C. The intake notes give dollar amounts for Uber and Lyft income. A weak agent uses those amounts and proceeds. The subtle trap is the Uber 1099 — the intake says it was 'provided' but it's actually not in the files. The deeper trap is the ACA affordability test, which requires the employee-only premium (not the family premium stated in the notes).",
+
+  "what_bad_model_does": "Uses intake-note dollar amounts for Uber/Lyft, doesn't notice the Uber 1099 is missing from provided files, and skips the ACA affordability check because the family premium 'seemed expensive'",
+  "what_good_model_does": "Cross-references provided files against intake inventory, identifies both missing 1099s, flags the ACA affordability distinction between family and employee-only premiums, and notes the partial mileage coverage",
+
+  "scoring_notes": "The Uber 1099 gap is the most interesting — it tests whether the agent cross-references the intake's 'Documents Provided' list against actual provided_files. The ACA affordability test is the hardest gap — it requires domain knowledge about the employee-only vs family premium distinction.",
+  "multi_hop_chain": null
+}

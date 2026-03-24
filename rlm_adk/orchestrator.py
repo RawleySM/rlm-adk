@@ -23,6 +23,7 @@ from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event, EventActions
 from google.adk.tools.set_model_response_tool import SetModelResponseTool
+from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
@@ -30,7 +31,9 @@ from rlm_adk.artifacts import save_final_answer
 from rlm_adk.callbacks.worker_retry import make_worker_tool_callbacks
 from rlm_adk.dispatch import create_dispatch_closures
 from rlm_adk.repl.local_repl import LocalREPL
+from rlm_adk.repl.thread_bridge import make_sync_llm_query, make_sync_llm_query_batched
 from rlm_adk.repl.trace import REPLTrace
+from rlm_adk.skills.loader import collect_skill_repl_globals, load_adk_skills
 from rlm_adk.state import (
     APP_MAX_ITERATIONS,
     CURRENT_DEPTH,
@@ -38,11 +41,11 @@ from rlm_adk.state import (
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
     DYN_USER_CTX_MANIFEST,
-    ENABLED_SKILLS,
     FINAL_RESPONSE_TEXT,
     ITERATION_COUNT,
     OBS_REASONING_RETRY_COUNT,
     OBS_REASONING_RETRY_DELAY_MS,
+    REPL_SKILL_GLOBALS_INJECTED,
     REPO_URL,
     REQUEST_ID,
     ROOT_PROMPT,
@@ -259,6 +262,17 @@ class RLMOrchestratorAgent(BaseAgent):
         # Inject LLMResult into REPL namespace for skill functions
         repl.globals["LLMResult"] = LLMResult
 
+        # Inject skill globals into REPL namespace unconditionally.
+        # All orchestrators (root and children) get skill functions in REPL
+        # so child code can call them via the thread bridge.  Only the root
+        # orchestrator (with enabled_skills) gets the SkillToolset discovery
+        # tools — see the tools wiring below.
+        _skill_globals = collect_skill_repl_globals(
+            enabled_skills=self.enabled_skills or None,
+            repl_globals=repl.globals,
+        )
+        repl.globals.update(_skill_globals)
+
         # Mutable trace holder: trace_holder[0] is the current REPLTrace per code block.
         # Dispatch closures read this to record per-call timing.
         trace_holder: list[REPLTrace | None] = [None]
@@ -286,24 +300,13 @@ class RLMOrchestratorAgent(BaseAgent):
                 fanout_idx=self.fanout_idx,
                 child_event_queue=_child_event_queue,
             )
-            repl.set_async_llm_query_fns(llm_query_async, llm_query_batched_async)
-
-            def sync_llm_query_unsupported(*args, **kwargs):
-                raise RuntimeError(
-                    "llm_query() cannot be called synchronously in ADK mode. "
-                    "The AST rewriter should convert llm_query() to await llm_query_async(). "
-                    "If you see this error, the AST rewriter failed to detect the call."
-                )
-
-            repl.set_llm_query_fns(sync_llm_query_unsupported, sync_llm_query_unsupported)
-
-        # Catalog-driven skill activation: inject REPL globals and trigger
-        # side-effect module imports for source-expandable skills.
-        from rlm_adk.skills.catalog import activate_side_effect_modules, collect_repl_globals
-
-        repl.globals.update(collect_repl_globals(self.enabled_skills))
-        activate_side_effect_modules(self.enabled_skills)
-
+            # Wire sync bridge: create sync callables that dispatch to the
+            # event loop from the REPL worker thread via run_coroutine_threadsafe.
+            _loop = asyncio.get_running_loop()
+            repl.set_llm_query_fns(
+                make_sync_llm_query(llm_query_async, _loop),
+                make_sync_llm_query_batched(llm_query_batched_async, _loop),
+            )
         # Create telemetry finalizer from SqliteTracingPlugin (GAP-06 fix).
         # The finalizer ensures tool telemetry rows are completed even when
         # ADK's after_tool_callback doesn't fire for deeply nested async tools.
@@ -336,19 +339,12 @@ class RLMOrchestratorAgent(BaseAgent):
         schema = self.output_schema or ReasoningOutput
         set_model_response_tool = SetModelResponseTool(schema)
 
-        # Skill toolset — parent orchestrator only (depth == 0)
-        skill_toolset = None
-        if self.depth == 0 and self.enabled_skills:
-            try:
-                from rlm_adk.skills.skill_toolset import RLMSkillToolset
-
-                skill_toolset = RLMSkillToolset(enabled_skills=self.enabled_skills)
-            except ImportError:
-                logger.warning("RLMSkillToolset not available, skills will not be tool-loadable")
-
         tools = [repl_tool, set_model_response_tool]
-        if skill_toolset is not None:
-            tools.append(skill_toolset)
+        # Add SkillToolset when skills are enabled
+        if self.enabled_skills:
+            _adk_skills = load_adk_skills(self.enabled_skills)
+            if _adk_skills:
+                tools.append(SkillToolset(skills=_adk_skills))
         object.__setattr__(self.reasoning_agent, "tools", tools)
         # Tag lineage attrs for telemetry (read by reasoning callbacks)
         _ra = self.reasoning_agent
@@ -389,6 +385,8 @@ class RLMOrchestratorAgent(BaseAgent):
                 depth_key(CURRENT_DEPTH, self.depth): self.depth,
                 depth_key(ITERATION_COUNT, self.depth): 0,
             }
+            if _skill_globals:
+                initial_state[REPL_SKILL_GLOBALS_INJECTED] = sorted(_skill_globals.keys())
             # Only root (depth=0) sets the global REQUEST_ID.
             # Children must not overwrite the root correlation ID.
             if self.depth == 0:
@@ -399,8 +397,6 @@ class RLMOrchestratorAgent(BaseAgent):
             if self.repo_url:
                 initial_state[REPO_URL] = self.repo_url
                 initial_state[DYN_REPO_URL] = self.repo_url
-            if self.depth == 0 and self.enabled_skills:
-                initial_state[ENABLED_SKILLS] = list(self.enabled_skills)
 
             if self.instruction_router is not None:
                 _skill_text = self.instruction_router(self.depth, self.fanout_idx)

@@ -1,0 +1,26 @@
+{
+  "form_type": "1099-NEC",
+  "tax_year": 2025,
+  "payer": {
+    "name": "Bloom Events Co.",
+    "tin": "94-7654321",
+    "address": {
+      "street": "220 Montgomery St, Suite 1100",
+      "city": "San Francisco",
+      "state": "CA",
+      "zip": "94104"
+    }
+  },
+  "recipient": {
+    "name": "Sofia M. Rodriguez",
+    "tin_last4": "5591",
+    "address": {
+      "street": "1847 Divisadero St, Apt 4B",
+      "city": "San Francisco",
+      "state": "CA",
+      "zip": "94115"
+    }
+  },
+  "box_1_nonemployee_compensation": 14200.00,
+  "box_4_federal_tax_withheld": 0.00
+}

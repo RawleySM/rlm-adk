@@ -1,9 +1,9 @@
-<!-- validated: 2026-03-18 -->
+<!-- validated: 2026-03-22 -->
 
 # Observability and Plugin Reference
 
 This document covers the RLM-ADK observability stack: plugin architecture, callback
-system, worker observability path, REPL tracing, and dashboard. For the full list
+system, child dispatch observability path, REPL tracing, and dashboard. For the full list
 of state keys, see `dispatch_and_state.md`.
 
 ---
@@ -39,37 +39,34 @@ CachePlugin, PolicyPlugin, MigrationPlugin.
 **File:** `rlm_adk/plugins/observability.py`
 
 Tracks token usage, finish reasons, tool counts, and timing for the reasoning
-agent. It does **not** fire for workers (see section 8).
+agent. All counters are instance-local attributes on the plugin -- no
+observability keys are written to session state. SQLite telemetry is the
+authoritative lineage sink. The plugin does **not** fire for child
+orchestrators (see section 8).
 
 ### Hook Points
 
 1. **before_agent_callback** -- records `INVOCATION_START_TIME` if unset.
-2. **after_model_callback** -- increments `OBS_TOTAL_CALLS`; extracts
-   `prompt_token_count` and `candidates_token_count` from `usage_metadata`;
-   accumulates into total-token counters; tracks finish reason as
-   `obs:finish_{reason}_count`; appends per-iteration breakdown entry
-   (iteration, input/output tokens, finish reason, agent type, prompt/system chars).
-3. **before_tool_callback** -- increments `OBS_TOOL_INVOCATION_SUMMARY[tool_name]`.
-4. **on_event_callback** -- tracks artifact saves from `artifact_delta`.
-5. **after_agent_callback** -- re-persists ephemeral keys (see below).
-6. **after_run_callback** -- logs final summary with reasoning/worker call counts,
-   dispatch metrics, and latencies.
-
-### Ephemeral Keys Workaround
-
-Writes to `callback_context.state` inside `after_model_callback` do not land in
-ADK `state_delta` events because `base_llm_flow.py` does not wire `event_actions`
-for plugin callbacks. The workaround: `after_agent_callback` re-reads affected
-keys from `session.state` and re-writes them through a properly-wired
-`CallbackContext`, ensuring they appear in the event stream. Affected keys
-include all `OBS_TOTAL_*` counters, `OBS_PER_ITERATION_TOKEN_BREAKDOWN`,
-finish-reason counters, and `CONTEXT_WINDOW_SNAPSHOT`.
+2. **after_model_callback** -- increments instance-local `_total_calls`;
+   extracts `prompt_token_count` and `candidates_token_count` from
+   `usage_metadata`; accumulates into `_total_input_tokens` /
+   `_total_output_tokens`; tracks per-model usage in `_model_usage`;
+   records non-STOP finish reasons in `_finish_reason_counts`. Consumes
+   `_rlm_pending_request_meta` from the agent (set by
+   `reasoning_before_model`) for prompt/system char counts.
+3. **before_tool_callback** -- increments `_tool_invocation_summary[tool_name]`.
+4. **on_event_callback** -- tracks artifact saves from `artifact_delta` into
+   `_artifact_saves_acc`.
+5. **after_agent_callback** -- logs agent exit.
+6. **after_run_callback** -- logs final summary with call counts, token totals,
+   execution time, and artifact saves.
 
 ### Known Limitation
 
-**Does not fire for workers.** ParallelAgent gives each worker an isolated
-invocation context, so ObservabilityPlugin callbacks never trigger. Worker
-metrics flow through the dispatch accumulator path instead (section 8).
+**Does not fire for child orchestrators.** Each child orchestrator runs in a
+branch-isolated invocation context, so ObservabilityPlugin callbacks never
+trigger for child dispatch calls. Child telemetry flows through the
+SqliteTracingPlugin telemetry table instead (see section 8).
 
 ---
 
@@ -92,11 +89,11 @@ evolving columns.
 | start_time, end_time, status | REAL/TEXT | Lifecycle timestamps + `running`/`completed` |
 | total_input_tokens, total_output_tokens, total_calls, iterations | INT | Aggregate accounting |
 | request_id, repo_url, root_prompt_preview, prompt_hash | TEXT | Request context + SHA-256 |
-| child_dispatch_count, child_total_batch_dispatches | INT | Dispatch totals |
+| child_dispatch_count, child_total_batch_dispatches | INT | Dispatch totals (computed from telemetry rows at run end) |
 | child_error_counts, tool_invocation_summary | TEXT (JSON) | `{category: count}`, `{tool: count}` |
 | finish_safety/recitation/max_tokens_count | INT | Finish-reason tallies |
-| per_iteration_breakdown, model_usage_summary | TEXT (JSON) | Token breakdowns |
-| artifact_saves, artifact_bytes_saved | INT | Artifact totals |
+| model_usage_summary | TEXT (JSON) | Token breakdowns per model |
+| artifact_saves | INT | Artifact save count |
 | max_depth_reached | INT | Deepest recursion depth observed |
 
 #### `telemetry` table -- one row per model call or tool invocation
@@ -116,6 +113,11 @@ evolving columns.
 | repl_llm_calls, stdout_len, stderr_len | INT | REPL metrics |
 | repl_trace_summary | TEXT (JSON) | Embedded trace summary |
 | skill_instruction | TEXT | Active skill instruction text at time of model call |
+| fanout_idx, parent_depth, parent_fanout_idx | INT | Lineage coordinates |
+| branch, invocation_id, session_id | TEXT | Invocation context |
+| output_schema_name | TEXT | Pydantic schema name (if structured output) |
+| decision_mode, structured_outcome | TEXT | Structured output flow tracking |
+| terminal_completion | INT | Whether this call produced a terminal completion |
 | status, error_type, error_message | TEXT | Error tracking |
 
 #### `session_state_events` table -- one row per curated state key change
@@ -128,7 +130,7 @@ evolving columns.
 | event_author | TEXT | Event source agent |
 | event_time | REAL | Timestamp |
 | state_key | TEXT | Raw key name |
-| key_category | TEXT | `obs_reasoning`, `obs_dispatch`, `obs_artifact`, `obs_finish`, `flow_control`, `repl`, `cache`, `request_meta` |
+| key_category | TEXT | `obs_artifact`, `flow_control`, `repl`, `cache`, `request_meta`, `other` |
 | key_depth | INT | 0 for base, N for `@dN` |
 | key_fanout | INT | Fanout index (nullable) |
 | value_type | TEXT | `int`, `float`, `text`, `json` |
@@ -138,13 +140,23 @@ evolving columns.
 
 ### Capture Strategy
 
-Only state keys matching curated prefixes are captured: `obs:artifact_`, `artifact_`,
-`last_repl_result`, `repl_submitted_code`, plus exact keys like
-`iteration_count`, `should_stop`, `final_response_text`, `current_depth`,
-`last_repl_result`, and `skill_instruction`. The curated set is defined in
-`rlm_adk/state.py` (`CURATED_STATE_KEYS` and `CURATED_STATE_PREFIXES`) and
-shared with `dispatch.py`. Keys with `@d{N}` or `@d{N}f{M}` suffixes are
-parsed into `key_depth` and `key_fanout` columns.
+Only state keys matching curated sets are captured. The curated set is defined
+in `rlm_adk/state.py` (`CURATED_STATE_KEYS` and `CURATED_STATE_PREFIXES`) and
+shared with `dispatch.py` and `sqlite_tracing.py`. The plugin imports
+`parse_depth_key` and `should_capture_state_key` from `state.py` (with thin
+aliases `_parse_key` and `_should_capture` preserving internal call sites).
+
+**Curated exact keys:** `current_depth`, `iteration_count`, `should_stop`,
+`final_response_text`, `last_repl_result`, `skill_instruction`.
+
+**Curated prefixes:** `obs:`, `artifact_`, `last_repl_result`,
+`repl_submitted_code`, `repl_expanded_code`, `repl_skill_expansion_meta`,
+`repl_did_expand`, `reasoning_`, `final_answer`.
+
+Keys with `@d{N}` or `@d{N}f{M}` suffixes are parsed into `key_depth` and
+`key_fanout` columns. Key categorization is handled by a plugin-local
+`_categorize_key()` function that maps base keys to one of the categories
+listed in the schema above.
 
 ### Child Event Re-Emission
 
@@ -235,34 +247,27 @@ Several other specialized plugins manage state, cost, and lifecycle migrations:
 
 ### Worker Callbacks
 
-**File:** `rlm_adk/callbacks/worker.py`
-
-**`worker_before_model`** -- reads `agent._pending_prompt` (set by the dispatch
-closure) and injects it as `llm_request.contents` (user role, text part).
-
-**`worker_after_model`** -- extracts response text from `llm_response.content.parts`
-(skipping thought parts); detects safety filtering; writes to `agent._result` and
-sets `agent._result_ready = True`; builds a `_call_record` dict containing
-`prompt`, `response`, `input_tokens`, `output_tokens`, `model`, `finish_reason`,
-`error`, and `error_category`; writes to `agent._call_record` for the dispatch
-closure to consume.
-
-**`worker_on_model_error`** -- catches LLM errors without crashing ParallelAgent
-siblings. Classifies the error (TIMEOUT, RATE_LIMIT, AUTH, SERVER, CLIENT,
-NETWORK, PARSE_ERROR, UNKNOWN) and writes error info to `agent._result` /
-`agent._result_error`. Returns an `LlmResponse` so the agent completes normally.
+The original `rlm_adk/callbacks/worker.py` has been removed. The leaf
+LlmAgent worker pool was replaced by recursive child orchestrators
+(`dispatch.py`). Worker-level callbacks (`worker_before_model`,
+`worker_after_model`, `worker_on_model_error`) no longer exist. Error
+classification (`_classify_error`) has moved to `rlm_adk/dispatch.py`
+(see section 8).
 
 ### Reasoning Callbacks
 
 **File:** `rlm_adk/callbacks/reasoning.py`
 
 **`reasoning_before_model`** -- merges ADK's dynamic instruction into
-`system_instruction`; records prompt/system char counts, content count, and
-history message count; snapshots `CONTEXT_WINDOW_SNAPSHOT`.
+`system_instruction`; records prompt/system char counts and content count
+into `_rlm_pending_request_meta` on the agent (consumed by
+ObservabilityPlugin's `after_model_callback`).
 
-**`reasoning_after_model`** -- splits response parts into visible and thought text;
-records depth-scoped token keys (`REASONING_INPUT_TOKENS@d{depth}`, etc.);
-extracts `reasoning_summary` from JSON responses.
+**`reasoning_after_model`** -- splits response parts into visible and thought
+text; stores per-invocation response metadata (`input_tokens`,
+`output_tokens`, `thought_tokens`, `finish_reason`, `reasoning_summary`) on
+the agent as `_rlm_last_response_meta`; injects lineage into
+`llm_response.custom_metadata`.
 
 ---
 
@@ -296,126 +301,75 @@ runtime, not just that it was installed.
 
 ---
 
-## 8. Worker Observability Path
+## 8. Child Dispatch Observability Path
 
-Because ObservabilityPlugin does not fire for workers, all worker metrics flow
-through dispatch closures and local accumulators (AR-CRIT-001).
+Child sub-LM queries are dispatched via recursive child orchestrators (not
+leaf LlmAgent workers). Each child orchestrator runs with its own REPL,
+callbacks, and plugin stack in a branch-isolated invocation context.
+ObservabilityPlugin does not fire for children, so child telemetry flows
+through two paths: the telemetry table and the child event re-emission queue.
 
 ```
-  worker LLM call completes
+  parent REPL code calls llm_query_async() or llm_query_batched_async()
           |
           v
-  worker_after_model callback
-    writes agent._call_record = {prompt, response, tokens, error...}
-    writes agent._result, agent._result_ready
+  dispatch.py spawns child RLMOrchestratorAgent at depth+1
+    (semaphore-limited concurrency via _child_semaphore)
           |
           v
-  ParallelAgent completes batch, returns agent objects
+  child orchestrator runs (reasoning_agent + REPLTool + plugins)
+    SqliteTracingPlugin on the child writes telemetry rows directly
           |
           v
-  dispatch closure reads each agent._call_record
+  child yields events; dispatch.py iterates child.run_async():
+    - accumulates state_delta into _child_state dict
+    - curated state keys pushed onto child_event_queue (asyncio.Queue)
+      for parent re-emission
           |
           v
-  local accumulators (never session.state -- AR-CRIT-001):
-    _acc_child_dispatches        count of workers
-    _acc_child_batch_dispatches  count of batch calls
-    _acc_child_latencies         list of elapsed_ms per batch
-    _acc_child_error_counts      {error_category: count}
-    _acc_child_summaries         {per-child telemetry dict}
-    _acc_structured_output_failures  validation failure count
+  child completes; _read_child_completion() extracts result:
+    priority: CompletionEnvelope > _structured_result > output_key > error
           |
           v
-  REPLTool calls flush_fn() after each REPL execution
+  dispatch closure returns LLMResult to REPL code
+    _build_call_log() appends RLMChatCompletion to call_log_sink
           |
           v
-  flush_fn snapshots accumulators into tool_context.state:
-    OBS_CHILD_DISPATCH_COUNT
-    OBS_CHILD_DISPATCH_LATENCY_MS
-    OBS_CHILD_TOTAL_BATCH_DISPATCHES
-    OBS_CHILD_ERROR_COUNTS
-    OBS_STRUCTURED_OUTPUT_FAILURES
-    obs:child_summary@d{depth}f{fanout_idx}
-    OBS_BUG13_SUPPRESS_COUNT (if > 0)
+  parent orchestrator drains child_event_queue in yield loop
+    re-emits curated child state deltas with rlm_child_event metadata
           |
           v
-  accumulators reset for next iteration
-          |
-          v
-  SqliteTracingPlugin.on_event_callback picks up state_delta
-    -> inserts session_state_events rows
+  SqliteTracingPlugin.on_event_callback picks up re-emitted events
+    -> inserts session_state_events rows with key_depth > 0
 ```
+
+### Trace Summary Derivation
+
+At `after_run_callback`, SqliteTracingPlugin builds the trace summary
+entirely from the `telemetry` table (not from session state keys). It
+queries aggregate token counts, finish-reason distributions, tool invocation
+counts, max depth, and child dispatch counts (tool_call rows at depth > 0)
+directly from SQLite.
 
 ### Error Classification
 
-`_classify_error(exception)` in `worker.py` maps exceptions to categories:
+`_classify_error(exception)` in `rlm_adk/dispatch.py` maps exceptions to
+categories:
 
 | Category | Trigger |
 |----------|---------|
+| TIMEOUT | `asyncio.TimeoutError` or `litellm.Timeout` |
 | RATE_LIMIT | HTTP 429 |
 | AUTH | HTTP 401 / 403 |
 | SERVER | HTTP 5xx |
 | CLIENT | HTTP 4xx (other) |
 | NETWORK | Connection / DNS errors |
-| TIMEOUT | Timeout errors |
-| PARSE_ERROR | Response parsing failures |
+| PARSE_ERROR | JSON decode / malformed response errors |
 | UNKNOWN | Everything else |
 
-In the fake provider test environment, errors classify as UNKNOWN because fake
-server exceptions lack the `.code` attribute.
-
----
-
-## 8.1 Per-Iteration vs Cumulative Dispatch Keys
-
-The dispatch keys written by `flush_fn()` in the worker obs path above come in two
-flavors: **per-iteration** and **cumulative**.
-
-### Per-iteration keys (reset each turn)
-
-After `flush_fn()` snapshots accumulators into `tool_context.state`, it resets them
-to zero. This means per-iteration keys reflect only the current REPL turn's dispatch
-activity. On a turn with no child dispatches, `obs:child_dispatch_count` is 0.
-
-### Cumulative keys (never reset)
-
-`flush_fn()` also maintains cumulative counterparts that add each turn's values to a
-running total. These are monotonically non-decreasing and never reset, providing a
-stable view across the entire session.
-
-### Mapping
-
-| Per-Iteration (resets each turn) | Cumulative (never resets) |
-|---|---|
-| `obs:child_dispatch_count` | `obs:child_dispatch_count_total` |
-| `obs:child_total_batch_dispatches` | `obs:child_batch_dispatches_total` |
-| `obs:child_error_counts` | `obs:child_error_counts_total` |
-| `obs:structured_output_failures` | `obs:structured_output_failures_total` |
-
-### Why cumulative keys exist
-
-The `_rlm_state` read-only snapshot is built **before** code execution in REPLTool
-(so that user code can inspect dispatch metrics from previous turns). Per-iteration
-keys oscillate: e.g. `obs:child_dispatch_count` follows 1 -> 0 -> 1 -> 0 when one
-child is dispatched per turn. This makes them unreliable for answering "how many total
-dispatches?" from within REPL code.
-
-Cumulative keys provide a stable, monotonically increasing view:
-`obs:child_dispatch_count_total` shows 0 -> 1 -> 1 -> 2 -> 2 for the same session.
-They are seeded to zero in the orchestrator's `initial_state` on turn 1, so they are
-**never absent** from session state.
-
-### Cumulative latency excluded
-
-`obs:child_dispatch_latency_ms` has no cumulative counterpart. Latency lists grow
-without bound and have no meaningful scalar sum, so accumulating them session-wide
-would produce unbounded memory growth.
-
-### Impact on SqliteTracingPlugin
-
-Both per-iteration and cumulative keys flow through `on_event_callback` and land in
-`session_state_events` rows. Cumulative keys appear as `key_category = "obs_dispatch"`
-with the `_total` suffix, enabling dashboard queries to read either the per-turn
-deltas or the running totals.
+The function checks both `.code` and `.status_code` attributes (the latter
+for LiteLLM compatibility). In the fake provider test environment, errors
+classify as UNKNOWN because fake server exceptions lack these attributes.
 
 ---
 
@@ -529,7 +483,11 @@ Used in:
 
 Writes to `callback_context.state` in `after_model_callback` do NOT land in `state_delta` on yielded Events. ADK's `base_llm_flow.py` does not wire `event_actions` for plugin `after_model_callback`.
 
-**Workaround:** `ObservabilityPlugin.after_agent_callback` re-reads affected keys from `session.state` and re-writes them via a properly-wired `CallbackContext`. Without this, keys like `OBS_TOTAL_CALLS`, `OBS_TOTAL_INPUT_TOKENS`, `OBS_TOTAL_OUTPUT_TOKENS`, `OBS_PER_ITERATION_TOKEN_BREAKDOWN`, finish-reason counters, and `CONTEXT_WINDOW_SNAPSHOT` appear in `session.state` (in-memory) but are invisible to `SqliteTracingPlugin.on_event_callback` and any other event-driven consumer.
+**Current status:** ObservabilityPlugin no longer writes observability counters
+to session state (all counters are instance-local), so this limitation no
+longer requires a workaround. It remains documented because any future plugin
+that needs state-delta visibility from `after_model_callback` will encounter
+the same issue.
 
 ### ADK coupling risk table
 
@@ -538,7 +496,6 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 | `_output_schema_processor.get_structured_model_response` | `worker_retry.py` BUG-13 patch | Module restructure breaks patch (graceful fallback) |
 | `CallbackContext._invocation_context.agent` | Multiple callbacks | Private API rename breaks agent access |
 | `REFLECT_AND_RETRY_RESPONSE_TYPE` sentinel | `worker_retry.py` | Sentinel value change breaks retry detection |
-| Plugin callback wiring in `base_llm_flow.py` | `observability.py` | Ephemeral state workaround depends on current wiring gaps |
 
 ### State mutation (AR-CRIT-001)
 
@@ -554,15 +511,12 @@ Writes to `callback_context.state` in `after_model_callback` do NOT land in `sta
 
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
-- **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-10 11:30** — Added section 9 (Skill Expansion Observability Keys) documenting REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH, REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND.
-- **2026-03-12 16:05** — `sqlite_tracing.py`: Added `skill_instruction` column to telemetry table, captured from `DYN_SKILL_INSTRUCTION` state key at `before_model_callback`.
-- **2026-03-17 09:15** — `reasoning.py`: Removed 3 dead state writes (`REASONING_CALL_START`, `REASONING_CONTENT_COUNT`, `REASONING_HISTORY_MSG_COUNT`) — written but never read by any plugin or consumer.
-- **2026-03-17 13:48** — `sqlite_tracing.py`: Plugin updates merged with accumulated feature work.
-- **2026-03-18 00:00** — `observability.md`: Added section 8.1 "Per-Iteration vs Cumulative Dispatch Keys" documenting cumulative counters (`obs:*_total`), mapping table, `_rlm_state` oscillation rationale, and SqliteTracingPlugin impact.
-- **2026-03-19 12:40** — `observability.py`: Removed dead `OBS_ARTIFACT_BYTES_SAVED` import and state read (never written). `sqlite_tracing.py`: Removed dead `_categorize_key` rules for `obs:child_*`, `obs:worker_*`, `obs:structured_*`, `obs:finish_*`, `obs:total_*`, `reasoning_*` — per-call lineage is now in telemetry columns, not session_state_events. Replaced dead `obs:artifact_bytes_saved` state read with `None`. Part of three-plane (state/lineage/completion) cleanup.
-
-- **2026-03-21 16:30** — `sqlite_tracing.py`: Replaced local `_DEPTH_FANOUT_RE`, `_parse_key`, `_CURATED_EXACT`, `_CURATED_PREFIXES`, `_should_capture` with imports from `state.py` (`parse_depth_key`, `should_capture_state_key`). Thin aliases preserve internal call sites. Added "Child Event Re-Emission" subsection documenting `key_depth > 0` rows from re-emitted child events. `[session: 1cffccc7]`
+<!-- Entries incorporated into the main body on 2026-03-22:
+- 2026-03-17 09:15: reasoning.py dead state writes removal
+- 2026-03-18 00:00: section 8.1 cumulative dispatch keys (removed -- accumulators no longer exist)
+- 2026-03-19 12:40: OBS_ARTIFACT_BYTES_SAVED removal, dead _categorize_key rules, three-plane cleanup
+- 2026-03-21 16:30: sqlite_tracing.py imports from state.py, child event re-emission subsection
+-->
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

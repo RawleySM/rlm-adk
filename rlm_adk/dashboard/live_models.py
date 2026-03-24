@@ -342,6 +342,7 @@ class LiveDashboardState:
     step_mode_enabled: bool = False
     step_mode_waiting: bool = False
     step_mode_paused_label: str = ""
+    view_mode: str = "flow"  # "flow" or "tree"
 
     @property
     def panes(self) -> list[LivePane]:

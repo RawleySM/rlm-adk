@@ -29,14 +29,11 @@ from rlm_adk.dashboard.live_models import (
     LiveToolEvent,
     LiveWatermark,
 )
-from rlm_adk.skills import selected_skill_summaries
 from rlm_adk.state import (
     DEPTH_SCOPED_KEYS,
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
-    ENABLED_SKILLS,
-    REPL_EXPANDED_CODE,
     REPL_SUBMITTED_CODE,
 )
 from rlm_adk.utils.prompts import RLM_DYNAMIC_INSTRUCTION
@@ -51,6 +48,36 @@ _KNOWN_DYNAMIC_KEYS = list(
     dict.fromkeys(_BANNER_DYNAMIC_KEYS + _PROMPT_VAR_RE.findall(RLM_DYNAMIC_INSTRUCTION))
 )
 _KNOWN_STATE_KEYS = sorted(DEPTH_SCOPED_KEYS)
+
+# Observability state keys — written by dispatch.py, orchestrator, and plugins.
+_KNOWN_OBS_KEYS = [
+    "obs:total_calls",
+    "obs:total_input_tokens",
+    "obs:total_output_tokens",
+    "obs:child_dispatch_count",
+    "obs:child_dispatch_latency_ms",
+    "obs:child_total_batch_dispatches",
+    "obs:child_error_counts",
+    "obs:bug13_suppress_count",
+    "obs:rewrite_count",
+    "obs:rewrite_total_ms",
+    "obs:rewrite_failure_count",
+    "obs:tool_invocation_summary",
+    "obs:reasoning_retry_count",
+    "obs:reasoning_retry_delay_ms",
+    "obs:litellm_total_cost",
+]
+_KNOWN_OBS_PREFIXES = ["obs:model_usage:", "obs:per_iteration_token_breakdown"]
+
+# Completion plane keys — written when the agent finishes reasoning.
+_KNOWN_COMPLETION_KEYS = [
+    "final_answer",
+    "should_stop",
+    "reasoning_parsed_output",
+    "reasoning_raw_output",
+    "reasoning_visible_output_text",
+    "reasoning_thought_text",
+]
 
 
 def _pane_id(depth: int, fanout_idx: int | None) -> str:
@@ -233,12 +260,9 @@ class LiveDashboardLoader:
         user_query = self._latest_session_text(sse_rows, "root_prompt") or str(
             trace_row.get("root_prompt_preview") or ""
         )
-        enabled_skills = self._latest_session_value(sse_rows, ENABLED_SKILLS)
-        if isinstance(enabled_skills, str):
-            enabled_skills = [enabled_skills]
         return LiveSessionSummary(
             user_query=user_query,
-            registered_skills=self._registered_skills(enabled_skills),
+            registered_skills=[],
             registered_plugins=self._registered_plugins(
                 has_context_snapshots=bool(cache and cache.snapshot_rows),
             ),
@@ -354,6 +378,67 @@ class LiveDashboardLoader:
                 )
             )
 
+        # ---- Observability scope: obs:* state keys ----
+        for key in _KNOWN_OBS_KEYS:
+            item = state_lookup.get(key)
+            if item is None:
+                continue  # skip absent obs keys to avoid clutter
+            display_text = _display_text(item.value)
+            if not display_text or display_text in ("0", "0.0", "None", "[]", "{}"):
+                continue  # skip zero/empty obs values
+            banner_items.append(
+                LiveContextBannerItem(
+                    label=key,
+                    raw_key=key,
+                    scope="observability",
+                    present=False,
+                    token_count=0,
+                    token_count_is_exact=False,
+                    source_kind="state_key",
+                    display_value_preview=display_text[:240],
+                )
+            )
+        # obs:model_usage:* and obs:per_iteration_token_breakdown (prefix match)
+        for base_key, item in state_lookup.items():
+            if not any(base_key.startswith(p) for p in _KNOWN_OBS_PREFIXES):
+                continue
+            display_text = _display_text(item.value)
+            if not display_text or display_text in ("0", "None", "[]", "{}"):
+                continue
+            banner_items.append(
+                LiveContextBannerItem(
+                    label=base_key,
+                    raw_key=base_key,
+                    scope="observability",
+                    present=False,
+                    token_count=0,
+                    token_count_is_exact=False,
+                    source_kind="state_key",
+                    display_value_preview=display_text[:240],
+                )
+            )
+
+        # ---- Completion plane: reasoning outputs, final answer, should_stop ----
+        for key in _KNOWN_COMPLETION_KEYS:
+            item = state_lookup.get(key)
+            if item is None:
+                continue  # skip absent completion keys
+            display_text = _display_text(item.value)
+            if not display_text or display_text == "None":
+                continue
+            banner_items.append(
+                LiveContextBannerItem(
+                    label=key,
+                    raw_key=key,
+                    scope="completion_plane",
+                    present=False,
+                    token_count=0,
+                    token_count_is_exact=False,
+                    source_kind="state_key",
+                    display_value_preview=display_text[:240],
+                )
+            )
+
         banner_items.extend(request_items.values())
         return banner_items
 
@@ -410,13 +495,6 @@ class LiveDashboardLoader:
             if value not in (None, "", [], {}):
                 return value
         return None
-
-    @staticmethod
-    def _registered_skills(enabled_skills: Any = None) -> list[tuple[str, str]]:
-        try:
-            return selected_skill_summaries(enabled_skills)
-        except ValueError:
-            return selected_skill_summaries(None)
 
     @staticmethod
     def _registered_plugins(
@@ -945,7 +1023,7 @@ class LiveDashboardLoader:
         latest_repl = {
             item.base_key: item
             for item in state_items
-            if item.base_key in {REPL_SUBMITTED_CODE, REPL_EXPANDED_CODE}
+            if item.base_key in {REPL_SUBMITTED_CODE}
         }
         matching_children = [child for child in child_summaries if child.parent_depth == depth]
         tool_payload = (relevant_tools[-1].payload or {}) if relevant_tools else {}
@@ -990,11 +1068,7 @@ class LiveDashboardLoader:
                 if latest_repl.get(REPL_SUBMITTED_CODE)
                 else ""
             ),
-            repl_expanded_code=str(
-                latest_repl.get(REPL_EXPANDED_CODE).value
-                if latest_repl.get(REPL_EXPANDED_CODE)
-                else ""
-            ),
+            repl_expanded_code="",
             repl_stdout=repl_stdout,
             repl_stderr=repl_stderr,
             reasoning_visible_text=str(

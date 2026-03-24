@@ -1,0 +1,75 @@
+{
+  "case_id": "case_simple_w2_savers_credit",
+  "task_name": "Simple W-2 with Saver's Credit Eligibility Gap",
+  "difficulty": "easy",
+  "persona_id": "simple_w2_filer",
+
+  "broad_objective": "Prepare and e-file a single-filer federal tax return for a software developer in Texas with one W-2, standard deduction, and a mid-year 401(k) contribution.",
+
+  "provided_files": [
+    {
+      "ref_id": "intake",
+      "filename": "generated/simple_w2_filer/intake_notes.md",
+      "display_name": "Taxpayer Intake Notes",
+      "format": "md",
+      "doc_type": "intake_questionnaire",
+      "description": "Self-service portal questionnaire capturing personal info, income sources, and filing history"
+    },
+    {
+      "ref_id": "w2_datapoint",
+      "filename": "generated/simple_w2_filer/w2_datapoint_2025.json",
+      "display_name": "W-2 from Datapoint Systems LLC",
+      "format": "json",
+      "doc_type": "w2",
+      "description": "Structured W-2 data with wages, withholding, and 401(k) contribution in Box 12"
+    },
+    {
+      "ref_id": "bank_stmt",
+      "filename": "generated/simple_w2_filer/bank_statement_dec2025.csv",
+      "display_name": "Chase Bank Statement (Dec 2025)",
+      "format": "csv",
+      "doc_type": "bank_statement",
+      "description": "Monthly bank statement showing payroll deposits, expenses, and account balance"
+    }
+  ],
+
+  "processing_challenges": [
+    {
+      "file_ref": "bank_stmt",
+      "required_skill": "csv_parse",
+      "description": "Standard CSV with date, description, amount, balance columns. Agent must identify payroll deposits match W-2.",
+      "extraction_target": "Verify payroll deposit amounts match W-2 pay schedule",
+      "difficulty": "routine"
+    },
+    {
+      "file_ref": "w2_datapoint",
+      "required_skill": "json_parse",
+      "description": "Structured JSON W-2 with Box 12 code D (401k). Agent must recognize retirement plan contribution.",
+      "extraction_target": "401(k) contribution amount and retirement plan indicator",
+      "difficulty": "routine"
+    }
+  ],
+
+  "missing_artifacts": [
+    {
+      "category": "document",
+      "artifact_name": "Form 8880 (Saver's Credit) eligibility data — full-year 401(k) contribution amount and start date",
+      "source_authority": "Employer payroll records or Datapoint Systems HR department",
+      "why_non_derivable": "The W-2 Box 12 shows $6,500 in 401(k) contributions, but the intake notes say Marcus started contributing 'mid-year.' To determine Saver's Credit eligibility and the correct credit amount, the agent needs to know total eligible retirement contributions for the year and confirm the amount wasn't reduced by early distributions or rollovers. The Form 5498 (IRA Contribution Information) would confirm this but hasn't been provided.",
+      "detection_signal": "W-2 Box 12 code D shows $6,500 in elective deferrals. Box 13 shows retirement_plan=true. Intake notes mention Marcus 'started contributing to his 401(k) mid-year' and asked about the Saver's Credit. The agent should recognize that mid-year start means the contribution pattern is non-standard.",
+      "retrieval_method": "Ask the taxpayer for his 401(k) enrollment date and confirm no early distributions were taken. If available, request Form 5498 from the plan administrator.",
+      "blocks_downstream": ["Step 5: Compute Credits — Saver's Credit calculation"],
+      "difficulty_modifier": "inferential"
+    }
+  ],
+
+  "gold_retrieval_order": ["Form 8880 (Saver's Credit) eligibility data — full-year 401(k) contribution amount and start date"],
+
+  "why_context_tempts_premature_progress": "The return is trivially simple — single W-2, standard deduction, no state return needed. The W-2 data is complete and the Box 12 code D clearly shows the 401(k) amount. A weak agent will compute the return without checking Saver's Credit eligibility, especially since the intake notes mention Marcus asked about it. The temptation is to either skip the credit or assume eligibility without verifying the full contribution timeline.",
+
+  "what_bad_model_does": "Ignores the Saver's Credit question entirely or assumes eligibility without verifying the mid-year contribution timeline and checking for any distributions",
+  "what_good_model_does": "Recognizes the 401(k) contribution in Box 12, connects it to the client's question about Saver's Credit, identifies that mid-year enrollment creates ambiguity about total eligible contributions, and requests clarification on enrollment date and any distributions",
+
+  "scoring_notes": "Full credit requires identifying that the Saver's Credit eligibility cannot be fully determined from the provided documents alone. The agent should connect the Box 12 data to the intake note about the Saver's Credit question.",
+  "multi_hop_chain": null
+}

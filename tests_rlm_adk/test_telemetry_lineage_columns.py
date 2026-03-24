@@ -21,7 +21,7 @@ from tests_rlm_adk.provider_fake.lineage_assertion_plugin import LineageAssertio
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.agent_challenge]
 
-_LINEAGE_FIXTURE = "agent_challenge/lineage_completion_planes"
+_LINEAGE_FIXTURE = "lineage_completion_planes"
 
 
 async def _run_lineage_fixture(

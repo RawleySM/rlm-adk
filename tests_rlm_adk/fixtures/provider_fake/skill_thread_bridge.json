@@ -1,0 +1,105 @@
+{
+  "scenario_id": "skill_thread_bridge",
+  "description": "Skill function calls llm_query() via thread bridge: reasoning agent calls execute_code with run_recursive_ping() -> skill function dispatches llm_query via thread bridge -> child orchestrator reasoning responds -> parent REPL continues -> reasoning agent calls set_model_response.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "enabled_skills": ["recursive_ping"]
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "result = run_recursive_ping('hello', starting_layer=0, max_layer=1)\nprint(f'ping result: layer={result.layer}, response={result.response}')"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 100,
+          "totalTokenCount": 400
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "pong from child"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 10,
+          "totalTokenCount": 60
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "The recursive ping skill executed successfully via the thread bridge. The skill function run_recursive_ping dispatched an llm_query call through the sync bridge, the child orchestrator processed it, and the result was returned to the parent REPL.\n\nFINAL(thread_bridge_skill_ok)"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 400,
+          "candidatesTokenCount": 50,
+          "totalTokenCount": 450
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "The recursive ping skill executed successfully via the thread bridge. The skill function run_recursive_ping dispatched an llm_query call through the sync bridge, the child orchestrator processed it, and the result was returned to the parent REPL.\n\nFINAL(thread_bridge_skill_ok)",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  }
+}

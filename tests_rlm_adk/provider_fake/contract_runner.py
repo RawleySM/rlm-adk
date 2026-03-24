@@ -437,6 +437,7 @@ async def run_fixture_contract_with_plugins(
         artifact_service = FileArtifactService(root_dir=artifact_root)
 
         repl = _make_repl(router)
+        _enabled_skills = router.config.get("enabled_skills") or None
         runner = create_rlm_runner(
             model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
             thinking_budget=router.config.get("thinking_budget", 0),
@@ -446,6 +447,7 @@ async def run_fixture_contract_with_plugins(
             session_service=session_service,
             langfuse=False,
             sqlite_tracing=False,
+            enabled_skills=_enabled_skills,
         )
 
         initial_state = router.config.get("initial_state") or None

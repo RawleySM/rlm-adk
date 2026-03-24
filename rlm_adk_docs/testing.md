@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-17 -->
+<!-- validated: 2026-03-22 -->
 
 # Testing Infrastructure Reference
 
@@ -145,9 +145,9 @@ Fixtures live in `tests_rlm_adk/fixtures/provider_fake/*.json`.
   ],
 
   "expected": {
-    "final_answer": "expected string",
+    "final_answer": "expected string or matcher",
     "total_iterations": 2,
-    "total_model_calls": 5
+    "total_model_calls": { "$gte": 3 }
   },
 
   "expected_state": {
@@ -189,7 +189,7 @@ Fixtures live in `tests_rlm_adk/fixtures/provider_fake/*.json`.
 
 ### Matcher Operators
 
-Used in `expected_state` and `expected_contract` values:
+Used in `expected` top-level fields (`final_answer`, `total_iterations`, `total_model_calls`), `expected_state`, and `expected_contract` values:
 
 | Operator | Meaning |
 |----------|---------|
@@ -219,7 +219,7 @@ Matchers compose: `_match_value()` and `_match_structure()` recurse into nested 
 
 5. **Add `fault_injections`** (optional). Specify `call_index`, `fault_type` (`"http_error"` or `"malformed_json"`), `status`, and `body`. Faults are checked before normal responses at a given index.
 
-6. **Set `expected`.** At minimum: `final_answer`, `total_iterations`, `total_model_calls`.
+6. **Set `expected`.** At minimum: `final_answer`, `total_iterations`, `total_model_calls`. All three fields support matcher operators (e.g., `{"$gte": 3}`, `{"$oneof": ["a", "b"]}`) in addition to literal values, via `_match_value()`.
 
 7. **Add `expected_state`** assertions (optional). Use matcher operators for numeric or structural checks against final agent state.
 
@@ -231,48 +231,13 @@ Matchers compose: `_match_value()` and `_match_structure()` recurse into nested 
      tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[my_scenario] -v
    ```
 
-10. **Add an FMEA test class** (if the fixture covers a failure mode):
-    ```python
-    # In tests_rlm_adk/test_fmea_e2e.py
-    class TestMyScenario:
-        FIXTURE = "my_scenario"
-
-        async def test_contract(self, fmea_result: PluginContractResult):
-            assert fmea_result.contract.passed, fmea_result.contract.diagnostics()
-
-        async def test_specific_state(self, fmea_result: PluginContractResult):
-            assert fmea_result.final_state.get("key") == "expected"
-    ```
-
-11. **Run the new class:**
-    ```bash
-    .venv/bin/python -m pytest \
-      tests_rlm_adk/test_fmea_e2e.py::TestMyScenario -m "" -v
-    ```
-
 ---
 
-## test_fmea_e2e.py Patterns
+## Consolidated Test Suite (post-consolidation)
 
-This file uses a **class-scoped fixture** to run each fixture exactly once per test class:
+The separate `test_fmea_e2e.py` file (which had ~20 class-scoped FMEA test classes and ~80 tests) was removed during the 2026-03-17 consolidation. Its failure-mode coverage -- REPL errors, structured output retries, worker API errors (429, 500), safety finishes, malformed JSON, token truncation, max-iterations exhaustion, and recursive dispatch -- is now validated through the fixture contract system in `test_provider_fake_e2e.py`. Each fixture's `expected`, `expected_state`, and `expected_contract` blocks encode the same assertions that were previously spread across individual FMEA test methods.
 
-```python
-@pytest_asyncio.fixture(scope="class")
-async def fmea_result(request, tmp_path_factory):
-    fixture_name = request.cls.FIXTURE
-    tmp_path = tmp_path_factory.mktemp(fixture_name)
-    return await run_fixture_contract_with_plugins(
-        FIXTURE_DIR / f"{fixture_name}.json",
-        traces_db_path=str(tmp_path / "traces.db"),
-        repl_trace_level=1,
-    )
-```
-
-Each test class declares `FIXTURE = "fixture_name"` and receives the shared `PluginContractResult` through `fmea_result`. All methods in the class -- `test_contract`, `test_iteration_count`, `test_tool_results`, `test_obs_counters`, etc. -- read from the same result without re-running the agent.
-
-Helper functions: `_extract_tool_results(events)`, `_request_function_responses(request)`, `_request_function_calls(request)`.
-
-Approximately 20 test classes cover failure modes including REPL errors, structured output retries, worker API errors (429, 500), safety finishes, malformed JSON, token truncation, max-iterations exhaustion, and recursive dispatch.
+92 unit/FMEA/observability test files were removed in total. The remaining test suite (~450 tests with `-m ""`, ~280 with the default marker filter) provides equivalent coverage through the provider-fake contract infrastructure plus focused integration tests.
 
 ---
 
@@ -313,7 +278,7 @@ Defined in `pyproject.toml`:
 | Marker | Purpose |
 |--------|---------|
 | `provider_fake` | Any e2e test using the fake server (no network) |
-| `provider_fake_contract` | Default fixture-contract suite (~28 tests, ~22s) |
+| `provider_fake_contract` | Default fixture-contract suite (37 tests) |
 | `provider_fake_extended` | Coverage beyond the default suite |
 | `agent_challenge` | Fixtures under `fixtures/provider_fake/agent_challenge/` |
 | `unit_nondefault` | Unit tests excluded from the default run |
@@ -327,14 +292,14 @@ Defined in `pyproject.toml`:
 **Override the filter** with `-m ""`:
 
 ```bash
-# Full suite (~970 tests, ~3min)
+# Full suite (~450 tests)
 .venv/bin/python -m pytest tests_rlm_adk/ -m "" -q
 
 # Single test (must override marker filter)
-.venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py::TestMyClass::test_contract -m "" -v
+.venv/bin/python -m pytest tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_error_then_retry] -m "" -v
 
 # All tests in one file
-.venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py -m "" -v
+.venv/bin/python -m pytest tests_rlm_adk/test_provider_fake_e2e.py -m "" -v
 
 # Extended provider-fake only
 .venv/bin/python -m pytest -m "provider_fake and not provider_fake_contract" -v
@@ -390,10 +355,6 @@ for worker in workers:
 ```
 
 Failing to do this causes subsequent tests to raise on worker reuse.
-
-### Class-scoped fixture pattern (FMEA tests)
-
-Each FMEA test class uses a **class-scoped `fmea_result` fixture** that runs the provider-fake fixture ONCE per class and shares the `PluginContractResult` across all test methods. Do NOT regress to per-method execution — it multiplies runtime by the number of test methods per class.
 
 ### State mutation (AR-CRIT-001)
 
@@ -455,19 +416,19 @@ All overrides are restored to their original values after the run completes. If 
 
 ## Testing
 
-**IMPORTANT: Do NOT run the full 970+ test suite by default.** The default pytest invocation runs only the provider-fake e2e contract set (~28 tests, ~22s):
+**IMPORTANT: Do NOT run the full test suite by default.** The default pytest invocation runs only the `provider_fake_contract` set (~280 tests):
 
 ```bash
 # DEFAULT — provider-fake contract tests only
 .venv/bin/python -m pytest tests_rlm_adk/
 
-# Run a single test
-.venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py::TestReplErrorThenRetry::test_contract -m "" -v
+# Run a single fixture contract test
+.venv/bin/python -m pytest tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[repl_error_then_retry] -v
 
 # Run all tests in a file (override default marker filter)
-.venv/bin/python -m pytest tests_rlm_adk/test_fmea_e2e.py -m "" -v
+.venv/bin/python -m pytest tests_rlm_adk/test_provider_fake_e2e.py -m "" -v
 
-# Full suite (~970 tests, ~3min) — only when explicitly requested
+# Full suite (~450 tests) — only when explicitly requested
 .venv/bin/python -m pytest tests_rlm_adk/ -m "" -q
 ```
 
@@ -480,9 +441,6 @@ The default marker filter is `-m "provider_fake_contract and not agent_challenge
 > Append entries here when modifying source files documented by this branch. A stop hook (`ai_docs/scripts/check_doc_staleness.py`) will remind you.
 
 - **2026-03-09 13:00** — Initial branch doc created from codebase exploration.
-- **2026-03-10 14:52** — `fixtures.py`: Added `$oneof` matcher operator, `litellm_overrides` fixture section support with `_deep_merge`, and upgraded top-level checks (`final_answer`, `total_iterations`, `total_model_calls`) to use `_match_value()` for operator support. `contract_runner.py`: passes `litellm_mode` through to `check_expectations()`.
-- **2026-03-12 17:30** — Added `test_instruction_router_e2e.py` and `instruction_router_fanout.json` fixture for instruction router e2e coverage.
-- **2026-03-17 11:20** — `contract_runner.py`: Minor provider-fake improvements. Consolidated test suite from ~970 tests to 29 provider-fake contract tests in `test_provider_fake_e2e.py`. Removed 92 unit/FMEA/obs test files — coverage via e2e logging.
 
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed

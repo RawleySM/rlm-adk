@@ -1,0 +1,143 @@
+{
+  "scenario_id": "skill_arch_test",
+  "description": "Architecture introspection skill e2e (post-thread-bridge): Reasoning agent imports and runs run_test_skill via source expansion, which reads _rlm_state, calls llm_query() as a real sync callable through the thread bridge, and returns a TestSkillResult. Validates: skill expansion + state injection + thread-bridge child dispatch + dynamic instruction resolution + set_model_response. Expected execution_mode: thread_bridge.",
+  "config": {
+    "model": "gemini-fake",
+    "thinking_budget": 0,
+    "max_iterations": 5,
+    "retry_delay": 0.0,
+    "initial_state": {
+      "user_provided_ctx": {
+        "arch_context.txt": "Architecture validation context: this is a provider-fake e2e test for the rlm_adk pipeline. The test validates skill expansion, child dispatch, and dynamic instruction resolution.",
+        "test_metadata.json": "{\"scenario\": \"skill_arch_test\", \"pipeline\": \"provider_fake\", \"depth\": 0}"
+      },
+      "repo_url": "https://test.example.com/arch-test",
+      "root_prompt": "Run the architecture introspection skill and verify all pipeline components.",
+      "test_context": "Provider-fake e2e run: skill expansion + child dispatch + dynamic instruction verification.",
+      "skill_instruction": "Use run_test_skill() from rlm_repl_skills.test_skill to exercise the full pipeline."
+    }
+  },
+  "responses": [
+    {
+      "call_index": 0,
+      "caller": "reasoning",
+      "note": "Reasoning agent calls execute_code to import and run run_test_skill via source expansion, plus dynamic instruction verification via user_ctx access.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "execute_code",
+                    "args": {
+                      "code": "from rlm_repl_skills.test_skill import run_test_skill\n\nresult = run_test_skill(\n    child_prompt='Reply with exactly: arch_test_ok',\n    emit_debug=True,\n)\nprint(f'result={result!r}')\n\n# Dynamic instruction verification (from Doc 3)\nif 'user_ctx' in dir():\n    print(f'[DYN_INSTR:user_ctx_keys={sorted(user_ctx.keys())}]')\n    print(f'[DYN_INSTR:arch_context_preview={user_ctx.get(\"arch_context.txt\", \"\")[:40]}]')"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 300,
+          "candidatesTokenCount": 80,
+          "totalTokenCount": 380
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "worker",
+      "note": "Child orchestrator at depth=1, responding to llm_query('Reply with exactly: arch_test_ok'). Dispatched via thread bridge (run_coroutine_threadsafe + future.result()). Must use set_model_response since child orchestrator wires SetModelResponseTool.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "arch_test_ok",
+                      "reasoning_summary": "Replied as instructed."
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 80,
+          "candidatesTokenCount": 20,
+          "totalTokenCount": 100
+        },
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "Reasoning agent sees REPL stdout with [TEST_SKILL:...] tags (including execution_mode=thread_bridge) and calls set_model_response.",
+      "status": 200,
+      "body": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "set_model_response",
+                    "args": {
+                      "final_answer": "Architecture test complete. Skill expanded, child dispatch succeeded via thread bridge, arch_test_ok received.",
+                      "reasoning_summary": "run_test_skill expanded from rlm_repl_skills.test_skill, executed with _rlm_state introspection, called llm_query() as real sync callable through thread bridge which returned arch_test_ok, execution_mode=thread_bridge confirmed."
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 500,
+          "candidatesTokenCount": 60,
+          "totalTokenCount": 560
+        },
+        "modelVersion": "gemini-fake"
+      }
+    }
+  ],
+  "fault_injections": [],
+  "expected": {
+    "final_answer": "Architecture test complete. Skill expanded, child dispatch succeeded via thread bridge, arch_test_ok received.",
+    "total_iterations": 1,
+    "total_model_calls": 3
+  },
+  "expected_state": {
+    "user_provided_ctx": {
+      "$not_none": true
+    },
+    "user_ctx_manifest": {
+      "$contains": "arch_context.txt"
+    },
+    "repo_url": {
+      "$contains": "test.example.com"
+    },
+    "skill_instruction": {
+      "$contains": "run_test_skill"
+    }
+  }
+}

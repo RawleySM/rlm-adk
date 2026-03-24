@@ -113,39 +113,42 @@ def _build_lineage(callback_context) -> LineageEnvelope:
 def reasoning_before_model(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """Merge dynamic instruction into system_instruction.
+    """Append dynamic instruction to system_instruction.
 
     ADK has already set:
       - system_instruction from static_instruction (the stable system prompt)
+      - SkillToolset XML appended to system_instruction (if skills are enabled)
       - resolved instruction template in contents (dynamic context metadata)
 
     This callback:
-      1. Preserves system_instruction from static_instruction
+      1. Preserves system_instruction (static prompt + any toolset content)
       2. Extracts the resolved dynamic instruction from contents
-      3. Appends the dynamic metadata to system_instruction
+      3. Appends the dynamic metadata via llm_request.append_instructions()
       4. Leaves contents as ADK manages them (include_contents='default')
       5. Records per-invocation token accounting
+
+    CRITICAL: Uses append_instructions() instead of direct assignment to
+    config.system_instruction. Direct assignment would destroy content
+    appended by SkillToolset.process_llm_request() (L1 XML, skill system
+    instruction) which fires BEFORE this callback.
     """
-    # --- Extract what ADK set ---
-    static_si = _extract_system_instruction_text(llm_request)
+    # --- Extract dynamic instruction from contents ---
     dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
 
-    # --- Build system_instruction: static prompt + dynamic metadata ---
-    system_instruction_text = static_si
+    # Ensure config exists for append_instructions
+    llm_request.config = llm_request.config or types.GenerateContentConfig()
+
+    # --- Append dynamic metadata to system_instruction ---
+    # Uses append_instructions to preserve existing content (static instruction
+    # + SkillToolset XML) that is already in system_instruction.
     if dynamic_instruction:
-        if system_instruction_text:
-            system_instruction_text += "\n\n" + dynamic_instruction
-        else:
-            system_instruction_text = dynamic_instruction
+        llm_request.append_instructions([dynamic_instruction])
 
     # ADK manages contents via include_contents='default'
     contents = llm_request.contents or []
 
-    if system_instruction_text:
-        llm_request.config = llm_request.config or types.GenerateContentConfig()
-        llm_request.config.system_instruction = system_instruction_text
-
     # --- Per-invocation token accounting (agent-local) ---
+    system_instruction_text = _extract_system_instruction_text(llm_request)
     total_prompt_chars = sum(
         len(part.text or "")
         for content in contents

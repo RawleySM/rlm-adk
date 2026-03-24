@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from rlm_adk.dashboard.flow_builder import build_flow_transcript
+from rlm_adk.dashboard.flow_models import FlowTranscript
 from rlm_adk.dashboard.live_loader import LiveDashboardLoader
 from rlm_adk.dashboard.live_models import (
     LiveContextBannerItem,
@@ -17,12 +19,12 @@ from rlm_adk.dashboard.live_models import (
     LiveSessionSummary,
 )
 from rlm_adk.dashboard.run_service import (
-    default_replay_fixture,
     list_provider_fake_fixtures,
     list_replay_fixtures,
+    prepare_provider_fake_launch,
     prepare_replay_launch,
+    resolve_fixture_file_path,
 )
-from rlm_adk.skills import DEFAULT_ENABLED_SKILL_NAMES, normalize_enabled_skill_names
 from rlm_adk.step_gate import step_gate
 
 
@@ -45,7 +47,7 @@ class LiveDashboardController:
     def __init__(self, loader: LiveDashboardLoader):
         self.loader = loader
         self.state = LiveDashboardState()
-        self.state.selected_skills = list(DEFAULT_ENABLED_SKILL_NAMES)
+        self.state.selected_skills = []
         self._launch_task: asyncio.Task | None = None
 
     def _refresh_available_sessions(self) -> None:
@@ -58,8 +60,7 @@ class LiveDashboardController:
     async def initialize(self) -> None:
         self.state.available_replay_fixtures = list_replay_fixtures()
         self.state.available_provider_fake_fixtures = list_provider_fake_fixtures()
-        if not self.state.replay_path:
-            self.state.replay_path = default_replay_fixture(self.state.available_replay_fixtures)
+        # No default pre-selection — dropdowns start empty, user picks on-deck fixture.
         self._refresh_available_sessions()
         if self.state.available_sessions and not self.state.selected_session_id:
             await self.select_session(self.state.available_sessions[0])
@@ -83,7 +84,7 @@ class LiveDashboardController:
         self.state.launch_error = None
 
     def set_selected_skills(self, selected_skills: list[str]) -> None:
-        self.state.selected_skills = list(normalize_enabled_skill_names(selected_skills))
+        self.state.selected_skills = list(selected_skills) if selected_skills else []
         self.state.launch_error = None
 
     async def launch_replay(self) -> str | None:
@@ -91,10 +92,19 @@ class LiveDashboardController:
             return None
 
         try:
-            handle = await prepare_replay_launch(
-                self.state.replay_path,
-                enabled_skills=self.state.selected_skills,
-            )
+            if self.state.selected_provider_fake_fixture:
+                handle = await prepare_provider_fake_launch(
+                    self.state.selected_provider_fake_fixture,
+                    enabled_skills=self.state.selected_skills,
+                )
+            elif self.state.replay_path:
+                handle = await prepare_replay_launch(
+                    self.state.replay_path,
+                    enabled_skills=self.state.selected_skills,
+                )
+            else:
+                self.state.launch_error = "No fixture selected"
+                return None
         except Exception as exc:
             self.state.launch_error = str(exc)
             self.state.last_error = str(exc)
@@ -304,6 +314,34 @@ class LiveDashboardController:
         )
         self.state.context_viewer_open = True
 
+    def open_on_deck_fixture_viewer(self) -> None:
+        """Load the on-deck fixture JSON and display it in the context viewer."""
+        import json as _json
+
+        if self.state.replay_path:
+            kind, value = "replay", self.state.replay_path
+        elif self.state.selected_provider_fake_fixture:
+            kind, value = "provider_fake", self.state.selected_provider_fake_fixture
+        else:
+            return
+
+        path = resolve_fixture_file_path(kind, value)
+        if path is None or not path.exists():
+            text = f"Fixture file not found: {value}"
+        else:
+            with path.open() as fh:
+                text = _json.dumps(_json.load(fh), indent=2)
+
+        display_label = value if kind == "replay" else f"provider_fake/{value}"
+        self.state.context_selection = LiveContextSelection(
+            label=f"Fixture: {display_label}",
+            raw_key=str(path or value),
+            scope="tool_variable",
+            source_kind="tool_variable",
+            text=text,
+        )
+        self.state.context_viewer_open = True
+
     def close_context_viewer(self) -> None:
         self.state.context_selection = None
         self.state.context_viewer_open = False
@@ -371,6 +409,10 @@ class LiveDashboardController:
             if node is not None:
                 nodes.append(node)
         return nodes
+
+    def flow_transcript(self) -> FlowTranscript:
+        """Build a linearized flow transcript from the invocation tree."""
+        return build_flow_transcript(self.invocation_tree())
 
     def session_summary(self) -> LiveSessionSummary:
         return self.loader.session_summary(self.state.selected_session_id)
@@ -517,15 +559,31 @@ class LiveDashboardController:
             child_panes = [
                 child for child in self.state.snapshot.panes if child.parent_pane_id == pane.pane_id
             ]
+            # Children are spawned during the selected iteration's REPL execution.
+            # Their timestamps fall AFTER the parent snapshot but BEFORE the next
+            # iteration snapshot.  When the latest iteration is selected, use the
+            # previous iteration's timestamp as lower_bound so children remain
+            # visible even when auto-following to the final iteration.
+            selected_ts = self._invocation_timestamp(selected)
+            prev_ts = self._previous_invocation_timestamp(visible_invocations, selected)
+            child_lower = prev_ts if prev_ts is not None else selected_ts
+            # parent_code_text: prefer the invocation that actually dispatched
+            # children (the one with REPL code), falling back to the selected.
+            code_source = selected
+            if not (selected.repl_expanded_code or selected.repl_submission):
+                for inv in reversed(visible_invocations):
+                    if inv.repl_expanded_code or inv.repl_submission:
+                        code_source = inv
+                        break
             for child in sorted(child_panes, key=lambda item: (item.depth, item.fanout_idx or -1)):
                 child_node = self._build_invocation_node(
                     child,
                     lineages=lineage,
-                    lower_bound=self._invocation_timestamp(selected),
+                    lower_bound=child_lower,
                     upper_bound=next_upper_bound,
-                    parent_code_text=selected.repl_expanded_code or selected.repl_submission,
-                    parent_stdout_text=selected.repl_stdout,
-                    parent_stderr_text=selected.repl_stderr,
+                    parent_code_text=code_source.repl_expanded_code or code_source.repl_submission,
+                    parent_stdout_text=code_source.repl_stdout,
+                    parent_stderr_text=code_source.repl_stderr,
                 )
                 if child_node is not None:
                     child_nodes.append(child_node)
@@ -545,6 +603,21 @@ class LiveDashboardController:
     @staticmethod
     def _invocation_timestamp(invocation: LiveInvocation) -> float:
         return float(invocation.raw_payload.get("timestamp") or 0.0)
+
+    @staticmethod
+    def _previous_invocation_timestamp(
+        visible_invocations: list[LiveInvocation],
+        selected: LiveInvocation,
+    ) -> float | None:
+        """Return the timestamp of the iteration before *selected*, or None."""
+        selected_ts = float(selected.raw_payload.get("timestamp") or 0.0)
+        prev_ts: float | None = None
+        for invocation in visible_invocations:
+            ts = float(invocation.raw_payload.get("timestamp") or 0.0)
+            if ts < selected_ts:
+                if prev_ts is None or ts > prev_ts:
+                    prev_ts = ts
+        return prev_ts
 
     def _selected_invocation_in_window(
         self,

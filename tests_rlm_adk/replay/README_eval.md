@@ -22,6 +22,14 @@ The `--replay` flag feeds the JSON file's `state` as initial session state and s
 
 ### Replay JSON Schema
 
+The ADK CLI replay format is defined by the `InputFile` Pydantic model in `google.adk.cli.cli`:
+
+```python
+class InputFile(BaseModel):
+  state: dict[str, object]
+  queries: list[str]
+```
+
 ```json
 {
   "state": {
@@ -33,8 +41,19 @@ The `--replay` flag feeds the JSON file's `state` as initial session state and s
 }
 ```
 
-- **`state`**: Initial session state.  `app:` prefixed keys configure the orchestrator.  Unprefixed keys (e.g. `repo_url`) are session-scoped and available for ADK instruction template resolution via `{key?}` syntax.
-- **`queries`**: One or more user prompts submitted sequentially.
+**These are the only two fields.** The schema has no `skills`, `tools`, `agent_config`, or other extension points — all agent behavior must be driven through `state` keys or embedded in the query prompts themselves. A `_time` field is automatically injected into `state` at runtime with the current ISO timestamp.
+
+- **`state`** (`dict[str, object]`): Initial session state passed to `session_service.create_session()`. `app:` prefixed keys configure the orchestrator. Unprefixed keys (e.g. `repo_url`) are session-scoped and available for ADK instruction template resolution via `{key?}` syntax.
+- **`queries`** (`list[str]`): One or more user prompts submitted sequentially. Each query creates a new invocation against the same session.
+
+#### Related ADK Formats (not used by `--replay`)
+
+| Format | File Type | Use Case | Extra Fields |
+|---|---|---|---|
+| **Conformance Recordings** | YAML (`generated-recordings.yaml`) | `adk conformance` — records exact LLM request/response pairs and tool calls for deterministic replay | `recordings[].agent_name`, `llm_recording`, `tool_recording`, `user_message_index` |
+| **Eval Cases** | Python (`EvalCase` model) | `adk eval` — evaluation with rubrics and expected outcomes | `eval_id`, `conversation`, `conversation_scenario`, `session_input`, `rubrics`, `final_session_state` |
+
+Neither of these formats supports a `skills` field either.
 
 ---
 

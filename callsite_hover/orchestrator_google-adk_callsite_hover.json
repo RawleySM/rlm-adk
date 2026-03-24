@@ -8,7 +8,8 @@
     "EventActions",
     "InvocationContext",
     "LlmAgent",
-    "SetModelResponseTool"
+    "SetModelResponseTool",
+    "SkillToolset"
   ],
   "call_sites": [
     {
@@ -16,11 +17,11 @@
       "instances": [
         {
           "name": "set_model_response_tool",
-          "line": 337
+          "line": 340
         }
       ],
       "hover": {
-        "markdown": "```python\nclass SetModelResponseTool(output_schema: type[BaseModel])\n```\n---\nInitialize the tool with the expected output schema.\n\nArgs:  \n&nbsp;&nbsp;output\\_schema: The pydantic model class defining the expected output  \n&nbsp;&nbsp;&nbsp;&nbsp;structure."
+        "markdown": "```python\nclass SetModelResponseTool(output_schema: SchemaType)\n```\n---\nInitialize the tool with the expected output schema.\n\nArgs:  \n&nbsp;&nbsp;output\\_schema: The output schema. Supports all types from SchemaUnion:\n  - type\\[BaseModel\\]: A pydantic model class (e.g., MySchema)\n  - list\\[type\\[BaseModel\\]\\]: A generic list type (e.g., list\\[MySchema\\])\n  - list\\[primitive\\]: e.g., list\\[str\\], list\\[int\\]\n  - dict: Raw dict schemas\n  - Schema: Google's Schema type"
       }
     },
     {
@@ -28,39 +29,51 @@
       "instances": [
         {
           "name": null,
-          "line": 479
+          "line": 489
         },
         {
           "name": null,
-          "line": 488
+          "line": 498
         },
         {
           "name": null,
-          "line": 557
+          "line": 567
         },
         {
           "name": null,
-          "line": 594
+          "line": 604
         },
         {
           "name": null,
-          "line": 608
+          "line": 618
         },
         {
           "name": null,
-          "line": 620
+          "line": 630
         },
         {
           "name": null,
-          "line": 633
+          "line": 643
         },
         {
           "name": null,
-          "line": 525
+          "line": 535
         }
       ],
       "hover": {
-        "markdown": "```python\nclass Event(\n    *,\n    model_version: str | None = None,\n    content: Content | None = None,\n    grounding_metadata: GroundingMetadata | None = None,\n    partial: bool | None = None,\n    turn_complete: bool | None = None,\n    finish_reason: FinishReason | None = None,\n    error_code: str | None = None,\n    error_message: str | None = None,\n    interrupted: bool | None = None,\n    custom_metadata: dict[str, Any] | None = None,\n    usage_metadata: GenerateContentResponseUsageMetadata | None = None,\n    live_session_resumption_update: LiveServerSessionResumptionUpdate | None = None,\n    input_transcription: Transcription | None = None,\n    output_transcription: Transcription | None = None,\n    avg_logprobs: float | None = None,\n    logprobs_result: LogprobsResult | None = None,\n    cache_metadata: CacheMetadata | None = None,\n    citation_metadata: CitationMetadata | None = None,\n    interaction_id: str | None = None,\n    invocation_id: str = '',\n    author: str,\n    actions: EventActions = EventActions,\n    long_running_tool_ids: set[str] | None = None,\n    branch: str | None = None,\n    id: str = '',\n    timestamp: float = lambda : datetime.now().timestamp()\n)\n```\n---\nRepresents an event in a conversation between agents and users.\n\nIt is used to store the content of the conversation, as well as the actions\ntaken by the agents like function calls, etc."
+        "markdown": "```python\nclass Event(\n    *,\n    model_version: str | None = None,\n    content: Content | None = None,\n    grounding_metadata: GroundingMetadata | None = None,\n    partial: bool | None = None,\n    turn_complete: bool | None = None,\n    finish_reason: FinishReason | None = None,\n    error_code: str | None = None,\n    error_message: str | None = None,\n    interrupted: bool | None = None,\n    custom_metadata: dict[str, Any] | None = None,\n    usage_metadata: GenerateContentResponseUsageMetadata | None = None,\n    live_session_resumption_update: LiveServerSessionResumptionUpdate | None = None,\n    input_transcription: Transcription | None = None,\n    output_transcription: Transcription | None = None,\n    avg_logprobs: float | None = None,\n    logprobs_result: LogprobsResult | None = None,\n    cache_metadata: CacheMetadata | None = None,\n    citation_metadata: CitationMetadata | None = None,\n    interaction_id: str | None = None,\n    invocation_id: str = '',\n    author: str,\n    actions: EventActions = EventActions,\n    long_running_tool_ids: set[str] | None = None,\n    branch: str | None = None,\n    id: str = '',\n    timestamp: float = lambda : platform_time.get_time()\n)\n```\n---\nRepresents an event in a conversation between agents and users.\n\nIt is used to store the content of the conversation, as well as the actions\ntaken by the agents like function calls, etc."
+      }
+    },
+    {
+      "symbol": "SkillToolset",
+      "instances": [
+        {
+          "name": null,
+          "line": 347
+        }
+      ],
+      "hover": {
+        "markdown": "```python\nclass SkillToolset(\n    skills: list[Skill],\n    *,\n    code_executor: BaseCodeExecutor | None = None,\n    script_timeout: int = _DEFAULT_SCRIPT_TIMEOUT,\n    additional_tools: list[ToolUnion] | None = None\n)\n```\n---\nInitializes the SkillToolset.\n\nArgs:  \n&nbsp;&nbsp;skills: List of skills to register.  \n&nbsp;&nbsp;code\\_executor: Optional code executor for script execution.  \n&nbsp;&nbsp;script\\_timeout: Timeout in seconds for shell script execution via  \n&nbsp;&nbsp;&nbsp;&nbsp;subprocess.run. Defaults to 300 seconds. Does not apply to Python\nscripts executed via exec()."
       }
     },
     {
@@ -68,27 +81,27 @@
       "instances": [
         {
           "name": null,
-          "line": 482
+          "line": 492
         },
         {
           "name": null,
-          "line": 560
+          "line": 570
         },
         {
           "name": null,
-          "line": 597
+          "line": 607
         },
         {
           "name": null,
-          "line": 623
+          "line": 633
         },
         {
           "name": null,
-          "line": 528
+          "line": 538
         }
       ],
       "hover": {
-        "markdown": "```python\nclass EventActions(\n    *,\n    skip_summarization: bool | None = None,\n    state_delta: dict[str, object] = dict,\n    artifact_delta: dict[str, int] = dict,\n    transfer_to_agent: str | None = None,\n    escalate: bool | None = None,\n    requested_auth_configs: dict[str, AuthConfig] = dict,\n    requested_tool_confirmations: dict[str, ToolConfirmation] = dict,\n    compaction: EventCompaction | None = None,\n    end_of_agent: bool | None = None,\n    agent_state: dict[str, Any] | None = None,\n    rewind_before_invocation_id: str | None = None\n)\n```\n---\nRepresents the actions attached to an event."
+        "markdown": "```python\nclass EventActions(\n    *,\n    skip_summarization: bool | None = None,\n    state_delta: dict[str, object] = dict,\n    artifact_delta: dict[str, int] = dict,\n    transfer_to_agent: str | None = None,\n    escalate: bool | None = None,\n    requested_auth_configs: dict[str, AuthConfig] = dict,\n    requested_tool_confirmations: dict[str, ToolConfirmation] = dict,\n    compaction: EventCompaction | None = None,\n    end_of_agent: bool | None = None,\n    agent_state: dict[str, Any] | None = None,\n    rewind_before_invocation_id: str | None = None,\n    render_ui_widgets: list[UiWidget] | None = None\n)\n```\n---\nRepresents the actions attached to an event."
       }
     }
   ],
@@ -98,11 +111,11 @@
       "usages": [
         {
           "context": "param:reasoning_agent",
-          "line": 125
+          "line": 128
         },
         {
           "context": "variable:reasoning_agent",
-          "line": 226
+          "line": 229
         }
       ],
       "hover": {
@@ -114,7 +127,7 @@
       "usages": [
         {
           "context": "base:RLMOrchestratorAgent",
-          "line": 209
+          "line": 212
         }
       ],
       "hover": {
@@ -126,7 +139,7 @@
       "usages": [
         {
           "context": "param:ctx",
-          "line": 242
+          "line": 245
         }
       ],
       "hover": {

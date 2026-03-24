@@ -1,0 +1,54 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/skills/obsolete/skill_toolset.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "BaseTool",
+    "ToolContext",
+    "format_skills_as_xml"
+  ],
+  "call_sites": [
+    {
+      "symbol": "format_skills_as_xml",
+      "instances": [
+        {
+          "name": "xml",
+          "line": 79
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(function) def format_skills_as_xml(skills: List[Frontmatter | Skill]) -> str\n```\n---\nFormats available skills into a standard XML string.\n\nArgs:  \n&nbsp;&nbsp;skills: A list of skill frontmatter or full skill objects.\n\nReturns:  \n&nbsp;&nbsp;&nbsp;&nbsp;XML string with &lt;available\\_skills&gt; block containing each skill's\nname and description."
+      }
+    }
+  ],
+  "type_annotations": [
+    {
+      "symbol": "BaseTool",
+      "usages": [
+        {
+          "context": "base:RLMSkillToolset",
+          "line": 28
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(class) BaseTool\n```\n---\nThe base class for all tools."
+      }
+    },
+    {
+      "symbol": "ToolContext",
+      "usages": [
+        {
+          "context": "param:tool_context",
+          "line": 72
+        },
+        {
+          "context": "param:tool_context",
+          "line": 89
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(type) ToolContext = Context\n```\n---\nThe context within an agent run."
+      }
+    }
+  ]
+}

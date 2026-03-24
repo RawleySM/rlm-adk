@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass
@@ -29,7 +29,7 @@ class REPLTrace:
     peak_memory_bytes: int = 0
     exceptions: list[dict[str, Any]] = field(default_factory=list)
     data_flow_edges: list[tuple[int, int]] = field(default_factory=list)
-    execution_mode: str = "sync"  # "sync" | "async"
+    execution_mode: Literal["sync", "thread_bridge"] = "sync"
     submitted_code_chars: int = 0
     submitted_code_hash: str | None = None
     submitted_code_preview: str = ""
