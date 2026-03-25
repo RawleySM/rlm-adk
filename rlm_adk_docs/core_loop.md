@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-22 -->
+<!-- validated: 2026-03-24 -->
 
 # RLM-ADK Core Loop Reference
 
@@ -107,39 +107,19 @@ REPLTool(
 1. Persist submitted code metadata to tool_context.state
 2. Save code as versioned artifact
 3. Increment call count; if > max_calls, return error immediately
-4. Expand synthetic skill imports (expand_skill_imports())
-   -> If expansion occurred, write REPL_EXPANDED_CODE, REPL_EXPANDED_CODE_HASH,
-      REPL_SKILL_EXPANSION_META, REPL_DID_EXPAND to tool_context.state
-5. Build _rlm_state snapshot from EXPOSED_STATE_KEYS (depth-scoped where applicable)
+4. Build _rlm_state snapshot from EXPOSED_STATE_KEYS (depth-scoped where applicable)
    -> Inject runtime lineage metadata: _rlm_depth, _rlm_fanout_idx, _rlm_agent_name
    -> Write into repl.globals["_rlm_state"] (read-only, AR-CRIT-001 compliant)
-6. AST detection: has_llm_calls(expanded_code)?
-   YES -> rewrite_for_async(expanded_code) -> compile -> exec -> await _repl_exec()
-          Uses repl.execute_code_async()
-   NO  -> repl.execute_code() (sync, with timeout)
-7. Call post_dispatch_state_patch_fn() to apply working-state patches into tool_context.state
-8. Write LAST_REPL_RESULT summary dict to tool_context.state
-9. If output > summarization_threshold, set skip_summarization = True
-10. Filter locals to JSON-serializable values and return
+5. Execute code via repl.execute_code() (sync, with timeout)
+   -> llm_query() calls inside REPL code use the thread bridge
+      (run_coroutine_threadsafe) to dispatch child orchestrators without
+      AST rewriting — the sync callable blocks the REPL thread until the
+      async child completes on the event loop
+6. Call post_dispatch_state_patch_fn() to apply working-state patches into tool_context.state
+7. Write LAST_REPL_RESULT summary dict to tool_context.state
+8. If output > summarization_threshold, set skip_summarization = True
+9. Filter locals to JSON-serializable values and return
 ```
-
-### Skill Import Expansion Pass (Step 4)
-
-**File:** `rlm_adk/repl/skill_registry.py`
-
-Before AST analysis, REPLTool calls `expand_skill_imports(code)` from the `SkillRegistry` singleton. This expansion pass detects synthetic `from rlm_repl_skills.<module> import <symbol>` statements in the submitted code and replaces them with inline source blocks.
-
-The expansion pipeline:
-
-1. Parse submitted code to AST.
-2. Detect `ImportFrom` nodes targeting the `rlm_repl_skills.*` namespace.
-3. If none found, return the original code unchanged (`did_expand=False`).
-4. Resolve requested symbols and their transitive dependencies via the registry.
-5. Topologically sort all required exports by their `requires` dependency graph.
-6. Check for name conflicts between expanded symbols and user-defined names in the submitted code (hard error on conflict).
-7. Reassemble: normal imports first, then skill source blocks (with `# --- skill: module.name ---` markers), then remaining user code.
-
-The expanded code is what flows into `has_llm_calls()` and `rewrite_for_async()`. This makes `llm_query()` calls inside skill source visible to the AST rewriter, which would otherwise miss them if they were hidden behind a runtime import. The original submitted code is preserved separately for observability (see `REPL_SUBMITTED_CODE` vs `REPL_EXPANDED_CODE` in state).
 
 ### Call limit enforcement
 
@@ -159,7 +139,7 @@ Persistent Python namespace with safe builtins and async LM dispatch hooks. Whil
 
 This backend engine handles the complex mechanics of execution:
 - **IPython Integration:** Supports rich IPython display outputs and magic commands (if enabled).
-- **Sync/Async Execution:** Manages the threading/event loop contexts for running sync code with timeouts vs. awaiting AST-rewritten async code.
+- **Sync Execution:** Manages the threading context for running sync code with timeouts. The thread bridge handles async dispatch transparently within sync execution.
 - **Debugpy Arming:** Configures `debugpy` attachments when triggered via `REPLDebugConfig` for step-through debugging.
 
 ### LocalREPL Constructor
@@ -175,9 +155,7 @@ LocalREPL(depth: int = 1, sync_timeout: float | None = None)
 | Method | Signature | Purpose |
 |--------|-----------|---------|
 | `execute_code` | `(code, trace?) -> REPLResult` | Sync execution with timeout via ThreadPoolExecutor |
-| `execute_code_async` | `(code, repl_exec_fn, trace?) -> REPLResult` | Async execution for AST-rewritten code |
-| `set_llm_query_fns` | `(llm_query_fn, llm_query_batched_fn)` | Set sync query fns (always raises in ADK mode) |
-| `set_async_llm_query_fns` | `(llm_query_async_fn, llm_query_batched_async_fn)` | Set async query fns used by rewritten code |
+| `set_llm_query_fns` | `(llm_query_fn, llm_query_batched_fn)` | Set sync bridge closures from thread_bridge.py |
 | `cleanup` | `()` | Remove temp dir, clear globals/locals |
 
 ### Persistent namespace
@@ -198,10 +176,8 @@ Blocked (set to `None`): `eval`, `compile`, `input`, `globals`.
 |----------|---------|
 | `FINAL_VAR(var_name)` | Return a variable's value as a string; errors helpfully if not found |
 | `SHOW_VARS()` | List all non-underscore variables with their types |
-| `llm_query(prompt, ...)` | Sync stub that raises RuntimeError (AST rewriter converts to async) |
-| `llm_query_async(prompt, ...)` | Async dispatch to child orchestrator (injected by orchestrator) |
-| `llm_query_batched(prompts, ...)` | Sync stub (same as llm_query) |
-| `llm_query_batched_async(prompts, ...)` | Async batched dispatch (injected by orchestrator) |
+| `llm_query(prompt, ...)` | Sync bridge closure — blocks REPL thread, dispatches child via run_coroutine_threadsafe |
+| `llm_query_batched(prompts, ...)` | Sync batched bridge closure — same mechanism, returns list of LLMResult |
 | `probe_repo(source)` | Quick repo stats (files, chars, tokens) |
 | `pack_repo(source)` | Entire repo as XML string |
 | `shard_repo(source, max_bytes)` | Directory-aware repo chunking |
@@ -209,40 +185,34 @@ Blocked (set to `None`): `eval`, `compile`, `input`, `globals`.
 
 ### I/O isolation
 
-Sync: context manager replaces `sys.stdout`/`sys.stderr` under `_EXEC_LOCK`. Async: task-local `ContextVar` buffers prevent cross-contamination. A custom `open()` resolves relative paths against `temp_dir` (no `os.chdir()`).
+Context manager replaces `sys.stdout`/`sys.stderr` under `_EXEC_LOCK`. A custom `open()` resolves relative paths against `temp_dir` (no `os.chdir()`).
 
 ---
 
-## 5. AST Rewriter
+## 5. Thread Bridge
 
-**File:** `rlm_adk/repl/ast_rewriter.py`
+**File:** `rlm_adk/repl/thread_bridge.py`
 
-Transforms synchronous REPL code to async when it contains LM calls.
+Bridges sync REPL code to async child dispatch without AST rewriting. The REPL runs user code synchronously in a worker thread; when that code calls `llm_query()`, the thread bridge uses `asyncio.run_coroutine_threadsafe()` to schedule the async dispatch coroutine on the main event loop and blocks the worker thread until the result is ready.
 
-### Detection: `has_llm_calls(code) -> bool` (line 15)
+### How it works
 
-Parses code to AST and walks for `ast.Call` nodes where `func.id` is `llm_query` or `llm_query_batched`. Returns `False` on `SyntaxError` (caught later during execution).
+1. The orchestrator creates sync bridge closures via `create_bridge_closures()` in `thread_bridge.py`.
+2. These closures (`llm_query_fn`, `llm_query_batched_fn`) are injected into `repl.globals` as `llm_query` and `llm_query_batched`.
+3. When REPL code calls `llm_query("sub-question")`, the bridge closure:
+   a. Gets the running event loop via the captured loop reference.
+   b. Submits `llm_query_async("sub-question")` to the loop with `run_coroutine_threadsafe()`.
+   c. Blocks the REPL thread on `future.result(timeout=...)` until the child completes.
+   d. Returns the `LLMResult` directly to the calling code.
+4. No AST transformation is needed -- `llm_query()` is a real sync callable.
 
-### Transformation: `rewrite_for_async(code) -> ast.Module` (line 161)
+### Depth limit and timeout
 
-```
-Step 1: Parse code to AST
-Step 2: LlmCallRewriter transforms calls:
-        llm_query(p)         -> await llm_query_async(p)
-        llm_query_batched(ps) -> await llm_query_batched_async(ps)
-Step 3: _promote_functions_to_async (transitive closure):
-        If a FunctionDef contains await, convert to AsyncFunctionDef
-        Wrap call sites of promoted functions with await
-        Repeat until no new promotions needed
-Step 4: Wrap entire body in: async def _repl_exec(): <body>; return locals()
-Step 5: fix_missing_locations and return ast.Module
-```
+The bridge enforces depth limits and per-call timeouts. If `depth + 1 >= max_depth`, it returns an error `LLMResult` immediately without spawning a child. Timeouts are configurable via `RLM_THREAD_BRIDGE_TIMEOUT`.
 
-The caller (REPLTool) then: `compile(tree)` -> `exec(compiled, ns)` -> `ns["_repl_exec"]` -> `await repl.execute_code_async(code, repl_exec_fn)`.
+### Replaces
 
-### Example
-
-`result = llm_query("Summarize")` becomes `result = await llm_query_async("Summarize")` inside `async def _repl_exec(): ... return locals()`.
+The thread bridge replaces the deleted `ast_rewriter.py` module. The old approach detected `llm_query()` calls via AST analysis, rewrote them to `await llm_query_async()`, promoted containing functions to async, and wrapped everything in `async def _repl_exec()`. The thread bridge eliminates this complexity entirely.
 
 ---
 
@@ -326,7 +296,7 @@ reasoning_agent.run_async(ctx)  [ADK native loop]
   |       +-- execute_code:
   |       |     REPLTool.run_async(code=...)
   |       |       +-- Build _rlm_state snapshot -> repl.globals
-  |       |       +-- AST check -> sync or async execution
+  |       |       +-- Sync execution (llm_query uses thread bridge for child dispatch)
   |       |       +-- post_dispatch_state_patch_fn() -> tool_context.state
   |       |       +-- Return {stdout, stderr, variables}
   |       |     Drain _child_event_queue (yield child events)
@@ -359,9 +329,10 @@ Runner commits state, forwards events upstream
 When REPL code calls `llm_query("sub-question")`:
 
 ```
-1. REPLTool detects llm_query via has_llm_calls() -> True
-2. AST rewriter: llm_query("sub-question") -> await llm_query_async("sub-question")
-3. llm_query_async() closure (from dispatch.py) executes:
+1. llm_query() bridge closure (from thread_bridge.py) executes in the REPL thread:
+   a. Calls run_coroutine_threadsafe(llm_query_async("sub-question"), loop)
+   b. Blocks the REPL thread on future.result(timeout=...)
+2. llm_query_async() closure (from dispatch.py) executes on the event loop:
    a. Delegates to llm_query_batched_async(["sub-question"])
    b. Depth limit check: if depth + 1 >= max_depth, return error LLMResult
    c. create_child_orchestrator(model, depth=depth+1, prompt="sub-question")
@@ -372,8 +343,8 @@ When REPL code calls `llm_query("sub-question")`:
       - Depth-suffixed state keys: "iteration_count@d1", "final_answer@d1"
       - include_repomix=False)
    e. Extract LLMResult from child's completion
-4. LLMResult returned to parent REPL as the await value
-5. Parent code continues with the child's answer as a string
+3. LLMResult returned to parent REPL code as the return value
+4. Parent code continues with the child's answer as a string
 ```
 
 ### Depth scoping
@@ -383,7 +354,7 @@ When REPL code calls `llm_query("sub-question")`:
 - `depth == 0`: returns `key` unchanged
 - `depth > 0`: returns `f"{key}@d{depth}"`
 
-This prevents state collisions when child orchestrators run within the same session. The `DEPTH_SCOPED_KEYS` set defines which keys require depth suffixes (iteration counts, final answers, token counts, submitted code metadata).
+This prevents state collisions when child orchestrators run within the same session. The `DEPTH_SCOPED_KEYS` set defines which keys require depth suffixes (iteration counts, final answers, submitted code metadata).
 
 ### Depth limits
 

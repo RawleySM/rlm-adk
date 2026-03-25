@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import os
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -35,6 +36,7 @@ def make_sync_llm_query(
     *,
     timeout: float = 300.0,
     max_thread_depth: int | None = None,
+    cancelled: threading.Event | None = None,
 ) -> Callable[..., Any]:
     """Create a sync ``llm_query()`` callable that dispatches to *loop*.
 
@@ -49,6 +51,11 @@ def make_sync_llm_query(
     max_thread_depth:
         Maximum recursive thread-bridge depth.  Defaults to
         ``RLM_MAX_THREAD_DEPTH`` env var, then 10.
+    cancelled:
+        Optional ``threading.Event`` set by ``execute_code_threaded``
+        when the outer timeout fires.  Checked before each
+        ``run_coroutine_threadsafe`` to prevent orphaned worker threads
+        from submitting new child dispatches (GAP-EL-004).
 
     Returns
     -------
@@ -65,6 +72,11 @@ def make_sync_llm_query(
         if depth >= _max_depth:
             raise RuntimeError(
                 f"Thread depth limit exceeded: {depth}/{_max_depth}"
+            )
+        if cancelled is not None and cancelled.is_set():
+            raise RuntimeError(
+                "llm_query cancelled: parent code block timed out. "
+                "No further child dispatches are allowed."
             )
         _THREAD_DEPTH.set(depth + 1)
         try:
@@ -83,6 +95,7 @@ def make_sync_llm_query_batched(
     loop: asyncio.AbstractEventLoop,
     *,
     timeout: float = 300.0,
+    cancelled: threading.Event | None = None,
 ) -> Callable[..., Any]:
     """Create a sync ``llm_query_batched()`` callable that dispatches to *loop*.
 
@@ -94,6 +107,11 @@ def make_sync_llm_query_batched(
         The running event loop (must be alive in another thread).
     timeout:
         Seconds to wait for the async dispatch to complete.
+    cancelled:
+        Optional ``threading.Event`` set by ``execute_code_threaded``
+        when the outer timeout fires.  Checked before each
+        ``run_coroutine_threadsafe`` to prevent orphaned worker threads
+        from submitting new child dispatches (GAP-EL-004).
 
     Returns
     -------
@@ -103,6 +121,11 @@ def make_sync_llm_query_batched(
     _timeout = timeout
 
     def llm_query_batched(prompts: list[str], **kwargs: Any) -> list[Any]:
+        if cancelled is not None and cancelled.is_set():
+            raise RuntimeError(
+                "llm_query cancelled: parent code block timed out. "
+                "No further child dispatches are allowed."
+            )
         future = asyncio.run_coroutine_threadsafe(
             llm_query_batched_async(prompts, **kwargs), loop
         )

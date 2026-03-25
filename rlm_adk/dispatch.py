@@ -112,7 +112,7 @@ def create_dispatch_closures(
     call_log_sink: list | None = None,
     trace_sink: list | None = None,
     depth: int = 0,
-    max_depth: int = 5,
+    max_depth: int = 10,
     instruction_router: Any = None,
     fanout_idx: int = 0,
     child_event_queue: "asyncio.Queue[Event] | None" = None,
@@ -530,7 +530,7 @@ def create_dispatch_closures(
                         batch_start_index + idx,
                         str(all_results[idx]),
                     )
-                current_trace.data_flow_edges = _data_flow.get_edges()
+                current_trace.data_flow_edges.extend(_data_flow.get_edges())
 
         return all_results
 

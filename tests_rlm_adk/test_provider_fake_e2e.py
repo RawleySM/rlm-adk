@@ -55,11 +55,17 @@ _WORKER_FIXTURE_EXCLUSIONS = {
     "skill_recursive_ping_e2e",
     "skill_thread_bridge",
     "skill_arch_test",
-    # Legacy skill fixtures from pre-thread-bridge era (AST rewriter).
-    # skill_expansion used source expansion which was removed in Phase 0B.
-    # skill_helper used old skill system patterns also removed.
-    "skill_expansion",
-    "skill_helper",
+    # Thread-bridge-incompatible fixtures (GAP-DC-009). These encode response
+    # sequences designed for the deleted AST-rewriter dispatch model (1 API call
+    # per worker). Under thread bridge, each llm_query() spawns a child
+    # orchestrator that consumes multiple responses, causing sequence exhaustion.
+    # fake_polya_t4_debate also imports from the deleted rlm_repl_skills namespace.
+    # See rlm_adk_docs/thread_bridge.md "Known Remaining Work" for migration plan.
+    "adaptive_confidence_gating",
+    "deterministic_guardrails",
+    "full_pipeline",
+    "structured_control_plane",
+    "fake_polya_t4_debate",
 }
 
 

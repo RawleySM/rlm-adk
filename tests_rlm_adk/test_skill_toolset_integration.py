@@ -397,15 +397,19 @@ def _make_callback_context():
 
 
 class TestReasoningBeforeModelSkillPreservation:
-    """Cycle 16: reasoning_before_model must NOT destroy SkillToolset L1 XML."""
+    """Cycle 16: reasoning_before_model must NOT destroy SkillToolset L1 XML.
+
+    GAP-CB-001 fix: reasoning_before_model is now observe-only. It does NOT
+    modify system_instruction at all, so SkillToolset XML is trivially
+    preserved. These tests verify the observe-only contract.
+    """
 
     def test_toolset_l1_xml_survives_before_model_callback(self) -> None:
         """When system_instruction contains <available_skills> XML, it survives the callback.
 
-        The CRITICAL property: reasoning_before_model must use append_instructions
-        to add the dynamic instruction, NOT overwrite system_instruction. This test
-        verifies the structural contract by checking that the final system_instruction
-        is built via appending (contains the original text as a prefix).
+        reasoning_before_model is observe-only (GAP-CB-001) — it does not
+        modify system_instruction. SkillToolset XML is preserved because the
+        callback never touches system_instruction.
         """
         from google.genai import types
 
@@ -442,28 +446,22 @@ class TestReasoningBeforeModelSkillPreservation:
 
         reasoning_before_model(callback_ctx, llm_request)
 
-        # The system_instruction MUST still contain <available_skills>
+        # system_instruction must be EXACTLY unchanged (observe-only callback)
         final_si = llm_request.config.system_instruction
-        assert "<available_skills>" in final_si, (
-            f"SkillToolset XML was destroyed by reasoning_before_model. "
-            f"Final system_instruction: {final_si[:200]}..."
+        assert final_si == combined_si, (
+            f"reasoning_before_model modified system_instruction (GAP-CB-001). "
+            f"Expected unchanged: {combined_si!r}, got: {final_si!r}"
         )
+        # SkillToolset XML trivially preserved
+        assert "<available_skills>" in final_si
         assert "recursive-ping" in final_si
-        # Dynamic instruction should also be present
-        assert "Current iteration" in final_si
-        # CRITICAL structural check: the original system_instruction is preserved
-        # as a PREFIX (not reconstructed from extract + overwrite). If the callback
-        # uses append_instructions, the original text appears as-is at the start.
-        assert final_si.startswith(combined_si), (
-            "reasoning_before_model appears to overwrite system_instruction "
-            "instead of appending. The original content should be a prefix."
-        )
 
-    def test_dynamic_instruction_appended_not_overwritten(self) -> None:
-        """The callback uses append_instructions rather than direct assignment.
+    def test_callback_does_not_call_append_instructions(self) -> None:
+        """The callback is observe-only and must NOT call append_instructions.
 
-        We verify this by checking that append_instructions is called on the
-        llm_request, proving the architectural contract.
+        GAP-CB-001 fix: the old code extracted all content text and appended
+        it to system_instruction. The fixed callback does not modify the
+        request at all.
         """
         from unittest.mock import patch
 
@@ -486,9 +484,10 @@ class TestReasoningBeforeModelSkillPreservation:
         )
         callback_ctx = _make_callback_context()
 
-        # Spy on append_instructions to verify the callback uses it
-        original_append = llm_request.append_instructions
+        # Spy on append_instructions to verify the callback does NOT use it
         append_calls = []
+
+        original_append = llm_request.append_instructions
 
         def tracking_append(self_arg, instructions):
             append_calls.append(instructions)
@@ -497,16 +496,14 @@ class TestReasoningBeforeModelSkillPreservation:
         with patch.object(type(llm_request), "append_instructions", tracking_append):
             reasoning_before_model(callback_ctx, llm_request)
 
-        # The callback MUST use append_instructions for the dynamic portion
-        assert len(append_calls) >= 1, (
-            "reasoning_before_model must use llm_request.append_instructions() "
-            "to add the dynamic instruction, not direct assignment to "
-            "config.system_instruction. This prevents destroying content "
-            "appended by SkillToolset."
+        # The callback must NOT call append_instructions (observe-only)
+        assert len(append_calls) == 0, (
+            "reasoning_before_model called append_instructions but should be "
+            "observe-only (GAP-CB-001). ADK handles instruction placement natively."
         )
 
-    def test_no_toolset_preserves_existing_behavior(self) -> None:
-        """Without SkillToolset (no skill XML), callback behavior is unchanged."""
+    def test_no_toolset_system_instruction_unchanged(self) -> None:
+        """Without SkillToolset, system_instruction is still unchanged."""
         from google.genai import types
 
         from rlm_adk.callbacks.reasoning import reasoning_before_model
@@ -529,8 +526,10 @@ class TestReasoningBeforeModelSkillPreservation:
         reasoning_before_model(callback_ctx, llm_request)
 
         final_si = llm_request.config.system_instruction
-        assert "You are a reasoning agent" in final_si
-        assert "Iteration: 1" in final_si
+        assert final_si == static_instruction, (
+            f"reasoning_before_model modified system_instruction. "
+            f"Expected: {static_instruction!r}, got: {final_si!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

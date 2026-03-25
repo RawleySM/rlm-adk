@@ -34,6 +34,7 @@ from rlm_adk.state import (
     DYN_REPO_URL,
     DYN_ROOT_PROMPT,
     DYN_SKILL_INSTRUCTION,
+    REPL_SKILL_GLOBALS_INJECTED,
     REPL_SUBMITTED_CODE,
 )
 from rlm_adk.utils.prompts import RLM_DYNAMIC_INSTRUCTION
@@ -49,25 +50,21 @@ _KNOWN_DYNAMIC_KEYS = list(
 )
 _KNOWN_STATE_KEYS = sorted(DEPTH_SCOPED_KEYS)
 
-# Observability state keys — written by dispatch.py, orchestrator, and plugins.
+# Observability state keys still written to session state by production code.
+# Post-thread-bridge: ObservabilityPlugin uses instance-local counters only;
+# most obs:* keys are no longer written to state. Only keys still written
+# by orchestrator.py or plugins are listed here.
 _KNOWN_OBS_KEYS = [
-    "obs:total_calls",
-    "obs:total_input_tokens",
-    "obs:total_output_tokens",
-    "obs:child_dispatch_count",
-    "obs:child_dispatch_latency_ms",
-    "obs:child_total_batch_dispatches",
-    "obs:child_error_counts",
-    "obs:bug13_suppress_count",
-    "obs:rewrite_count",
-    "obs:rewrite_total_ms",
-    "obs:rewrite_failure_count",
-    "obs:tool_invocation_summary",
     "obs:reasoning_retry_count",
     "obs:reasoning_retry_delay_ms",
     "obs:litellm_total_cost",
 ]
 _KNOWN_OBS_PREFIXES = ["obs:model_usage:", "obs:per_iteration_token_breakdown"]
+
+# Skill system keys — written by orchestrator at init (thread bridge era).
+_KNOWN_SKILL_KEYS = [
+    REPL_SKILL_GLOBALS_INJECTED,
+]
 
 # Completion plane keys — written when the agent finishes reasoning.
 _KNOWN_COMPLETION_KEYS = [
@@ -411,6 +408,27 @@ class LiveDashboardLoader:
                     raw_key=base_key,
                     scope="observability",
                     present=False,
+                    token_count=0,
+                    token_count_is_exact=False,
+                    source_kind="state_key",
+                    display_value_preview=display_text[:240],
+                )
+            )
+
+        # ---- Skill plane: skill globals injected via thread bridge ----
+        for key in _KNOWN_SKILL_KEYS:
+            item = state_lookup.get(key)
+            if item is None:
+                continue
+            display_text = _display_text(item.value)
+            if not display_text or display_text in ("None", "[]", "{}"):
+                continue
+            banner_items.append(
+                LiveContextBannerItem(
+                    label=key,
+                    raw_key=key,
+                    scope="skill_plane",
+                    present=True,
                     token_count=0,
                     token_count_is_exact=False,
                     source_kind="state_key",
@@ -776,7 +794,6 @@ class LiveDashboardLoader:
                 state_items=latest.state_items,
                 child_summaries=latest.child_summaries,
                 repl_submission=latest.repl_submission,
-                repl_expanded_code=latest.repl_expanded_code,
                 repl_stdout=latest.repl_stdout,
                 repl_stderr=latest.repl_stderr,
                 reasoning_visible_text=latest.reasoning_visible_text,
@@ -1068,7 +1085,6 @@ class LiveDashboardLoader:
                 if latest_repl.get(REPL_SUBMITTED_CODE)
                 else ""
             ),
-            repl_expanded_code="",
             repl_stdout=repl_stdout,
             repl_stderr=repl_stderr,
             reasoning_visible_text=str(

@@ -302,10 +302,17 @@ class RLMOrchestratorAgent(BaseAgent):
             )
             # Wire sync bridge: create sync callables that dispatch to the
             # event loop from the REPL worker thread via run_coroutine_threadsafe.
+            # Pass the REPL's cancellation token so that orphaned worker
+            # threads abort at the llm_query() boundary after a timeout
+            # (GAP-EL-004).
             _loop = asyncio.get_running_loop()
             repl.set_llm_query_fns(
-                make_sync_llm_query(llm_query_async, _loop),
-                make_sync_llm_query_batched(llm_query_batched_async, _loop),
+                make_sync_llm_query(
+                    llm_query_async, _loop, cancelled=repl._cancelled,
+                ),
+                make_sync_llm_query_batched(
+                    llm_query_batched_async, _loop, cancelled=repl._cancelled,
+                ),
             )
         # Create telemetry finalizer from SqliteTracingPlugin (GAP-06 fix).
         # The finalizer ensures tool telemetry rows are completed even when

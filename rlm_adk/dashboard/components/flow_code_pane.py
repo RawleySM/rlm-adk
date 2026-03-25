@@ -78,7 +78,7 @@ def render_flow_code_pane(
     on_click_llm_query_line=None,
 ) -> None:
     """Render the full code cell with line numbers and syntax highlighting."""
-    code = cell.code or cell.expanded_code
+    code = cell.code
     if not code.strip():
         return
 

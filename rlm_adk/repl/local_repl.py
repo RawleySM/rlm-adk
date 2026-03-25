@@ -193,6 +193,10 @@ class LocalREPL:
         self.original_cwd = os.getcwd()
         self._pending_llm_calls: list[RLMChatCompletion] = []
         self._last_exec_error: str | None = None
+        # Cancellation token for GAP-EL-004: set by execute_code_threaded
+        # on timeout so orphaned worker threads cannot submit new child
+        # dispatches via llm_query().
+        self._cancelled: threading.Event = threading.Event()
 
         # Execution backend
         self._executor_config = executor_config or REPLDebugConfig.from_env()
@@ -445,6 +449,10 @@ class LocalREPL:
         """
         start_time = time.perf_counter()
         self._pending_llm_calls.clear()
+        # Clear cancellation token for this code block (GAP-EL-004).
+        # Each execute_code_threaded invocation starts with a fresh state
+        # so a previous timeout does not poison the next code block.
+        self._cancelled.clear()
 
         if trace is not None:
             trace.execution_mode = "thread_bridge"
@@ -459,6 +467,10 @@ class LocalREPL:
                 timeout=self.sync_timeout,
             )
         except TimeoutError:
+            # Signal orphaned worker thread to abort any future
+            # llm_query() calls instead of submitting new child
+            # dispatches to the event loop (GAP-EL-004).
+            self._cancelled.set()
             stdout = ""
             stderr = (
                 f"\nTimeoutError: Thread-bridge execution exceeded "

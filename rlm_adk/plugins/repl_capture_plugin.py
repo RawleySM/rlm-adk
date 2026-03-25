@@ -37,12 +37,9 @@ def _repl_globals_inventory(repl_globals: dict[str, Any] | None = None) -> dict[
         "__name__": {"type": "str", "source": "local_repl.py:203", "value": "__main__"},
         "FINAL_VAR": {"type": "function", "source": "local_repl.py:208"},
         "SHOW_VARS": {"type": "function", "source": "local_repl.py:209"},
-        # Sync LLM query placeholders (orchestrator.py:295)
-        "llm_query": {"type": "function", "source": "orchestrator.py:295", "note": "sync placeholder; AST rewriter converts to async"},
-        "llm_query_batched": {"type": "function", "source": "orchestrator.py:295", "note": "sync placeholder; AST rewriter converts to async"},
-        # Async LLM query closures (dispatch.py via orchestrator.py:286)
-        "llm_query_async": {"type": "async function", "source": "dispatch.py:435", "note": "single child dispatch"},
-        "llm_query_batched_async": {"type": "async function", "source": "dispatch.py:477", "note": "batched child dispatch"},
+        # Sync LLM query callables (thread_bridge.py)
+        "llm_query": {"type": "function", "source": "thread_bridge.py:32", "note": "sync callable via thread_bridge.py"},
+        "llm_query_batched": {"type": "function", "source": "thread_bridge.py:81", "note": "sync callable via thread_bridge.py"},
         # LLMResult class (orchestrator.py:260)
         "LLMResult": {"type": "class", "source": "orchestrator.py:260", "note": "str subclass with .error, .parsed, .model, etc."},
         # State snapshot (repl_tool.py:220)

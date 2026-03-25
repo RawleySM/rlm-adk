@@ -1,9 +1,8 @@
 """Reasoning Agent callbacks.
 
-before_model_callback: Merges the ADK-resolved dynamic instruction into
-    system_instruction (from static_instruction).  Records per-invocation
-    token accounting.  ADK manages contents (tool call/response history)
-    via include_contents='default'.
+before_model_callback: Records per-invocation token accounting (observe-only).
+    ADK manages system_instruction and contents natively via its request
+    processors.  This callback does NOT modify the LLM request.
 
 after_model_callback: Records per-invocation token accounting from
     usage_metadata.  The collapsed orchestrator reads the final answer
@@ -11,8 +10,8 @@ after_model_callback: Records per-invocation token accounting from
 
 reasoning_test_state_hook: Test-only before_model_callback that writes a
     guillemet-marked dict to callback_context.state under the key
-    ``cb_reasoning_context``.  Compose with reasoning_before_model in
-    provider-fake fixtures to verify the state → systemInstruction path.
+    ``cb_reasoning_context``.  ADK resolves ``{cb_reasoning_context?}``
+    from state on subsequent iterations.
 """
 
 from typing import Any
@@ -44,23 +43,6 @@ def _extract_system_instruction_text(llm_request: LlmRequest) -> str:
             if isinstance(p, types.Part) and p.text
         )
     return str(si)
-
-
-def _extract_adk_dynamic_instruction(llm_request: LlmRequest) -> str:
-    """Extract the resolved instruction template that ADK placed in contents.
-
-    When both static_instruction and instruction are set, ADK resolves the
-    instruction template and appends it to contents as a user Content.
-    We extract and remove it so it can be relocated to system_instruction.
-    """
-    dynamic_text = ""
-    if llm_request.contents:
-        for content in llm_request.contents:
-            if content.parts:
-                for part in content.parts:
-                    if part.text:
-                        dynamic_text += part.text
-    return dynamic_text.strip()
 
 
 def _extract_response_text(llm_response: LlmResponse) -> tuple[str, str]:
@@ -113,42 +95,29 @@ def _build_lineage(callback_context) -> LineageEnvelope:
 def reasoning_before_model(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """Append dynamic instruction to system_instruction.
+    """Observe-only: record per-invocation token accounting.
 
     ADK has already set:
       - system_instruction from static_instruction (the stable system prompt)
       - SkillToolset XML appended to system_instruction (if skills are enabled)
       - resolved instruction template in contents (dynamic context metadata)
+      - full conversation history in contents (via contents.request_processor)
 
     This callback:
-      1. Preserves system_instruction (static prompt + any toolset content)
-      2. Extracts the resolved dynamic instruction from contents
-      3. Appends the dynamic metadata via llm_request.append_instructions()
-      4. Leaves contents as ADK manages them (include_contents='default')
-      5. Records per-invocation token accounting
+      1. Ensures config exists for accounting reads
+      2. Records per-invocation token accounting (system_chars, prompt_chars,
+         content_count) and stores request metadata on the agent
+      3. Returns None without modifying the LLM request
 
-    CRITICAL: Uses append_instructions() instead of direct assignment to
-    config.system_instruction. Direct assignment would destroy content
-    appended by SkillToolset.process_llm_request() (L1 XML, skill system
-    instruction) which fires BEFORE this callback.
+    ADK 1.27 handles dynamic instruction placement natively via its request
+    processors.  No relocation of content into system_instruction is needed.
     """
-    # --- Extract dynamic instruction from contents ---
-    dynamic_instruction = _extract_adk_dynamic_instruction(llm_request)
-
-    # Ensure config exists for append_instructions
+    # Ensure config exists for accounting reads
     llm_request.config = llm_request.config or types.GenerateContentConfig()
 
-    # --- Append dynamic metadata to system_instruction ---
-    # Uses append_instructions to preserve existing content (static instruction
-    # + SkillToolset XML) that is already in system_instruction.
-    if dynamic_instruction:
-        llm_request.append_instructions([dynamic_instruction])
-
-    # ADK manages contents via include_contents='default'
-    contents = llm_request.contents or []
-
-    # --- Per-invocation token accounting (agent-local) ---
+    # --- Per-invocation token accounting (observe-only) ---
     system_instruction_text = _extract_system_instruction_text(llm_request)
+    contents = llm_request.contents or []
     total_prompt_chars = sum(
         len(part.text or "")
         for content in contents
@@ -270,8 +239,7 @@ def reasoning_test_state_hook(
     # Patch the already-resolved template text in contents so the dict
     # appears on the FIRST iteration too (ADK resolves {cb_reasoning_context?}
     # before before_model_callback fires, so iter 0 would otherwise be empty).
-    # reasoning_before_model runs next and extracts all content text into
-    # systemInstruction, so this patch flows through automatically.
+    # The patched text stays in contents where the model sees it directly.
     dict_str = str(context_dict)
     placeholder = "Callback state: \n"
     if llm_request.contents:

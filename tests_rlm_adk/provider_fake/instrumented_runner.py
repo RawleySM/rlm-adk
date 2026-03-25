@@ -284,7 +284,14 @@ class InstrumentationPlugin(BasePlugin):
         try:
             tool_name = getattr(tool, "name", str(tool))
             agent_name = getattr(tool_context, "agent_name", "unknown")
-            depth = tool_context.state.get("current_depth", 0)
+            # BUG-014 fix: resolve depth from agent._rlm_depth (matches
+            # SqliteTracingPlugin.before_model_callback pattern), falling
+            # back to state for backward compat.
+            inv_ctx = getattr(tool_context, "_invocation_context", None)
+            _agent = getattr(inv_ctx, "agent", None) if inv_ctx else None
+            depth = getattr(_agent, "_rlm_depth", None)
+            if depth is None:
+                depth = tool_context.state.get("current_depth", 0)
             iter_count = tool_context.state.get("iteration_count", 0)
 
             code_preview = ""
@@ -383,8 +390,6 @@ def _wire_instrumentation_hooks(app: Any, log_lines: list[str]) -> None:
                 "final_response_text",
                 "repl_did_expand",
                 "repl_skill_expansion_meta",
-                "obs:rewrite_count",
-                "obs:rewrite_total_ms",
             ):
                 val = state.get(key)
                 if val is not None:
@@ -507,15 +512,17 @@ def make_dyn_instr_capture_hook(
             return None  # only capture first call
         _call_count[0] += 1
 
-        # Extract system instruction text
+        # Extract system instruction text (handles both str and Content-with-parts)
         si_text = ""
         config = getattr(llm_request, "config", None)
         if config:
             si = getattr(config, "system_instruction", None)
-            if si and hasattr(si, "parts"):
+            if isinstance(si, str):
+                si_text = si
+            elif si and hasattr(si, "parts") and si.parts:
                 si_text = "\n".join(p.text for p in si.parts if hasattr(p, "text") and p.text)
 
-        callback_context.state["_captured_system_instruction_0"] = si_text[:4000]
+        callback_context.state["_captured_system_instruction_0"] = si_text[:10000]
 
         # Print verification tags
         keys_to_check = expected_keys or _DYN_INSTR_KEYS
@@ -595,6 +602,14 @@ class InstrumentedContractResult:
 
     def diagnostics(self) -> str:
         return self.plugin_result.contract.diagnostics()
+
+    @property
+    def repl_stderr(self) -> str:
+        """Extract REPL stderr from last_repl_result if available."""
+        lrr = self.final_state.get("last_repl_result")
+        if isinstance(lrr, dict):
+            return lrr.get("stderr", "")
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -709,6 +724,7 @@ async def run_fixture_contract_instrumented(
             plugins.append(REPLTracingPlugin())
 
         repl = _make_repl(router)
+        _enabled_skills = router.config.get("enabled_skills") or None
         app = create_rlm_app(
             model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),
             thinking_budget=router.config.get("thinking_budget", 0),
@@ -716,6 +732,7 @@ async def run_fixture_contract_instrumented(
             plugins=plugins,
             langfuse=False,
             sqlite_tracing=False,
+            enabled_skills=_enabled_skills,
         )
 
         if wire_test_hooks:
@@ -790,8 +807,35 @@ async def run_fixture_contract_instrumented(
             litellm_mode=litellm_mode,
         )
 
-        # Merge local callback log into instrumentation log
-        full_log = repl_stdout + "\n" + "\n".join(local_callback_log)
+        # Merge local callback log + REPL internal stdout into instrumentation log.
+        # The TeeWriter captures system stdout (plugin/callback tags), but
+        # REPL output (TEST_SKILL, DYN_INSTR tags from skill code) is captured
+        # separately in last_repl_result['stdout'].  Include it so the
+        # stdout_parser sees all tagged lines.
+        #
+        # Multi-turn fix: accumulate stdout from ALL events with state_delta
+        # containing last_repl_result, not just the final state (which only
+        # has the last turn's result).
+        _all_repl_stdouts: list[str] = []
+        for ev in events:
+            if not hasattr(ev, "actions") or not ev.actions:
+                continue
+            sd = getattr(ev.actions, "state_delta", None)
+            if not sd or not isinstance(sd, dict):
+                continue
+            lrr = sd.get("last_repl_result")
+            if isinstance(lrr, dict):
+                s = lrr.get("stdout", "")
+                if s:
+                    _all_repl_stdouts.append(s)
+        _repl_internal_stdout = "\n".join(_all_repl_stdouts)
+        full_log = (
+            repl_stdout
+            + "\n"
+            + "\n".join(local_callback_log)
+            + "\n"
+            + _repl_internal_stdout
+        )
         state_timeline = _build_state_key_timeline(full_log)
 
         plugin_result = PluginContractResult(

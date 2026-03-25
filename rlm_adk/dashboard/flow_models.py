@@ -63,7 +63,6 @@ class FlowCodeCell:
 
     kind: FlowBlockKind = "code_cell"
     code: str = ""
-    expanded_code: str = ""
     llm_query_lines: list[LlmQueryLineInfo] = field(default_factory=list)
     pane_id: str = ""
     invocation_id: str = ""

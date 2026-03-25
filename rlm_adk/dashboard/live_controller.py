@@ -570,9 +570,9 @@ class LiveDashboardController:
             # parent_code_text: prefer the invocation that actually dispatched
             # children (the one with REPL code), falling back to the selected.
             code_source = selected
-            if not (selected.repl_expanded_code or selected.repl_submission):
+            if not selected.repl_submission:
                 for inv in reversed(visible_invocations):
-                    if inv.repl_expanded_code or inv.repl_submission:
+                    if inv.repl_submission:
                         code_source = inv
                         break
             for child in sorted(child_panes, key=lambda item: (item.depth, item.fanout_idx or -1)):
@@ -581,7 +581,7 @@ class LiveDashboardController:
                     lineages=lineage,
                     lower_bound=child_lower,
                     upper_bound=next_upper_bound,
-                    parent_code_text=code_source.repl_expanded_code or code_source.repl_submission,
+                    parent_code_text=code_source.repl_submission,
                     parent_stdout_text=code_source.repl_stdout,
                     parent_stderr_text=code_source.repl_stderr,
                 )

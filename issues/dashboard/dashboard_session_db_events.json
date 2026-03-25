@@ -1,0 +1,236 @@
+[
+  {
+    "id": "8aab046a-63c4-4889-ae9d-b493484aa62b",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.4237099,
+    "event_data": "{\"content\":{\"parts\":[{\"text\":\"test prompt\"}],\"role\":\"user\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"user\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"8aab046a-63c4-4889-ae9d-b493484aa62b\",\"timestamp\":1774445509.4237099}"
+  },
+  {
+    "id": "5e954f81-1294-4510-ac22-8ae94506f318",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.4377983,
+    "event_data": "{\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"rlm_orchestrator\",\"actions\":{\"state_delta\":{\"invocation_start_time\":1774445509.4377506},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"5e954f81-1294-4510-ac22-8ae94506f318\",\"timestamp\":1774445509.4377983}"
+  },
+  {
+    "id": "f2a4bdb2-1e9d-499a-a407-1024e2212a5e",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.491398,
+    "event_data": "{\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"rlm_orchestrator\",\"actions\":{\"state_delta\":{\"current_depth\":0,\"iteration_count\":0,\"repl_skill_globals_injected\":[\"RecursivePingResult\",\"TestSkillResult\",\"run_recursive_ping\",\"run_test_skill\"],\"request_id\":\"7e708758-eaad-4cd5-b897-e71062b4a06d\",\"user_provided_ctx\":{\"arch_context.txt\":\"Architecture validation context for depth=2 + batched dispatch test.\",\"test_metadata.json\":\"{\\\"scenario\\\": \\\"skill_arch_test\\\", \\\"pipeline\\\": \\\"provider_fake\\\", \\\"depth\\\": 2}\"},\"user_ctx_manifest\":\"Pre-loaded context variable: user_ctx (dict)\\nPre-loaded files (access via user_ctx[\\\"<filename>\\\"]):\\n  - arch_context.txt (68 chars)\\n  - test_metadata.json (72 chars)\\nTotal: 2 files, 2 pre-loaded\",\"user_provided_ctx_exceeded\":false,\"usr_provided_files_serialized\":[\"arch_context.txt\",\"test_metadata.json\"],\"usr_provided_files_unserialized\":[]},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"f2a4bdb2-1e9d-499a-a407-1024e2212a5e\",\"timestamp\":1774445509.491398}"
+  },
+  {
+    "id": "e30678b0-36a1-4254-a502-6fdbc7d01d64",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.5098062,
+    "event_data": "{\"content\":{\"parts\":[{\"text\":\"Analyze and answer the query.\"}],\"role\":\"user\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"rlm_orchestrator\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"e30678b0-36a1-4254-a502-6fdbc7d01d64\",\"timestamp\":1774445509.5098062}"
+  },
+  {
+    "id": "3e6c211e-63a0-4c4b-9ca6-9301d2732333",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.5333703,
+    "event_data": "{\"model_version\":\"gemini-fake\",\"content\":{\"parts\":[{\"function_call\":{\"id\":\"adk-1d50fb17-4998-486a-8cfa-1f956c3dc5ad\",\"args\":{\"code\":\"result = run_test_skill(\\n    child_prompt='Analyze the context and call llm_query to dispatch a grandchild at depth=2.',\\n    emit_debug=True,\\n    rlm_state=_rlm_state,\\n)\\nprint(f'skill_result={result.child_result}')\\nprint(f'skill_latency_ms={result.thread_bridge_latency_ms:.1f}')\\nprint(f'skill_depth={result.state_snapshot.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\n\\n# Dynamic instruction verification\\nif 'user_ctx' in dir():\\n    print(f'[DYN_INSTR:user_ctx_keys={sorted(user_ctx.keys())}]')\\n    print(f'[DYN_INSTR:arch_context_preview={user_ctx.get(\\\"arch_context.txt\\\", \\\"\\\")[:40]}]')\"},\"name\":\"execute_code\"}}],\"role\":\"model\"},\"finish_reason\":\"STOP\",\"custom_metadata\":{\"rlm\":{\"version\":\"v1\",\"agent_name\":\"reasoning_agent\",\"depth\":0,\"fanout_idx\":0,\"parent_depth\":null,\"parent_fanout_idx\":null,\"branch\":null,\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"session_id\":\"011da421-6328-4abc-927a-c28d8e95f660\",\"output_schema_name\":\"ReasoningOutput\",\"decision_mode\":\"unknown\",\"structured_outcome\":\"not_applicable\",\"terminal\":false}},\"usage_metadata\":{\"candidates_token_count\":80,\"prompt_token_count\":400,\"total_token_count\":480},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"long_running_tool_ids\":[],\"id\":\"3e6c211e-63a0-4c4b-9ca6-9301d2732333\",\"timestamp\":1774445509.5333703}"
+  },
+  {
+    "id": "ba067a6e-1baf-4486-b3b4-14c387bc91d6",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.0495772,
+    "event_data": "{\"content\":{\"parts\":[{\"function_response\":{\"id\":\"adk-1d50fb17-4998-486a-8cfa-1f956c3dc5ad\",\"name\":\"execute_code\",\"response\":{\"stdout\":\"[TEST_SKILL:depth=0]\\n[TEST_SKILL:rlm_agent_name=reasoning_agent]\\n[TEST_SKILL:iteration_count=1]\\n[TEST_SKILL:current_depth=0]\\n[TEST_SKILL:should_stop=?]\\n[TEST_SKILL:state_keys_count=9]\\n[TEST_SKILL:state_keys=['_rlm_agent_name', '_rlm_depth', '_rlm_fanout_idx', 'app:max_depth', 'app:max_iterations', 'current_depth', 'iteration_count', 'skill_instruction', 'user_ctx_manifest']]\\n[TEST_SKILL:execution_mode=thread_bridge]\\n[TEST_SKILL:worker_thread_name=ThreadPoolExecutor-5_0]\\n[TEST_SKILL:llm_query_fn_type=function]\\n[TEST_SKILL:calling_llm_query=True]\\n[RLM] FINAL_RESPONSE_TEXT detected length=38\\n[TEST_SKILL:child_result_preview=child_confirmed_depth2: depth2_leaf_ok]\\n[TEST_SKILL:thread_bridge_latency_ms=351.61]\\n[TEST_SKILL:COMPLETE=True]\\n[TEST_SKILL:summary=depth=0 mode=thread_bridge latency_ms=351.6 child_ok=True]\\nskill_result=child_confirmed_depth2: depth2_leaf_ok\\nskill_latency_ms=351.6\\nskill_depth=0\\n[DYN_INSTR:user_ctx_keys=['arch_context.txt', 'test_metadata.json']]\\n[DYN_INSTR:arch_context_preview=Architecture validation context for dept]\\n\",\"stderr\":\"/home/rawley-stanhope/dev/rlm-adk/rlm_adk/callbacks/worker_retry.py:89: UserWarning: [EXPERIMENTAL] ReflectAndRetryToolPlugin: This feature is experimental and may change or be removed in future versions without notice. It may introduce breaking changes at any time.\\n  super().__init__(max_retries=max_retries)\\n\",\"variables\":{},\"llm_calls_made\":true,\"call_number\":1,\"execution_mode\":\"thread_bridge\"}}}],\"role\":\"user\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{\"repl_submitted_code\":\"result = run_test_skill(\\n    child_prompt='Analyze the context and call llm_query to dispatch a grandchild at depth=2.',\\n    emit_debug=True,\\n    rlm_state=_rlm_state,\\n)\\nprint(f'skill_result={result.child_result}')\\nprint(f'skill_latency_ms={result.thread_bridge_latency_ms:.1f}')\\nprint(f'skill_depth={result.state_snapshot.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\n\\n# Dynamic instruction verification\\nif 'user_ctx' in dir():\\n    print(f'[DYN_INSTR:user_ctx_keys={sorted(user_ctx.keys())}]')\\n    print(f'[DYN_INSTR:arch_context_preview={user_ctx.get(\\\"arch_context.txt\\\", \\\"\\\")[:40]}]')\",\"repl_submitted_code_chars\":571,\"repl_submitted_code_hash\":\"c726a93a34cdf11f83f15db2b3ce8b1cc691416abaa538d5d98bc640a81fdef9\",\"repl_submitted_code_preview\":\"result = run_test_skill(\\n    child_prompt='Analyze the context and call llm_query to dispatch a grandchild at depth=2.',\\n    emit_debug=True,\\n    rlm_state=_rlm_state,\\n)\\nprint(f'skill_result={result.child_result}')\\nprint(f'skill_latency_ms={result.thread_bridge_latency_ms:.1f}')\\nprint(f'skill_depth={result.state_snapshot.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\n\\n# Dynamic instruction verification\\nif 'user_ctx' in dir():\\n    print(f'[DYN_INSTR:user_ctx_keys={sorted(user_ctx.keys())}]')\\n    print(f'[DYN_IN\",\"artifact_save_count\":1,\"artifact_total_bytes_saved\":571,\"artifact_last_saved_filename\":\"repl_code_d0_f0_iter_1_turn_0.py\",\"artifact_last_saved_version\":0,\"iteration_count\":1,\"last_repl_result\":{\"code_blocks\":1,\"has_errors\":true,\"has_output\":true,\"total_llm_calls\":1,\"stdout_preview\":\"[TEST_SKILL:depth=0]\\n[TEST_SKILL:rlm_agent_name=reasoning_agent]\\n[TEST_SKILL:iteration_count=1]\\n[TEST_SKILL:current_depth=0]\\n[TEST_SKILL:should_stop=?]\\n[TEST_SKILL:state_keys_count=9]\\n[TEST_SKILL:state_keys=['_rlm_agent_name', '_rlm_depth', '_rlm_fanout_idx', 'app:max_depth', 'app:max_iterations', 'current_depth', 'iteration_count', 'skill_instruction', 'user_ctx_manifest']]\\n[TEST_SKILL:execution_mode=thread_bridge]\\n[TEST_SKILL:worker_thread_name=ThreadPoolExecutor-5_0]\\n[TEST_SKILL:llm_query_fn_\",\"stdout\":\"[TEST_SKILL:depth=0]\\n[TEST_SKILL:rlm_agent_name=reasoning_agent]\\n[TEST_SKILL:iteration_count=1]\\n[TEST_SKILL:current_depth=0]\\n[TEST_SKILL:should_stop=?]\\n[TEST_SKILL:state_keys_count=9]\\n[TEST_SKILL:state_keys=['_rlm_agent_name', '_rlm_depth', '_rlm_fanout_idx', 'app:max_depth', 'app:max_iterations', 'current_depth', 'iteration_count', 'skill_instruction', 'user_ctx_manifest']]\\n[TEST_SKILL:execution_mode=thread_bridge]\\n[TEST_SKILL:worker_thread_name=ThreadPoolExecutor-5_0]\\n[TEST_SKILL:llm_query_fn_type=function]\\n[TEST_SKILL:calling_llm_query=True]\\n[RLM] FINAL_RESPONSE_TEXT detected length=38\\n[TEST_SKILL:child_result_preview=child_confirmed_depth2: depth2_leaf_ok]\\n[TEST_SKILL:thread_bridge_latency_ms=351.61]\\n[TEST_SKILL:COMPLETE=True]\\n[TEST_SKILL:summary=depth=0 mode=thread_bridge latency_ms=351.6 child_ok=True]\\nskill_result=child_confirmed_depth2: depth2_leaf_ok\\nskill_latency_ms=351.6\\nskill_depth=0\\n[DYN_INSTR:user_ctx_keys=['arch_context.txt', 'test_metadata.json']]\\n[DYN_INSTR:arch_context_preview=Architecture validation context for dept]\\n\",\"stderr\":\"/home/rawley-stanhope/dev/rlm-adk/rlm_adk/callbacks/worker_retry.py:89: UserWarning: [EXPERIMENTAL] ReflectAndRetryToolPlugin: This feature is experimental and may change or be removed in future versions without notice. It may introduce breaking changes at any time.\\n  super().__init__(max_retries=max_retries)\\n\",\"submitted_code_chars\":571,\"submitted_code_hash\":\"c726a93a34cdf11f83f15db2b3ce8b1cc691416abaa538d5d98bc640a81fdef9\",\"execution_mode\":\"thread_bridge\"}},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"ba067a6e-1baf-4486-b3b4-14c387bc91d6\",\"timestamp\":1774445510.0495772}"
+  },
+  {
+    "id": "2c659a51-42cf-4527-9aa8-4e32390ef5f8",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.6984468,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d1\",\"actions\":{\"state_delta\":{\"current_depth@d1\":1,\"iteration_count@d1\":0,\"repl_skill_globals_injected\":[\"RecursivePingResult\",\"TestSkillResult\",\"run_recursive_ping\",\"run_test_skill\"]},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"2c659a51-42cf-4527-9aa8-4e32390ef5f8\",\"timestamp\":1774445509.6984468}"
+  },
+  {
+    "id": "554fcaa0-4534-481f-adb6-2cbf09ed09d3",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.935181,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_reasoning_d1\",\"actions\":{\"state_delta\":{\"repl_submitted_code@d1\":\"grandchild_result = llm_query('Return the leaf value: depth2_leaf_ok')\\nprint(f'grandchild_said={grandchild_result}')\\nprint(f'd1_depth={_rlm_state.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\nprint(f'd1_iteration={_rlm_state.get(\\\"iteration_count\\\", \\\"MISSING\\\")}')\",\"repl_submitted_code_chars@d1\":247,\"repl_submitted_code_hash@d1\":\"9abfa687e16d1559233d079b651010ecdafa1b7265b531efb7356676d846658f\",\"repl_submitted_code_preview@d1\":\"grandchild_result = llm_query('Return the leaf value: depth2_leaf_ok')\\nprint(f'grandchild_said={grandchild_result}')\\nprint(f'd1_depth={_rlm_state.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\nprint(f'd1_iteration={_rlm_state.get(\\\"iteration_count\\\", \\\"MISSING\\\")}')\",\"artifact_save_count\":2,\"artifact_total_bytes_saved\":818,\"artifact_last_saved_filename\":\"repl_code_d1_f0_iter_1_turn_0.py\",\"artifact_last_saved_version\":0,\"iteration_count@d1\":1,\"last_repl_result@d1\":{\"code_blocks\":1,\"has_errors\":false,\"has_output\":true,\"total_llm_calls\":1,\"stdout_preview\":\"[RLM] FINAL_RESPONSE_TEXT detected length=14\\ngrandchild_said=depth2_leaf_ok\\nd1_depth=1\\nd1_iteration=1\\n\",\"stdout\":\"[RLM] FINAL_RESPONSE_TEXT detected length=14\\ngrandchild_said=depth2_leaf_ok\\nd1_depth=1\\nd1_iteration=1\\n\",\"stderr\":\"\",\"submitted_code_chars\":247,\"submitted_code_hash\":\"9abfa687e16d1559233d079b651010ecdafa1b7265b531efb7356676d846658f\",\"execution_mode\":\"thread_bridge\"}},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"554fcaa0-4534-481f-adb6-2cbf09ed09d3\",\"timestamp\":1774445509.935181}"
+  },
+  {
+    "id": "1a2dd31e-7d50-4dd3-ae2b-d7125fd8a815",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.9352582,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d2\",\"actions\":{\"state_delta\":{\"current_depth@d2\":2,\"iteration_count@d2\":0,\"repl_skill_globals_injected\":[\"RecursivePingResult\",\"TestSkillResult\",\"run_recursive_ping\",\"run_test_skill\"]},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"1a2dd31e-7d50-4dd3-ae2b-d7125fd8a815\",\"timestamp\":1774445509.9352582}"
+  },
+  {
+    "id": "f55735df-8ccf-41fc-ae53-434febddecfa",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.9353213,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_reasoning_d2\",\"actions\":{\"state_delta\":{\"reasoning_output@d2\":\"{\\\"final_answer\\\": \\\"depth2_leaf_ok\\\", \\\"reasoning_summary\\\": \\\"Returned leaf value as requested at depth=2.\\\"}\"},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"f55735df-8ccf-41fc-ae53-434febddecfa\",\"timestamp\":1774445509.9353213}"
+  },
+  {
+    "id": "b8abb654-954a-4f96-9a2f-b3c01518ef14",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445509.9353774,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d2\",\"actions\":{\"state_delta\":{\"final_response_text@d2\":\"depth2_leaf_ok\",\"should_stop@d2\":true},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"b8abb654-954a-4f96-9a2f-b3c01518ef14\",\"timestamp\":1774445509.9353774}"
+  },
+  {
+    "id": "03299857-0da8-4daf-90cb-56124e84e40a",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.040415,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_reasoning_d1\",\"actions\":{\"state_delta\":{\"reasoning_output@d1\":\"{\\\"final_answer\\\": \\\"child_confirmed_depth2: depth2_leaf_ok\\\", \\\"reasoning_summary\\\": \\\"Dispatched to depth=2, received leaf value depth2_leaf_ok, confirmed.\\\"}\"},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"03299857-0da8-4daf-90cb-56124e84e40a\",\"timestamp\":1774445510.040415}"
+  },
+  {
+    "id": "89aac326-86ae-47b6-99e1-db635b52eef7",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.047513,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d1\",\"actions\":{\"state_delta\":{\"final_response_text@d1\":\"child_confirmed_depth2: depth2_leaf_ok\",\"should_stop@d1\":true},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"89aac326-86ae-47b6-99e1-db635b52eef7\",\"timestamp\":1774445510.047513}"
+  },
+  {
+    "id": "9f0c5610-dd2c-4fef-8ae1-028644ca569b",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.3118515,
+    "event_data": "{\"model_version\":\"gemini-fake\",\"content\":{\"parts\":[{\"function_call\":{\"id\":\"adk-4e1d82f3-290c-4009-863d-09fda5c7adb4\",\"args\":{\"code\":\"batch_results = llm_query_batched(['Summarize finding A', 'Summarize finding B'])\\nfor i, r in enumerate(batch_results):\\n    print(f'batch_{i}={r}')\\nprint(f'batch_count={len(batch_results)}')\\nprint(f'turn2_iteration_count={_rlm_state.get(\\\"iteration_count\\\", \\\"MISSING\\\")}')\\nprint(f'turn2_depth={_rlm_state.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\n\\n# Verify turn 1 variable persists in REPL namespace\\nprint(f'turn1_skill_result_persisted={\\\"result\\\" in dir()}')\"},\"name\":\"execute_code\"}}],\"role\":\"model\"},\"finish_reason\":\"STOP\",\"custom_metadata\":{\"rlm\":{\"version\":\"v1\",\"agent_name\":\"reasoning_agent\",\"depth\":0,\"fanout_idx\":0,\"parent_depth\":null,\"parent_fanout_idx\":null,\"branch\":null,\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"session_id\":\"011da421-6328-4abc-927a-c28d8e95f660\",\"output_schema_name\":\"ReasoningOutput\",\"decision_mode\":\"unknown\",\"structured_outcome\":\"not_applicable\",\"terminal\":false}},\"usage_metadata\":{\"candidates_token_count\":60,\"prompt_token_count\":600,\"total_token_count\":660},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"long_running_tool_ids\":[],\"id\":\"9f0c5610-dd2c-4fef-8ae1-028644ca569b\",\"timestamp\":1774445510.3118515}"
+  },
+  {
+    "id": "0f418b01-9e61-4ac9-8ecc-6cd344c29825",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.6955583,
+    "event_data": "{\"content\":{\"parts\":[{\"function_response\":{\"id\":\"adk-4e1d82f3-290c-4009-863d-09fda5c7adb4\",\"name\":\"execute_code\",\"response\":{\"stdout\":\"[RLM] child dispatch batch (2 prompts, depth=1)\\n[RLM] FINAL_RESPONSE_TEXT detected length=17\\n[RLM] FINAL_RESPONSE_TEXT detected length=17\\nbatch_0=finding_A_summary\\nbatch_1=finding_B_summary\\nbatch_count=2\\nturn2_iteration_count=2\\nturn2_depth=0\\nturn1_skill_result_persisted=True\\n\",\"stderr\":\"\",\"variables\":{\"batch_results\":[\"finding_A_summary\",\"finding_B_summary\"],\"i\":1,\"r\":\"finding_B_summary\"},\"llm_calls_made\":true,\"call_number\":2,\"execution_mode\":\"thread_bridge\"}}}],\"role\":\"user\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{\"repl_submitted_code\":\"batch_results = llm_query_batched(['Summarize finding A', 'Summarize finding B'])\\nfor i, r in enumerate(batch_results):\\n    print(f'batch_{i}={r}')\\nprint(f'batch_count={len(batch_results)}')\\nprint(f'turn2_iteration_count={_rlm_state.get(\\\"iteration_count\\\", \\\"MISSING\\\")}')\\nprint(f'turn2_depth={_rlm_state.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\n\\n# Verify turn 1 variable persists in REPL namespace\\nprint(f'turn1_skill_result_persisted={\\\"result\\\" in dir()}')\",\"repl_submitted_code_chars\":445,\"repl_submitted_code_hash\":\"790954289bdd1b1558ff4d8de89d2f455af397699971a0c71ff22a8d7d13d81a\",\"repl_submitted_code_preview\":\"batch_results = llm_query_batched(['Summarize finding A', 'Summarize finding B'])\\nfor i, r in enumerate(batch_results):\\n    print(f'batch_{i}={r}')\\nprint(f'batch_count={len(batch_results)}')\\nprint(f'turn2_iteration_count={_rlm_state.get(\\\"iteration_count\\\", \\\"MISSING\\\")}')\\nprint(f'turn2_depth={_rlm_state.get(\\\"_rlm_depth\\\", \\\"MISSING\\\")}')\\n\\n# Verify turn 1 variable persists in REPL namespace\\nprint(f'turn1_skill_result_persisted={\\\"result\\\" in dir()}')\",\"artifact_save_count\":3,\"artifact_total_bytes_saved\":1263,\"artifact_last_saved_filename\":\"repl_code_d0_f0_iter_2_turn_0.py\",\"artifact_last_saved_version\":0,\"iteration_count\":2,\"last_repl_result\":{\"code_blocks\":1,\"has_errors\":false,\"has_output\":true,\"total_llm_calls\":2,\"stdout_preview\":\"[RLM] child dispatch batch (2 prompts, depth=1)\\n[RLM] FINAL_RESPONSE_TEXT detected length=17\\n[RLM] FINAL_RESPONSE_TEXT detected length=17\\nbatch_0=finding_A_summary\\nbatch_1=finding_B_summary\\nbatch_count=2\\nturn2_iteration_count=2\\nturn2_depth=0\\nturn1_skill_result_persisted=True\\n\",\"stdout\":\"[RLM] child dispatch batch (2 prompts, depth=1)\\n[RLM] FINAL_RESPONSE_TEXT detected length=17\\n[RLM] FINAL_RESPONSE_TEXT detected length=17\\nbatch_0=finding_A_summary\\nbatch_1=finding_B_summary\\nbatch_count=2\\nturn2_iteration_count=2\\nturn2_depth=0\\nturn1_skill_result_persisted=True\\n\",\"stderr\":\"\",\"submitted_code_chars\":445,\"submitted_code_hash\":\"790954289bdd1b1558ff4d8de89d2f455af397699971a0c71ff22a8d7d13d81a\",\"execution_mode\":\"thread_bridge\"}},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"0f418b01-9e61-4ac9-8ecc-6cd344c29825\",\"timestamp\":1774445510.6955583}"
+  },
+  {
+    "id": "009a230c-d6e4-4dfc-89f6-70baa2e2e050",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.4737442,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d1\",\"actions\":{\"state_delta\":{\"current_depth@d1\":1,\"iteration_count@d1\":0,\"repl_skill_globals_injected\":[\"RecursivePingResult\",\"TestSkillResult\",\"run_recursive_ping\",\"run_test_skill\"]},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"009a230c-d6e4-4dfc-89f6-70baa2e2e050\",\"timestamp\":1774445510.4737442}"
+  },
+  {
+    "id": "9bae2f18-a4ae-4692-b20a-77f5ff3122fe",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.572805,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":1},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d1\",\"actions\":{\"state_delta\":{\"current_depth@d1\":1,\"iteration_count@d1\":0,\"repl_skill_globals_injected\":[\"RecursivePingResult\",\"TestSkillResult\",\"run_recursive_ping\",\"run_test_skill\"]},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"9bae2f18-a4ae-4692-b20a-77f5ff3122fe\",\"timestamp\":1774445510.572805}"
+  },
+  {
+    "id": "e103954d-0d58-4b72-b47a-3340927533ee",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.679419,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_reasoning_d1\",\"actions\":{\"state_delta\":{\"reasoning_output@d1\":\"{\\\"final_answer\\\": \\\"finding_A_summary\\\", \\\"reasoning_summary\\\": \\\"Summarized finding A.\\\"}\"},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"e103954d-0d58-4b72-b47a-3340927533ee\",\"timestamp\":1774445510.679419}"
+  },
+  {
+    "id": "dc8d3a74-75a8-410a-a496-aa9235ed7d42",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.680351,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":1},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_reasoning_d1\",\"actions\":{\"state_delta\":{\"reasoning_output@d1\":\"{\\\"final_answer\\\": \\\"finding_B_summary\\\", \\\"reasoning_summary\\\": \\\"Summarized finding B.\\\"}\"},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"dc8d3a74-75a8-410a-a496-aa9235ed7d42\",\"timestamp\":1774445510.680351}"
+  },
+  {
+    "id": "d6997862-2d66-494e-a3ae-2879ea3f47f0",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.6914978,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":0},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d1\",\"actions\":{\"state_delta\":{\"final_response_text@d1\":\"finding_A_summary\",\"should_stop@d1\":true},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"d6997862-2d66-494e-a3ae-2879ea3f47f0\",\"timestamp\":1774445510.6914978}"
+  },
+  {
+    "id": "d1ffcc79-90b7-4351-bbab-3b786212e10f",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.694255,
+    "event_data": "{\"custom_metadata\":{\"rlm_child_event\":true,\"child_depth\":1,\"child_fanout_idx\":1},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"child_orchestrator_d1\",\"actions\":{\"state_delta\":{\"final_response_text@d1\":\"finding_B_summary\",\"should_stop@d1\":true},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"branch\":\"rlm_orchestrator.child_orchestrator_d1\",\"id\":\"d1ffcc79-90b7-4351-bbab-3b786212e10f\",\"timestamp\":1774445510.694255}"
+  },
+  {
+    "id": "7d543467-6bea-4f38-8bb9-ddd04d568361",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.820291,
+    "event_data": "{\"model_version\":\"gemini-fake\",\"content\":{\"parts\":[{\"function_call\":{\"id\":\"adk-9efd6a4b-8f24-4a77-9aaf-df0d366f8934\",\"args\":{\"final_answer\":\"Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).\",\"reasoning_summary\":\"Exercised run_test_skill for depth=2 chain and llm_query_batched for fanout. All components confirmed.\"},\"name\":\"set_model_response\"}}],\"role\":\"model\"},\"finish_reason\":\"STOP\",\"custom_metadata\":{\"rlm\":{\"version\":\"v1\",\"agent_name\":\"reasoning_agent\",\"depth\":0,\"fanout_idx\":0,\"parent_depth\":null,\"parent_fanout_idx\":null,\"branch\":null,\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"session_id\":\"011da421-6328-4abc-927a-c28d8e95f660\",\"output_schema_name\":\"ReasoningOutput\",\"decision_mode\":\"unknown\",\"structured_outcome\":\"not_applicable\",\"terminal\":false}},\"usage_metadata\":{\"candidates_token_count\":60,\"prompt_token_count\":800,\"total_token_count\":860},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"long_running_tool_ids\":[],\"id\":\"7d543467-6bea-4f38-8bb9-ddd04d568361\",\"timestamp\":1774445510.820291}"
+  },
+  {
+    "id": "337b2398-6678-4d86-a292-faacdda2edf2",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445510.9827497,
+    "event_data": "{\"content\":{\"parts\":[{\"function_response\":{\"id\":\"adk-9efd6a4b-8f24-4a77-9aaf-df0d366f8934\",\"name\":\"set_model_response\",\"response\":{\"final_answer\":\"Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).\",\"reasoning_summary\":\"Exercised run_test_skill for depth=2 chain and llm_query_batched for fanout. All components confirmed.\"}}}],\"role\":\"user\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"337b2398-6678-4d86-a292-faacdda2edf2\",\"timestamp\":1774445510.9827497}"
+  },
+  {
+    "id": "7518886b-9a6d-418e-ae5b-2dd8d6958bff",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445511.0022268,
+    "event_data": "{\"content\":{\"parts\":[{\"text\":\"{\\\"final_answer\\\": \\\"Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).\\\", \\\"reasoning_summary\\\": \\\"Exercised run_test_skill for depth=2 chain and llm_query_batched for fanout. All components confirmed.\\\"}\"}],\"role\":\"model\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"reasoning_agent\",\"actions\":{\"state_delta\":{\"reasoning_output\":\"{\\\"final_answer\\\": \\\"Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).\\\", \\\"reasoning_summary\\\": \\\"Exercised run_test_skill for depth=2 chain and llm_query_batched for fanout. All components confirmed.\\\"}\"},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"7518886b-9a6d-418e-ae5b-2dd8d6958bff\",\"timestamp\":1774445511.0022268}"
+  },
+  {
+    "id": "1c6620c5-8e6b-4b3b-a67b-503578f2e5b4",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445511.027077,
+    "event_data": "{\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"rlm_orchestrator\",\"actions\":{\"state_delta\":{\"final_response_text\":\"Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).\",\"should_stop\":true},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"1c6620c5-8e6b-4b3b-a67b-503578f2e5b4\",\"timestamp\":1774445511.027077}"
+  },
+  {
+    "id": "b28a77b1-db37-4f71-ab51-8ddbdea59de6",
+    "app_name": "rlm_adk",
+    "user_id": "dashboard-user",
+    "session_id": "011da421-6328-4abc-927a-c28d8e95f660",
+    "invocation_id": "e-6196ce6d-201d-45a9-8329-e749044ce469",
+    "timestamp": 1774445511.0454364,
+    "event_data": "{\"content\":{\"parts\":[{\"text\":\"Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).\"}],\"role\":\"model\"},\"invocation_id\":\"e-6196ce6d-201d-45a9-8329-e749044ce469\",\"author\":\"rlm_orchestrator\",\"actions\":{\"state_delta\":{},\"artifact_delta\":{},\"requested_auth_configs\":{},\"requested_tool_confirmations\":{}},\"id\":\"b28a77b1-db37-4f71-ab51-8ddbdea59de6\",\"timestamp\":1774445511.0454364}"
+  }
+]

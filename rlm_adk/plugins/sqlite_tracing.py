@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
     validated_output_json TEXT,
     skill_name_loaded   TEXT,
     skill_instructions_len INTEGER,
+    execution_mode  TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -253,6 +254,15 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_type ON telemetry(event_type);
 CREATE INDEX IF NOT EXISTS idx_sse_trace ON session_state_events(trace_id);
 CREATE INDEX IF NOT EXISTS idx_sse_key ON session_state_events(state_key);
 CREATE INDEX IF NOT EXISTS idx_sse_trace_seq ON session_state_events(trace_id, seq);
+
+CREATE VIEW IF NOT EXISTS session_state_events_unified AS
+SELECT
+    event_id, trace_id, seq, event_author, event_time,
+    state_key, key_category, key_depth, key_fanout,
+    value_type,
+    COALESCE(value_text, CAST(value_int AS TEXT), CAST(value_float AS TEXT), value_json) AS value,
+    value_int, value_float, value_text, value_json
+FROM session_state_events;
 """
 
 
@@ -404,6 +414,7 @@ class SqliteTracingPlugin(BasePlugin):
                 ("validated_output_json", "TEXT"),
                 ("skill_name_loaded", "TEXT"),
                 ("skill_instructions_len", "INTEGER"),
+                ("execution_mode", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -497,6 +508,7 @@ class SqliteTracingPlugin(BasePlugin):
                 update_kwargs["repl_stderr_len"] = len(stderr or "")
                 update_kwargs["repl_stdout"] = stdout or ""
                 update_kwargs["repl_stderr"] = stderr or ""
+                update_kwargs["execution_mode"] = result.get("execution_mode", "")
             try:
                 update(telemetry_id, **update_kwargs)
             except Exception as e:
@@ -1198,7 +1210,19 @@ class SqliteTracingPlugin(BasePlugin):
             telemetry_id = self._new_id()
             start_time = time.time()
             agent_name = self._agent_span_stack[-1] if self._agent_span_stack else None
-            tool_depth = self._coerce_int(getattr(tool, "_depth", 0))
+
+            # Resolve agent first (moved above depth resolution for BUG-014)
+            inv_ctx = getattr(tool_context, "_invocation_context", None)
+            agent = getattr(inv_ctx, "agent", None)
+
+            # BUG-014 fix: resolve depth from agent._rlm_depth (set by
+            # orchestrator at construction), falling back to tool._depth
+            # for REPLTool backward compat.  Matches before_model_callback.
+            agent_depth = getattr(agent, "_rlm_depth", None)
+            if agent_depth is not None:
+                tool_depth = self._coerce_int(agent_depth)
+            else:
+                tool_depth = self._coerce_int(getattr(tool, "_depth", 0))
             iteration = None
             state = getattr(tool_context, "state", None)
             if hasattr(state, "get"):
@@ -1207,9 +1231,6 @@ class SqliteTracingPlugin(BasePlugin):
                 )
                 iteration = state.get(depth_key_name)
 
-            # Resolve agent for scope fields
-            inv_ctx = getattr(tool_context, "_invocation_context", None)
-            agent = getattr(inv_ctx, "agent", None)
             fanout_idx = getattr(agent, "_rlm_fanout_idx", None)
             parent_depth = getattr(agent, "_rlm_parent_depth", None)
             parent_fanout_idx = getattr(agent, "_rlm_parent_fanout_idx", None)
@@ -1334,6 +1355,7 @@ class SqliteTracingPlugin(BasePlugin):
                             "total_llm_calls",
                             0,
                         )
+                        update_kwargs["execution_mode"] = repl_state.get("execution_mode", "")
                         trace_summary = repl_state.get("trace_summary")
                         if trace_summary is not None:
                             update_kwargs["repl_trace_summary"] = json.dumps(trace_summary)

@@ -1,4 +1,4 @@
-"""Unit tests for instrumented_runner.py components."""
+"""Unit tests for instrumented_runner.py components and test_skill.py registration."""
 
 from __future__ import annotations
 
@@ -34,11 +34,11 @@ class TestBuildStateKeyTimeline:
         assert timeline["iteration_count"][0][1] == "5"
 
     def test_complex_scope_with_colons(self):
-        log = "[STATE:pre_tool:obs:rewrite_count=3]\n"
+        log = "[STATE:pre_tool:obs:reasoning_retry_count=3]\n"
         timeline = _build_state_key_timeline(log)
-        # rsplit(":", 1) on "pre_tool:obs:rewrite_count" => ("pre_tool:obs", "rewrite_count")
-        assert "rewrite_count" in timeline
-        assert timeline["rewrite_count"][0] == ("pre_tool:obs", "3")
+        # rsplit(":", 1) on "pre_tool:obs:reasoning_retry_count" => ("pre_tool:obs", "reasoning_retry_count")
+        assert "reasoning_retry_count" in timeline
+        assert timeline["reasoning_retry_count"][0] == ("pre_tool:obs", "3")
 
     def test_empty_log(self):
         assert _build_state_key_timeline("") == {}
@@ -127,3 +127,60 @@ class TestCaptureStdout:
         with _capture_stdout():
             n = sys.stdout.write("abc")
         assert n == 3
+
+
+class TestTestSkillRegistration:
+    """Tests that test_skill is discovered and loaded by the skill loader."""
+
+    def test_skill_dir_discovered(self):
+        from rlm_adk.skills.loader import discover_skill_dirs
+
+        dirs = discover_skill_dirs(enabled_skills={"test_skill"})
+        names = [d.name for d in dirs]
+        assert "test_skill" in names
+
+    def test_skill_exports_collected(self):
+        from rlm_adk.skills.loader import collect_skill_repl_globals
+
+        collected = collect_skill_repl_globals(enabled_skills={"test_skill"})
+        assert "run_test_skill" in collected
+        assert "TestSkillResult" in collected
+
+    def test_run_test_skill_is_wrapped(self):
+        """run_test_skill has llm_query_fn param, so loader wraps it."""
+        from rlm_adk.skills.loader import collect_skill_repl_globals
+
+        collected = collect_skill_repl_globals(enabled_skills={"test_skill"})
+        fn = collected["run_test_skill"]
+        # The wrapper is a functools.wraps'd function
+        assert callable(fn)
+        # Calling without llm_query wired should raise
+        import pytest
+
+        with pytest.raises(RuntimeError, match="llm_query"):
+            fn(child_prompt="test")
+
+    def test_llm_query_fn_auto_injected(self):
+        """When repl_globals has llm_query, it's auto-injected."""
+        from rlm_adk.skills.loader import collect_skill_repl_globals
+
+        repl_globals: dict = {}
+        collected = collect_skill_repl_globals(
+            enabled_skills={"test_skill"},
+            repl_globals=repl_globals,
+        )
+        # Simulate llm_query being wired into REPL globals
+        repl_globals["llm_query"] = lambda prompt: f"echo: {prompt}"
+
+        result = collected["run_test_skill"](
+            child_prompt="hello",
+            rlm_state={"_rlm_depth": 0},
+        )
+        assert "echo: hello" in result.child_result
+
+    def test_no_expansion_needed(self):
+        """Module-import skills don't need source expansion."""
+        from rlm_adk.skills.test_skill import run_test_skill
+
+        # Direct import works -- this is a real Python module
+        assert callable(run_test_skill)

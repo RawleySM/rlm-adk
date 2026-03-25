@@ -22,8 +22,8 @@ from typing import Any, Literal
 class REPLTrace:
     """Invisible trace accumulator for a single REPL code block execution."""
 
-    start_time: float = 0.0
-    end_time: float = 0.0
+    start_time: float | None = None
+    end_time: float | None = None
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
     var_snapshots: list[dict[str, Any]] = field(default_factory=list)
     peak_memory_bytes: int = 0
@@ -92,7 +92,7 @@ class REPLTrace:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
         return {
-            "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
+            "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time is not None and self.end_time is not None else 0,
             "execution_mode": self.execution_mode,
             "submitted_code_chars": self.submitted_code_chars,
             "submitted_code_hash": self.submitted_code_hash,
@@ -107,7 +107,7 @@ class REPLTrace:
     def summary(self) -> dict[str, Any]:
         """Compact summary for LAST_REPL_RESULT enrichment."""
         return {
-            "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time and self.end_time else 0,
+            "wall_time_ms": round(max(0, self.end_time - self.start_time) * 1000, 2) if self.start_time is not None and self.end_time is not None else 0,
             "llm_call_count": len(self.llm_calls),
             "failed_llm_calls": sum(1 for c in self.llm_calls if c.get("error")),
             "peak_memory_bytes": self.peak_memory_bytes,

@@ -1,0 +1,64 @@
+{
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_thread_bridge.py",
+  "library": "google-adk",
+  "import_prefix": "google.adk",
+  "imported_classes": [
+    "Event",
+    "EventActions"
+  ],
+  "call_sites": [
+    {
+      "symbol": "Event",
+      "instances": [
+        {
+          "name": "evt1",
+          "line": 1158
+        },
+        {
+          "name": "evt2",
+          "line": 1163
+        },
+        {
+          "name": "evt1",
+          "line": 1244
+        },
+        {
+          "name": "evt2",
+          "line": 1249
+        },
+        {
+          "name": null,
+          "line": 1174
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) Event: Unknown\n```"
+      }
+    },
+    {
+      "symbol": "EventActions",
+      "instances": [
+        {
+          "name": null,
+          "line": 1161
+        },
+        {
+          "name": null,
+          "line": 1166
+        },
+        {
+          "name": null,
+          "line": 1247
+        },
+        {
+          "name": null,
+          "line": 1252
+        }
+      ],
+      "hover": {
+        "markdown": "```python\n(import) EventActions: Unknown\n```"
+      }
+    }
+  ],
+  "type_annotations": []
+}

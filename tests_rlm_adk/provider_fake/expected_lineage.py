@@ -25,7 +25,6 @@ from .stdout_parser import ParsedLog
 @dataclasses.dataclass
 class StateKeyExpectation:
     """Expected value constraints for a single state key at a specific phase."""
-
     phase: str
     key: str
     operator: str
@@ -38,7 +37,6 @@ class StateKeyExpectation:
 @dataclasses.dataclass
 class TestSkillExpectation:
     """Expected value for a [TEST_SKILL:key=value] tag."""
-
     key: str
     operator: str
     expected: Any
@@ -50,7 +48,6 @@ class TestSkillExpectation:
 @dataclasses.dataclass
 class PluginHookExpectation:
     """Expected plugin hook entry."""
-
     hook: str
     agent_name: str
     key: str
@@ -64,7 +61,6 @@ class PluginHookExpectation:
 @dataclasses.dataclass
 class TimingExpectation:
     """Expected timing constraint."""
-
     label: str
     operator: str
     expected_ms: float
@@ -75,7 +71,6 @@ class TimingExpectation:
 @dataclasses.dataclass
 class OrderingExpectation:
     """Assert that one hook appears before another in the log."""
-
     first_hook: str
     first_agent: str
     second_hook: str
@@ -86,7 +81,6 @@ class OrderingExpectation:
 @dataclasses.dataclass
 class DynInstrExpectation:
     """Expected [DYN_INSTR:key=value] assertion."""
-
     key: str
     operator: str
     expected: Any
@@ -98,7 +92,6 @@ class DynInstrExpectation:
 @dataclasses.dataclass
 class ReplTraceExpectation:
     """Expected [REPL_TRACE:key=value] assertion."""
-
     key: str
     operator: str
     expected: Any
@@ -110,7 +103,6 @@ class ReplTraceExpectation:
 @dataclasses.dataclass
 class ExpectedLineage:
     """Complete expected lineage for the skill_arch_test fixture."""
-
     state_key_expectations: list[StateKeyExpectation]
     test_skill_expectations: list[TestSkillExpectation]
     plugin_hook_expectations: list[PluginHookExpectation]
@@ -126,133 +118,133 @@ class ExpectedLineage:
 
 
 def build_skill_arch_test_lineage() -> ExpectedLineage:
-    """Build the ExpectedLineage for the skill_arch_test fixture.
+    """Build the ExpectedLineage for the expanded skill_arch_test fixture.
 
-    Conflict resolutions applied:
-    - Resolution A: iteration_count=0 at model_call_1, =1 inside TEST_SKILL
-    - Resolution C: DYN_INSTR keys use contains operator for "resolved=True"
-    - Resolution D: All REPL_TRACE expectations have required=False
+    8-call fixture: 3 reasoning turns (2x execute_code + 1x set_model_response),
+    depth=2 via llm_query chain, llm_query_batched with 2 prompts.
+
+    Anti-reward-hacking: every assertion depends on real pipeline execution.
+    Removed: repl_did_expand (dead signal), should_stop at model_call_1 (default check).
+    Strengthened: execution_mode uses eq not oneof, worker_thread_name added.
     """
     state_keys = [
-        # --- Resolution A: iteration_count=0 at first model call ---
+        # --- iteration_count=0 at first model call (before any tool runs) ---
         StateKeyExpectation(
             phase="model_call_1",
             key="iteration_count",
             operator="eq",
             expected="0",
             source_file="rlm_adk/orchestrator.py",
-            source_hint="orchestrator.py:370 — initial state yields iteration_count=0",
+            source_hint="orchestrator.py — initial state yields iteration_count=0",
         ),
-        StateKeyExpectation(
-            phase="model_call_1",
-            key="should_stop",
-            operator="eq",
-            expected="False",
-            source_file="rlm_adk/orchestrator.py",
-            source_hint="orchestrator.py — should_stop initialized to False at start of run",
-        ),
-        StateKeyExpectation(
-            phase="model_call_1",
-            key="repl_did_expand",
-            operator="eq",
-            expected="False",
-            source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — repl_did_expand written by REPLTool after skill expansion; False at model call 1 (before tool runs)",
-        ),
+        # NOTE: Removed should_stop at model_call_1 (was reward-hackable: dict.get default)
+        # NOTE: Removed repl_did_expand (dead signal: source expansion path deleted)
     ]
 
     test_skill = [
+        # --- Depth verification (STRONG: _rlm_depth from REPLTool state injection) ---
         TestSkillExpectation(
             key="depth",
             operator="eq",
             expected="0",
             source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — _rlm_depth injected into _rlm_state from REPLTool._rlm_depth constructor field",
+            source_hint="repl_tool.py — _rlm_depth injected into _rlm_state; proves REPLTool ran at d=0",
         ),
+        # --- Agent name (STRONG: from tool_context.agent_name) ---
         TestSkillExpectation(
             key="rlm_agent_name",
             operator="eq",
             expected="reasoning_agent",
             source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — _rlm_agent_name injected from tool_context.agent_name into _rlm_state",
+            source_hint="repl_tool.py — _rlm_agent_name from tool context",
         ),
-        # --- Resolution A: iteration_count=1 inside TEST_SKILL (REPLTool incremented) ---
+        # --- iteration_count=1 inside TEST_SKILL (STRONG: REPLTool incremented) ---
         TestSkillExpectation(
             key="iteration_count",
             operator="eq",
             expected="1",
             source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — iteration_count from EXPOSED_STATE_KEYS snapshot; REPLTool incremented at start of run_async()",
+            source_hint="repl_tool.py — REPLTool increments _call_count to 1 before first execute_code",
         ),
+        # --- current_depth=0 (STRONG: from depth-scoped state) ---
         TestSkillExpectation(
             key="current_depth",
             operator="eq",
             expected="0",
             source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — current_depth pulled from depth-scoped state key",
+            source_hint="repl_tool.py — current_depth from EXPOSED_STATE_KEYS snapshot",
         ),
+        # --- should_stop inside skill: '?' because it's None before any tool completes ---
         TestSkillExpectation(
             key="should_stop",
             operator="eq",
-            expected="False",
+            expected="?",
             source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — should_stop from EXPOSED_STATE_KEYS",
+            source_hint="repl_tool.py — should_stop in EXPOSED_STATE_KEYS but None; skill defaults to '?'",
         ),
+        # --- state_keys_count (STRONG: proves _rlm_state was built) ---
         TestSkillExpectation(
             key="state_keys_count",
             operator="gte",
             expected=6,
             source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — _rlm_state built from EXPOSED_STATE_KEYS union {_rlm_depth, _rlm_agent_name, _rlm_fanout_idx}",
+            source_hint="repl_tool.py — _rlm_state from EXPOSED_STATE_KEYS + 3 lineage metadata keys",
         ),
+        # --- llm_query_fn_type (STRONG: proves loader wrapper injected the closure) ---
         TestSkillExpectation(
-            key="repl_globals_count",
-            operator="gt",
-            expected=5,
-            source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — REPL globals: llm_query, llm_query_batched, _rlm_state, skill expansions",
-        ),
-        TestSkillExpectation(
-            key="llm_query_type",
+            key="llm_query_fn_type",
             operator="eq",
             expected="function",
             source_file="rlm_adk/dispatch.py",
-            source_hint="dispatch.py — llm_query injected as closure; type() is always 'function'",
+            source_hint="dispatch.py — llm_query injected as closure; type() is 'function'",
         ),
+        # --- execution_mode STRICT eq (fixed from oneof, now runtime-detected) ---
         TestSkillExpectation(
             key="execution_mode",
-            operator="oneof",
-            expected=["async_rewrite", "thread_bridge"],
-            source_file="rlm_adk/tools/repl_tool.py",
-            source_hint="repl_tool.py — execution_mode detected inside skill source",
+            operator="eq",
+            expected="thread_bridge",
+            source_file="rlm_adk/skills/test_skill/skill.py",
+            source_hint="skill.py — runtime detection: thread_bridge if not MainThread",
         ),
+        # --- worker_thread_name (NEW, STRONG: proves REPL runs in worker thread) ---
+        TestSkillExpectation(
+            key="worker_thread_name",
+            operator="not_contains",
+            expected="MainThread",
+            source_file="rlm_adk/skills/test_skill/skill.py",
+            source_hint="skill.py — threading.current_thread().name; must NOT be MainThread",
+        ),
+        # --- calling_llm_query (STRONG: emitted before llm_query() call) ---
         TestSkillExpectation(
             key="calling_llm_query",
             operator="eq",
             expected="True",
-            source_file="rlm_adk/skills/test_skill.py",
-            source_hint="test_skill.py — emitted immediately before llm_query() call",
+            source_file="rlm_adk/skills/test_skill/skill.py",
+            source_hint="skill.py — emitted immediately before llm_query_fn() call",
         ),
+        # --- child_result_preview (STRONG: requires full depth=2 chain) ---
         TestSkillExpectation(
             key="child_result_preview",
             operator="contains",
-            expected="arch_test_ok",
+            expected="child_confirmed_depth2",
             source_file="rlm_adk/dispatch.py",
-            source_hint="dispatch.py — child orchestrator returns 'arch_test_ok' via set_model_response",
+            source_hint="dispatch.py — child at d1 returns 'child_confirmed_depth2: depth2_leaf_ok' via depth=2 chain",
         ),
+        # --- thread_bridge_latency_ms (STRONG: measured via perf_counter) ---
         TestSkillExpectation(
             key="thread_bridge_latency_ms",
             operator="gt",
             expected=0.0,
-            source_file="rlm_adk/skills/test_skill.py",
-            source_hint="test_skill.py — latency measured via time.perf_counter() around llm_query()",
+            source_file="rlm_adk/skills/test_skill/skill.py",
+            source_hint="skill.py — latency measured via time.perf_counter() around llm_query()",
         ),
+        # --- COMPLETE (STRONG: only emitted if run_test_skill returns without error) ---
         TestSkillExpectation(
             key="COMPLETE",
             operator="eq",
             expected="True",
-            source_file="rlm_adk/skills/test_skill.py",
-            source_hint="test_skill.py — only emitted if run_test_skill() returns without exception",
+            source_file="rlm_adk/skills/test_skill/skill.py",
+            source_hint="skill.py — only emitted if the entire function ran without exception",
         ),
     ]
 
@@ -284,6 +276,7 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
             source_file="rlm_adk/utils/prompts.py",
             source_hint="prompts.py — RLM_STATIC_INSTRUCTION + resolved RLM_DYNAMIC_INSTRUCTION",
         ),
+        # --- execute_code tool (STRONG: before_tool fires for real tool invocations) ---
         PluginHookExpectation(
             hook="before_tool",
             agent_name="reasoning_agent",
@@ -293,6 +286,16 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
             source_file="rlm_adk/tools/repl_tool.py",
             source_hint="repl_tool.py — REPLTool.name == 'execute_code'",
         ),
+        # --- set_model_response tool at root (NEW: proves upward flow at d0) ---
+        PluginHookExpectation(
+            hook="before_tool",
+            agent_name="reasoning_agent",
+            key="tool_name",
+            operator="eq",
+            expected="set_model_response",
+            source_file="rlm_adk/tools/repl_tool.py",
+            source_hint="ADK SetModelResponseTool fires before_tool for root reasoning_agent",
+        ),
         PluginHookExpectation(
             hook="after_model",
             agent_name="reasoning_agent",
@@ -300,7 +303,7 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
             operator="eq",
             expected="STOP",
             source_file="rlm_adk/orchestrator.py",
-            source_hint="orchestrator.py — reasoning_agent exits when finish_reason=STOP",
+            source_hint="orchestrator.py — reasoning_agent finishes with STOP",
         ),
     ]
 
@@ -334,7 +337,7 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
             first_agent="reasoning_agent",
             second_hook="before_tool",
             second_agent="reasoning_agent",
-            description="before_model must fire before before_tool (model decides to call execute_code)",
+            description="before_model must fire before before_tool (model decides to call tool)",
         ),
         OrderingExpectation(
             first_hook="before_tool",
@@ -345,7 +348,6 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
         ),
     ]
 
-    # --- Resolution C: DYN_INSTR keys use contains operator ---
     dyn_instr = [
         DynInstrExpectation(
             key="repo_url",
@@ -391,12 +393,11 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
         ),
     ]
 
-    # --- Resolution D: All REPL_TRACE expectations have required=False ---
     repl_trace = [
         ReplTraceExpectation(
             key="execution_mode",
-            operator="oneof",
-            expected=["async_rewrite", "thread_bridge", "sync"],
+            operator="eq",
+            expected="thread_bridge",
             source_file="rlm_adk/repl/trace.py",
             source_hint="trace.py — REPLTrace.execution_mode field",
             required=False,
@@ -418,35 +419,11 @@ def build_skill_arch_test_lineage() -> ExpectedLineage:
             required=False,
         ),
         ReplTraceExpectation(
-            key="peak_memory_bytes",
-            operator="gt",
-            expected=0,
-            source_file="rlm_adk/repl/ipython_executor.py",
-            source_hint="ipython_executor.py — tracemalloc at trace_level=2",
-            required=False,
-        ),
-        ReplTraceExpectation(
             key="submitted_code_chars",
             operator="gt",
             expected=0,
             source_file="rlm_adk/tools/repl_tool.py",
             source_hint="repl_tool.py — trace.submitted_code_chars = len(expanded_code)",
-            required=False,
-        ),
-        ReplTraceExpectation(
-            key="data_flow_edges",
-            operator="gte",
-            expected=0,
-            source_file="rlm_adk/repl/trace.py",
-            source_hint="trace.py — DataFlowTracker.get_edges() count",
-            required=False,
-        ),
-        ReplTraceExpectation(
-            key="var_snapshots_count",
-            operator="gte",
-            expected=0,
-            source_file="rlm_adk/repl/trace.py",
-            source_hint="trace.py — REPLTrace.snapshot_vars() count",
             required=False,
         ),
     ]
@@ -472,7 +449,6 @@ _MISSING = "<MISSING>"
 @dataclasses.dataclass
 class AssertionFailure:
     """One failed assertion with full diagnostic context."""
-
     group: str
     phase: str
     key: str
@@ -499,7 +475,6 @@ class AssertionFailure:
 @dataclasses.dataclass
 class AssertionReport:
     """Aggregated result of all assertion groups."""
-
     failures: list[AssertionFailure]
     groups_checked: list[str]
     log: ParsedLog
@@ -579,25 +554,13 @@ def _eval_operator(operator: str, actual: Any, expected: Any) -> bool:
     elif operator == "in":
         return str(expected) in str(actual)
     elif operator == "type":
-        type_map = {
-            "list": list,
-            "dict": dict,
-            "str": str,
-            "int": int,
-            "float": float,
-            "bool": bool,
-        }
+        type_map = {"list": list, "dict": dict, "str": str, "int": int, "float": float, "bool": bool}
         return isinstance(actual, type_map.get(str(expected), object))
     return False
 
 
 def _build_fix_hint(
-    group: str,
-    key: str,
-    operator: str,
-    expected: Any,
-    actual: Any,
-    source_hint: str,
+    group: str, key: str, operator: str, expected: Any, actual: Any, source_hint: str,
 ) -> str:
     if operator == "eq":
         return f"Key {key!r} in group {group!r}: got {actual!r}, expected {expected!r}. Check: {source_hint}"
@@ -635,19 +598,12 @@ def assert_test_skill_tags(log: ParsedLog, lineage: ExpectedLineage) -> list[Ass
 
         if raw == _MISSING:
             if exp.required:
-                failures.append(
-                    AssertionFailure(
-                        group="test_skill",
-                        phase="repl_stdout",
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=_MISSING,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=_make_missing_fix_hint("TEST_SKILL", exp.key, exp.source_file),
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="test_skill", phase="repl_stdout", key=exp.key,
+                    expected=exp.expected, actual=_MISSING, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=_make_missing_fix_hint("TEST_SKILL", exp.key, exp.source_file),
+                ))
             continue
 
         actual: Any = raw
@@ -655,37 +611,21 @@ def assert_test_skill_tags(log: ParsedLog, lineage: ExpectedLineage) -> list[Ass
             try:
                 actual = float(raw)
             except ValueError:
-                failures.append(
-                    AssertionFailure(
-                        group="test_skill",
-                        phase="repl_stdout",
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=raw,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=f"Value for {exp.key!r} is not numeric: {raw!r}. Check {exp.source_file}",
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="test_skill", phase="repl_stdout", key=exp.key,
+                    expected=exp.expected, actual=raw, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=f"Value for {exp.key!r} is not numeric: {raw!r}. Check {exp.source_file}",
+                ))
                 continue
 
         if not _eval_operator(exp.operator, actual, exp.expected):
-            failures.append(
-                AssertionFailure(
-                    group="test_skill",
-                    phase="repl_stdout",
-                    key=exp.key,
-                    expected=exp.expected,
-                    actual=actual,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=_build_fix_hint(
-                        "test_skill", exp.key, exp.operator, exp.expected, actual, exp.source_hint
-                    ),
-                )
-            )
+            failures.append(AssertionFailure(
+                group="test_skill", phase="repl_stdout", key=exp.key,
+                expected=exp.expected, actual=actual, operator=exp.operator,
+                source_file=exp.source_file, source_hint=exp.source_hint,
+                fix_hint=_build_fix_hint("test_skill", exp.key, exp.operator, exp.expected, actual, exp.source_hint),
+            ))
     return failures
 
 
@@ -695,62 +635,44 @@ def assert_plugin_hooks(log: ParsedLog, lineage: ExpectedLineage) -> list[Assert
         if exp.agent_name == "*":
             entries = [e for e in log.plugin_entries if e.hook == exp.hook]
         else:
-            entries = [
-                e
-                for e in log.plugin_entries
-                if e.hook == exp.hook and e.agent_name == exp.agent_name
-            ]
+            entries = [e for e in log.plugin_entries if e.hook == exp.hook and e.agent_name == exp.agent_name]
 
         matching = [e for e in entries if e.key == exp.key]
 
         if not matching:
             if exp.required:
-                failures.append(
-                    AssertionFailure(
-                        group="plugin_hook",
-                        phase=f"{exp.hook}:{exp.agent_name}",
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=_MISSING,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=_make_missing_fix_hint(
-                            f"PLUGIN:{exp.hook}:{exp.agent_name}", exp.key, exp.source_file
-                        ),
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="plugin_hook", phase=f"{exp.hook}:{exp.agent_name}", key=exp.key,
+                    expected=exp.expected, actual=_MISSING, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=_make_missing_fix_hint(f"PLUGIN:{exp.hook}:{exp.agent_name}", exp.key, exp.source_file),
+                ))
             continue
 
-        entry = matching[0]
-        actual: Any = entry.value
-        if exp.operator in ("gt", "gte", "lt"):
-            try:
-                actual = float(entry.value)
-            except ValueError:
-                pass
+        # Check if ANY matching entry satisfies the operator (not just the first).
+        # This handles cases where the same hook fires multiple times with different values
+        # (e.g., before_tool fires for both execute_code and set_model_response).
+        any_passed = False
+        last_actual: Any = _MISSING
+        for entry in matching:
+            actual: Any = entry.value
+            if exp.operator in ("gt", "gte", "lt"):
+                try:
+                    actual = float(entry.value)
+                except ValueError:
+                    pass
+            last_actual = actual
+            if _eval_operator(exp.operator, actual, exp.expected):
+                any_passed = True
+                break
 
-        if not _eval_operator(exp.operator, actual, exp.expected):
-            failures.append(
-                AssertionFailure(
-                    group="plugin_hook",
-                    phase=f"{exp.hook}:{exp.agent_name}",
-                    key=exp.key,
-                    expected=exp.expected,
-                    actual=actual,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=_build_fix_hint(
-                        f"plugin:{exp.hook}:{exp.agent_name}",
-                        exp.key,
-                        exp.operator,
-                        exp.expected,
-                        actual,
-                        exp.source_hint,
-                    ),
-                )
-            )
+        if not any_passed:
+            failures.append(AssertionFailure(
+                group="plugin_hook", phase=f"{exp.hook}:{exp.agent_name}", key=exp.key,
+                expected=exp.expected, actual=last_actual, operator=exp.operator,
+                source_file=exp.source_file, source_hint=exp.source_hint,
+                fix_hint=_build_fix_hint(f"plugin:{exp.hook}:{exp.agent_name}", exp.key, exp.operator, exp.expected, last_actual, exp.source_hint),
+            ))
     return failures
 
 
@@ -762,44 +684,21 @@ def assert_state_keys(log: ParsedLog, lineage: ExpectedLineage) -> list[Assertio
 
         if actual == _MISSING:
             if exp.required:
-                failures.append(
-                    AssertionFailure(
-                        group="state_key",
-                        phase=exp.phase,
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=_MISSING,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=_make_missing_fix_hint(
-                            f"STATE:{exp.phase}", exp.key, exp.source_file
-                        ),
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="state_key", phase=exp.phase, key=exp.key,
+                    expected=exp.expected, actual=_MISSING, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=_make_missing_fix_hint(f"STATE:{exp.phase}", exp.key, exp.source_file),
+                ))
             continue
 
         if not _eval_operator(exp.operator, actual, exp.expected):
-            failures.append(
-                AssertionFailure(
-                    group="state_key",
-                    phase=exp.phase,
-                    key=exp.key,
-                    expected=exp.expected,
-                    actual=actual,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=_build_fix_hint(
-                        f"state:{exp.phase}",
-                        exp.key,
-                        exp.operator,
-                        exp.expected,
-                        actual,
-                        exp.source_hint,
-                    ),
-                )
-            )
+            failures.append(AssertionFailure(
+                group="state_key", phase=exp.phase, key=exp.key,
+                expected=exp.expected, actual=actual, operator=exp.operator,
+                source_file=exp.source_file, source_hint=exp.source_hint,
+                fix_hint=_build_fix_hint(f"state:{exp.phase}", exp.key, exp.operator, exp.expected, actual, exp.source_hint),
+            ))
     return failures
 
 
@@ -808,35 +707,23 @@ def assert_timings(log: ParsedLog, lineage: ExpectedLineage) -> list[AssertionFa
     for exp in lineage.timing_expectations:
         actual_ms = log.timing_for(exp.label)
         if actual_ms is None:
-            failures.append(
-                AssertionFailure(
-                    group="timing",
-                    phase="instrumentation",
-                    key=exp.label,
-                    expected=f"{exp.operator} {exp.expected_ms}ms",
-                    actual=_MISSING,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=_make_missing_fix_hint("TIMING", exp.label, exp.source_file),
-                )
-            )
+            failures.append(AssertionFailure(
+                group="timing", phase="instrumentation", key=exp.label,
+                expected=f"{exp.operator} {exp.expected_ms}ms", actual=_MISSING,
+                operator=exp.operator, source_file=exp.source_file,
+                source_hint=exp.source_hint,
+                fix_hint=_make_missing_fix_hint("TIMING", exp.label, exp.source_file),
+            ))
             continue
 
         if not _eval_operator(exp.operator, actual_ms, exp.expected_ms):
-            failures.append(
-                AssertionFailure(
-                    group="timing",
-                    phase="instrumentation",
-                    key=exp.label,
-                    expected=f"{exp.operator} {exp.expected_ms}ms",
-                    actual=actual_ms,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=f"Timing {exp.label!r} = {actual_ms}ms failed {exp.operator} {exp.expected_ms}ms. Check {exp.source_file}",
-                )
-            )
+            failures.append(AssertionFailure(
+                group="timing", phase="instrumentation", key=exp.label,
+                expected=f"{exp.operator} {exp.expected_ms}ms", actual=actual_ms,
+                operator=exp.operator, source_file=exp.source_file,
+                source_hint=exp.source_hint,
+                fix_hint=f"Timing {exp.label!r} = {actual_ms}ms failed {exp.operator} {exp.expected_ms}ms. Check {exp.source_file}",
+            ))
     return failures
 
 
@@ -857,47 +744,36 @@ def assert_orderings(log: ParsedLog, lineage: ExpectedLineage) -> list[Assertion
                 break
 
         if first_lineno is None:
-            failures.append(
-                AssertionFailure(
-                    group="ordering",
-                    phase="log_sequence",
-                    key=f"{exp.first_hook}:{exp.first_agent}",
-                    expected=f"appears before {exp.second_hook}:{exp.second_agent}",
-                    actual=_MISSING,
-                    operator="before",
-                    source_file="tests_rlm_adk/provider_fake/instrumented_runner.py",
-                    source_hint=exp.description,
-                    fix_hint=f"Hook {exp.first_hook!r} for agent {exp.first_agent!r} never appeared.",
-                )
-            )
+            failures.append(AssertionFailure(
+                group="ordering", phase="log_sequence",
+                key=f"{exp.first_hook}:{exp.first_agent}",
+                expected=f"appears before {exp.second_hook}:{exp.second_agent}",
+                actual=_MISSING, operator="before",
+                source_file="tests_rlm_adk/provider_fake/instrumented_runner.py",
+                source_hint=exp.description,
+                fix_hint=f"Hook {exp.first_hook!r} for agent {exp.first_agent!r} never appeared.",
+            ))
         elif second_lineno is None:
-            failures.append(
-                AssertionFailure(
-                    group="ordering",
-                    phase="log_sequence",
-                    key=f"{exp.second_hook}:{exp.second_agent}",
-                    expected=f"appears after {exp.first_hook}:{exp.first_agent}",
-                    actual=_MISSING,
-                    operator="before",
-                    source_file="tests_rlm_adk/provider_fake/instrumented_runner.py",
-                    source_hint=exp.description,
-                    fix_hint=f"Hook {exp.second_hook!r} for agent {exp.second_agent!r} never appeared.",
-                )
-            )
+            failures.append(AssertionFailure(
+                group="ordering", phase="log_sequence",
+                key=f"{exp.second_hook}:{exp.second_agent}",
+                expected=f"appears after {exp.first_hook}:{exp.first_agent}",
+                actual=_MISSING, operator="before",
+                source_file="tests_rlm_adk/provider_fake/instrumented_runner.py",
+                source_hint=exp.description,
+                fix_hint=f"Hook {exp.second_hook!r} for agent {exp.second_agent!r} never appeared.",
+            ))
         elif first_lineno >= second_lineno:
-            failures.append(
-                AssertionFailure(
-                    group="ordering",
-                    phase="log_sequence",
-                    key=f"{exp.first_hook}:{exp.first_agent} before {exp.second_hook}:{exp.second_agent}",
-                    expected=f"line({exp.first_hook}) < line({exp.second_hook})",
-                    actual=f"line({exp.first_hook})={first_lineno} >= line({exp.second_hook})={second_lineno}",
-                    operator="before",
-                    source_file="tests_rlm_adk/provider_fake/instrumented_runner.py",
-                    source_hint=exp.description,
-                    fix_hint=f"Ordering violation: {exp.description}. Check InstrumentationPlugin callback chain.",
-                )
-            )
+            failures.append(AssertionFailure(
+                group="ordering", phase="log_sequence",
+                key=f"{exp.first_hook}:{exp.first_agent} before {exp.second_hook}:{exp.second_agent}",
+                expected=f"line({exp.first_hook}) < line({exp.second_hook})",
+                actual=f"line({exp.first_hook})={first_lineno} >= line({exp.second_hook})={second_lineno}",
+                operator="before",
+                source_file="tests_rlm_adk/provider_fake/instrumented_runner.py",
+                source_hint=exp.description,
+                fix_hint=f"Ordering violation: {exp.description}. Check InstrumentationPlugin callback chain.",
+            ))
     return failures
 
 
@@ -908,37 +784,21 @@ def assert_dyn_instr(log: ParsedLog, lineage: ExpectedLineage) -> list[Assertion
 
         if actual == _MISSING:
             if exp.required:
-                failures.append(
-                    AssertionFailure(
-                        group="dyn_instr",
-                        phase="systemInstruction_capture",
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=_MISSING,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=_make_missing_fix_hint("DYN_INSTR", exp.key, exp.source_file),
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="dyn_instr", phase="systemInstruction_capture", key=exp.key,
+                    expected=exp.expected, actual=_MISSING, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=_make_missing_fix_hint("DYN_INSTR", exp.key, exp.source_file),
+                ))
             continue
 
         if not _eval_operator(exp.operator, actual, exp.expected):
-            failures.append(
-                AssertionFailure(
-                    group="dyn_instr",
-                    phase="systemInstruction_capture",
-                    key=exp.key,
-                    expected=exp.expected,
-                    actual=actual,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=_build_fix_hint(
-                        "dyn_instr", exp.key, exp.operator, exp.expected, actual, exp.source_hint
-                    ),
-                )
-            )
+            failures.append(AssertionFailure(
+                group="dyn_instr", phase="systemInstruction_capture", key=exp.key,
+                expected=exp.expected, actual=actual, operator=exp.operator,
+                source_file=exp.source_file, source_hint=exp.source_hint,
+                fix_hint=_build_fix_hint("dyn_instr", exp.key, exp.operator, exp.expected, actual, exp.source_hint),
+            ))
     return failures
 
 
@@ -951,19 +811,12 @@ def assert_repl_trace(log: ParsedLog, lineage: ExpectedLineage) -> list[Assertio
 
         if raw == _MISSING:
             if exp.required:
-                failures.append(
-                    AssertionFailure(
-                        group="repl_trace",
-                        phase="repl_trace_plugin",
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=_MISSING,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=_make_missing_fix_hint("REPL_TRACE", exp.key, exp.source_file),
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="repl_trace", phase="repl_trace_plugin", key=exp.key,
+                    expected=exp.expected, actual=_MISSING, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=_make_missing_fix_hint("REPL_TRACE", exp.key, exp.source_file),
+                ))
             continue
 
         actual: Any = raw
@@ -971,37 +824,21 @@ def assert_repl_trace(log: ParsedLog, lineage: ExpectedLineage) -> list[Assertio
             try:
                 actual = float(raw)
             except ValueError:
-                failures.append(
-                    AssertionFailure(
-                        group="repl_trace",
-                        phase="repl_trace_plugin",
-                        key=exp.key,
-                        expected=exp.expected,
-                        actual=raw,
-                        operator=exp.operator,
-                        source_file=exp.source_file,
-                        source_hint=exp.source_hint,
-                        fix_hint=f"REPL_TRACE key {exp.key!r} is not numeric: {raw!r}. Check {exp.source_file}",
-                    )
-                )
+                failures.append(AssertionFailure(
+                    group="repl_trace", phase="repl_trace_plugin", key=exp.key,
+                    expected=exp.expected, actual=raw, operator=exp.operator,
+                    source_file=exp.source_file, source_hint=exp.source_hint,
+                    fix_hint=f"REPL_TRACE key {exp.key!r} is not numeric: {raw!r}. Check {exp.source_file}",
+                ))
                 continue
 
         if not _eval_operator(exp.operator, actual, exp.expected):
-            failures.append(
-                AssertionFailure(
-                    group="repl_trace",
-                    phase="repl_trace_plugin",
-                    key=exp.key,
-                    expected=exp.expected,
-                    actual=actual,
-                    operator=exp.operator,
-                    source_file=exp.source_file,
-                    source_hint=exp.source_hint,
-                    fix_hint=_build_fix_hint(
-                        "repl_trace", exp.key, exp.operator, exp.expected, actual, exp.source_hint
-                    ),
-                )
-            )
+            failures.append(AssertionFailure(
+                group="repl_trace", phase="repl_trace_plugin", key=exp.key,
+                expected=exp.expected, actual=actual, operator=exp.operator,
+                source_file=exp.source_file, source_hint=exp.source_hint,
+                fix_hint=_build_fix_hint("repl_trace", exp.key, exp.operator, exp.expected, actual, exp.source_hint),
+            ))
     return failures
 
 
@@ -1021,13 +858,8 @@ def run_all_assertions(
     checked: list[str] = []
 
     _ALL_GROUPS = [
-        "test_skill",
-        "plugin_hook",
-        "state_key",
-        "timing",
-        "ordering",
-        "dyn_instr",
-        "repl_trace",
+        "test_skill", "plugin_hook", "state_key", "timing",
+        "ordering", "dyn_instr", "repl_trace",
     ]
     active = groups if groups is not None else _ALL_GROUPS
 

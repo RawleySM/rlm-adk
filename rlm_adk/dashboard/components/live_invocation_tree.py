@@ -21,6 +21,7 @@ _SCOPE_ORDER = [
 _SCOPE_LABELS = {
     "dynamic_instruction_param": "Dynamic Context",
     "state_key": "State Keys",
+    "skill_plane": "Skill System",
     "observability": "Observability",
     "completion_plane": "Completion Plane",
     "request_chunk": "Request Chunks",
@@ -368,19 +369,22 @@ def _context_chip(
     scope: str = "",
 ) -> None:
     # For obs/completion scopes, show value preview instead of token count
-    if scope in ("observability", "completion_plane"):
+    if scope in ("observability", "completion_plane", "skill_plane"):
         chip_label = f"{item.label}: {item.display_value_preview[:60]}" if item.display_value_preview else item.label
         bg = {
             "observability": "rgba(87,199,255,0.10)",
             "completion_plane": "rgba(255,107,159,0.10)",
+            "skill_plane": "rgba(126,240,160,0.10)",
         }.get(scope, "rgba(159,176,209,0.08)")
         border = {
             "observability": "rgba(87,199,255,0.35)",
             "completion_plane": "rgba(255,107,159,0.35)",
+            "skill_plane": "rgba(126,240,160,0.35)",
         }.get(scope, "var(--border-1)")
         text_color = {
             "observability": "var(--accent-root)",
             "completion_plane": "var(--accent-child)",
+            "skill_plane": "var(--accent-active)",
         }.get(scope, "var(--text-1)")
     else:
         if item.token_count == 0 and not item.display_value_preview:

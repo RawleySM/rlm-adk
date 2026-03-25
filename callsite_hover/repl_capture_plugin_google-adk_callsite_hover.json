@@ -12,7 +12,7 @@
       "usages": [
         {
           "context": "base:REPLCapturePlugin",
-          "line": 84
+          "line": 80
         }
       ],
       "hover": {

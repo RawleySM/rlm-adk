@@ -105,11 +105,11 @@ class TestParseStateEntries:
         assert e.value == "5"
 
     def test_complex_scope_with_colons(self):
-        log = parse_stdout("[STATE:pre_tool:obs:rewrite_count=3]")
+        log = parse_stdout("[STATE:pre_tool:obs:reasoning_retry_count=3]")
         e = log.state_entries[0]
-        # rsplit(":", 1) on "pre_tool:obs:rewrite_count" => ("pre_tool:obs", "rewrite_count")
+        # rsplit(":", 1) on "pre_tool:obs:reasoning_retry_count" => ("pre_tool:obs", "reasoning_retry_count")
         assert e.scope == "pre_tool:obs"
-        assert e.key == "rewrite_count"
+        assert e.key == "reasoning_retry_count"
 
 
 class TestParseTimingEntries:

@@ -1,7 +1,7 @@
 """IPython/debugpy-backed execution backend for LocalREPL.
 
 Provides a lightweight execution engine that:
-- Owns the actual code execution (sync and async)
+- Owns the actual code execution (sync)
 - Optionally uses IPython's InteractiveShell for execution
 - Optionally arms debugpy for remote debugging
 - Never activates interactive features unless explicitly enabled
@@ -78,7 +78,6 @@ class IPythonDebugExecutor:
 
     Responsibilities:
     - Execute sync code and capture stdout/stderr
-    - Execute compiled async wrapper code objects
     - Optionally arm debugpy (only when explicitly enabled)
     - Optionally open embedded IPython shell on exceptions (only when enabled)
     - Surface stdout, stderr, exception text, and namespace updates
@@ -126,22 +125,34 @@ class IPythonDebugExecutor:
 
     def execute_sync(
         self, code: str, namespace: dict[str, Any],
+        *, capture_output: bool = True,
     ) -> tuple[str, str, bool]:
         """Execute code synchronously, capturing stdout/stderr.
 
         Args:
             code: Python source code to execute.
             namespace: Combined globals+locals namespace. Modified in-place.
+            capture_output: When True (default), replace sys.stdout/sys.stderr
+                with StringIO buffers and return their contents.  When False,
+                skip the sys.stdout/sys.stderr swap so that an external
+                capture mechanism (e.g. the ``_TaskLocalStream`` ContextVar
+                proxy used by ``_execute_code_threadsafe``) remains intact.
+                In this mode stdout/stderr are returned as empty strings --
+                the caller is responsible for reading from its own buffers.
 
         Returns:
             (stdout, stderr, success) where success=True means no exception.
         """
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        old_stdout, old_stderr = sys.stdout, sys.stderr
+        if capture_output:
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+        else:
+            stdout_buf = stderr_buf = None  # Not used in this path
 
         try:
-            sys.stdout, sys.stderr = stdout_buf, stderr_buf
+            if capture_output:
+                sys.stdout, sys.stderr = stdout_buf, stderr_buf
 
             if self._use_ipython and self._shell is not None:
                 # Temporarily suppress IPython's own traceback printing;
@@ -161,8 +172,8 @@ class IPythonDebugExecutor:
                 finally:
                     shell.showtraceback = orig_showtraceback
 
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue()
+                stdout = stdout_buf.getvalue() if capture_output else ""
+                stderr = stderr_buf.getvalue() if capture_output else ""
                 if not success:
                     error = ipy_result.error_in_exec or ipy_result.error_before_exec
                     # Format the traceback using IPython's InteractiveTB
@@ -188,14 +199,14 @@ class IPythonDebugExecutor:
             else:
                 exec(code, namespace, namespace)
 
-                stdout = stdout_buf.getvalue()
-                stderr = stderr_buf.getvalue()
+                stdout = stdout_buf.getvalue() if capture_output else ""
+                stderr = stderr_buf.getvalue() if capture_output else ""
 
                 return stdout, stderr, True
 
         except Exception as e:
-            stdout = stdout_buf.getvalue()
-            stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
+            stdout = stdout_buf.getvalue() if capture_output else ""
+            stderr = (stderr_buf.getvalue() if capture_output else "") + f"\n{type(e).__name__}: {e}"
 
             # Optionally open embedded shell on exception
             if self._config.debug and self._config.ipython_embed:
@@ -203,7 +214,8 @@ class IPythonDebugExecutor:
 
             return stdout, stderr, False
         finally:
-            sys.stdout, sys.stderr = old_stdout, old_stderr
+            if capture_output:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
 
     def _execute_via_ipython(
         self, code: str, namespace: dict[str, Any],
@@ -248,62 +260,6 @@ class IPythonDebugExecutor:
             return (error is None, result)
         finally:
             shell.user_ns = old_ns
-
-    async def execute_async(
-        self, compiled: Any, namespace: dict[str, Any],
-        *, capture: bool = True,
-    ) -> tuple[str, str, dict[str, Any] | None]:
-        """Execute a compiled async wrapper (from AST rewriter).
-
-        The compiled code object should define an async function `_repl_exec`
-        which returns locals().
-
-        Args:
-            compiled: Compiled code object containing async def _repl_exec().
-            namespace: Combined globals+locals namespace.
-            capture: If True, capture stdout/stderr. If False, assume the
-                caller already redirected stdout/stderr (e.g. LocalREPL).
-
-        Returns:
-            (stdout, stderr, new_locals) where new_locals is the return value
-            of _repl_exec(), or None on exception.
-        """
-        if capture:
-            stdout_buf = io.StringIO()
-            stderr_buf = io.StringIO()
-            old_stdout, old_stderr = sys.stdout, sys.stderr
-            sys.stdout, sys.stderr = stdout_buf, stderr_buf
-        else:
-            stdout_buf = stderr_buf = None
-            old_stdout = old_stderr = None
-
-        try:
-            # Install the async wrapper into the namespace
-            exec(compiled, namespace)
-            repl_exec_fn = namespace["_repl_exec"]
-
-            # Run the async function
-            new_locals = await repl_exec_fn()
-
-            if capture and stdout_buf is not None and stderr_buf is not None:
-                return stdout_buf.getvalue(), stderr_buf.getvalue(), (
-                    new_locals if isinstance(new_locals, dict) else None
-                )
-            return "", "", new_locals if isinstance(new_locals, dict) else None
-
-        except Exception as e:
-            if self._config.debug and self._config.ipython_embed:
-                self._embed_on_exception(namespace, e)
-            if capture:
-                # When capturing, return error info instead of re-raising
-                stdout = stdout_buf.getvalue() if stdout_buf else ""
-                stderr = (stderr_buf.getvalue() if stderr_buf else "") + f"\n{type(e).__name__}: {e}"
-                return stdout, stderr, None
-            # When not capturing, re-raise so the caller's handler captures it
-            raise
-        finally:
-            if capture and old_stdout is not None:
-                sys.stdout, sys.stderr = old_stdout, old_stderr
 
     def _embed_on_exception(
         self, namespace: dict[str, Any], exc: Exception,

@@ -378,6 +378,7 @@ async def _collect_orch_events(orch, mock_ctx, max_events=3):
                 break
     except Exception:
         pass  # Expected — mock ctx is incomplete for full run
+    assert len(events) >= 1, "Orchestrator should emit at least one event during setup"
     return events
 
 
@@ -401,7 +402,12 @@ def _make_orch(repl, *, enabled_skills=()):
 
 
 class TestOrchestratorSkillGlobals:
-    """Cycle 14: Orchestrator injects skill globals into REPL when enabled_skills is set."""
+    """Cycle 14: Orchestrator injects skill globals into REPL when enabled_skills is set.
+
+    These tests verify orchestrator setup phase only (skill globals injection,
+    state writes). Full end-to-end dispatch is tested in
+    test_skill_thread_bridge_e2e.py.
+    """
 
     @pytest.mark.asyncio
     async def test_skill_globals_injected_when_enabled(self) -> None:

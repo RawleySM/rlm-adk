@@ -23,7 +23,6 @@ FIXTURE_DIR = Path("tests_rlm_adk/fixtures/provider_fake")
 # State keys we want to track across events
 TRACKED_KEYS = {
     "iteration_count",
-    "obs:rewrite_count",
     "last_repl_result",
 }
 

@@ -1,6 +1,6 @@
 {
   "scenario_id": "repl_cancelled_during_async",
-  "description": "FM-14 (RPN=96): Simple single-worker happy path fixture used as a base for CancelledError injection tests. Reasoning emits execute_code with llm_query (has_llm_calls=True, enters async path). Worker responds with text. Reasoning returns FINAL. The CancelledError is injected by the test harness, not by the fixture itself — tests patch asyncio to inject CancelledError during the async REPL execution path (repl_tool.py:120-143).",
+  "description": "FM-14 (RPN=96): Simple single-worker happy path fixture used as a base for CancelledError injection tests. Reasoning emits execute_code with llm_query (dispatched via thread bridge). Worker responds with text. Reasoning returns FINAL. The CancelledError is injected by the test harness, not by the fixture itself — tests patch asyncio to inject CancelledError during thread bridge execution (run_coroutine_threadsafe in repl/thread_bridge.py).",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -11,7 +11,7 @@
     {
       "call_index": 0,
       "caller": "reasoning",
-      "note": "Reasoning emits execute_code with llm_query — enters async path where CancelledError can be injected",
+      "note": "Reasoning emits execute_code with llm_query — dispatched via thread bridge where CancelledError can be injected",
       "status": 200,
       "body": {
         "candidates": [

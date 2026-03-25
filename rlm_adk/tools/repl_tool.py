@@ -12,6 +12,7 @@ model calls via function calling. The tool:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import json
 import time
@@ -190,9 +191,9 @@ class REPLTool(BaseTool):
         try:
             try:
                 result = await self.repl.execute_code_threaded(exec_code, trace=trace)
-            except asyncio.CancelledError as exc:
+            except (asyncio.CancelledError, concurrent.futures.CancelledError) as exc:
                 # OG-04 fix: ensure end_time is set so trace summary is non-negative
-                if trace is not None and trace.start_time and not trace.end_time:
+                if trace is not None and trace.end_time is None:
                     trace.end_time = time.perf_counter()
                 # Apply working-state patch (e.g. skill instruction restore)
                 if self._patch_fn is not None:
@@ -220,11 +221,12 @@ class REPLTool(BaseTool):
                     "variables": {},
                     "llm_calls_made": llm_calls_made,
                     "call_number": self._call_count,
+                    "execution_mode": trace.execution_mode if trace else "thread_bridge",
                 }
                 return _final_result
             except Exception as exc:
                 # OG-04 fix: ensure end_time is set so trace summary is non-negative
-                if trace is not None and trace.start_time and not trace.end_time:
+                if trace is not None and trace.end_time is None:
                     trace.end_time = time.perf_counter()
                 # Apply working-state patch (e.g. skill instruction restore)
                 if self._patch_fn is not None:
@@ -251,6 +253,7 @@ class REPLTool(BaseTool):
                     "variables": {},
                     "llm_calls_made": llm_calls_made,
                     "call_number": self._call_count,
+                    "execution_mode": trace.execution_mode if trace else "thread_bridge",
                 }
                 return _final_result
 
@@ -303,6 +306,7 @@ class REPLTool(BaseTool):
                 "variables": variables,
                 "llm_calls_made": bool(result.llm_calls),
                 "call_number": self._call_count,
+                "execution_mode": exec_mode,
             }
             return _final_result
         finally:

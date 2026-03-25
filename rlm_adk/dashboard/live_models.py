@@ -195,7 +195,6 @@ class LiveInvocation:
     state_items: list[LiveStateItem]
     child_summaries: list[LiveChildSummary]
     repl_submission: str
-    repl_expanded_code: str
     repl_stdout: str
     repl_stderr: str
     reasoning_visible_text: str
@@ -230,7 +229,6 @@ class LivePane:
     state_items: list[LiveStateItem]
     child_summaries: list[LiveChildSummary]
     repl_submission: str
-    repl_expanded_code: str
     repl_stdout: str
     repl_stderr: str
     reasoning_visible_text: str

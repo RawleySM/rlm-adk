@@ -960,6 +960,8 @@ Cycles 21-26 use the **module-import delivery** mechanism -- `collect_skill_repl
 
 **Plan B reference:** Step 5C + companion spec `Thread_bridge_plan_B_e2e_test_design_rec.md`
 
+**Companion implementation (source-expansion delivery)**: `test_skill_arch_e2e.py` + `skill_arch_test.json` (implemented via `e2e_test_consolidated_plan.md`) already validates the full thread-bridge execution pipeline using source-expansion as the delivery mechanism. This cycle's `skill_thread_bridge.json` tests the **module-import delivery** path — the skill function is opaque bytecode loaded by `collect_skill_repl_globals()`, not inlined source. Both use the thread bridge for `llm_query()` execution.
+
 #### RED: Test(s) to write first
 
 - **Test file**: `tests_rlm_adk/test_skill_thread_bridge_e2e.py`
@@ -999,6 +1001,8 @@ Cycles 21-26 use the **module-import delivery** mechanism -- `collect_skill_repl
 
 ### Cycle 22: E2E state/event plane verification
 
+**Partial coverage**: `test_skill_arch_e2e.py::TestSqliteTelemetry` already verifies `traces.status == "completed"` and `repl_llm_calls >= 1` using source-expansion delivery (thread-bridge execution). This cycle adds state/event assertions specific to the **module-import delivery** path.
+
 **Plan B reference:** companion spec -- `TestSkillThreadBridgeStateEvents`
 
 #### RED: Test(s) to write first
@@ -1026,6 +1030,8 @@ Cycles 21-26 use the **module-import delivery** mechanism -- `collect_skill_repl
 ---
 
 ### Cycle 23: E2E telemetry plane verification
+
+**Partial coverage**: `test_skill_arch_e2e.py::TestSqliteTelemetry::test_traces_completed` covers the traces row using source-expansion delivery (thread-bridge execution). This cycle adds telemetry assertions specific to the **module-import delivery** path (depth=0/1 rows, skill_name_loaded column).
 
 **Plan B reference:** companion spec -- `TestSkillThreadBridgeTelemetry`
 
@@ -1056,6 +1062,8 @@ Cycles 21-26 use the **module-import delivery** mechanism -- `collect_skill_repl
 ---
 
 ### Cycle 24: E2E trace plane verification
+
+**Partial coverage**: `test_skill_arch_e2e.py::TestArchitectureLineage` verifies state key lineage and execution_mode via the assertion framework using source-expansion delivery (thread-bridge execution). This cycle validates the same assertions via the **module-import delivery** path.
 
 **Plan B reference:** companion spec -- `TestSkillThreadBridgeTracePlane`
 
@@ -1188,6 +1196,7 @@ Cycles 21-26 use the **module-import delivery** mechanism -- `collect_skill_repl
 | 18 | 4 | `LineageEnvelope.decision_mode` expansion | `test_skill_toolset_integration.py` |
 | 19 | 4 | `sqlite_tracing` skill tool branches | `test_skill_toolset_integration.py` |
 | 20 | 4 | Instruction disambiguation + child split gating | `test_skill_toolset_integration.py` |
+| --  | 5 | Architecture introspection e2e — source-expansion delivery, thread-bridge execution (IMPLEMENTED) | `test_skill_arch_e2e.py` + 123 unit tests |
 | 21 | 5 | Provider-fake e2e contract | `test_skill_thread_bridge_e2e.py` |
 | 22 | 5 | E2E state/event plane | `test_skill_thread_bridge_e2e.py` |
 | 23 | 5 | E2E telemetry plane | `test_skill_thread_bridge_e2e.py` |

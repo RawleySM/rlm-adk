@@ -53,19 +53,8 @@ INVOCATION_START_TIME = "invocation_start_time"
 
 
 # Observability Keys (session-scoped)
-# NOTE: These global accumulator keys are candidates for migration to the
-# lineage plane (SQLite telemetry / agent-local attrs) per the three-plane
-# refactor vision (prompts/lineage_control_plane_REFACTOR.md). They remain
-# in state for now as lightweight run-summary counters. sqlite_tracing
-# already captures authoritative values directly, so these state keys are
-# redundant for telemetry but still used by ObservabilityPlugin's
-# after_agent_callback re-persistence workaround.
-
-# AST Rewrite Instrumentation (written by REPLTool)
-OBS_REWRITE_COUNT = "obs:rewrite_count"
-OBS_REWRITE_TOTAL_MS = "obs:rewrite_total_ms"
-OBS_REWRITE_FAILURE_COUNT = "obs:rewrite_failure_count"
-OBS_REWRITE_FAILURE_CATEGORIES = "obs:rewrite_failure_categories"
+# Post-thread-bridge: ObservabilityPlugin uses instance-local counters only.
+# Only keys still written to session state are listed here.
 
 # Reasoning Retry Observability (written by orchestrator)
 OBS_REASONING_RETRY_COUNT = "obs:reasoning_retry_count"

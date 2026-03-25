@@ -213,9 +213,8 @@ def create_reasoning_agent(
             placeholders (repo_url, root_prompt, etc.).
             Passed as LlmAgent ``instruction=``; when ``static_instruction``
             is also set, ADK resolves the template and appends the result to
-            ``contents`` as user content.  The before_model callback then
-            relocates it into ``system_instruction`` to maintain proper Gemini
-            role alternation in contents.
+            ``contents`` as user content.  ADK 1.27 handles positioning
+            natively via its request processors.
         thinking_budget: Token budget for the model's built-in thinking/planning.
             Passed to ``BuiltInPlanner`` via ``ThinkingConfig``.  Set to ``0``
             to disable the planner.

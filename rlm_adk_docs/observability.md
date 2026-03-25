@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-22 -->
+<!-- validated: 2026-03-24 -->
 
 # Observability and Plugin Reference
 
@@ -150,8 +150,7 @@ aliases `_parse_key` and `_should_capture` preserving internal call sites).
 `final_response_text`, `last_repl_result`, `skill_instruction`.
 
 **Curated prefixes:** `obs:`, `artifact_`, `last_repl_result`,
-`repl_submitted_code`, `repl_expanded_code`, `repl_skill_expansion_meta`,
-`repl_did_expand`, `reasoning_`, `final_answer`.
+`repl_skill_globals`, `repl_submitted_code`, `reasoning_`, `final_answer`.
 
 Keys with `@d{N}` or `@d{N}f{M}` suffixes are parsed into `key_depth` and
 `key_fanout` columns. Key categorization is handled by a plugin-local
@@ -373,35 +372,7 @@ classify as UNKNOWN because fake server exceptions lack these attributes.
 
 ---
 
-## 9. Skill Expansion Observability Keys
-
-**Written by:** `REPLTool.run_async()` in `rlm_adk/tools/repl_tool.py`
-
-When REPLTool expands synthetic skill imports (see `skills_and_prompts.md` section 8), it writes four depth-scoped state keys to `tool_context.state`. These are **additive** -- they do not replace the existing submitted code keys (`REPL_SUBMITTED_CODE`, `REPL_SUBMITTED_CODE_HASH`, etc.), which continue to capture the original code as written by the model.
-
-| Key | Constant | Type | Description |
-|-----|----------|------|-------------|
-| `repl_expanded_code` | `REPL_EXPANDED_CODE` | `str` | Full expanded source text (with skill source inlined) |
-| `repl_expanded_code_hash` | `REPL_EXPANDED_CODE_HASH` | `str` | SHA-256 hex digest of the expanded source |
-| `repl_skill_expansion_meta` | `REPL_SKILL_EXPANSION_META` | `dict` | `{"symbols": [...], "modules": [...]}` -- lists of expanded symbol names and synthetic module paths |
-| `repl_did_expand` | `REPL_DID_EXPAND` | `bool` | `True` when expansion occurred; key is absent when no synthetic imports were detected |
-
-All four keys are **depth-scoped** (listed in `DEPTH_SCOPED_KEYS` in `state.py`). At depth 0 the keys are bare; at depth N they are suffixed `@dN` (e.g. `repl_expanded_code@d1`).
-
-These keys are only written when `expand_skill_imports()` returns `did_expand=True`. If the submitted code contains no `from rlm_repl_skills.*` imports, none of these keys are set.
-
-**Relationship to existing keys:**
-
-| What | Key | Content |
-|------|-----|---------|
-| Original submitted code | `REPL_SUBMITTED_CODE` | Code as the model wrote it (with synthetic imports) |
-| Expanded executed code | `REPL_EXPANDED_CODE` | Code actually executed (synthetic imports replaced with inline source) |
-
-This split enables debugging expansion issues: compare the submitted code hash to the expanded code hash to determine whether expansion changed the code, and inspect `REPL_SKILL_EXPANSION_META` to see exactly which symbols were inlined.
-
----
-
-## 10. REPL Trace Infrastructure
+## 9. REPL Trace Infrastructure
 
 **File:** `rlm_adk/repl/trace.py`
 
@@ -445,7 +416,7 @@ peak memory into the shared `_rlm_trace` object.
 
 ---
 
-## 11. Dashboard
+## 10. Dashboard
 
 **Directory:** `rlm_adk/dashboard/`
 

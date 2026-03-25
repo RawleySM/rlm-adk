@@ -1,4 +1,4 @@
-<!-- last-audit: 2026-03-10 -->
+<!-- last-audit: 2026-03-24 -->
 <!-- source: ai_docs/codebase_documentation_research/PLAN.md -->
 # RLM-ADK: Agent Orientation Guide
 
@@ -16,7 +16,7 @@
 
 | Branch | Doc | Read When Your Task Involves... |
 |--------|-----|--------------------------------|
-| Core Loop | [core_loop.md](core_loop.md) | Orchestrator, REPL, AST rewriting, recursion, types, execution flow |
+| Core Loop | [core_loop.md](core_loop.md) | Orchestrator, REPL, thread bridge, recursion, types, execution flow |
 | Dispatch & State | [dispatch_and_state.md](dispatch_and_state.md) | WorkerPool, dispatch closures, state keys, AR-CRIT-001, depth scoping |
 | Observability | [observability.md](observability.md) | Plugins, callbacks, tracing, worker obs path, dashboard |
 | Testing | [testing.md](testing.md) | Provider-fake, fixtures, FMEA, contract runners, markers, replay |
@@ -45,14 +45,14 @@ RLMOrchestratorAgent (BaseAgent)
   └─ delegates to reasoning_agent.run_async(ctx)      ← ADK native tool loop
        └─ LlmAgent calls REPLTool ("execute_code")
             └─ REPLTool wraps LocalREPL
-                 └─ Code calls llm_query() → AST-rewritten to async
+                 └─ Code calls llm_query() → thread bridge (run_coroutine_threadsafe)
                       └─ Dispatched via create_dispatch_closures()
                            └─ Child RLMOrchestratorAgent at depth+1 (recursion)
 ```
 
 The orchestrator is **collapsed** — no manual iteration loop. ADK's native tool-calling loop handles all iteration, retry, and structured output validation.
 
-**Deep dive:** [core_loop.md](core_loop.md) — factory functions, runner lifecycle, orchestrator internals, REPL mechanics, AST rewriting, recursion depth tracking
+**Deep dive:** [core_loop.md](core_loop.md) — factory functions, runner lifecycle, orchestrator internals, REPL mechanics, thread bridge, recursion depth tracking
 
 ---
 
@@ -151,14 +151,14 @@ Design philosophy: [vision/evolution_principles.md](vision/evolution_principles.
 | `rlm_adk/dispatch.py` | WorkerPool, dispatch closures, flush_fn |
 | `rlm_adk/tools/repl_tool.py` | REPLTool (execute_code) |
 | `rlm_adk/repl/local_repl.py` | Sandboxed Python REPL |
-| `rlm_adk/repl/ast_rewriter.py` | Sync-to-async llm_query transform |
+| `rlm_adk/repl/thread_bridge.py` | Sync thread bridge for llm_query (run_coroutine_threadsafe) |
+| `rlm_adk/skills/loader.py` | Skill discovery, collection, and REPL globals injection |
 | `rlm_adk/state.py` | State key constants, depth_key() |
 | `rlm_adk/callbacks/worker_retry.py` | Structured output self-healing, BUG-13 |
 | `rlm_adk/plugins/observability.py` | Token accounting plugin |
 | `rlm_adk/services.py` | ADK CLI service registry (WAL-pragma'd session + file artifacts) |
 | `rlm_adk/plugins/sqlite_tracing.py` | SQLite tracing plugin |
-| `rlm_adk/repl/skill_registry.py` | Synthetic REPL skill import expansion |
-| `rlm_adk/skills/repl_skills/ping.py` | First expandable skill module (recursive ping) |
+| `rlm_adk/skills/recursive_ping/` | First concrete skill (diagnostic recursive ping) |
 | `tests_rlm_adk/provider_fake/` | FakeGeminiServer, contract runner |
 
 ---

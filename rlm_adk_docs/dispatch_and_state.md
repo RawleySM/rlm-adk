@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-22 -->
+<!-- validated: 2026-03-24 -->
 
 # Dispatch System and State Management
 
@@ -46,9 +46,10 @@ The three closures share:
 - A pre-computed `_parent_skill_instruction` (when `instruction_router` is provided).
 - References to `dispatch_config`, `ctx`, `call_log_sink`, `trace_sink`, `depth`, `max_depth`, `instruction_router`, `fanout_idx`, and `child_event_queue`.
 
-REPLTool injects `llm_query_async` and `llm_query_batched_async` into the REPL namespace. User
-code calls `llm_query(prompt)`, the AST rewriter transforms it to `await llm_query_async(prompt)`,
-and dispatch happens transparently.
+The orchestrator injects sync bridge closures (`llm_query`, `llm_query_batched`) into the REPL
+namespace via `thread_bridge.py`. User code calls `llm_query(prompt)` directly; the bridge closure
+uses `run_coroutine_threadsafe()` to dispatch `llm_query_async(prompt)` on the event loop and
+blocks the REPL thread until the child completes. No AST rewriting is needed.
 
 ---
 
@@ -236,23 +237,10 @@ All constants are defined in `rlm_adk/state.py`.
 | `REPL_SUBMITTED_CODE_HASH` | `repl_submitted_code_hash` | Yes |
 | `REPL_SUBMITTED_CODE_CHARS` | `repl_submitted_code_chars` | Yes |
 
-### Skill Expansion Observability Keys
-
-| Constant | Key String | Depth-Scoped |
-|----------|-----------|:------------:|
-| `REPL_EXPANDED_CODE` | `repl_expanded_code` | Yes |
-| `REPL_EXPANDED_CODE_HASH` | `repl_expanded_code_hash` | Yes |
-| `REPL_SKILL_EXPANSION_META` | `repl_skill_expansion_meta` | Yes |
-| `REPL_DID_EXPAND` | `repl_did_expand` | Yes |
-
-### Observability -- REPL / AST
+### Observability -- REPL
 
 | Constant | Key String | Written By |
 |----------|-----------|------------|
-| `OBS_REWRITE_COUNT` | `obs:rewrite_count` | REPLTool |
-| `OBS_REWRITE_TOTAL_MS` | `obs:rewrite_total_ms` | REPLTool |
-| `OBS_REWRITE_FAILURE_COUNT` | `obs:rewrite_failure_count` | REPLTool |
-| `OBS_REWRITE_FAILURE_CATEGORIES` | `obs:rewrite_failure_categories` | REPLTool |
 | `OBS_REASONING_RETRY_COUNT` | `obs:reasoning_retry_count` | orchestrator |
 | `OBS_REASONING_RETRY_DELAY_MS` | `obs:reasoning_retry_delay_ms` | orchestrator |
 
@@ -377,9 +365,9 @@ recursive child its own independent state namespace. This prevents a child at de
 clobbering the root's `iteration_count`, for example.
 
 The `DEPTH_SCOPED_KEYS` set defines which keys require scoping. It includes `CURRENT_DEPTH`,
-`ITERATION_COUNT`, `FINAL_RESPONSE_TEXT`, `LAST_REPL_RESULT`, `SHOULD_STOP`, all submitted code
-keys, and all skill expansion keys. Global observability keys (`obs:*`) are intentionally
-excluded -- they accumulate across all depths.
+`ITERATION_COUNT`, `FINAL_RESPONSE_TEXT`, `LAST_REPL_RESULT`, `SHOULD_STOP`, and all submitted
+code keys. Global observability keys (`obs:*`) are intentionally excluded -- they accumulate
+across all depths.
 
 ---
 
@@ -464,3 +452,5 @@ object.__setattr__(worker, "my_attr", "value")
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
 -->
+
+- **2026-03-24 21:49** — `state.py`: Removed dead `OBS_REWRITE_COUNT`, `OBS_REWRITE_TOTAL_MS`, `OBS_REWRITE_FAILURE_COUNT`, `OBS_REWRITE_FAILURE_CATEGORIES` constants (AST rewriter deleted in thread bridge migration). Updated observability section comment to reflect that ObservabilityPlugin uses instance-local counters only, no obs keys written to session state.

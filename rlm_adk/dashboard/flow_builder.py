@@ -104,10 +104,8 @@ def _process_node(
 
     # 2. Code cell (if REPL code exists)
     code = inv.repl_submission or ""
-    expanded = inv.repl_expanded_code or ""
-    if code.strip() or expanded.strip():
-        # Detect llm_query lines
-        parse_source = expanded if expanded.strip() else code
+    if code.strip():
+        parse_source = code
         raw_lines = find_llm_query_lines(parse_source)
 
         # Match llm_query lines to child summaries by source order
@@ -135,7 +133,6 @@ def _process_node(
         blocks.append(
             FlowCodeCell(
                 code=code,
-                expanded_code=expanded,
                 llm_query_lines=llm_line_infos,
                 pane_id=node.pane_id,
                 invocation_id=inv.invocation_id,
