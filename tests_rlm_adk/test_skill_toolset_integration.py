@@ -586,8 +586,8 @@ class TestChildSkillPropagation:
         repl.cleanup()
 
     @pytest.mark.asyncio
-    async def test_children_do_not_get_skilltoolset(self) -> None:
-        """Child orchestrators do NOT have SkillToolset in their tools list."""
+    async def test_children_without_enabled_skills_do_not_get_skilltoolset(self) -> None:
+        """Child orchestrators without enabled_skills do NOT have SkillToolset."""
         from google.adk.agents import LlmAgent
         from google.adk.tools.skill_toolset import SkillToolset
 
@@ -624,8 +624,51 @@ class TestChildSkillPropagation:
         tools = reasoning_agent.tools
         toolset_instances = [t for t in tools if isinstance(t, SkillToolset)]
         assert len(toolset_instances) == 0, (
-            "Child orchestrators must NOT have SkillToolset — "
-            "only root orchestrator with enabled_skills gets discovery tools."
+            "Child orchestrators without enabled_skills must NOT have SkillToolset."
+        )
+        repl.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_children_with_enabled_skills_get_skilltoolset(self) -> None:
+        """Child orchestrators WITH enabled_skills DO have SkillToolset."""
+        from google.adk.agents import LlmAgent
+        from google.adk.tools.skill_toolset import SkillToolset
+
+        from rlm_adk.orchestrator import RLMOrchestratorAgent
+        from rlm_adk.repl.local_repl import LocalREPL
+
+        repl = LocalREPL(depth=1)
+        reasoning_agent = LlmAgent(
+            name="child_reasoning",
+            model="gemini-2.0-flash",
+        )
+        child_orch = RLMOrchestratorAgent(
+            name="child_orch",
+            reasoning_agent=reasoning_agent,
+            sub_agents=[reasoning_agent],
+            enabled_skills=("recursive_ping",),  # Skills enabled on child
+            repl=repl,
+            depth=1,
+        )
+
+        mock_ctx = MagicMock()
+        mock_ctx.invocation_id = "test-inv-child"
+        mock_ctx.session.state = {}
+
+        events = []
+        try:
+            async for event in child_orch._run_async_impl(mock_ctx):
+                events.append(event)
+                if len(events) >= 3:
+                    break
+        except Exception:
+            pass
+
+        tools = reasoning_agent.tools
+        toolset_instances = [t for t in tools if isinstance(t, SkillToolset)]
+        assert len(toolset_instances) == 1, (
+            "Child orchestrators with enabled_skills must have SkillToolset. "
+            f"Got {len(toolset_instances)} SkillToolset instances in {tools}"
         )
         repl.cleanup()
 

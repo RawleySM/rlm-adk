@@ -32,15 +32,15 @@
       "usages": [
         {
           "context": "param:invocation_context",
-          "line": 651
+          "line": 652
         },
         {
           "context": "param:invocation_context",
-          "line": 819
+          "line": 820
         },
         {
           "context": "param:invocation_context",
-          "line": 1391
+          "line": 1402
         }
       ],
       "hover": {
@@ -52,11 +52,11 @@
       "usages": [
         {
           "context": "param:agent",
-          "line": 900
+          "line": 901
         },
         {
           "context": "param:agent",
-          "line": 911
+          "line": 912
         }
       ],
       "hover": {
@@ -68,23 +68,23 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 900
+          "line": 901
         },
         {
           "context": "param:callback_context",
-          "line": 911
+          "line": 912
         },
         {
           "context": "param:callback_context",
-          "line": 927
+          "line": 928
         },
         {
           "context": "param:callback_context",
-          "line": 1022
+          "line": 1023
         },
         {
           "context": "param:callback_context",
-          "line": 1144
+          "line": 1145
         }
       ],
       "hover": {
@@ -96,11 +96,11 @@
       "usages": [
         {
           "context": "param:llm_request",
-          "line": 928
+          "line": 929
         },
         {
           "context": "param:llm_request",
-          "line": 1145
+          "line": 1146
         }
       ],
       "hover": {
@@ -112,19 +112,19 @@
       "usages": [
         {
           "context": "return",
-          "line": 929
+          "line": 930
         },
         {
           "context": "param:llm_response",
-          "line": 1023
-        },
-        {
-          "context": "return",
           "line": 1024
         },
         {
           "context": "return",
-          "line": 1147
+          "line": 1025
+        },
+        {
+          "context": "return",
+          "line": 1148
         }
       ],
       "hover": {
@@ -136,11 +136,11 @@
       "usages": [
         {
           "context": "param:tool",
-          "line": 1203
+          "line": 1204
         },
         {
           "context": "param:tool",
-          "line": 1272
+          "line": 1283
         }
       ],
       "hover": {
@@ -152,11 +152,11 @@
       "usages": [
         {
           "context": "param:tool_context",
-          "line": 1205
+          "line": 1206
         },
         {
           "context": "param:tool_context",
-          "line": 1274
+          "line": 1285
         }
       ],
       "hover": {
@@ -168,11 +168,11 @@
       "usages": [
         {
           "context": "param:event",
-          "line": 1391
+          "line": 1402
         },
         {
           "context": "return",
-          "line": 1392
+          "line": 1403
         }
       ],
       "hover": {

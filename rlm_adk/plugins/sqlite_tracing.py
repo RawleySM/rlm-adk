@@ -415,6 +415,7 @@ class SqliteTracingPlugin(BasePlugin):
                 ("skill_name_loaded", "TEXT"),
                 ("skill_instructions_len", "INTEGER"),
                 ("execution_mode", "TEXT"),
+                ("tool_args_json", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
                 ("error_message", "TEXT"),
@@ -1240,12 +1241,22 @@ class SqliteTracingPlugin(BasePlugin):
             session = getattr(inv_ctx, "session", None)
             session_id = getattr(session, "id", None)
 
+            # Serialize tool args for non-execute_code tools (code args are
+            # large and already captured via repl_submitted_code state key).
+            tool_args_json = None
+            if tool_name != "execute_code":
+                try:
+                    tool_args_json = json.dumps(tool_args, default=str)
+                except Exception:
+                    tool_args_json = None
+
             self._insert_telemetry(
                 telemetry_id,
                 "tool_call",
                 start_time,
                 tool_name=tool_name,
                 tool_args_keys=json.dumps(list(tool_args.keys())),
+                tool_args_json=tool_args_json,
                 agent_name=agent_name,
                 depth=tool_depth,
                 iteration=(self._coerce_int(iteration) if iteration is not None else None),

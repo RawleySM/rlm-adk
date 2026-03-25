@@ -14,9 +14,7 @@ from nicegui import ui
 from rlm_adk.dashboard.data_models import IterationData
 
 
-def build_cumulative_chart_options(
-    iterations: list[IterationData], current_iter: int
-) -> dict:
+def build_cumulative_chart_options(iterations: list[IterationData], current_iter: int) -> dict:
     """Build ECharts options for the cumulative token line chart.
 
     NiceGUI review correction: markLine must be inside a series,
@@ -43,11 +41,13 @@ def build_cumulative_chart_options(
         },
     ]
     for wi in worker_iters:
-        mark_line_data.append({
-            "xAxis": wi,
-            "lineStyle": {"type": "dashed", "color": "#F43F5E", "width": 1},
-            "label": {"show": False},
-        })
+        mark_line_data.append(
+            {
+                "xAxis": wi,
+                "lineStyle": {"type": "dashed", "color": "#F43F5E", "width": 1},
+                "label": {"show": False},
+            }
+        )
 
     return {
         "tooltip": {"trigger": "axis"},
@@ -110,13 +110,15 @@ def build_iteration_breakdown_table(
         current_total = total_in + total_out
         delta = current_total - prev_total
         worker_count = len(it.worker_windows)
-        rows.append({
-            "iter": it.iteration_index,
-            "input": f"{total_in:,}",
-            "output": f"{total_out:,}",
-            "delta": f"{delta:+,}" if it.iteration_index > 0 else "-",
-            "workers": str(worker_count) if worker_count > 0 else "-",
-        })
+        rows.append(
+            {
+                "iter": it.iteration_index,
+                "input": f"{total_in:,}",
+                "output": f"{total_out:,}",
+                "delta": f"{delta:+,}" if it.iteration_index > 0 else "-",
+                "workers": str(worker_count) if worker_count > 0 else "-",
+            }
+        )
         prev_total = current_total
 
     ui.label("Per-Iteration Breakdown").classes("text-subtitle1")
@@ -130,7 +132,9 @@ def build_iteration_breakdown_table(
     # Highlight the current iteration row with a distinct background.
     # Custom body slot replaces Quasar's default <q-tr> which normally emits
     # row-click, so we re-emit it via @click on the <q-tr>.
-    table.add_slot('body', f'''
+    table.add_slot(
+        "body",
+        f"""
         <q-tr :props="props"
                :class="props.row.iter === {current_iter} ? 'bg-blue-grey-9 cursor-pointer' : 'cursor-pointer'"
                @click="() => $parent.$emit('row-click', {{}}, props.row, props.rowIndex)">
@@ -138,7 +142,8 @@ def build_iteration_breakdown_table(
                 {{{{ col.value }}}}
             </q-td>
         </q-tr>
-    ''')
+    """,
+    )
 
     # NiceGUI review: wire row click via Quasar's rowClick event.
     # With the custom body slot, args come from our explicit $emit above:

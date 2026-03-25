@@ -133,7 +133,9 @@ def _header(node: LiveInvocationNode) -> None:
                     f"color: {status_color}; font-size: 0.72rem; text-transform: uppercase;"
                 )
             # Depth / fanout chip
-            fanout = "root" if node.invocation.fanout_idx is None else f"f{node.invocation.fanout_idx}"
+            fanout = (
+                "root" if node.invocation.fanout_idx is None else f"f{node.invocation.fanout_idx}"
+            )
             ui.label(f"d{node.invocation.depth}/{fanout}").style(
                 "color: var(--text-1); font-size: 0.72rem;"
             )
@@ -189,18 +191,22 @@ def _child_summary_bar(node: LiveInvocationNode, *, on_open_repl_output) -> None
         for child in summaries:
             error_border = "var(--accent-child)" if child.error else "var(--border-1)"
             error_bg = "rgba(255,107,159,0.10)" if child.error else "rgba(159,176,209,0.06)"
-            with ui.element("div").style(
-                f"display: flex; flex-direction: column; gap: 0.2rem; "
-                f"padding: 0.4rem 0.65rem; border-radius: 12px; min-width: 14rem; max-width: 28rem; "
-                f"border: 1px solid {error_border}; background: {error_bg}; cursor: pointer;"
-            ).on(
-                "click.stop",
-                lambda _e, c=child: on_open_repl_output(
-                    f"child:d{c.depth}:f{c.fanout_idx}",
-                    f"Prompt:\n{c.prompt}\n\nResult:\n{c.result_text}\n\n"
-                    f"Thought:\n{c.thought_text}\n\nVisible Output:\n{c.visible_output_text}",
-                    f"child d{c.depth}/f{c.fanout_idx}",
-                ),
+            with (
+                ui.element("div")
+                .style(
+                    f"display: flex; flex-direction: column; gap: 0.2rem; "
+                    f"padding: 0.4rem 0.65rem; border-radius: 12px; min-width: 14rem; max-width: 28rem; "
+                    f"border: 1px solid {error_border}; background: {error_bg}; cursor: pointer;"
+                )
+                .on(
+                    "click.stop",
+                    lambda _e, c=child: on_open_repl_output(
+                        f"child:d{c.depth}:f{c.fanout_idx}",
+                        f"Prompt:\n{c.prompt}\n\nResult:\n{c.result_text}\n\n"
+                        f"Thought:\n{c.thought_text}\n\nVisible Output:\n{c.visible_output_text}",
+                        f"child d{c.depth}/f{c.fanout_idx}",
+                    ),
+                )
             ):
                 # Header row
                 with ui.element("div").style(
@@ -223,9 +229,7 @@ def _child_summary_bar(node: LiveInvocationNode, *, on_open_repl_output) -> None
                             "color: var(--text-1); font-size: 0.68rem;"
                         )
                 # Token row
-                with ui.element("div").style(
-                    "display: flex; align-items: center; gap: 0.35rem;"
-                ):
+                with ui.element("div").style("display: flex; align-items: center; gap: 0.35rem;"):
                     ui.label(f"{child.input_tokens}in").style(
                         "color: var(--text-1); font-size: 0.68rem;"
                     )
@@ -279,13 +283,11 @@ def _model_call_detail(node: LiveInvocationNode) -> None:
                 ui.label(f"{me.input_tokens}in/{me.output_tokens}out").style(
                     "color: var(--text-1); font-size: 0.68rem;"
                 )
-                finish_color = "var(--accent-child)" if finish not in ("STOP", "?") else "var(--text-1)"
-                ui.label(finish).style(
-                    f"color: {finish_color}; font-size: 0.68rem;"
+                finish_color = (
+                    "var(--accent-child)" if finish not in ("STOP", "?") else "var(--text-1)"
                 )
-                ui.label(dur).style(
-                    "color: var(--text-1); font-size: 0.68rem;"
-                )
+                ui.label(finish).style(f"color: {finish_color}; font-size: 0.68rem;")
+                ui.label(dur).style("color: var(--text-1); font-size: 0.68rem;")
 
 
 def _scope_groups(node: LiveInvocationNode, *, on_open_context) -> None:
@@ -370,7 +372,11 @@ def _context_chip(
 ) -> None:
     # For obs/completion scopes, show value preview instead of token count
     if scope in ("observability", "completion_plane", "skill_plane"):
-        chip_label = f"{item.label}: {item.display_value_preview[:60]}" if item.display_value_preview else item.label
+        chip_label = (
+            f"{item.label}: {item.display_value_preview[:60]}"
+            if item.display_value_preview
+            else item.label
+        )
         bg = {
             "observability": "rgba(87,199,255,0.10)",
             "completion_plane": "rgba(255,107,159,0.10)",
@@ -411,9 +417,9 @@ def _context_chip(
         )
     )
     with chip:
-        ui.label(chip_label).style(
-            f"color: {text_color}; font-size: 0.78rem;"
-        ).tooltip(item.display_value_preview or item.raw_key)
+        ui.label(chip_label).style(f"color: {text_color}; font-size: 0.78rem;").tooltip(
+            item.display_value_preview or item.raw_key
+        )
 
 
 def _action_chip(label: str, on_click) -> None:

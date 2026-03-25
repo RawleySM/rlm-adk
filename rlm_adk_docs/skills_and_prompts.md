@@ -798,3 +798,6 @@ object.__setattr__(self.reasoning_agent, "tools", [repl_tool])
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
 -->
+- **2026-03-25 16:00** — `rlm_adk/skills/loader.py`: GAP-C: Added `_has_llm_query_batched_fn_param()`, extended `_wrap_with_llm_query_injection()` to inject `llm_query_batched_fn` from REPL globals, updated `collect_skill_repl_globals()` guard to wrap functions declaring either param `[session: cd2d9e3f]`
+- **2026-03-25 16:00** — `rlm_adk/skills/test_skill/skill.py`: GAP-C: Added `llm_query_batched_fn=None` parameter to `run_test_skill()` signature `[session: cd2d9e3f]`
+- **2026-03-25 16:45** — `rlm_adk/utils/prompts.py`: GAP-D: Added skill tools section (list_skills/load_skill) to `RLM_CHILD_STATIC_INSTRUCTION` `[session: cd2d9e3f]`

@@ -11,11 +11,19 @@ FlowBlockKind = Literal[
     "arrow",
     "child_card",
     "output_cell",
+    "tool_call_cell",
 ]
 
 ArrowDirection = Literal["down", "right", "left"]
 
-ArrowKind = Literal["execute_code", "llm_query", "set_model_response", "return_value"]
+ArrowKind = Literal[
+    "execute_code",
+    "llm_query",
+    "set_model_response",
+    "return_value",
+    "load_skill",
+    "list_skills",
+]
 
 
 @dataclass(frozen=True)
@@ -115,6 +123,19 @@ class FlowOutputCell:
 
 
 @dataclass(frozen=True)
+class FlowToolCallCell:
+    """Tool call display block for non-execute_code tools."""
+
+    kind: FlowBlockKind = "tool_call_cell"
+    tool_name: str = ""
+    tool_args: dict[str, Any] = field(default_factory=dict)
+    tool_result: dict[str, Any] = field(default_factory=dict)
+    result_text: str = ""
+    pane_id: str = ""
+    invocation_id: str = ""
+
+
+@dataclass(frozen=True)
 class FlowInspectorData:
     """Data for the right sidebar context inspector."""
 
@@ -125,7 +146,9 @@ class FlowInspectorData:
     context_items: list[Any] = field(default_factory=list)
 
 
-FlowBlock = FlowAgentCard | FlowCodeCell | FlowArrow | FlowChildCard | FlowOutputCell
+FlowBlock = (
+    FlowAgentCard | FlowCodeCell | FlowArrow | FlowChildCard | FlowOutputCell | FlowToolCallCell
+)
 
 
 @dataclass(frozen=True)

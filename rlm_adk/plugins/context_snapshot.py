@@ -325,7 +325,7 @@ class ContextWindowSnapshotPlugin(BasePlugin):
                 chunks.append(self._make_chunk(
                     f"iter{iteration}_reasoning_static_instruction",
                     "static_instruction",
-                    "RLM System Prompt",
+                    "system_instruction",
                     static_text,
                     -1,
                 ))
@@ -341,7 +341,7 @@ class ContextWindowSnapshotPlugin(BasePlugin):
                 chunks.append(self._make_chunk(
                     f"iter{iteration}_reasoning_static_instruction",
                     "static_instruction",
-                    "RLM System Prompt",
+                    "system_instruction",
                     si_text,
                     -1,
                 ))

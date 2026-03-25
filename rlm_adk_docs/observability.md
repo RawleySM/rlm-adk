@@ -492,3 +492,4 @@ the same issue.
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
 -->
+- **2026-03-25 16:55** — `rlm_adk/plugins/sqlite_tracing.py`: Pre-existing uncommitted change: added `tool_args_json TEXT` column to telemetry table schema; serializes tool args for non-execute_code tools in `after_tool_callback` `[session: cd2d9e3f]`

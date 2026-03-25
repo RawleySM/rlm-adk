@@ -45,6 +45,10 @@
         {
           "name": "reasoning_agent",
           "line": 598
+        },
+        {
+          "name": "reasoning_agent",
+          "line": 641
         }
       ],
       "hover": {
@@ -56,7 +60,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 738
+          "line": 781
         }
       ],
       "hover": {
@@ -68,7 +72,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 739
+          "line": 782
         }
       ],
       "hover": {
@@ -82,7 +86,7 @@
       "usages": [
         {
           "context": "base:CapturePlugin",
-          "line": 654
+          "line": 697
         }
       ],
       "hover": {

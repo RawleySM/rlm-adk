@@ -120,8 +120,8 @@ class ExpectedLineage:
 def build_skill_arch_test_lineage() -> ExpectedLineage:
     """Build the ExpectedLineage for the expanded skill_arch_test fixture.
 
-    8-call fixture: 3 reasoning turns (2x execute_code + 1x set_model_response),
-    depth=2 via llm_query chain, llm_query_batched with 2 prompts.
+    15-call fixture: 4 tools x 3 depths (list_skills, load_skill, execute_code,
+    set_model_response at d0/d1/d2), plus llm_query_batched with 2 prompts.
 
     Anti-reward-hacking: every assertion depends on real pipeline execution.
     Removed: repl_did_expand (dead signal), should_stop at model_call_1 (default check).

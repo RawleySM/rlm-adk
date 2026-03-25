@@ -190,9 +190,7 @@ class TokenReconciliation:
 # ---------------------------------------------------------------------------
 
 
-def estimate_tokens_for_chunks(
-    chunks: list[ContextChunk], known_total_tokens: int
-) -> None:
+def estimate_tokens_for_chunks(chunks: list[ContextChunk], known_total_tokens: int) -> None:
     """Distribute known total tokens proportionally by character count.
 
     Mutates ``chunk.estimated_tokens`` in place.  Calibrates to the
@@ -206,6 +204,4 @@ def estimate_tokens_for_chunks(
             chunk.estimated_tokens = 0
         return
     for chunk in chunks:
-        chunk.estimated_tokens = round(
-            known_total_tokens * chunk.char_count / total_chars
-        )
+        chunk.estimated_tokens = round(known_total_tokens * chunk.char_count / total_chars)

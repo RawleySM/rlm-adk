@@ -472,3 +472,10 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 <!-- Example entry format:
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
 -->
+- **2026-03-25 16:30** — `rlm_adk/orchestrator.py`: GAP-A: passes `enabled_skills=self.enabled_skills` to `create_dispatch_closures()` so children inherit SkillToolset `[session: cd2d9e3f]`
+- **2026-03-25 16:30** — `rlm_adk/dispatch.py`: GAP-A: added `enabled_skills` param to `create_dispatch_closures()` and `_run_child()`, propagated to `create_child_orchestrator()` `[session: cd2d9e3f]`
+- **2026-03-25 16:30** — `rlm_adk/agent.py`: GAP-A: added `enabled_skills: tuple[str, ...] = ()` param to `create_child_orchestrator()` `[session: cd2d9e3f]`
+- **2026-03-25 16:45** — `rlm_adk/orchestrator.py`: GAP-D: passes `repo_url=self.repo_url` to `create_dispatch_closures()` so children get dynamic instruction resolution `[session: cd2d9e3f]`
+- **2026-03-25 16:45** — `rlm_adk/dispatch.py`: GAP-D: added `repo_url` param to `create_dispatch_closures()` and `_run_child()` `[session: cd2d9e3f]`
+- **2026-03-25 16:45** — `rlm_adk/agent.py`: GAP-D: added `repo_url: str | None = None` param to `create_child_orchestrator()` `[session: cd2d9e3f]`
+- **2026-03-25 16:55** — `rlm_adk/orchestrator.py`: GAP-D reviewer fix: added comment documenting intentional non-propagation of user_ctx_manifest to children `[session: cd2d9e3f]`

@@ -24,22 +24,27 @@ def build_context_bar_options(window: ContextWindow) -> dict:
     total_tokens = sum(c.estimated_tokens for c in window.chunks)
 
     for chunk in window.chunks:
-        series.append({
-            "name": chunk.chunk_id,
-            "type": "bar",
-            "stack": "total",
-            "data": [chunk.estimated_tokens],
-            "itemStyle": {"color": CATEGORY_COLORS.get(chunk.category, "#888888")},
-            "emphasis": {"itemStyle": {"borderWidth": 2, "borderColor": "#fff"}},
-        })
+        series.append(
+            {
+                "name": chunk.chunk_id,
+                "type": "bar",
+                "stack": "total",
+                "data": [chunk.estimated_tokens],
+                "itemStyle": {"color": CATEGORY_COLORS.get(chunk.category, "#888888")},
+                "emphasis": {"itemStyle": {"borderWidth": 2, "borderColor": "#fff"}},
+            }
+        )
 
     # NiceGUI review: use ':formatter' for JS function (colon prefix)
-    formatter_js = """(params) => {
+    formatter_js = (
+        """(params) => {
         const total = %d;
         const pct = total > 0 ? (params.value / total * 100).toFixed(1) : '0.0';
         return params.seriesName + ': ' + params.value.toLocaleString()
             + ' tokens (' + pct + '%%' + ')';
-    }""" % total_tokens
+    }"""
+        % total_tokens
+    )
 
     return {
         "tooltip": {

@@ -21,6 +21,8 @@ _ARROW_COLORS = {
     "llm_query": "var(--accent-root)",
     "return_value": "var(--accent-active)",
     "set_model_response": "var(--accent-child)",
+    "load_skill": "var(--accent-active)",
+    "list_skills": "var(--accent-root)",
 }
 
 _STATUS_COLORS = {

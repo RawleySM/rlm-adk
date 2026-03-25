@@ -336,6 +336,8 @@ def create_child_orchestrator(
     fanout_idx: int = 0,
     parent_fanout_idx: int | None = None,
     instruction_router: Any = None,
+    enabled_skills: tuple[str, ...] = (),
+    repo_url: str | None = None,
 ) -> RLMOrchestratorAgent:
     """Create a child orchestrator for recursive dispatch at *depth* > 0.
 
@@ -350,6 +352,8 @@ def create_child_orchestrator(
         thinking_budget: Token budget for built-in planner.
         output_schema: Optional Pydantic schema for structured output.
         fanout_idx: Fanout index within a batched dispatch (0 = single/first).
+        enabled_skills: Skill names to propagate to child (default empty).
+        repo_url: Optional repository URL for dynamic instruction template resolution.
     """
     reasoning = create_reasoning_agent(
         model,
@@ -379,6 +383,8 @@ def create_child_orchestrator(
         fanout_idx=fanout_idx,
         output_schema=output_schema,
         instruction_router=instruction_router,
+        enabled_skills=enabled_skills,
+        repo_url=repo_url,
         parent_depth=depth - 1 if depth > 0 else None,
         parent_fanout_idx=parent_fanout_idx,
         sub_agents=[reasoning],

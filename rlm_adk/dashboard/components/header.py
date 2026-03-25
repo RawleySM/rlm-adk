@@ -28,6 +28,7 @@ def build_header(
         current = controller.state.selected_session_id
 
         if sessions:
+
             async def handle_change(e: Any) -> None:
                 if e.value and e.value != controller.state.selected_session_id:
                     await on_session_change(e.value)

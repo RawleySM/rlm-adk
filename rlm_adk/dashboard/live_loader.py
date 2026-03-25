@@ -602,6 +602,7 @@ class LiveDashboardLoader:
             "result_payload",
             "repl_stdout",
             "repl_stderr",
+            "tool_args_json",
             "status",
             "error_type",
             "error_message",
@@ -714,12 +715,48 @@ class LiveDashboardLoader:
         pane_invocations: dict[tuple[int, int | None], list[LiveInvocation]] = defaultdict(list)
         pane_last_activity: dict[tuple[int, int | None], float] = defaultdict(float)
 
+        # Build temporal code lookup: per-depth sorted list of (event_time, code_text)
+        # from repl_submitted_code state events, so each invocation gets ITS iteration's code.
+        repl_code_timeline: dict[int, list[tuple[float, str]]] = defaultdict(list)
+        for row in sse_rows:
+            if row.get("state_key") == REPL_SUBMITTED_CODE:
+                d = _safe_int(row.get("key_depth"))
+                t = float(row.get("event_time") or 0.0)
+                val = _parse_jsonish(
+                    row.get("value_type", "str"),
+                    row.get("value_text"),
+                    row.get("value_json"),
+                    row.get("value_int"),
+                    row.get("value_float"),
+                )
+                repl_code_timeline[d].append((t, str(val or "")))
+        for timeline in repl_code_timeline.values():
+            timeline.sort()
+
+        # Pre-compute per-depth snapshot timestamps for upper-bound scoping.
+        snapshots_by_depth: dict[int, list[float]] = defaultdict(list)
+        for snapshot in snapshots:
+            d = _depth_from_agent(snapshot.get("agent_name", ""))
+            snapshots_by_depth[d].append(float(snapshot.get("timestamp") or 0.0))
+        for ts_list in snapshots_by_depth.values():
+            ts_list.sort()
+
         for snapshot in snapshots:
             depth = _depth_from_agent(snapshot.get("agent_name", ""))
             fanout_idx = fanout_by_snapshot.get(id(snapshot))
             if depth > 0 and fanout_idx is None:
                 fanout_idx = 0
             pane_key = (depth, fanout_idx)
+
+            # Compute upper bound: timestamp of the next snapshot at same depth.
+            ts = float(snapshot.get("timestamp") or 0.0)
+            depth_ts_list = snapshots_by_depth.get(depth, [])
+            next_ts = float("inf")
+            for candidate in depth_ts_list:
+                if candidate > ts:
+                    next_ts = candidate
+                    break
+
             live_invocation = self._build_invocation(
                 snapshot=snapshot,
                 output_row=outputs_by_key.get(self._event_key(snapshot)),
@@ -729,6 +766,8 @@ class LiveDashboardLoader:
                 tool_rows=tool_events_by_depth.get(depth, []),
                 model_rows=model_events_by_depth.get(depth, []),
                 fanout_idx=fanout_idx,
+                next_snapshot_ts=next_ts,
+                repl_code_timeline=repl_code_timeline.get(depth, []),
             )
             pane_invocations[pane_key].append(live_invocation)
             pane_last_activity[pane_key] = max(
@@ -1017,6 +1056,8 @@ class LiveDashboardLoader:
         tool_rows: list[dict[str, Any]],
         model_rows: list[dict[str, Any]],
         fanout_idx: int | None,
+        next_snapshot_ts: float = float("inf"),
+        repl_code_timeline: list[tuple[float, str]] | None = None,
     ) -> LiveInvocation:
         depth = _depth_from_agent(snapshot.get("agent_name", ""))
         chunks = self._build_request_chunks(snapshot)
@@ -1030,18 +1071,26 @@ class LiveDashboardLoader:
             if row.get("agent_name") == snapshot.get("agent_name")
             and abs((row.get("start_time") or 0.0) - timestamp) < 0.01
         ]
+        # Scope tool events to THIS iteration's time window [timestamp, next_snapshot_ts).
         relevant_tools = [
             self._build_tool_event(row, depth, fanout_idx)
             for row in tool_rows
             if row.get("agent_name") == snapshot.get("agent_name")
-            and row.get("start_time", 0.0) >= timestamp
+            and timestamp <= row.get("start_time", 0.0) < next_snapshot_ts
         ]
 
-        latest_repl = {
-            item.base_key: item
-            for item in state_items
-            if item.base_key in {REPL_SUBMITTED_CODE}
-        }
+        # Resolve repl_submission from the temporal code timeline for this iteration,
+        # not from the global latest state (which only has the LAST iteration's code).
+        # No fallback: if no code event exists in the time window, this iteration
+        # didn't call execute_code (e.g. set_model_response only), so repl_submission
+        # should stay empty.
+        repl_submission = ""
+        if repl_code_timeline:
+            for event_time, code_text in repl_code_timeline:
+                if timestamp <= event_time < next_snapshot_ts:
+                    repl_submission = code_text
+                    break
+
         matching_children = [child for child in child_summaries if child.parent_depth == depth]
         tool_payload = (relevant_tools[-1].payload or {}) if relevant_tools else {}
         repl_stdout = str(tool_payload.get("stdout") or "")
@@ -1080,11 +1129,7 @@ class LiveDashboardLoader:
             request_chunks=chunks,
             state_items=state_items,
             child_summaries=matching_children,
-            repl_submission=str(
-                latest_repl.get(REPL_SUBMITTED_CODE).value
-                if latest_repl.get(REPL_SUBMITTED_CODE)
-                else ""
-            ),
+            repl_submission=repl_submission,
             repl_stdout=repl_stdout,
             repl_stderr=repl_stderr,
             reasoning_visible_text=str(
@@ -1117,7 +1162,11 @@ class LiveDashboardLoader:
         for chunk in snapshot.get("chunks", []):
             text = chunk.get("text", "")
             char_count = _safe_int(chunk.get("char_count"), len(text))
-            token_count = _estimate_token_count(text, total_chars, total_tokens)
+            category = str(chunk.get("category") or "unknown")
+            if category == "static_instruction":
+                token_count = char_count // 4
+            else:
+                token_count = _estimate_token_count(text, total_chars, total_tokens)
             chunks.append(
                 LiveRequestChunk(
                     chunk_id=str(chunk.get("chunk_id") or ""),
@@ -1199,7 +1248,18 @@ class LiveDashboardLoader:
                 json.loads(row["repl_trace_summary"]) if row.get("repl_trace_summary") else None
             ),
             payload=payload if payload else None,
+            tool_args=self._parse_tool_args(row),
         )
+
+    @staticmethod
+    def _parse_tool_args(row: dict[str, Any]) -> dict[str, Any] | None:
+        raw = row.get("tool_args_json")
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     @staticmethod
     def _event_key(row: dict[str, Any]) -> tuple[str, int, int]:

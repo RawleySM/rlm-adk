@@ -41,9 +41,9 @@ def render_worker_panel(
     else:
         # Collapsed summary with expansion toggle
         with ui.card().classes("w-full q-pa-sm"):
-            ui.label(
-                f"{count} workers: {total_tokens:,} total input tokens"
-            ).classes("text-subtitle2")
+            ui.label(f"{count} workers: {total_tokens:,} total input tokens").classes(
+                "text-subtitle2"
+            )
 
             with ui.expansion("Show individual workers").classes("w-full"):
                 for window in worker_windows:
@@ -67,6 +67,4 @@ def _render_worker_bar(
                 on_chunk_selected()
                 return
 
-    ui.echart(options, on_point_click=on_bar_click).classes("w-full").style(
-        "height: 60px"
-    )
+    ui.echart(options, on_point_click=on_bar_click).classes("w-full").style("height: 60px")

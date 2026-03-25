@@ -27,22 +27,22 @@ def build_workers_panel(
         "display: flex; flex-direction: row; align-items: center; "
         "gap: 0.25rem; flex-wrap: wrap; align-self: flex-end"
     ):
-        ui.label("WORKERS").classes(
-            "text-body2 text-weight-bold"
-        ).style("color: #F43F5E; margin-right: 0.5rem")
+        ui.label("WORKERS").classes("text-body2 text-weight-bold").style(
+            "color: #F43F5E; margin-right: 0.5rem"
+        )
 
         for i, wo in enumerate(it_data.worker_outputs):
             if i > 0:
-                ui.label("|").classes("text-body2 text-grey-6").style(
-                    "margin: 0 0.25rem"
-                )
-            ui.label(wo.agent_name).classes("text-body2").style(
-                "color: #F43F5E"
-            )
+                ui.label("|").classes("text-body2 text-grey-6").style("margin: 0 0.25rem")
+            ui.label(wo.agent_name).classes("text-body2").style("color: #F43F5E")
             if on_worker_click:
-                with ui.element("span").style("cursor: pointer").on(
-                    "click",
-                    lambda _e, name=wo.agent_name: on_worker_click(name),
+                with (
+                    ui.element("span")
+                    .style("cursor: pointer")
+                    .on(
+                        "click",
+                        lambda _e, name=wo.agent_name: on_worker_click(name),
+                    )
                 ):
                     ui.badge(f"{wo.input_tokens:,} in", color="blue-7")
             else:

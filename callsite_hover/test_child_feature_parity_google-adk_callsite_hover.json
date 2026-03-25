@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_skill_loader.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/tests_rlm_adk/test_child_feature_parity.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -11,7 +11,19 @@
       "instances": [
         {
           "name": "reasoning_agent",
-          "line": 604
+          "line": 120
+        },
+        {
+          "name": "reasoning_agent",
+          "line": 182
+        },
+        {
+          "name": "reasoning_agent",
+          "line": 329
+        },
+        {
+          "name": "reasoning_agent",
+          "line": 425
         }
       ],
       "hover": {

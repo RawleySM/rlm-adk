@@ -1127,13 +1127,13 @@
       ],
       "verdict": "faithful"
     },
-    "structured_output_happy_path.json": {
+    "_subsumed_structured_output_happy_path": {
+      "_note": "SUBSUMED into skill_arch_test.json: output_schema=BatchResult on llm_query_batched at idx 11, tested by TestStructuredOutputCoverage in test_skill_arch_e2e.py",
       "failure_modes": [],
       "tests": [
-        "tests_rlm_adk/test_provider_fake_e2e.py::test_fixture_contract[structured_output_happy_path]",
-        "tests_rlm_adk/test_structured_output_e2e.py::test_structured_output_contract[structured_output_happy_path]",
-        "tests_rlm_adk/test_structured_output_e2e.py::test_happy_path_has_parsed_result",
-        "tests_rlm_adk/test_structured_output_e2e.py::test_happy_path_with_plugins"
+        "tests_rlm_adk/test_skill_arch_e2e.py::TestStructuredOutputCoverage::test_structured_output_marker_in_stdout",
+        "tests_rlm_adk/test_skill_arch_e2e.py::TestStructuredOutputCoverage::test_structured_output_parsed_results",
+        "tests_rlm_adk/test_skill_arch_e2e.py::TestStructuredOutputCoverage::test_structured_output_field_values"
       ]
     },
     "structured_output_retry_empty.json": {

@@ -41,6 +41,11 @@ try:
 except ImportError:  # pragma: no cover
     render_flow_context_inspector = None  # type: ignore[assignment]
 
+try:
+    from rlm_adk.dashboard.components.flow_tool_call_cell import render_flow_tool_call_cell
+except ImportError:  # pragma: no cover
+    render_flow_tool_call_cell = None  # type: ignore[assignment]
+
 
 def render_flow_transcript(
     transcript: FlowTranscript,
@@ -101,6 +106,8 @@ def _render_block(
         )
     elif kind == "output_cell" and render_flow_output_cell is not None:
         render_flow_output_cell(block)  # type: ignore[arg-type]
+    elif kind == "tool_call_cell" and render_flow_tool_call_cell is not None:
+        render_flow_tool_call_cell(block)  # type: ignore[arg-type]
     else:
         # Fallback: show block kind label
         ui.label(f"[{kind}]").style("color: var(--text-1); font-size: 0.72rem;")

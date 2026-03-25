@@ -19,7 +19,7 @@
       "instances": [
         {
           "name": "artifact_service",
-          "line": 764
+          "line": 769
         }
       ],
       "hover": {
@@ -31,7 +31,7 @@
       "instances": [
         {
           "name": "runner",
-          "line": 765
+          "line": 770
         }
       ],
       "hover": {
@@ -49,7 +49,7 @@
         },
         {
           "context": "variable:plugins",
-          "line": 718
+          "line": 723
         }
       ],
       "hover": {
@@ -61,15 +61,15 @@
       "usages": [
         {
           "context": "param:agent",
-          "line": 110
+          "line": 118
         },
         {
           "context": "param:agent",
-          "line": 120
+          "line": 128
         },
         {
           "context": "param:agent",
-          "line": 145
+          "line": 153
         }
       ],
       "hover": {
@@ -81,27 +81,27 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 110
+          "line": 118
         },
         {
           "context": "param:callback_context",
-          "line": 121
+          "line": 129
         },
         {
           "context": "param:callback_context",
-          "line": 146
+          "line": 154
         },
         {
           "context": "param:callback_context",
-          "line": 171
+          "line": 179
         },
         {
           "context": "param:callback_context",
-          "line": 226
+          "line": 231
         },
         {
           "context": "param:callback_context",
-          "line": 509
+          "line": 514
         }
       ],
       "hover": {
@@ -113,11 +113,11 @@
       "usages": [
         {
           "context": "param:llm_request",
-          "line": 172
+          "line": 180
         },
         {
           "context": "param:llm_request",
-          "line": 509
+          "line": 514
         }
       ],
       "hover": {
@@ -129,15 +129,15 @@
       "usages": [
         {
           "context": "return",
-          "line": 173
+          "line": 181
         },
         {
           "context": "param:llm_response",
-          "line": 227
+          "line": 232
         },
         {
           "context": "return",
-          "line": 228
+          "line": 233
         }
       ],
       "hover": {
@@ -149,11 +149,11 @@
       "usages": [
         {
           "context": "param:tool",
-          "line": 280
+          "line": 285
         },
         {
           "context": "param:tool",
-          "line": 320
+          "line": 325
         }
       ],
       "hover": {
@@ -165,11 +165,11 @@
       "usages": [
         {
           "context": "param:tool_context",
-          "line": 282
+          "line": 287
         },
         {
           "context": "param:tool_context",
-          "line": 322
+          "line": 327
         }
       ],
       "hover": {

@@ -409,9 +409,7 @@ async def live_dashboard_page() -> None:
                             for i, q in enumerate(_fixture_queries)
                         ]
                     else:
-                        _query_chips = [
-                            ("No query captured", "No query captured.", "user-query")
-                        ]
+                        _query_chips = [("No query captured", "No query captured.", "user-query")]
                 _session_meta_row(
                     "User Query",
                     _query_chips,
@@ -933,8 +931,8 @@ def _render_flow_view(
             )
             render_flow_transcript(
                 transcript,
-                on_open_context=lambda pane_id, item: _open_flow_context(
-                    controller, text_panel_body, pane_id, item
+                on_open_context=lambda pane_id, item, inv_id="": _open_flow_context(
+                    controller, text_panel_body, pane_id, item, inv_id
                 ),
                 on_open_child_window=lambda child: _open_child_window(controller, child),
             )
@@ -964,14 +962,25 @@ def _open_flow_context(
     refresh_viewer,
     pane_id: str,
     item,
+    invocation_id: str = "",
 ) -> None:
-    """Open context viewer for a flow context chip, using the clicked card's pane."""
+    """Open context viewer for a flow context chip, using the clicked card's invocation."""
     pane = controller._pane_by_id(pane_id)
-    invocation = controller.selected_invocation(pane)
+    invocation = _find_invocation_by_id(pane, invocation_id) or controller.selected_invocation(pane)
     lineage = controller.selected_invocation_lineage()
     if invocation is not None:
         controller.open_invocation_context_viewer(invocation, item, lineage)
         refresh_viewer.refresh()
+
+
+def _find_invocation_by_id(pane, invocation_id: str):
+    """Find a specific invocation by ID within a pane."""
+    if not pane or not invocation_id or not pane.invocations:
+        return None
+    for inv in pane.invocations:
+        if inv.invocation_id == invocation_id:
+            return inv
+    return None
 
 
 def _open_flow_state_item(

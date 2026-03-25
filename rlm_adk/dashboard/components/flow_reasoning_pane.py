@@ -106,7 +106,11 @@ def _context_rows(card: FlowAgentCard, *, on_open_context) -> None:
             )
             for item in items:
                 _context_chip(
-                    item, scope=scope, pane_id=card.pane_id, on_open_context=on_open_context
+                    item,
+                    scope=scope,
+                    pane_id=card.pane_id,
+                    invocation_id=card.invocation_id,
+                    on_open_context=on_open_context,
                 )
 
 
@@ -115,6 +119,7 @@ def _context_chip(
     *,
     scope: str,
     pane_id: str,
+    invocation_id: str = "",
     on_open_context,
 ) -> None:
     if scope in ("observability", "completion_plane"):
@@ -153,7 +158,10 @@ def _context_chip(
         "padding: 0.26rem 0.56rem;"
     )
     if on_open_context:
-        el.on("click.stop", lambda _e, i=item, pid=pane_id: on_open_context(pid, i))
+        el.on(
+            "click.stop",
+            lambda _e, i=item, pid=pane_id, iid=invocation_id: on_open_context(pid, i, iid),
+        )
     with el:
         ui.label(chip_label).style(f"color: {text_color}; font-size: 0.76rem;").tooltip(
             item.display_value_preview or item.raw_key

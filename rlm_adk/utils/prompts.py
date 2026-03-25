@@ -137,6 +137,15 @@ The persistent REPL environment provides:
 If context data has been pre-loaded into your environment, your dynamic
 instructions will describe what is available and how to access it.
 
+## Skill Tools
+
+When skills are available, you have additional tools for discovery:
+- `list_skills()`: List available skills and their descriptions.
+- `load_skill(name)`: Load a skill's detailed instructions and usage.
+
+After discovering a skill, call its functions via `execute_code`. Skill
+functions are pre-loaded as REPL globals — use them directly in code.
+
 You will only see truncated REPL outputs, so use `llm_query` on variables you want to analyze. Use variables as buffers to build up your final answer.
 
 Strategy: load data, determine a chunking strategy, break into chunks, query an LLM per chunk, then synthesize results into a final answer. Your sub-LLMs can handle ~500K characters, so batch aggressively with `llm_query_batched`.

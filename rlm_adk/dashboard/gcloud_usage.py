@@ -24,13 +24,9 @@ from rlm_adk.dashboard.data_models import APITokenUsage, ModelTokenUsage
 logger = logging.getLogger(__name__)
 
 _INPUT_TOKEN_METRIC = (
-    "generativelanguage.googleapis.com/quota/"
-    "generate_content_paid_tier_input_token_count/usage"
+    "generativelanguage.googleapis.com/quota/generate_content_paid_tier_input_token_count/usage"
 )
-_REQUEST_COUNT_METRIC = (
-    "generativelanguage.googleapis.com/quota/"
-    "generate_requests_per_model/usage"
-)
+_REQUEST_COUNT_METRIC = "generativelanguage.googleapis.com/quota/generate_requests_per_model/usage"
 _MONITORING_API_BASE = "https://monitoring.googleapis.com/v3"
 
 
@@ -83,27 +79,21 @@ class GCloudUsageClient:
                 for ts in input_data.get("timeSeries", []):
                     model = ts.get("metric", {}).get("labels", {}).get("model", "unknown")
                     tokens = sum(
-                        int(p.get("value", {}).get("int64Value", 0))
-                        for p in ts.get("points", [])
+                        int(p.get("value", {}).get("int64Value", 0)) for p in ts.get("points", [])
                     )
                     if model not in per_model:
                         per_model[model] = ModelTokenUsage(
                             model=model, input_tokens=0, output_tokens=0, calls=0
                         )
                     # Deduplicate by taking max across limit_name entries
-                    per_model[model].input_tokens = max(
-                        per_model[model].input_tokens, tokens
-                    )
-                    total_input = max(total_input, sum(
-                        m.input_tokens for m in per_model.values()
-                    ))
+                    per_model[model].input_tokens = max(per_model[model].input_tokens, tokens)
+                    total_input = max(total_input, sum(m.input_tokens for m in per_model.values()))
 
             if request_data:
                 for ts in request_data.get("timeSeries", []):
                     model = ts.get("metric", {}).get("labels", {}).get("model", "unknown")
                     calls = sum(
-                        int(p.get("value", {}).get("int64Value", 0))
-                        for p in ts.get("points", [])
+                        int(p.get("value", {}).get("int64Value", 0)) for p in ts.get("points", [])
                     )
                     if model not in per_model:
                         per_model[model] = ModelTokenUsage(
@@ -165,17 +155,17 @@ class GCloudUsageClient:
             import urllib.request
 
             filter_str = f'metric.type="{metric_type}"'
-            params = urllib.parse.urlencode({
-                "filter": filter_str,
-                "interval.startTime": start_iso,
-                "interval.endTime": end_iso,
-                "aggregation.alignmentPeriod": "86400s",
-                "aggregation.perSeriesAligner": "ALIGN_SUM",
-            })
-
-            url = (
-                f"{_MONITORING_API_BASE}/projects/{project}/timeSeries?{params}"
+            params = urllib.parse.urlencode(
+                {
+                    "filter": filter_str,
+                    "interval.startTime": start_iso,
+                    "interval.endTime": end_iso,
+                    "aggregation.alignmentPeriod": "86400s",
+                    "aggregation.perSeriesAligner": "ALIGN_SUM",
+                }
             )
+
+            url = f"{_MONITORING_API_BASE}/projects/{project}/timeSeries?{params}"
 
             req = urllib.request.Request(url)
             req.add_header("Authorization", f"Bearer {token}")

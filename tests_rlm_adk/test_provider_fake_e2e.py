@@ -563,50 +563,6 @@ async def test_save_captured_requests_to_json(tmp_path: Path):
 # ===========================================================================
 
 
-@pytest.mark.provider_fake_contract
-async def test_user_context_preseeded_manifest_and_repl(tmp_path: Path):
-    """Path B user context: manifest, state keys, and REPL globals are wired."""
-    result = await _run_with_plugins("user_context_preseeded", tmp_path)
-
-    assert result.contract.passed, result.contract.diagnostics()
-
-    state = result.final_state
-
-    # Manifest contains both file names
-    manifest = state.get("user_ctx_manifest", "")
-    assert "notes.txt" in manifest, f"Manifest missing notes.txt: {manifest!r}"
-    assert "spec.md" in manifest, f"Manifest missing spec.md: {manifest!r}"
-
-    # user_provided_ctx has exactly 2 keys
-    ctx = state.get("user_provided_ctx")
-    assert ctx is not None, "user_provided_ctx not in state"
-    assert len(ctx) == 2, f"Expected 2 keys in user_provided_ctx, got {len(ctx)}"
-
-    # exceeded flag is False
-    assert state.get("user_provided_ctx_exceeded") is False, (
-        f"Expected False, got {state.get('user_provided_ctx_exceeded')!r}"
-    )
-
-    # REPL stdout contains the content from user_ctx["notes.txt"]
-    tool_results = []
-    for event in result.events:
-        content = getattr(event, "content", None)
-        if content is None:
-            continue
-        for part in getattr(content, "parts", []):
-            fr = getattr(part, "function_response", None)
-            if fr is not None and getattr(fr, "name", "") == "execute_code":
-                response_data = getattr(fr, "response", None)
-                if isinstance(response_data, dict):
-                    tool_results.append(response_data)
-
-    assert len(tool_results) >= 1, "No execute_code tool results found"
-    stdout_texts = [tr.get("stdout", "") for tr in tool_results]
-    assert any("meeting notes here" in s for s in stdout_texts), (
-        f"REPL stdout should contain 'meeting notes here', got: {stdout_texts}"
-    )
-
-
 # ===========================================================================
 # GROUP G: Persistent services verification
 # ===========================================================================

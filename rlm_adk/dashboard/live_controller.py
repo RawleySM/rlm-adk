@@ -554,6 +554,17 @@ class LiveDashboardController:
         )
         lineage = [*lineages, selected]
         context_items = self.loader.build_banner_items(selected, lineage=lineage)
+        # Build context items for ALL iterations so the notebook flow can
+        # show DYNAMIC CONTEXT / STATE KEYS / REQUEST CHUNKS per turn.
+        context_items_by_invocation: dict[str, list[LiveContextBannerItem]] = {
+            selected.invocation_id: context_items,
+        }
+        for inv in visible_invocations:
+            if inv.invocation_id != selected.invocation_id:
+                inv_lineage = [*lineages, inv]
+                context_items_by_invocation[inv.invocation_id] = self.loader.build_banner_items(
+                    inv, lineage=inv_lineage
+                )
         child_nodes: list[LiveInvocationNode] = []
         if self.state.snapshot is not None:
             child_panes = [
@@ -598,6 +609,7 @@ class LiveDashboardController:
             parent_stdout_text=parent_stdout_text,
             parent_stderr_text=parent_stderr_text,
             invocation_context_tokens=int(selected.raw_payload.get("total_request_tokens") or 0),
+            context_items_by_invocation=context_items_by_invocation,
         )
 
     @staticmethod

@@ -299,6 +299,8 @@ class RLMOrchestratorAgent(BaseAgent):
                 instruction_router=self.instruction_router,
                 fanout_idx=self.fanout_idx,
                 child_event_queue=_child_event_queue,
+                enabled_skills=self.enabled_skills,
+                repo_url=self.repo_url,
             )
             # Wire sync bridge: create sync callables that dispatch to the
             # event loop from the REPL worker thread via run_coroutine_threadsafe.
@@ -404,6 +406,8 @@ class RLMOrchestratorAgent(BaseAgent):
             if self.repo_url:
                 initial_state[REPO_URL] = self.repo_url
                 initial_state[DYN_REPO_URL] = self.repo_url
+            # repo_url is propagated to children; user_ctx_manifest is intentionally
+            # NOT propagated (children scope their own context via their prompt).
 
             if self.instruction_router is not None:
                 _skill_text = self.instruction_router(self.depth, self.fanout_idx)

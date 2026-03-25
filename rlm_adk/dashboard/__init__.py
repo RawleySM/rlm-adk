@@ -18,6 +18,7 @@ def launch_dashboard(
 ) -> None:
     """Launch the NiceGUI dashboard (lazy import to avoid requiring NiceGUI at import time)."""
     from rlm_adk.dashboard.app import launch_dashboard as _launch
+
     _launch(host=host, port=port, reload=reload)
 
 

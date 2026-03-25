@@ -73,6 +73,13 @@ class InstrumentationPlugin(BasePlugin):
     - [STATE:key=value] for state snapshots at each callback point
     - [TIMING:label=ms] for timing data
 
+    Output is buffered to ``self._log_lines`` instead of printing directly
+    to stdout.  This prevents interference with the REPL's stdout capture
+    during child agent execution (plugin callbacks fire on the event loop
+    while execute_code blocks on the thread bridge, and stdout prints from
+    plugin callbacks leak into the REPL tool response, causing ADK's output
+    parser to terminate child agent loops prematurely).
+
     Observe-only: never returns a value, never blocks execution.
     All errors are caught and suppressed.
     """
@@ -83,10 +90,11 @@ class InstrumentationPlugin(BasePlugin):
         self._agent_start_times: dict[str, float] = {}
         self._model_start_times: dict[str, float] = {}
         self._call_counter: int = 0
+        self._log_lines: list[str] = []
 
     def _emit(self, hook: str, agent_name: str, **kwargs: Any) -> None:
         for key, value in kwargs.items():
-            print(f"[PLUGIN:{hook}:{agent_name}:{key}={value}]", flush=True)
+            self._log_lines.append(f"[PLUGIN:{hook}:{agent_name}:{key}={value}]")
 
     def _emit_state(self, state: Any, prefix: str = "") -> None:
         from rlm_adk.state import CURATED_STATE_KEYS, CURATED_STATE_PREFIXES
@@ -105,7 +113,7 @@ class InstrumentationPlugin(BasePlugin):
                 val_str = str(value)
                 if len(val_str) > 200:
                     val_str = val_str[:200] + "...[truncated]"
-                print(f"[STATE:{tag}={val_str}]", flush=True)
+                self._log_lines.append(f"[STATE:{tag}={val_str}]")
 
     def _agent_key(self, agent: BaseAgent, callback_context: CallbackContext) -> str:
         agent_name = getattr(agent, "name", "unknown")
@@ -158,7 +166,7 @@ class InstrumentationPlugin(BasePlugin):
                 elapsed_ms=elapsed_ms,
             )
             self._emit_state(callback_context.state, prefix="after_agent:")
-            print(f"[TIMING:agent_{agent_name}_ms={elapsed_ms}]", flush=True)
+            self._log_lines.append(f"[TIMING:agent_{agent_name}_ms={elapsed_ms}]")
         except Exception:
             pass
         return None
@@ -204,17 +212,14 @@ class InstrumentationPlugin(BasePlugin):
             iter_count = callback_context.state.get("iteration_count", 0)
             should_stop = callback_context.state.get("should_stop", False)
             repl_did_expand = callback_context.state.get("repl_did_expand", False)
-            print(
-                f"[STATE:model_call_{call_num}:iteration_count={iter_count}]",
-                flush=True,
+            self._log_lines.append(
+                f"[STATE:model_call_{call_num}:iteration_count={iter_count}]"
             )
-            print(
-                f"[STATE:model_call_{call_num}:should_stop={should_stop}]",
-                flush=True,
+            self._log_lines.append(
+                f"[STATE:model_call_{call_num}:should_stop={should_stop}]"
             )
-            print(
-                f"[STATE:model_call_{call_num}:repl_did_expand={repl_did_expand}]",
-                flush=True,
+            self._log_lines.append(
+                f"[STATE:model_call_{call_num}:repl_did_expand={repl_did_expand}]"
             )
         except Exception:
             pass
@@ -267,7 +272,7 @@ class InstrumentationPlugin(BasePlugin):
                 output_tokens=output_tokens,
                 elapsed_ms=elapsed_ms,
             )
-            print(f"[TIMING:model_call_{call_num}_ms={elapsed_ms}]", flush=True)
+            self._log_lines.append(f"[TIMING:model_call_{call_num}_ms={elapsed_ms}]")
         except Exception:
             pass
         return None
@@ -339,7 +344,7 @@ class InstrumentationPlugin(BasePlugin):
                 result_preview=repr(result_preview),
             )
             self._emit_state(tool_context.state, prefix="post_tool:")
-            print(f"[TIMING:tool_{tool_name}_ms={elapsed_ms}]", flush=True)
+            self._log_lines.append(f"[TIMING:tool_{tool_name}_ms={elapsed_ms}]")
         except Exception:
             pass
         return None
@@ -829,12 +834,15 @@ async def run_fixture_contract_instrumented(
                 if s:
                     _all_repl_stdouts.append(s)
         _repl_internal_stdout = "\n".join(_all_repl_stdouts)
+        _plugin_log = "\n".join(instrumentation_plugin._log_lines)
         full_log = (
             repl_stdout
             + "\n"
             + "\n".join(local_callback_log)
             + "\n"
             + _repl_internal_stdout
+            + "\n"
+            + _plugin_log
         )
         state_timeline = _build_state_key_timeline(full_log)
 

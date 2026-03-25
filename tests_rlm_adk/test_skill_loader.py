@@ -130,13 +130,29 @@ class TestLlmQueryFnInjection:
         wrapped("test", llm_query_fn=explicit_fn)
         assert captured["fn"] is explicit_fn
 
-    def test_wrapper_raises_when_no_llm_query_available(self):
-        """If llm_query not in repl_globals, raises RuntimeError."""
+    def test_wrapper_skips_optional_query_when_missing(self):
+        """If llm_query not in repl_globals but param is optional, no error."""
+        from rlm_adk.skills.loader import _wrap_with_llm_query_injection
+
+        captured = {}
+
+        def skill_fn(prompt, *, llm_query_fn=None):
+            captured["fn"] = llm_query_fn
+
+        repl_globals: dict = {}
+        wrapped = _wrap_with_llm_query_injection(skill_fn, repl_globals)
+
+        # Should NOT raise — param is optional, so default None stands
+        wrapped("test")
+        assert captured["fn"] is None
+
+    def test_wrapper_raises_when_required_query_missing(self):
+        """If llm_query not in repl_globals and param is required, raises RuntimeError."""
         import pytest
 
         from rlm_adk.skills.loader import _wrap_with_llm_query_injection
 
-        def skill_fn(prompt, *, llm_query_fn=None):
+        def skill_fn(prompt, *, llm_query_fn):
             pass
 
         repl_globals: dict = {}
@@ -305,6 +321,203 @@ class TestCollectSkillReplGlobals:
         # Should be the class itself, not wrapped
         obj = result["MyResult"](value="test")
         assert obj.value == "test"
+
+
+# ---------------------------------------------------------------------------
+# GAP-C — llm_query_batched_fn injection
+# ---------------------------------------------------------------------------
+
+
+class TestLlmQueryBatchedFnInjection:
+    """Injection wrappers detect and inject llm_query_batched_fn into skill functions."""
+
+    # -- Cycle 1: _has_llm_query_batched_fn_param detection -----------------
+
+    def test_has_llm_query_batched_fn_param_detects_param(self):
+        """Returns True for functions with llm_query_batched_fn parameter."""
+        from rlm_adk.skills.loader import _has_llm_query_batched_fn_param
+
+        def foo(x, *, llm_query_batched_fn=None):
+            pass
+
+        assert _has_llm_query_batched_fn_param(foo) is True
+
+    def test_has_llm_query_batched_fn_param_returns_false_without(self):
+        """Returns False for functions without llm_query_batched_fn parameter."""
+        from rlm_adk.skills.loader import _has_llm_query_batched_fn_param
+
+        def foo(x, *, llm_query_fn=None):
+            pass
+
+        assert _has_llm_query_batched_fn_param(foo) is False
+
+    # -- Cycle 2: wrapper injection -----------------------------------------
+
+    def test_wrapper_injects_batched_from_globals(self):
+        """Wrapper reads llm_query_batched from repl_globals and injects both fns."""
+        from rlm_adk.skills.loader import _wrap_with_llm_query_injection
+
+        captured = {}
+
+        def skill_fn(prompt, *, llm_query_fn=None, llm_query_batched_fn=None):
+            captured["fn"] = llm_query_fn
+            captured["batched_fn"] = llm_query_batched_fn
+            return llm_query_batched_fn([prompt])
+
+        mock_llm = lambda p: f"echo:{p}"  # noqa: E731
+        mock_batched = lambda prompts: [f"batch:{p}" for p in prompts]  # noqa: E731
+        repl_globals: dict = {}
+        wrapped = _wrap_with_llm_query_injection(skill_fn, repl_globals)
+
+        # Populate repl_globals AFTER wrapping (lazy binding)
+        repl_globals["llm_query"] = mock_llm
+        repl_globals["llm_query_batched"] = mock_batched
+
+        result = wrapped("hello")
+        assert result == ["batch:hello"]
+        assert captured["fn"] is mock_llm
+        assert captured["batched_fn"] is mock_batched
+
+    def test_wrapper_injects_only_batched_when_only_batched_declared(self):
+        """Function with ONLY llm_query_batched_fn gets it injected."""
+        from rlm_adk.skills.loader import _wrap_with_llm_query_injection
+
+        captured = {}
+
+        def skill_fn(prompt, *, llm_query_batched_fn=None):
+            captured["batched_fn"] = llm_query_batched_fn
+            return llm_query_batched_fn([prompt])
+
+        mock_batched = lambda prompts: [f"batch:{p}" for p in prompts]  # noqa: E731
+        repl_globals: dict = {"llm_query_batched": mock_batched}
+        wrapped = _wrap_with_llm_query_injection(skill_fn, repl_globals)
+
+        result = wrapped("hello")
+        assert result == ["batch:hello"]
+        assert captured["batched_fn"] is mock_batched
+
+    def test_wrapper_skips_optional_batched_when_missing(self):
+        """If llm_query_batched not in repl_globals but param is optional, no error."""
+        from rlm_adk.skills.loader import _wrap_with_llm_query_injection
+
+        captured = {}
+
+        def skill_fn(prompt, *, llm_query_batched_fn=None):
+            captured["batched_fn"] = llm_query_batched_fn
+
+        repl_globals: dict = {}
+        wrapped = _wrap_with_llm_query_injection(skill_fn, repl_globals)
+
+        # Should NOT raise — param is optional, so default None stands
+        wrapped("test")
+        assert captured["batched_fn"] is None
+
+    def test_wrapper_raises_when_required_batched_missing(self):
+        """If llm_query_batched not in repl_globals and param is required, raises."""
+        from rlm_adk.skills.loader import _wrap_with_llm_query_injection
+
+        def skill_fn(prompt, *, llm_query_batched_fn):
+            pass
+
+        repl_globals: dict = {}
+        wrapped = _wrap_with_llm_query_injection(skill_fn, repl_globals)
+
+        with pytest.raises(RuntimeError, match="llm_query_batched not available"):
+            wrapped("test")
+
+    def test_wrapper_respects_explicit_batched_fn(self):
+        """If caller passes llm_query_batched_fn explicitly, wrapper does NOT override."""
+        from rlm_adk.skills.loader import _wrap_with_llm_query_injection
+
+        captured = {}
+
+        def skill_fn(prompt, *, llm_query_batched_fn=None):
+            captured["batched_fn"] = llm_query_batched_fn
+
+        explicit_fn = lambda ps: "explicit"  # noqa: E731
+        repl_globals: dict = {"llm_query_batched": lambda ps: "from_globals"}
+        wrapped = _wrap_with_llm_query_injection(skill_fn, repl_globals)
+
+        wrapped("test", llm_query_batched_fn=explicit_fn)
+        assert captured["batched_fn"] is explicit_fn
+
+    # -- Cycle 3: collect_skill_repl_globals wraps batched-only fns ---------
+
+    def test_collect_wraps_fn_with_only_batched_param(self, tmp_path, monkeypatch):
+        """collect_skill_repl_globals wraps functions that only have llm_query_batched_fn."""
+        import sys
+
+        from rlm_adk.skills import loader
+
+        monkeypatch.setattr(loader, "_SKILLS_DIR", tmp_path)
+
+        init_src = (
+            'from test_batched_pkg.impl import batched_skill\n'
+            'SKILL_EXPORTS = ["batched_skill"]\n'
+        )
+        module_src = (
+            'def batched_skill(prompts, *, llm_query_batched_fn=None):\n'
+            '    return llm_query_batched_fn(prompts)\n'
+        )
+        _make_skill_dir(tmp_path, "test_batched_pkg", init_src, module_src)
+
+        repl_globals: dict = {}
+        sys.path.insert(0, str(tmp_path))
+        try:
+            result = loader.collect_skill_repl_globals(repl_globals=repl_globals)
+        finally:
+            sys.path.remove(str(tmp_path))
+            for key in list(sys.modules):
+                if key.startswith("test_batched_pkg"):
+                    del sys.modules[key]
+
+        assert "batched_skill" in result
+        # Lazy binding: inject llm_query_batched after collection
+        repl_globals["llm_query_batched"] = lambda ps: [f"mock:{p}" for p in ps]
+        assert result["batched_skill"](["test"]) == ["mock:test"]
+
+    # -- Cycle 4: test_skill exercises llm_query_batched_fn ------------------
+
+    def test_run_test_skill_invokes_batched_fn(self):
+        """run_test_skill calls llm_query_batched_fn when provided and records results."""
+        from rlm_adk.skills.test_skill.skill import run_test_skill
+
+        mock_query = lambda p: "child_ok"  # noqa: E731
+        batched_calls: list = []
+
+        def mock_batched(prompts):
+            batched_calls.append(prompts)
+            return [f"batched:{p}" for p in prompts]
+
+        result = run_test_skill(
+            emit_debug=False,
+            llm_query_fn=mock_query,
+            llm_query_batched_fn=mock_batched,
+        )
+
+        # llm_query_batched_fn was actually invoked
+        assert len(batched_calls) == 1
+        assert batched_calls[0] == ["batch_probe_1", "batch_probe_2"]
+
+        # Results recorded in the dataclass
+        assert result.batched_probe_results == [
+            "batched:batch_probe_1",
+            "batched:batch_probe_2",
+        ]
+
+    def test_run_test_skill_skips_batched_when_none(self):
+        """run_test_skill leaves batched_probe_results as None when batched fn not provided."""
+        from rlm_adk.skills.test_skill.skill import run_test_skill
+
+        mock_query = lambda p: "child_ok"  # noqa: E731
+
+        result = run_test_skill(
+            emit_debug=False,
+            llm_query_fn=mock_query,
+            # llm_query_batched_fn intentionally omitted (defaults to None)
+        )
+
+        assert result.batched_probe_results is None
 
 
 # ---------------------------------------------------------------------------

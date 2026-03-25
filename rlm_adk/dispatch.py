@@ -116,6 +116,8 @@ def create_dispatch_closures(
     instruction_router: Any = None,
     fanout_idx: int = 0,
     child_event_queue: "asyncio.Queue[Event] | None" = None,
+    enabled_skills: tuple[str, ...] = (),
+    repo_url: str | None = None,
 ) -> tuple[Any, Any, Any]:
     """Create dispatch closures for child orchestrator sub-LM calls.
 
@@ -305,6 +307,8 @@ def create_dispatch_closures(
             fanout_idx=fanout_idx,
             parent_fanout_idx=_parent_fanout_idx,
             instruction_router=instruction_router,
+            enabled_skills=enabled_skills,
+            repo_url=repo_url,
         )
 
         try:

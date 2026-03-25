@@ -282,7 +282,10 @@ async def prepare_provider_fake_launch(
     base_url = await server.start()
     _set_provider_fake_env(base_url, router.config)
 
-    resolved_skills = tuple(enabled_skills) if enabled_skills else ()
+    resolved_skills = (
+        tuple(enabled_skills) if enabled_skills
+        else tuple(router.config.get("enabled_skills") or ())
+    )
 
     runner = create_rlm_runner(
         model=os.environ.get("RLM_ADK_MODEL", "gemini-fake"),

@@ -46,9 +46,7 @@ def render_live_context_banner(
             f"depth {depth if depth is not None else '-'}  |  "
             f"fan-out {fanout}  |  "
             f"iteration {iteration if iteration is not None else '-'}"
-        ).style(
-            "color: var(--text-1); font-size: 0.84rem; margin-bottom: 0.8rem;"
-        )
+        ).style("color: var(--text-1); font-size: 0.84rem; margin-bottom: 0.8rem;")
         if not items:
             ui.label("No active pane context available.").style("color: var(--text-1);")
             return
@@ -73,9 +71,7 @@ def render_live_context_banner(
 
 def _chip(item: LiveContextBannerItem, *, on_open_text=None) -> None:
     token_text = (
-        f"{item.token_count} tok"
-        if item.token_count_is_exact
-        else f"~{item.token_count} tok"
+        f"{item.token_count} tok" if item.token_count_is_exact else f"~{item.token_count} tok"
     )
     bg = "rgba(126,240,160,0.16)" if item.present else "rgba(159,176,209,0.08)"
     border = "var(--accent-active)" if item.present else "var(--border-1)"

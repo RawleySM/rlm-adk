@@ -150,6 +150,7 @@ class LiveToolEvent:
     repl_stderr_len: int
     repl_trace_summary: dict[str, Any] | None = None
     payload: dict[str, Any] | None = None
+    tool_args: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +280,12 @@ class LiveInvocationNode:
     parent_stdout_text: str = ""
     parent_stderr_text: str = ""
     invocation_context_tokens: int = 0
+    # Per-invocation context items keyed by invocation_id.
+    # Populated for all available_invocations so the notebook flow can
+    # show DYNAMIC CONTEXT / STATE KEYS / REQUEST CHUNKS per iteration.
+    context_items_by_invocation: dict[str, list[LiveContextBannerItem]] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True)

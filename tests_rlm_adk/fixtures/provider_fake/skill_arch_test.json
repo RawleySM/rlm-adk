@@ -1,6 +1,6 @@
 {
   "scenario_id": "skill_arch_test",
-  "description": "Full pipeline exercise: 3 reasoning turns, depth=2 via run_test_skill -> llm_query -> child execute_code -> llm_query -> grandchild set_model_response, then llm_query_batched with 2 prompts, all observable via stdout/callbacks/SQLite. Non-reward-hacking: every assertion depends on real pipeline execution.",
+  "description": "Full pipeline exercise v2: 15 model calls exercising SkillToolset L1/L2 discovery at d0/d1/d2, depth=2 via run_test_skill -> llm_query chain, llm_query_batched with 2 prompts + output_schema=BatchResult (structured output), and cross-turn persistence. Proves GAP-A (children get SkillToolset), GAP-D (children get dynamic instruction), and structured output via llm_query_batched.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -22,7 +22,55 @@
     {
       "call_index": 0,
       "caller": "reasoning",
-      "note": "Turn 1: Root reasoning agent calls execute_code with run_test_skill. The skill internally calls llm_query() which dispatches a child at depth=1. Also verifies user_ctx injection via DYN_INSTR tags.",
+      "note": "idx 0 / d0: Root reasoning agent calls list_skills for L1 skill discovery. SkillToolset returns available skills XML catalog.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "list_skills",
+                "args": {}
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 300, "candidatesTokenCount": 15, "totalTokenCount": 315},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 1,
+      "caller": "reasoning",
+      "note": "idx 1 / d0: Root reasoning agent calls load_skill for L2 instructions on test-skill. SkillToolset returns SKILL.md body.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "load_skill",
+                "args": {
+                  "name": "test-skill"
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 350, "candidatesTokenCount": 20, "totalTokenCount": 370},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 2,
+      "caller": "reasoning",
+      "note": "idx 2 / d0: Root reasoning agent calls execute_code with run_test_skill. The skill internally calls llm_query() which dispatches a child at depth=1. Also verifies user_ctx injection via DYN_INSTR tags.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -32,7 +80,7 @@
               "functionCall": {
                 "name": "execute_code",
                 "args": {
-                  "code": "result = run_test_skill(\n    child_prompt='Analyze the context and call llm_query to dispatch a grandchild at depth=2.',\n    emit_debug=True,\n    rlm_state=_rlm_state,\n)\nprint(f'skill_result={result.child_result}')\nprint(f'skill_latency_ms={result.thread_bridge_latency_ms:.1f}')\nprint(f'skill_depth={result.state_snapshot.get(\"_rlm_depth\", \"MISSING\")}')\n\n# Dynamic instruction verification\nif 'user_ctx' in dir():\n    print(f'[DYN_INSTR:user_ctx_keys={sorted(user_ctx.keys())}]')\n    print(f'[DYN_INSTR:arch_context_preview={user_ctx.get(\"arch_context.txt\", \"\")[:40]}]')"
+                  "code": "result = run_test_skill(\n    child_prompt='Analyze the context and call llm_query to dispatch a grandchild at depth=2.',\n    emit_debug=True,\n    rlm_state=_rlm_state,\n    llm_query_batched_fn=None,\n)\nprint(f'skill_result={result.child_result}')\nprint(f'skill_latency_ms={result.thread_bridge_latency_ms:.1f}')\nprint(f'skill_depth={result.state_snapshot.get(\"_rlm_depth\", \"MISSING\")}')\n\n# Dynamic instruction verification\nif 'user_ctx' in dir():\n    print(f'[DYN_INSTR:user_ctx_keys={sorted(user_ctx.keys())}]')\n    print(f'[DYN_INSTR:arch_context_preview={user_ctx.get(\"arch_context.txt\", \"\")[:40]}]')"
                 }
               }
             }]
@@ -40,14 +88,62 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 400, "candidatesTokenCount": 80, "totalTokenCount": 480},
+        "usageMetadata": {"promptTokenCount": 500, "candidatesTokenCount": 80, "totalTokenCount": 580},
         "modelVersion": "gemini-fake"
       }
     },
     {
-      "call_index": 1,
+      "call_index": 3,
       "caller": "worker",
-      "note": "Depth=1 child reasoning agent (spawned by run_test_skill's llm_query). Child calls execute_code with code that itself calls llm_query() to spawn a grandchild at depth=2.",
+      "note": "idx 3 / d1: Child reasoning agent (spawned by run_test_skill's llm_query) calls list_skills. Proves GAP-A fix: children get SkillToolset.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "list_skills",
+                "args": {}
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 10, "totalTokenCount": 130},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 4,
+      "caller": "worker",
+      "note": "idx 4 / d1: Child reasoning agent calls load_skill for L2 instructions on test-skill at depth=1.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "load_skill",
+                "args": {
+                  "name": "test-skill"
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 140, "candidatesTokenCount": 15, "totalTokenCount": 155},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 5,
+      "caller": "worker",
+      "note": "idx 5 / d1: Child reasoning agent calls execute_code with code that calls llm_query() to spawn a grandchild at depth=2.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -65,14 +161,87 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 150, "candidatesTokenCount": 40, "totalTokenCount": 190},
+        "usageMetadata": {"promptTokenCount": 200, "candidatesTokenCount": 40, "totalTokenCount": 240},
         "modelVersion": "gemini-fake"
       }
     },
     {
-      "call_index": 2,
+      "call_index": 6,
       "caller": "worker",
-      "note": "Depth=2 grandchild reasoning agent. Leaf node -- calls set_model_response immediately with the requested leaf value.",
+      "note": "idx 6 / d2: Grandchild reasoning agent calls list_skills. Proves SkillToolset available at depth=2.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "list_skills",
+                "args": {}
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 80, "candidatesTokenCount": 10, "totalTokenCount": 90},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 7,
+      "caller": "worker",
+      "note": "idx 7 / d2: Grandchild reasoning agent calls load_skill for L2 instructions at depth=2.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "load_skill",
+                "args": {
+                  "name": "test-skill"
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 15, "totalTokenCount": 115},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 8,
+      "caller": "worker",
+      "note": "idx 8 / d2: Grandchild reasoning agent calls execute_code. Reads _rlm_state, verifies dynamic instruction state keys are resolved, prints proof markers [D2_STATE:key=value].",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "execute_code",
+                "args": {
+                  "code": "# Read _rlm_state at depth=2 — proves state propagation\nstate_keys = sorted(_rlm_state.keys())\nprint(f'[D2_STATE:keys={state_keys}]')\nprint(f'[D2_STATE:depth={_rlm_state.get(\"_rlm_depth\", \"MISSING\")}]')\nprint(f'[D2_STATE:agent_name={_rlm_state.get(\"_rlm_agent_name\", \"MISSING\")}]')\nprint(f'[D2_STATE:current_depth={_rlm_state.get(\"current_depth\", \"MISSING\")}]')\n\n# Verify dynamic instruction resolution: check that state has the expected keys\n# injected by the dynamic instruction template at this depth\nfor key in ['repo_url', 'root_prompt', 'test_context', 'skill_instruction']:\n    val = _rlm_state.get(key, 'MISSING')\n    resolved = val != 'MISSING'\n    print(f'[D2_STATE:dyn_instr_{key}=resolved={resolved}]')\n    if resolved and isinstance(val, str):\n        print(f'[D2_STATE:dyn_instr_{key}_preview={val[:50]}]')\n\nprint(f'[D2_STATE:proof=depth2_state_verified]')"
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 60, "totalTokenCount": 180},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 9,
+      "caller": "worker",
+      "note": "idx 9 / d2: Grandchild reasoning agent calls set_model_response. Leaf node returns the requested value.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -83,7 +252,7 @@
                 "name": "set_model_response",
                 "args": {
                   "final_answer": "depth2_leaf_ok",
-                  "reasoning_summary": "Returned leaf value as requested at depth=2."
+                  "reasoning_summary": "Returned leaf value as requested at depth=2. Verified _rlm_state propagation and dynamic instruction resolution."
                 }
               }
             }]
@@ -91,14 +260,14 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 80, "candidatesTokenCount": 20, "totalTokenCount": 100},
+        "usageMetadata": {"promptTokenCount": 150, "candidatesTokenCount": 25, "totalTokenCount": 175},
         "modelVersion": "gemini-fake"
       }
     },
     {
-      "call_index": 3,
+      "call_index": 10,
       "caller": "worker",
-      "note": "Depth=1 child reasoning agent (resumed after grandchild returned). Sees REPL stdout with grandchild_said=depth2_leaf_ok. Calls set_model_response forwarding the grandchild result.",
+      "note": "idx 10 / d1: Child reasoning agent (resumed after grandchild returned). Sees REPL stdout with grandchild_said=depth2_leaf_ok. Calls set_model_response forwarding the grandchild result.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -117,14 +286,14 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 200, "candidatesTokenCount": 30, "totalTokenCount": 230},
+        "usageMetadata": {"promptTokenCount": 250, "candidatesTokenCount": 30, "totalTokenCount": 280},
         "modelVersion": "gemini-fake"
       }
     },
     {
-      "call_index": 4,
+      "call_index": 11,
       "caller": "reasoning",
-      "note": "Turn 2: Root reasoning agent sees Turn 1 REPL stdout. Calls execute_code with llm_query_batched(2 prompts). Also reads _rlm_state to print iteration count, proving state persistence across turns.",
+      "note": "idx 11 / d0: Root reasoning agent sees Turn 1 REPL stdout. Calls execute_code with llm_query_batched(2 prompts, output_schema=BatchResult) for structured output. Also reads _rlm_state to print iteration count, proving state persistence across turns.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -134,7 +303,7 @@
               "functionCall": {
                 "name": "execute_code",
                 "args": {
-                  "code": "batch_results = llm_query_batched(['Summarize finding A', 'Summarize finding B'])\nfor i, r in enumerate(batch_results):\n    print(f'batch_{i}={r}')\nprint(f'batch_count={len(batch_results)}')\nprint(f'turn2_iteration_count={_rlm_state.get(\"iteration_count\", \"MISSING\")}')\nprint(f'turn2_depth={_rlm_state.get(\"_rlm_depth\", \"MISSING\")}')\n\n# Verify turn 1 variable persists in REPL namespace\nprint(f'turn1_skill_result_persisted={\"result\" in dir()}')"
+                  "code": "from pydantic import BaseModel\n\nclass BatchResult(BaseModel):\n    summary: str\n    confidence: float\n\nbatch_results = llm_query_batched(['Summarize finding A', 'Summarize finding B'], output_schema=BatchResult)\nfor i, r in enumerate(batch_results):\n    print(f'batch_{i}={r}')\n    has_parsed = r.parsed is not None\n    print(f'[STRUCTURED_OUTPUT:batch_{i}_parsed={has_parsed}]')\n    if has_parsed:\n        print(f'[STRUCTURED_OUTPUT:batch_{i}_summary={r.parsed[\"summary\"]}]')\n        print(f'[STRUCTURED_OUTPUT:batch_{i}_confidence={r.parsed[\"confidence\"]}]')\nprint(f'batch_count={len(batch_results)}')\nprint(f'turn2_iteration_count={_rlm_state.get(\"iteration_count\", \"MISSING\")}')\nprint(f'turn2_depth={_rlm_state.get(\"_rlm_depth\", \"MISSING\")}')\n\n# Verify turn 1 variable persists in REPL namespace\nprint(f'turn1_skill_result_persisted={\"result\" in dir()}')"
                 }
               }
             }]
@@ -142,14 +311,14 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 600, "candidatesTokenCount": 60, "totalTokenCount": 660},
+        "usageMetadata": {"promptTokenCount": 700, "candidatesTokenCount": 60, "totalTokenCount": 760},
         "modelVersion": "gemini-fake"
       }
     },
     {
-      "call_index": 5,
+      "call_index": 12,
       "caller": "worker",
-      "note": "Batch child 0 at depth=1 (fanout_idx=0, prompt='Summarize finding A'). Simple set_model_response.",
+      "note": "idx 12 / d1: Batch child 0 (fanout_idx=0, prompt='Summarize finding A'). set_model_response with BatchResult schema fields (output_schema=BatchResult).",
       "status": 200,
       "body": {
         "candidates": [{
@@ -159,8 +328,8 @@
               "functionCall": {
                 "name": "set_model_response",
                 "args": {
-                  "final_answer": "finding_A_summary",
-                  "reasoning_summary": "Summarized finding A."
+                  "summary": "finding_A_summary",
+                  "confidence": 0.92
                 }
               }
             }]
@@ -173,9 +342,9 @@
       }
     },
     {
-      "call_index": 6,
+      "call_index": 13,
       "caller": "worker",
-      "note": "Batch child 1 at depth=1 (fanout_idx=1, prompt='Summarize finding B'). Simple set_model_response.",
+      "note": "idx 13 / d1: Batch child 1 (fanout_idx=1, prompt='Summarize finding B'). set_model_response with BatchResult schema fields (output_schema=BatchResult).",
       "status": 200,
       "body": {
         "candidates": [{
@@ -185,8 +354,8 @@
               "functionCall": {
                 "name": "set_model_response",
                 "args": {
-                  "final_answer": "finding_B_summary",
-                  "reasoning_summary": "Summarized finding B."
+                  "summary": "finding_B_summary",
+                  "confidence": 0.87
                 }
               }
             }]
@@ -199,9 +368,9 @@
       }
     },
     {
-      "call_index": 7,
+      "call_index": 14,
       "caller": "reasoning",
-      "note": "Turn 3: Root reasoning agent sees Turn 1 (skill + depth=2 chain) and Turn 2 (batch) results. Calls set_model_response with final answer.",
+      "note": "idx 14 / d0: Root reasoning agent sees Turn 1 (skill + depth=2 chain with SkillToolset discovery) and Turn 2 (batch) results. Calls set_model_response with final answer.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -211,8 +380,8 @@
               "functionCall": {
                 "name": "set_model_response",
                 "args": {
-                  "final_answer": "Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), batched dispatch returned 2 results (finding_A_summary, finding_B_summary).",
-                  "reasoning_summary": "Exercised run_test_skill for depth=2 chain and llm_query_batched for fanout. All components confirmed."
+                  "final_answer": "Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), SkillToolset discovery confirmed at d0/d1/d2, batched dispatch with output_schema=BatchResult returned 2 structured results (finding_A_summary@0.92, finding_B_summary@0.87).",
+                  "reasoning_summary": "Exercised list_skills + load_skill at all depths, run_test_skill for depth=2 chain, and llm_query_batched with output_schema for structured fanout. All components confirmed including GAP-A/GAP-D fixes and structured output."
                 }
               }
             }]
@@ -220,7 +389,7 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 800, "candidatesTokenCount": 60, "totalTokenCount": 860},
+        "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 70, "totalTokenCount": 970},
         "modelVersion": "gemini-fake"
       }
     }
@@ -231,7 +400,7 @@
       "$contains": "depth=2 chain succeeded"
     },
     "total_iterations": 2,
-    "total_model_calls": 8
+    "total_model_calls": 15
   },
   "expected_state": {
     "user_provided_ctx": {"$not_none": true},

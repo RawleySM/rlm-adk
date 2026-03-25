@@ -24,19 +24,13 @@ def render_output_panel(controller: DashboardController) -> None:
     worker_outs = it_data.worker_outputs
 
     if reasoning_out is None and not worker_outs:
-        ui.label("No model output captured for this iteration").classes(
-            "text-body2 text-grey-7"
-        )
+        ui.label("No model output captured for this iteration").classes("text-body2 text-grey-7")
         return
 
     # --- Reasoning output ---
     if reasoning_out is not None:
-        with ui.card().classes("w-full").style(
-            "border-left: 4px solid #10B981"
-        ):
-            ui.label("REASONING_AGENT OUTPUT").classes(
-                "text-subtitle1 text-weight-bold"
-            )
+        with ui.card().classes("w-full").style("border-left: 4px solid #10B981"):
+            ui.label("REASONING_AGENT OUTPUT").classes("text-subtitle1 text-weight-bold")
 
             # Token badges
             with ui.row().style("gap: 0.75rem"):
@@ -60,15 +54,12 @@ def render_output_panel(controller: DashboardController) -> None:
             if worker_outs:
                 total_worker_input = sum(w.input_tokens for w in worker_outs)
                 ui.label(
-                    f"{len(worker_outs)} workers: "
-                    f"{total_worker_input:,} total input tokens"
+                    f"{len(worker_outs)} workers: {total_worker_input:,} total input tokens"
                 ).classes("text-body2 text-grey-5")
 
             # Error message
             if reasoning_out.error and reasoning_out.error_message:
-                ui.label(reasoning_out.error_message).classes(
-                    "text-body2 text-negative"
-                )
+                ui.label(reasoning_out.error_message).classes("text-body2 text-negative")
 
             # Output text preview
             if reasoning_out.output_text:
@@ -79,20 +70,14 @@ def render_output_panel(controller: DashboardController) -> None:
 
                 # Full output expansion
                 with ui.expansion("Show full output").classes("w-full"):
-                    with ui.scroll_area().style(
-                        "max-height: 500px; min-height: 100px"
-                    ):
+                    with ui.scroll_area().style("max-height: 500px; min-height: 100px"):
                         _render_output_text(reasoning_out.output_text)
             elif not reasoning_out.error:
-                ui.label("(empty response)").classes(
-                    "text-body2 text-grey-7"
-                )
+                ui.label("(empty response)").classes("text-body2 text-grey-7")
 
             # Per-worker details expansion
             if worker_outs:
-                with ui.expansion(
-                    "Show individual workers"
-                ).classes("w-full"):
+                with ui.expansion("Show individual workers").classes("w-full"):
                     for wo in worker_outs:
                         _render_worker_output_row(wo)
 
@@ -110,8 +95,8 @@ def _render_output_text(text: str) -> None:
     escaped = html_mod.escape(text)
     ui.html(
         f'<pre style="white-space: pre-wrap; word-wrap: break-word; '
-        f'font-family: monospace; font-size: 0.85rem; padding: 0.75rem; '
-        f'background: #2a2a1a; color: #e8d44d; '
+        f"font-family: monospace; font-size: 0.85rem; padding: 0.75rem; "
+        f"background: #2a2a1a; color: #e8d44d; "
         f'border-radius: 4px; margin: 0; overflow-x: auto;">'
         f"{escaped}</pre>"
     ).classes("w-full")

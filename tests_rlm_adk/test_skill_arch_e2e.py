@@ -3,8 +3,8 @@
 Exercises: skill loading (module-import) + thread-bridge child dispatch at depth=2 +
 llm_query_batched fanout + dynamic instruction resolution + full observability pipeline.
 
-Expanded fixture: 8 model calls, 3 reasoning turns, depth=2 via llm_query chain,
-llm_query_batched with 2 prompts.
+Expanded fixture: 15 model calls, 4 tools x 3 depths (list_skills, load_skill,
+execute_code, set_model_response at d0/d1/d2), llm_query_batched with 2 prompts.
 """
 
 from __future__ import annotations
@@ -85,13 +85,13 @@ class TestDynamicInstruction:
 
 class TestSqliteTelemetry:
     async def test_traces_completed(self, run_result):
-        """Verify traces.status = 'completed' and total_calls >= 8."""
+        """Verify traces.status = 'completed' and total_calls >= 15."""
         assert run_result.traces_db_path
         conn = sqlite3.connect(run_result.traces_db_path)
         try:
             row = conn.execute("SELECT status, total_calls FROM traces LIMIT 1").fetchone()
             assert row and row[0] == "completed", f"traces.status = {row}"
-            assert row[1] >= 8, f"total_calls = {row[1]}, expected >= 8"
+            assert row[1] >= 15, f"total_calls = {row[1]}, expected >= 15"
         finally:
             conn.close()
 
@@ -149,9 +149,9 @@ class TestSqliteTelemetry:
 class TestSetModelResponseDepth:
     """BUG-014: Verify set_model_response tool_call rows in SQLite have correct depth values.
 
-    The fixture has set_model_response calls at depth=0 (root, call_index=7),
-    depth=1 (child at call_index=3, batch children at call_index=5,6),
-    and depth=2 (grandchild at call_index=2).
+    The fixture has set_model_response calls at depth=0 (root, call_index=14),
+    depth=1 (child at call_index=10, batch children at call_index=12,13),
+    and depth=2 (grandchild at call_index=9).
     """
 
     async def test_smr_depth_nonzero_exists(self, run_result):
@@ -332,6 +332,199 @@ class TestBatchedDispatch:
         assert "depth2_leaf_ok" in combined, (
             "depth2_leaf_ok not found in stdout. "
             "The depth=2 chain (root -> d1 execute_code -> d2 set_model_response -> d1 -> root) may be broken."
+        )
+
+
+class TestSkillToolsetDiscovery:
+    """Verify SkillToolset list_skills/load_skill telemetry rows exist at multiple depths.
+
+    Proves GAP-A fix: children (d1, d2) receive SkillToolset and can call
+    list_skills and load_skill, not just the root reasoning agent.
+    """
+
+    async def test_list_skills_telemetry_exists(self, run_result):
+        """At least one telemetry row with tool_name='list_skills' exists."""
+        assert run_result.traces_db_path
+        conn = sqlite3.connect(run_result.traces_db_path)
+        try:
+            rows = conn.execute(
+                "SELECT COUNT(*) FROM telemetry "
+                "WHERE event_type='tool_call' AND tool_name='list_skills'"
+            ).fetchone()
+            assert rows and rows[0] >= 1, (
+                f"No list_skills tool_call rows found in telemetry. "
+                f"SkillToolset may not be wired or telemetry not recording list_skills calls."
+            )
+        finally:
+            conn.close()
+
+    async def test_load_skill_telemetry_exists(self, run_result):
+        """At least one telemetry row with tool_name='load_skill' exists."""
+        assert run_result.traces_db_path
+        conn = sqlite3.connect(run_result.traces_db_path)
+        try:
+            rows = conn.execute(
+                "SELECT COUNT(*) FROM telemetry "
+                "WHERE event_type='tool_call' AND tool_name='load_skill'"
+            ).fetchone()
+            assert rows and rows[0] >= 1, (
+                f"No load_skill tool_call rows found in telemetry. "
+                f"SkillToolset may not be wired or telemetry not recording load_skill calls."
+            )
+        finally:
+            conn.close()
+
+    async def test_list_skills_at_multiple_depths(self, run_result):
+        """list_skills telemetry rows exist at depth=0 AND at depth > 0 (proves GAP-A fix)."""
+        assert run_result.traces_db_path
+        conn = sqlite3.connect(run_result.traces_db_path)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT depth FROM telemetry "
+                "WHERE event_type='tool_call' AND tool_name='list_skills'"
+            ).fetchall()
+            depths = {int(r[0]) for r in rows if r[0] is not None}
+            assert 0 in depths, (
+                f"list_skills not recorded at depth=0. Depths found: {depths}"
+            )
+            assert 2 in depths, (
+                f"GAP-A: list_skills not recorded at depth=2. "
+                f"Grandchild may not have SkillToolset. Depths: {depths}"
+            )
+        finally:
+            conn.close()
+
+    async def test_load_skill_at_multiple_depths(self, run_result):
+        """load_skill telemetry rows exist at depth=0 AND at depth=2."""
+        assert run_result.traces_db_path
+        conn = sqlite3.connect(run_result.traces_db_path)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT depth FROM telemetry "
+                "WHERE event_type='tool_call' AND tool_name='load_skill'"
+            ).fetchall()
+            depths = {int(r[0]) for r in rows if r[0] is not None}
+            assert 0 in depths, (
+                f"load_skill not recorded at depth=0. Depths found: {depths}"
+            )
+            assert 2 in depths, (
+                f"GAP-A: load_skill not recorded at depth=2. "
+                f"Grandchild may not have SkillToolset. Depths: {depths}"
+            )
+        finally:
+            conn.close()
+
+
+class TestDepth2StateVerification:
+    """Verify the d2 execute_code (idx 8) printed state verification markers.
+
+    The grandchild at depth=2 reads _rlm_state and prints [D2_STATE:key=value]
+    markers. These are captured in final_state['last_repl_result@d2']['stdout']
+    because child event re-emission writes depth-scoped state keys.
+    """
+
+    @staticmethod
+    def _d2_stdout(run_result) -> str:
+        """Extract d2 REPL stdout from depth-scoped last_repl_result@d2."""
+        lrr = run_result.final_state.get("last_repl_result@d2")
+        if isinstance(lrr, dict):
+            return lrr.get("stdout", "")
+        return ""
+
+    async def test_d2_repl_result_exists(self, run_result):
+        """last_repl_result@d2 must exist in final_state (proves child event re-emission)."""
+        lrr = run_result.final_state.get("last_repl_result@d2")
+        assert lrr is not None, (
+            "last_repl_result@d2 not in final_state — "
+            "child event re-emission (d2 -> d1 -> d0) may be broken."
+        )
+
+    async def test_d2_state_markers_in_stdout(self, run_result):
+        """At least one [D2_STATE: prefixed line exists in d2 REPL stdout."""
+        d2_out = self._d2_stdout(run_result)
+        assert "[D2_STATE:" in d2_out, (
+            "[D2_STATE: markers not found in last_repl_result@d2 stdout. "
+            "The grandchild execute_code at idx 8 may not have run or its output was lost. "
+            f"last_repl_result@d2 = {run_result.final_state.get('last_repl_result@d2')!r}"
+        )
+
+    async def test_d2_depth_correct(self, run_result):
+        """[D2_STATE:depth=2] proves _rlm_depth=2 was in _rlm_state at d2."""
+        d2_out = self._d2_stdout(run_result)
+        assert "[D2_STATE:depth=2]" in d2_out, (
+            "[D2_STATE:depth=2] not found in last_repl_result@d2 stdout. "
+            "Either _rlm_depth was not propagated to depth=2 or the grandchild REPL "
+            f"did not execute idx 8 code. d2 stdout: {d2_out[:200]!r}"
+        )
+
+    async def test_d2_has_current_depth(self, run_result):
+        """[D2_STATE:current_depth= in d2 stdout. Value may be MISSING (not depth-scoped to children)."""
+        d2_out = self._d2_stdout(run_result)
+        assert "[D2_STATE:current_depth=" in d2_out, (
+            "[D2_STATE:current_depth= not found in last_repl_result@d2 stdout. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+
+    async def test_d2_proof_marker(self, run_result):
+        """[D2_STATE:proof=depth2_state_verified] proves full d2 code execution."""
+        d2_out = self._d2_stdout(run_result)
+        assert "[D2_STATE:proof=depth2_state_verified]" in d2_out, (
+            "[D2_STATE:proof=depth2_state_verified] not found in last_repl_result@d2 stdout. "
+            f"The d2 execute_code may have crashed before reaching the proof marker. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+
+    async def test_d2_dyn_instr_skill_instruction_resolved(self, run_result):
+        """D2_STATE:dyn_instr_skill_instruction=resolved=True proves skill_instruction propagates to d2."""
+        d2_out = self._d2_stdout(run_result)
+        assert "D2_STATE:dyn_instr_skill_instruction=resolved=True" in d2_out, (
+            "D2_STATE:dyn_instr_skill_instruction=resolved=True not found in d2 stdout. "
+            "The skill_instruction state key may not propagate to depth=2. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+
+
+class TestStructuredOutputCoverage:
+    """Verify structured output via output_schema=BatchResult on llm_query_batched.
+
+    Subsumes structured_output_happy_path fixture: exercises output_schema on
+    llm_query_batched at idx 11, with BatchResult schema validated by children
+    at idx 12 and idx 13.
+    """
+
+    async def test_structured_output_marker_in_stdout(self, run_result):
+        """Verify [STRUCTURED_OUTPUT: markers appear in combined stdout."""
+        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        assert "[STRUCTURED_OUTPUT:" in combined, (
+            "[STRUCTURED_OUTPUT: marker not found in stdout. "
+            "The llm_query_batched(output_schema=BatchResult) code at idx 11 "
+            "may not have executed or the parsed results were None."
+        )
+
+    async def test_structured_output_parsed_results(self, run_result):
+        """Verify both batch results have parsed=True and accessible fields."""
+        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        assert "[STRUCTURED_OUTPUT:batch_0_parsed=True]" in combined, (
+            "batch_0_parsed=True not found — child 0 structured output not parsed"
+        )
+        assert "[STRUCTURED_OUTPUT:batch_1_parsed=True]" in combined, (
+            "batch_1_parsed=True not found — child 1 structured output not parsed"
+        )
+
+    async def test_structured_output_field_values(self, run_result):
+        """Verify parsed field values from BatchResult schema are accessible."""
+        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        assert "[STRUCTURED_OUTPUT:batch_0_summary=finding_A_summary]" in combined, (
+            "batch_0 summary field not accessible via .parsed"
+        )
+        assert "[STRUCTURED_OUTPUT:batch_0_confidence=0.92]" in combined, (
+            "batch_0 confidence field not accessible via .parsed"
+        )
+        assert "[STRUCTURED_OUTPUT:batch_1_summary=finding_B_summary]" in combined, (
+            "batch_1 summary field not accessible via .parsed"
+        )
+        assert "[STRUCTURED_OUTPUT:batch_1_confidence=0.87]" in combined, (
+            "batch_1 confidence field not accessible via .parsed"
         )
 
 

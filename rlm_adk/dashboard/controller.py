@@ -133,26 +133,16 @@ class DashboardController:
             return []
         result: list[ContextChunk] = []
         if window_type == "reasoning" and it_data.reasoning_window:
-            result.extend(
-                c
-                for c in it_data.reasoning_window.chunks
-                if c.category == category
-            )
+            result.extend(c for c in it_data.reasoning_window.chunks if c.category == category)
         return result
 
-    def set_reconciliation(
-        self, api_usage: APITokenUsage | None
-    ) -> None:
+    def set_reconciliation(self, api_usage: APITokenUsage | None) -> None:
         """Compute reconciliation from local summary and gcloud data."""
         self.state.api_usage = api_usage
-        self.state.reconciliation = reconcile(
-            self.state.session_summary, api_usage
-        )
+        self.state.reconciliation = reconcile(self.state.session_summary, api_usage)
 
 
-def reconcile(
-    local: SessionSummary | None, gcloud: APITokenUsage | None
-) -> TokenReconciliation:
+def reconcile(local: SessionSummary | None, gcloud: APITokenUsage | None) -> TokenReconciliation:
     """Reconcile local token counts against GCloud monitoring data."""
     if local is None:
         return TokenReconciliation(

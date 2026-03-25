@@ -69,9 +69,7 @@ class DashboardDataLoader:
             logger.warning("Failed to read JSONL for session listing: %s", e)
         return session_ids
 
-    def load_session(
-        self, session_id: str
-    ) -> tuple[SessionSummary, list[IterationData]]:
+    def load_session(self, session_id: str) -> tuple[SessionSummary, list[IterationData]]:
         """Load all entries for a session, build structured data."""
         entries = self._read_entries(session_id)
         output_entries = self._read_output_entries(session_id)
@@ -145,9 +143,7 @@ class DashboardDataLoader:
             error_message=entry.get("error_message"),
         )
 
-    def _build_summary(
-        self, entries: list[dict], session_id: str
-    ) -> SessionSummary:
+    def _build_summary(self, entries: list[dict], session_id: str) -> SessionSummary:
         """Compute session-level aggregates from entries."""
         if not entries:
             return SessionSummary(

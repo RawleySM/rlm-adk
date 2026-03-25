@@ -24,6 +24,7 @@ class TestSkillResult:
     thread_bridge_latency_ms: float
     child_result: str
     timestamps: dict[str, float]
+    batched_probe_results: list[str] | None = None
 
 
 def run_test_skill(
@@ -32,6 +33,7 @@ def run_test_skill(
     emit_debug: bool = True,
     rlm_state: dict[str, Any] | None = None,
     llm_query_fn=None,
+    llm_query_batched_fn=None,
 ) -> TestSkillResult:
     """Exercise the full rlm_adk architecture pipeline and return diagnostic data.
 
@@ -40,6 +42,8 @@ def run_test_skill(
         emit_debug: Whether to print [TEST_SKILL:...] tagged lines.
         rlm_state: The _rlm_state dict from REPL globals (pass explicitly).
         llm_query_fn: Auto-injected by loader wrapper. The sync llm_query callable.
+        llm_query_batched_fn: Auto-injected by loader wrapper. The sync
+            llm_query_batched callable for parallel child dispatch.
 
     Returns:
         TestSkillResult with all captured diagnostic data.
@@ -107,6 +111,25 @@ def run_test_skill(
     _tag("thread_bridge_latency_ms", round(latency_ms, 2))
 
     # ------------------------------------------------------------------
+    # Step 3b: Exercise batched child dispatch via llm_query_batched_fn()
+    # Only runs if llm_query_batched_fn is provided (not None).
+    # ------------------------------------------------------------------
+    batched_probe_results: list[str] | None = None
+    if llm_query_batched_fn is not None:
+        timestamps["t2b_before_batched"] = time.perf_counter()
+        _tag("calling_llm_query_batched", True)
+
+        raw_batched = llm_query_batched_fn(["batch_probe_1", "batch_probe_2"])
+        batched_probe_results = [str(r) for r in raw_batched]
+
+        timestamps["t2b_after_batched"] = time.perf_counter()
+        batched_latency_ms = (
+            timestamps["t2b_after_batched"] - timestamps["t2b_before_batched"]
+        ) * 1000.0
+        _tag("batched_results", batched_probe_results)
+        _tag("batched_latency_ms", round(batched_latency_ms, 2))
+
+    # ------------------------------------------------------------------
     # Step 4: Final summary
     # ------------------------------------------------------------------
     timestamps["t3_end"] = time.perf_counter()
@@ -128,4 +151,5 @@ def run_test_skill(
         thread_bridge_latency_ms=latency_ms,
         child_result=str(child_result),
         timestamps={k: round(v, 6) for k, v in timestamps.items()},
+        batched_probe_results=batched_probe_results,
     )

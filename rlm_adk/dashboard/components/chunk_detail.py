@@ -20,9 +20,7 @@ def render_chunk_detail(controller: DashboardController) -> None:
     """Render the chunk detail panel (called from @ui.refreshable scope)."""
     chunk = controller.state.selected_chunk
     if chunk is None:
-        ui.label("Click a segment to view details").classes(
-            "text-body2 text-grey-7"
-        )
+        ui.label("Click a segment to view details").classes("text-body2 text-grey-7")
         return
 
     is_code = chunk.category == ChunkCategory.REPL_CODE
@@ -70,9 +68,7 @@ def render_worker_detail(controller: DashboardController) -> None:
     """Render the worker prompt detail panel (right-most of three panels)."""
     chunk = controller.state.selected_worker_chunk
     if chunk is None:
-        ui.label("Click a worker badge to view details").classes(
-            "text-body2 text-grey-7"
-        )
+        ui.label("Click a worker badge to view details").classes("text-body2 text-grey-7")
         return
 
     is_code = chunk.category == ChunkCategory.REPL_CODE
@@ -113,8 +109,8 @@ def _render_text_preview(text: str) -> None:
     escaped = html_mod.escape(text)
     ui.html(
         f'<pre style="white-space: pre-wrap; word-wrap: break-word; '
-        f'font-family: monospace; font-size: 0.85rem; padding: 0.75rem; '
-        f'background: #1d1d1d; color: #e0e0e0; '
+        f"font-family: monospace; font-size: 0.85rem; padding: 0.75rem; "
+        f"background: #1d1d1d; color: #e0e0e0; "
         f'border-radius: 4px; margin: 0; overflow-x: auto;">'
         f"{escaped}</pre>"
     ).classes("w-full")

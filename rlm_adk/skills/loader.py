@@ -67,30 +67,71 @@ def _has_llm_query_fn_param(fn: Callable) -> bool:
     return "llm_query_fn" in sig.parameters
 
 
+def _has_llm_query_batched_fn_param(fn: Callable) -> bool:
+    """Return True if *fn* has a parameter named ``llm_query_batched_fn``."""
+    try:
+        sig = inspect.signature(fn)
+    except (ValueError, TypeError):
+        return False
+    return "llm_query_batched_fn" in sig.parameters
+
+
 def _wrap_with_llm_query_injection(
     fn: Callable,
     repl_globals: dict[str, Any],
 ) -> Callable:
-    """Return a wrapper that injects ``llm_query_fn`` from *repl_globals* at call time.
+    """Return a wrapper that injects ``llm_query_fn`` and/or ``llm_query_batched_fn``.
 
-    The wrapper reads ``repl_globals["llm_query"]`` lazily so the dict can be
-    populated after wrapping (e.g. when the orchestrator wires the REPL).
+    The wrapper reads from *repl_globals* lazily so the dict can be populated
+    after wrapping (e.g. when the orchestrator wires the REPL).
 
-    If the caller already passes ``llm_query_fn`` explicitly the wrapper does
-    not override it.
+    If the caller already passes either kwarg explicitly the wrapper does not
+    override it.
     """
+    needs_query = _has_llm_query_fn_param(fn)
+    needs_batched = _has_llm_query_batched_fn_param(fn)
+
+    # Determine whether the parameters are optional (have defaults) so we
+    # can skip injection silently instead of raising when the global is absent.
+    _query_optional = False
+    _batched_optional = False
+    try:
+        sig = inspect.signature(fn)
+        if needs_query:
+            p = sig.parameters["llm_query_fn"]
+            _query_optional = p.default is not inspect.Parameter.empty
+        if needs_batched:
+            p = sig.parameters["llm_query_batched_fn"]
+            _batched_optional = p.default is not inspect.Parameter.empty
+    except (ValueError, TypeError):
+        pass
 
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        if "llm_query_fn" not in kwargs:
+        if needs_query and "llm_query_fn" not in kwargs:
             llm_query = repl_globals.get("llm_query")
             if llm_query is None:
-                raise RuntimeError(
-                    "llm_query not available in REPL globals. "
-                    "Ensure the orchestrator has wired llm_query before "
-                    "calling skill functions, or pass llm_query_fn explicitly."
-                )
-            kwargs["llm_query_fn"] = llm_query
+                if not _query_optional:
+                    raise RuntimeError(
+                        "llm_query not available in REPL globals. "
+                        "Ensure the orchestrator has wired llm_query before "
+                        "calling skill functions, or pass llm_query_fn explicitly."
+                    )
+                # Optional param — let the function's default (e.g. None) stand.
+            else:
+                kwargs["llm_query_fn"] = llm_query
+        if needs_batched and "llm_query_batched_fn" not in kwargs:
+            llm_query_batched = repl_globals.get("llm_query_batched")
+            if llm_query_batched is None:
+                if not _batched_optional:
+                    raise RuntimeError(
+                        "llm_query_batched not available in REPL globals. "
+                        "Ensure the orchestrator has wired llm_query_batched before "
+                        "calling skill functions, or pass llm_query_batched_fn explicitly."
+                    )
+                # Optional param — let the function's default (e.g. None) stand.
+            else:
+                kwargs["llm_query_batched_fn"] = llm_query_batched
         return fn(*args, **kwargs)
 
     return wrapper
@@ -164,7 +205,9 @@ def collect_skill_repl_globals(
             if obj is None:
                 log.warning("SKILL_EXPORTS references missing name %r in %s", name, module_name)
                 continue
-            if callable(obj) and _has_llm_query_fn_param(obj):
+            if callable(obj) and (
+                _has_llm_query_fn_param(obj) or _has_llm_query_batched_fn_param(obj)
+            ):
                 obj = _wrap_with_llm_query_injection(obj, repl_globals)
             collected[name] = obj
 
