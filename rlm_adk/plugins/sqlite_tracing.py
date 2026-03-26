@@ -162,19 +162,6 @@ CREATE TABLE IF NOT EXISTS traces (
     max_depth_reached       INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS spans (
-    span_id         TEXT PRIMARY KEY,
-    trace_id        TEXT NOT NULL,
-    parent_span_id  TEXT,
-    operation_name  TEXT NOT NULL,
-    agent_name      TEXT,
-    start_time      REAL NOT NULL,
-    end_time        REAL,
-    status          TEXT DEFAULT 'ok',
-    attributes      TEXT,
-    events          TEXT
-);
-
 CREATE TABLE IF NOT EXISTS telemetry (
     telemetry_id    TEXT PRIMARY KEY,
     trace_id        TEXT NOT NULL,
@@ -223,6 +210,10 @@ CREATE TABLE IF NOT EXISTS telemetry (
     skill_name_loaded   TEXT,
     skill_instructions_len INTEGER,
     execution_mode  TEXT,
+    completion_display_text    TEXT,
+    completion_reasoning_summary TEXT,
+    completion_error_category  TEXT,
+    completion_mode            TEXT,
     status          TEXT DEFAULT 'ok',
     error_type      TEXT,
     error_message   TEXT
@@ -245,8 +236,6 @@ CREATE TABLE IF NOT EXISTS session_state_events (
     value_json      TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_spans_trace_id ON spans(trace_id);
-CREATE INDEX IF NOT EXISTS idx_spans_operation ON spans(operation_name);
 CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id);
 CREATE INDEX IF NOT EXISTS idx_traces_start ON traces(start_time);
 CREATE INDEX IF NOT EXISTS idx_telemetry_trace ON telemetry(trace_id);
@@ -263,6 +252,31 @@ SELECT
     COALESCE(value_text, CAST(value_int AS TEXT), CAST(value_float AS TEXT), value_json) AS value,
     value_int, value_float, value_text, value_json
 FROM session_state_events;
+
+CREATE VIEW IF NOT EXISTS execution_observations AS
+SELECT telemetry_id, trace_id, event_type, start_time, end_time, duration_ms, model,
+       input_tokens, output_tokens, thought_tokens, finish_reason, num_contents,
+       prompt_chars, system_chars, status, error_type, error_message,
+       execution_mode, call_number, tool_name, tool_args_keys, result_preview,
+       repl_has_errors, repl_has_output, repl_llm_calls, repl_stdout_len,
+       repl_stderr_len, repl_trace_summary
+FROM telemetry;
+
+CREATE VIEW IF NOT EXISTS telemetry_completions AS
+SELECT telemetry_id, trace_id, event_type, agent_name, depth, fanout_idx,
+       start_time, decision_mode, structured_outcome, terminal_completion,
+       output_schema_name, validated_output_json, result_preview, result_payload,
+       completion_display_text, completion_reasoning_summary,
+       completion_error_category, completion_mode
+FROM telemetry
+WHERE decision_mode = 'set_model_response';
+
+CREATE VIEW IF NOT EXISTS lineage_records AS
+SELECT telemetry_id, trace_id, event_type, agent_name, agent_type, iteration,
+       depth, fanout_idx, parent_depth, parent_fanout_idx, branch,
+       invocation_id, session_id, output_schema_name, decision_mode,
+       structured_outcome, terminal_completion
+FROM telemetry;
 """
 
 
@@ -274,8 +288,14 @@ class SqliteTracingPlugin(BasePlugin):
     - telemetry: One row per model call or tool invocation (structured columns).
     - session_state_events: One row per curated state key change from events.
 
-    The legacy ``spans`` table is retained for backward compatibility but
-    no longer receives new writes.
+    Provides 4 SQL views for query convenience:
+    - session_state_events_unified: COALESCE across typed value columns.
+    - execution_observations: Timing, tokens, REPL outcomes, errors.
+    - telemetry_completions: ``set_model_response`` outcomes only.
+    - lineage_records: Tree-structure edges and provenance.
+
+    The legacy ``spans`` table is no longer created on fresh DBs but is
+    retained on pre-existing databases for backward compatibility.
 
     The plugin is observe-only: all callbacks return None and never block
     execution. Database write errors are caught and logged as warnings.
@@ -415,6 +435,10 @@ class SqliteTracingPlugin(BasePlugin):
                 ("skill_name_loaded", "TEXT"),
                 ("skill_instructions_len", "INTEGER"),
                 ("execution_mode", "TEXT"),
+                ("completion_display_text", "TEXT"),
+                ("completion_reasoning_summary", "TEXT"),
+                ("completion_error_category", "TEXT"),
+                ("completion_mode", "TEXT"),
                 ("tool_args_json", "TEXT"),
                 ("status", "TEXT DEFAULT 'ok'"),
                 ("error_type", "TEXT"),
@@ -429,16 +453,6 @@ class SqliteTracingPlugin(BasePlugin):
                 ("value_float", "REAL"),
                 ("value_text", "TEXT"),
                 ("value_json", "TEXT"),
-            ],
-            "spans": [
-                ("parent_span_id", "TEXT"),
-                ("operation_name", "TEXT"),
-                ("agent_name", "TEXT"),
-                ("start_time", "REAL"),
-                ("end_time", "REAL"),
-                ("status", "TEXT DEFAULT 'ok'"),
-                ("attributes", "TEXT"),
-                ("events", "TEXT"),
             ],
         }
 
