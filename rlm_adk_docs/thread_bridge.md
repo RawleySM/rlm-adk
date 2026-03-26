@@ -103,7 +103,7 @@ Orchestrator._run_async_impl()
 - `LAST_REPL_RESULT["execution_mode"]` = `"thread_bridge"` or `"sync"`
 - `REPLTrace.execution_mode` typed as `Literal["sync", "thread_bridge"]`
 - `REPL_SKILL_GLOBALS_INJECTED` state key lists injected skill function names
-- `LineageEnvelope.decision_mode` expanded with `load_skill`, `list_skills`, `load_skill_resource`, `run_skill_script`
+- `LineageEnvelope.decision_mode` expanded with `load_skill`, `list_skills`, `load_skill_resource`, `run_skill_script`. (Note: `decision_mode` now also lives on `LineageEdge` after the Phase 2 type split -- see `core_loop.md` section 6 for details.)
 - `SqliteTracingPlugin.after_tool_callback` populates `skill_name_loaded` and `skill_instructions_len` for skill tool calls
 - `_finalize_telemetry()` in `finally` block ensures telemetry fires on all paths (success, exception, cancellation)
 
@@ -115,7 +115,7 @@ Orchestrator._run_async_impl()
 | 1 | 1-9 | Thread bridge core: sync bridge, lock-free execution, REPLTool + orchestrator wiring |
 | 2 | 10-14 | Skill loader: discover, collect, wrap, recursive-ping skill, orchestrator wiring |
 | 3 | 15-16 | SkillToolset creation + CRITICAL `reasoning_before_model` fix |
-| 4 | 17-20 | Observability: state keys, LineageEnvelope, sqlite_tracing, instruction disambiguation |
+| 4 | 17-20 | Observability: state keys, LineageEnvelope (now split into LineageEdge + ProvenanceRecord), sqlite_tracing, instruction disambiguation |
 | 5 | 21-24 | Provider-fake e2e: thread bridge contract + three-plane verification |
 | 6 | 25-26 | SkillToolset L1/L2 e2e + recursive-ping capstone |
 | 7 | 27 | Full regression (96 new pass, 0 regressions) |

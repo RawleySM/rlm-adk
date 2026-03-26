@@ -263,6 +263,50 @@ Backward-compatible string that carries metadata. Works in f-strings, concatenat
 
 Record of a single child LLM call. Key fields: `root_model`, `prompt`, `response`, `usage_summary: UsageSummary`, `execution_time`, `finish_reason`, `parsed_response`.
 
+### Lineage Types (Pydantic models)
+
+Lineage metadata is semantically split into two concerns: **tree-structure** (where in the execution graph a decision sits) and **identity/context** (who produced the decision and under what config). `LineageEnvelope` is retained as a backward-compatible composite that exposes both via accessor properties.
+
+#### LineageEdge
+
+Tree-structure edge -- positional and structural fields only.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `depth` | `int` | required | Nesting depth (0 = root) |
+| `fanout_idx` | `int \| None` | `None` | Index within a batched dispatch |
+| `parent_depth` | `int \| None` | `None` | Parent orchestrator's depth |
+| `parent_fanout_idx` | `int \| None` | `None` | Parent orchestrator's fanout index |
+| `branch` | `str \| None` | `None` | Branch identifier |
+| `terminal` | `bool` | `False` | Whether this is a terminal decision |
+| `decision_mode` | `Literal[...]` | `"unknown"` | Tool that produced this decision (`execute_code`, `set_model_response`, skill tools) |
+| `structured_outcome` | `Literal[...]` | `"not_applicable"` | Schema validation result |
+
+#### ProvenanceRecord
+
+Identity and context -- who produced this decision.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `version` | `Literal["v1"]` | `"v1"` | Schema version |
+| `agent_name` | `str` | required | Name of the agent that produced this decision |
+| `invocation_id` | `str \| None` | `None` | ADK invocation identifier |
+| `session_id` | `str \| None` | `None` | ADK session identifier |
+| `output_schema_name` | `str \| None` | `None` | Name of the output schema (if structured output was used) |
+
+#### LineageEnvelope (backward-compat composite)
+
+Retains all fields from both `LineageEdge` and `ProvenanceRecord` as a flat model. The `.model_dump()` shape is unchanged from before the split.
+
+| Property | Returns | Description |
+|----------|---------|-------------|
+| `.lineage` | `LineageEdge` | Extracts tree-structure fields |
+| `.provenance` | `ProvenanceRecord` | Extracts identity/context fields |
+
+`_build_lineage()` in `reasoning.py` still returns `LineageEnvelope`, so existing callback consumers see no change. **New code should prefer `LineageEdge` and `ProvenanceRecord` directly** when only one concern is needed.
+
+All three types are importable from `rlm_adk.types`.
+
 ---
 
 ## 7. Complete Execution Sequence
@@ -340,7 +384,7 @@ When REPL code calls `llm_query("sub-question")`:
       - Uses RLM_CHILD_STATIC_INSTRUCTION (condensed, no repomix)
       - max_iterations=10 (vs 30 for root)
       - thinking_budget=512 (vs 1024 for root)
-      - Depth-suffixed state keys: "iteration_count@d1", "final_answer@d1"
+      - Depth-suffixed state keys: "iteration_count@d1f0", "final_answer@d1f0"
       - include_repomix=False)
    e. Extract LLMResult from child's completion
 3. LLMResult returned to parent REPL code as the return value
@@ -349,12 +393,12 @@ When REPL code calls `llm_query("sub-question")`:
 
 ### Depth scoping
 
-**File:** `rlm_adk/state.py` -- `depth_key(key, depth) -> str`
+**File:** `rlm_adk/state.py` -- `depth_key(key, depth, fanout_idx) -> str`
 
 - `depth == 0`: returns `key` unchanged
-- `depth > 0`: returns `f"{key}@d{depth}"`
+- `depth > 0`: returns `f"{key}@d{depth}f{fanout_idx}"` (e.g. `iteration_count@d1f0`)
 
-This prevents state collisions when child orchestrators run within the same session. The `DEPTH_SCOPED_KEYS` set defines which keys require depth suffixes (iteration counts, final answers, submitted code metadata).
+This prevents state collisions when child orchestrators run within the same session. The depth component isolates parent/child state; the fanout component isolates sibling children dispatched via `llm_query_batched()` at the same depth. The `DEPTH_SCOPED_KEYS` set defines which keys require scoping (iteration counts, final answers, submitted code metadata).
 
 ### Depth limits
 
@@ -479,3 +523,4 @@ This tells ADK to manage tool call/response history automatically. Without it, t
 - **2026-03-25 16:45** — `rlm_adk/dispatch.py`: GAP-D: added `repo_url` param to `create_dispatch_closures()` and `_run_child()` `[session: cd2d9e3f]`
 - **2026-03-25 16:45** — `rlm_adk/agent.py`: GAP-D: added `repo_url: str | None = None` param to `create_child_orchestrator()` `[session: cd2d9e3f]`
 - **2026-03-25 16:55** — `rlm_adk/orchestrator.py`: GAP-D reviewer fix: added comment documenting intentional non-propagation of user_ctx_manifest to children `[session: cd2d9e3f]`
+- **2026-03-26** — `rlm_adk/types.py`: LineageEnvelope type split -- added `LineageEdge` (tree-structure fields) and `ProvenanceRecord` (identity/context fields). `LineageEnvelope` retained as backward-compat composite with `.lineage` and `.provenance` accessor properties. `_build_lineage()` in `reasoning.py` still returns `LineageEnvelope`; no functional change to callbacks.
