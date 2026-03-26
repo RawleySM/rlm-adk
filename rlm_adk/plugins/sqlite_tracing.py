@@ -277,6 +277,29 @@ SELECT telemetry_id, trace_id, event_type, agent_name, agent_type, iteration,
        invocation_id, session_id, output_schema_name, decision_mode,
        structured_outcome, terminal_completion
 FROM telemetry;
+
+CREATE TABLE IF NOT EXISTS completion_records (
+    completion_id       TEXT PRIMARY KEY,
+    telemetry_id        TEXT,
+    trace_id            TEXT NOT NULL,
+    producer_type       TEXT NOT NULL,
+    terminal            INTEGER NOT NULL DEFAULT 0,
+    mode                TEXT NOT NULL,
+    output_schema_name  TEXT,
+    validated_output    TEXT,
+    raw_output          TEXT,
+    display_text        TEXT,
+    reasoning_summary   TEXT,
+    finish_reason       TEXT,
+    error               INTEGER NOT NULL DEFAULT 0,
+    error_category      TEXT,
+    agent_name          TEXT,
+    depth               INTEGER,
+    fanout_idx          INTEGER,
+    created_at          REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_completion_records_trace_id ON completion_records(trace_id);
+CREATE INDEX IF NOT EXISTS idx_completion_records_telemetry_id ON completion_records(telemetry_id);
 """
 
 
@@ -453,6 +476,26 @@ class SqliteTracingPlugin(BasePlugin):
                 ("value_float", "REAL"),
                 ("value_text", "TEXT"),
                 ("value_json", "TEXT"),
+            ],
+            "completion_records": [
+                ("completion_id", "TEXT"),
+                ("telemetry_id", "TEXT"),
+                ("trace_id", "TEXT NOT NULL"),
+                ("producer_type", "TEXT NOT NULL"),
+                ("terminal", "INTEGER NOT NULL DEFAULT 0"),
+                ("mode", "TEXT NOT NULL"),
+                ("output_schema_name", "TEXT"),
+                ("validated_output", "TEXT"),
+                ("raw_output", "TEXT"),
+                ("display_text", "TEXT"),
+                ("reasoning_summary", "TEXT"),
+                ("finish_reason", "TEXT"),
+                ("error", "INTEGER NOT NULL DEFAULT 0"),
+                ("error_category", "TEXT"),
+                ("agent_name", "TEXT"),
+                ("depth", "INTEGER"),
+                ("fanout_idx", "INTEGER"),
+                ("created_at", "REAL NOT NULL"),
             ],
         }
 
@@ -659,6 +702,62 @@ class SqliteTracingPlugin(BasePlugin):
             self._conn.commit()
         except Exception as e:
             logger.warning("SqliteTracingPlugin: SSE insert failed: %s", e)
+
+    # ---- Completion record write helper ----
+
+    def _insert_completion_record(
+        self,
+        envelope: Any,  # CompletionEnvelope
+        *,
+        producer_type: str,
+        telemetry_id: str | None,
+        agent_name: str | None,
+        depth: int | None,
+        fanout_idx: int | None,
+    ) -> None:
+        """Persist a CompletionEnvelope as a first-class completion_records row."""
+        if self._conn is None or self._trace_id is None:
+            return
+        try:
+            self._conn.execute(
+                "INSERT INTO completion_records "
+                "(completion_id, telemetry_id, trace_id, producer_type, terminal, mode, "
+                "output_schema_name, validated_output, raw_output, display_text, "
+                "reasoning_summary, finish_reason, error, error_category, "
+                "agent_name, depth, fanout_idx, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    telemetry_id,
+                    self._trace_id,
+                    producer_type,
+                    1 if getattr(envelope, "terminal", False) else 0,
+                    getattr(envelope, "mode", "unknown"),
+                    getattr(envelope, "output_schema_name", None),
+                    json.dumps(getattr(envelope, "validated_output", None), default=str)
+                    if getattr(envelope, "validated_output", None) is not None
+                    else None,
+                    str(getattr(envelope, "raw_output", None))[:2000]
+                    if getattr(envelope, "raw_output", None) is not None
+                    else None,
+                    (getattr(envelope, "display_text", None) or "")[:2000]
+                    if getattr(envelope, "display_text", None)
+                    else None,
+                    (getattr(envelope, "reasoning_summary", None) or "")[:500]
+                    if getattr(envelope, "reasoning_summary", None)
+                    else None,
+                    getattr(envelope, "finish_reason", None),
+                    1 if getattr(envelope, "error", False) else 0,
+                    getattr(envelope, "error_category", None),
+                    agent_name,
+                    depth,
+                    fanout_idx,
+                    time.time(),
+                ),
+            )
+            self._conn.commit()
+        except Exception as e:
+            logger.warning("SqliteTracingPlugin: completion_record insert failed: %s", e)
 
     # ---- Lifecycle callbacks ----
 
@@ -906,6 +1005,31 @@ class SqliteTracingPlugin(BasePlugin):
                 ),
             )
             self._conn.commit()
+
+            # Write path 2: orchestrator-level CompletionEnvelope
+            inv_agent = getattr(invocation_context, "agent", None)
+            orch_completion = getattr(inv_agent, "_rlm_terminal_completion", None)
+            if orch_completion is not None and hasattr(orch_completion, "mode"):
+                producer = (
+                    "orchestrator_error"
+                    if getattr(orch_completion, "error", False)
+                    else "orchestrator"
+                )
+                anchor_row = self._conn.execute(
+                    "SELECT telemetry_id FROM telemetry "
+                    "WHERE trace_id = ? AND decision_mode = 'set_model_response' "
+                    "AND depth = 0 AND terminal_completion = 1 "
+                    "ORDER BY start_time DESC LIMIT 1",
+                    (self._trace_id,),
+                ).fetchone()
+                self._insert_completion_record(
+                    orch_completion,
+                    producer_type=producer,
+                    telemetry_id=anchor_row[0] if anchor_row else None,
+                    agent_name=getattr(inv_agent, "name", None),
+                    depth=getattr(inv_agent, "depth", 0),
+                    fanout_idx=getattr(inv_agent, "fanout_idx", 0),
+                )
         except Exception as e:
             logger.warning("SqliteTracingPlugin: after_run failed: %s", e)
 
@@ -925,11 +1049,37 @@ class SqliteTracingPlugin(BasePlugin):
     async def after_agent_callback(
         self, *, agent: BaseAgent, callback_context: CallbackContext
     ) -> types.Content | None:
-        """Pop agent from context stack and flush deferred lineage."""
+        """Pop agent from context stack, flush deferred lineage, write child completion."""
         try:
             self._flush_deferred_tool_lineage()
             if self._agent_span_stack:
                 self._agent_span_stack.pop()
+
+            # Write path 3: child orchestrator completion records.
+            # Only write for RLMOrchestratorAgent at depth > 0.
+            # LlmAgent (reasoning agent) completions are captured via
+            # the deferred tool lineage flush above (write path 1).
+            from rlm_adk.orchestrator import RLMOrchestratorAgent
+
+            if isinstance(agent, RLMOrchestratorAgent):
+                agent_completion = getattr(agent, "_rlm_terminal_completion", None)
+                if agent_completion is not None and hasattr(agent_completion, "mode"):
+                    agent_depth = getattr(agent, "depth", 0)
+                    # Only capture for child orchestrators (depth > 0), not root
+                    if agent_depth > 0:
+                        producer = (
+                            "orchestrator_error"
+                            if getattr(agent_completion, "error", False)
+                            else "orchestrator"
+                        )
+                        self._insert_completion_record(
+                            agent_completion,
+                            producer_type=producer,
+                            telemetry_id=None,
+                            agent_name=getattr(agent, "name", None),
+                            depth=agent_depth,
+                            fanout_idx=getattr(agent, "fanout_idx", 0),
+                        )
         except Exception as e:
             logger.warning("SqliteTracingPlugin: after_agent failed: %s", e)
         return None
@@ -1206,6 +1356,18 @@ class SqliteTracingPlugin(BasePlugin):
                     kw["validated_output_json"] = json.dumps(entry["result"], default=str)
                 if kw:
                     self._update_telemetry(entry["telemetry_id"], **kw)
+
+                # Write path 1: completion_records from deferred flush
+                completion = getattr(agent, "_rlm_terminal_completion", None)
+                if completion is not None and hasattr(completion, "mode"):
+                    self._insert_completion_record(
+                        completion,
+                        producer_type="model",
+                        telemetry_id=entry["telemetry_id"],
+                        agent_name=getattr(agent, "name", None),
+                        depth=getattr(agent, "_rlm_depth", None),
+                        fanout_idx=getattr(agent, "_rlm_fanout_idx", None),
+                    )
             except Exception as e:
                 logger.warning("SqliteTracingPlugin: deferred lineage flush failed: %s", e)
         self._deferred_tool_lineage.clear()
