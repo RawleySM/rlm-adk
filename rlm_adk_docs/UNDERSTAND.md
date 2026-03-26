@@ -1,4 +1,4 @@
-<!-- last-audit: 2026-03-24 -->
+<!-- last-audit: 2026-03-26 -->
 <!-- source: ai_docs/codebase_documentation_research/PLAN.md -->
 # RLM-ADK: Agent Orientation Guide
 
@@ -62,9 +62,11 @@ The orchestrator is **collapsed** — no manual iteration loop. ADK's native too
 
 Dispatch closures use **local accumulators** + `flush_fn()` to atomically snapshot state after each REPL execution.
 
-Recursive agents use **depth-scoped keys**: `depth_key("iteration_count", 2)` → `"iteration_count@d2"`.
+Recursive agents use **depth-and-fanout-scoped keys**: `depth_key("iteration_count", 2, 0)` → `"iteration_count@d2f0"`.
 
-**Deep dive:** [dispatch_and_state.md](dispatch_and_state.md) — all state keys, depth scoping rules, WorkerPool, accumulator pattern, flush_fn mechanics
+Lineage types: `LineageEdge` (parent-child edge) and `ProvenanceRecord` (per-completion metadata) replace the monolithic `LineageEnvelope`. A backward-compatible `LineageEnvelope` composite is retained.
+
+**Deep dive:** [dispatch_and_state.md](dispatch_and_state.md) — all state keys, depth scoping rules, WorkerPool, accumulator pattern, flush_fn mechanics, lineage type definitions
 
 ---
 
@@ -75,13 +77,15 @@ Plugins provide token accounting, tracing, and telemetry:
 | Plugin | Role |
 |--------|------|
 | `ObservabilityPlugin` | Token accounting, finish reason tracking |
-| `SqliteTracingPlugin` | Traces/telemetry/state events to `.adk/traces.db` |
+| `SqliteTracingPlugin` | Traces/telemetry/completions/state events to `.adk/traces.db` |
 | `REPLTracingPlugin` | Per-code-block REPL traces to `repl_traces.json` |
 | `LangfuseTracingPlugin` | OTel auto-instrumentation to Langfuse UI |
 
 Worker observability flows through a separate path: `worker_after_model` -> `_call_record` -> dispatch accumulators -> `flush_fn` -> `tool_context.state`.
 
-**Deep dive:** [observability.md](observability.md) — plugin architecture, worker obs path, callback wiring, dashboard, trace levels
+`SqliteTracingPlugin` schema includes a `completion_records` table for first-class completion persistence, plus three SQL views (`execution_observations`, `telemetry_completions`, `lineage_records`) for query convenience. Four completion columns on `telemetry` track display text, reasoning summary, error category, and completion mode.
+
+**Deep dive:** [observability.md](observability.md) — plugin architecture, worker obs path, callback wiring, dashboard, trace levels, telemetry schema, completion persistence
 
 ---
 
