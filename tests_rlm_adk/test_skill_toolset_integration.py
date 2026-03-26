@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from rlm_adk.types import LineageEnvelope
+from rlm_adk.types import LineageEdge, LineageEnvelope, ProvenanceRecord
 
 # ---------------------------------------------------------------------------
 # Cycle 18 — LineageEnvelope.decision_mode expansion
@@ -98,11 +98,16 @@ class TestSqliteSkillTelemetry:
         tool_args = {"skill_name": "recursive-ping"}
 
         await plugin.before_tool_callback(
-            tool=tool, tool_args=tool_args, tool_context=tool_context,
+            tool=tool,
+            tool_args=tool_args,
+            tool_context=tool_context,
         )
         result = {"name": "recursive-ping", "instructions": "Use run_recursive_ping()"}
         await plugin.after_tool_callback(
-            tool=tool, tool_args=tool_args, tool_context=tool_context, result=result,
+            tool=tool,
+            tool_args=tool_args,
+            tool_context=tool_context,
+            result=result,
         )
 
         conn = sqlite3.connect(db_path)
@@ -123,11 +128,16 @@ class TestSqliteSkillTelemetry:
         tool_args = {"skill_name": "recursive-ping"}
 
         await plugin.before_tool_callback(
-            tool=tool, tool_args=tool_args, tool_context=tool_context,
+            tool=tool,
+            tool_args=tool_args,
+            tool_context=tool_context,
         )
         result = {"name": "recursive-ping", "instructions": "Use run_recursive_ping()"}
         await plugin.after_tool_callback(
-            tool=tool, tool_args=tool_args, tool_context=tool_context, result=result,
+            tool=tool,
+            tool_args=tool_args,
+            tool_context=tool_context,
+            result=result,
         )
 
         conn = sqlite3.connect(db_path)
@@ -150,11 +160,16 @@ class TestSqliteSkillTelemetry:
         tool_args = {}
 
         await plugin.before_tool_callback(
-            tool=tool, tool_args=tool_args, tool_context=tool_context,
+            tool=tool,
+            tool_args=tool_args,
+            tool_context=tool_context,
         )
         result = {"skills": ["recursive-ping", "some-other"]}
         await plugin.after_tool_callback(
-            tool=tool, tool_args=tool_args, tool_context=tool_context, result=result,
+            tool=tool,
+            tool_args=tool_args,
+            tool_context=tool_context,
+            result=result,
         )
 
         conn = sqlite3.connect(db_path)
@@ -205,9 +220,7 @@ class TestSkillStateKeys:
         """The key is matched by a prefix in CURATED_STATE_PREFIXES."""
         from rlm_adk.state import CURATED_STATE_PREFIXES, REPL_SKILL_GLOBALS_INJECTED
 
-        assert any(
-            REPL_SKILL_GLOBALS_INJECTED.startswith(p) for p in CURATED_STATE_PREFIXES
-        )
+        assert any(REPL_SKILL_GLOBALS_INJECTED.startswith(p) for p in CURATED_STATE_PREFIXES)
 
     def test_key_not_in_depth_scoped(self):
         """The key is NOT depth-scoped (it's a one-time flag)."""
@@ -269,7 +282,9 @@ class TestSkillToolsetWiring:
         # Reasoning agent should now have a SkillToolset in its tools
         tools = reasoning_agent.tools
         toolset_instances = [t for t in tools if isinstance(t, SkillToolset)]
-        assert len(toolset_instances) == 1, f"Expected 1 SkillToolset, got {len(toolset_instances)} in {tools}"
+        assert len(toolset_instances) == 1, (
+            f"Expected 1 SkillToolset, got {len(toolset_instances)} in {tools}"
+        )
         repl.cleanup()
 
     @pytest.mark.asyncio
@@ -698,20 +713,14 @@ class _SystemInstructionCapture:
             def __init__(self_inner):
                 super().__init__(name="si_capture")
 
-            async def before_model_callback(
-                self_inner, *, callback_context, llm_request, **_kw
-            ):
+            async def before_model_callback(self_inner, *, callback_context, llm_request, **_kw):
                 config = getattr(llm_request, "config", None)
                 if config:
                     si = getattr(config, "system_instruction", None)
                     if isinstance(si, str):
                         outer.captured_system_instructions.append(si)
                     elif si and hasattr(si, "parts"):
-                        text = "\n".join(
-                            p.text
-                            for p in si.parts
-                            if hasattr(p, "text") and p.text
-                        )
+                        text = "\n".join(p.text for p in si.parts if hasattr(p, "text") and p.text)
                         outer.captured_system_instructions.append(text)
                 return None
 
@@ -811,9 +820,7 @@ async def _run_skill_fixture(
         )
         final_state = final_session.state if final_session else {}
 
-        contract = router.check_expectations(
-            final_state, fixture_path, 0.0, events=events
-        )
+        contract = router.check_expectations(final_state, fixture_path, 0.0, events=events)
 
         return {
             "events": events,
@@ -874,14 +881,11 @@ class TestSkillToolsetE2E:
                     if fn_resp and getattr(fn_resp, "name", None) == "load_skill":
                         load_skill_responses.append(fn_resp.response)
 
-        assert len(load_skill_responses) >= 1, (
-            "No load_skill function_response found in events"
-        )
+        assert len(load_skill_responses) >= 1, "No load_skill function_response found in events"
         # The response should contain L2 instructions from SKILL.md
         resp_str = str(load_skill_responses[0])
         assert "run_recursive_ping" in resp_str, (
-            f"L2 instructions should mention run_recursive_ping. "
-            f"Got: {resp_str[:300]}"
+            f"L2 instructions should mention run_recursive_ping. Got: {resp_str[:300]}"
         )
 
 
@@ -919,9 +923,7 @@ class TestRecursivePingE2E:
 
         conn = sqlite3.connect(traces_db)
         try:
-            rows = conn.execute(
-                "SELECT DISTINCT depth FROM telemetry ORDER BY depth"
-            ).fetchall()
+            rows = conn.execute("SELECT DISTINCT depth FROM telemetry ORDER BY depth").fetchall()
             depths = [r[0] for r in rows]
             assert 0 in depths, f"Expected depth=0 in telemetry. Got: {depths}"
         finally:
@@ -939,3 +941,129 @@ class TestRecursivePingE2E:
         assert "ping_ok" in final_answer or "recursive" in final_answer.lower(), (
             f"Expected ping result in final answer, got: {final_answer[:300]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# LineageEdge and ProvenanceRecord construction tests
+# ---------------------------------------------------------------------------
+
+
+class TestLineageEdgeConstruction:
+    """LineageEdge can be constructed with tree-structure fields."""
+
+    def test_minimal_construction(self):
+        edge = LineageEdge(depth=0)
+        assert edge.depth == 0
+        assert edge.fanout_idx is None
+        assert edge.terminal is False
+        assert edge.decision_mode == "unknown"
+        assert edge.structured_outcome == "not_applicable"
+
+    def test_full_construction(self):
+        edge = LineageEdge(
+            depth=2,
+            fanout_idx=1,
+            parent_depth=1,
+            parent_fanout_idx=0,
+            branch="left",
+            terminal=True,
+            decision_mode="execute_code",
+            structured_outcome="validated",
+        )
+        assert edge.depth == 2
+        assert edge.fanout_idx == 1
+        assert edge.parent_depth == 1
+        assert edge.parent_fanout_idx == 0
+        assert edge.branch == "left"
+        assert edge.terminal is True
+        assert edge.decision_mode == "execute_code"
+        assert edge.structured_outcome == "validated"
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            "execute_code",
+            "set_model_response",
+            "load_skill",
+            "load_skill_resource",
+            "list_skills",
+            "run_skill_script",
+            "unknown",
+        ],
+    )
+    def test_decision_mode_accepts_all_values(self, mode: str):
+        edge = LineageEdge(depth=0, decision_mode=mode)
+        assert edge.decision_mode == mode
+
+
+class TestProvenanceRecordConstruction:
+    """ProvenanceRecord can be constructed with identity/context fields."""
+
+    def test_minimal_construction(self):
+        prov = ProvenanceRecord(agent_name="test")
+        assert prov.agent_name == "test"
+        assert prov.version == "v1"
+        assert prov.invocation_id is None
+        assert prov.session_id is None
+        assert prov.output_schema_name is None
+
+    def test_full_construction(self):
+        prov = ProvenanceRecord(
+            version="v1",
+            agent_name="reasoning_agent",
+            invocation_id="inv-abc",
+            session_id="sess-def",
+            output_schema_name="ReasoningOutput",
+        )
+        assert prov.version == "v1"
+        assert prov.agent_name == "reasoning_agent"
+        assert prov.invocation_id == "inv-abc"
+        assert prov.session_id == "sess-def"
+        assert prov.output_schema_name == "ReasoningOutput"
+
+
+class TestLineageEnvelopeDecomposition:
+    """LineageEnvelope decomposes cleanly into LineageEdge + ProvenanceRecord."""
+
+    def test_roundtrip_edge_fields(self):
+        """All LineageEdge fields extracted from envelope match originals."""
+        env = LineageEnvelope(
+            agent_name="a",
+            depth=3,
+            fanout_idx=1,
+            parent_depth=2,
+            parent_fanout_idx=0,
+            branch="b",
+            terminal=True,
+            decision_mode="execute_code",
+            structured_outcome="validated",
+        )
+        edge = env.lineage
+        assert edge.model_dump() == {
+            "depth": 3,
+            "fanout_idx": 1,
+            "parent_depth": 2,
+            "parent_fanout_idx": 0,
+            "branch": "b",
+            "terminal": True,
+            "decision_mode": "execute_code",
+            "structured_outcome": "validated",
+        }
+
+    def test_roundtrip_provenance_fields(self):
+        """All ProvenanceRecord fields extracted from envelope match originals."""
+        env = LineageEnvelope(
+            agent_name="test",
+            depth=0,
+            invocation_id="inv-1",
+            session_id="sess-1",
+            output_schema_name="ReasoningOutput",
+        )
+        prov = env.provenance
+        assert prov.model_dump() == {
+            "version": "v1",
+            "agent_name": "test",
+            "invocation_id": "inv-1",
+            "session_id": "sess-1",
+            "output_schema_name": "ReasoningOutput",
+        }
