@@ -257,8 +257,46 @@ class CompletionEnvelope(BaseModel):
     error_category: str | None = None
 
 
+class LineageEdge(BaseModel):
+    """Tree-structure edge: where in the execution graph this decision sits."""
+
+    depth: int
+    fanout_idx: int | None = None
+    parent_depth: int | None = None
+    parent_fanout_idx: int | None = None
+    branch: str | None = None
+    terminal: bool = False
+    decision_mode: Literal[
+        "execute_code",
+        "set_model_response",
+        "load_skill",
+        "load_skill_resource",
+        "list_skills",
+        "run_skill_script",
+        "unknown",
+    ] = "unknown"
+    structured_outcome: Literal[
+        "not_applicable",
+        "validated",
+        "retry_requested",
+        "retry_exhausted",
+        "incomplete",
+        "error",
+    ] = "not_applicable"
+
+
+class ProvenanceRecord(BaseModel):
+    """Identity/context: who produced this decision and under what config."""
+
+    version: Literal["v1"] = "v1"
+    agent_name: str
+    invocation_id: str | None = None
+    session_id: str | None = None
+    output_schema_name: str | None = None
+
+
 class LineageEnvelope(BaseModel):
-    """Canonical provenance payload per model/tool decision."""
+    """Backward-compat composite. Prefer LineageEdge + ProvenanceRecord."""
 
     version: Literal["v1"] = "v1"
     agent_name: str
@@ -280,9 +318,24 @@ class LineageEnvelope(BaseModel):
         "unknown",
     ] = "unknown"
     structured_outcome: Literal[
-        "not_applicable", "validated", "retry_requested", "retry_exhausted", "incomplete", "error"
+        "not_applicable",
+        "validated",
+        "retry_requested",
+        "retry_exhausted",
+        "incomplete",
+        "error",
     ] = "not_applicable"
     terminal: bool = False
+
+    @property
+    def lineage(self) -> LineageEdge:
+        """Extract the tree-structure edge from this envelope."""
+        return LineageEdge(**{f: getattr(self, f) for f in LineageEdge.model_fields})
+
+    @property
+    def provenance(self) -> ProvenanceRecord:
+        """Extract the identity/context record from this envelope."""
+        return ProvenanceRecord(**{f: getattr(self, f) for f in ProvenanceRecord.model_fields})
 
 
 def render_completion_text(validated_output: Any, fallback_text: str = "") -> str:

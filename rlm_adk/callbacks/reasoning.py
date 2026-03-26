@@ -38,10 +38,7 @@ def _extract_system_instruction_text(llm_request: LlmRequest) -> str:
         return si
     # system_instruction may be a Content object with parts
     if isinstance(si, types.Content) and si.parts:
-        return "".join(
-            p.text for p in si.parts
-            if isinstance(p, types.Part) and p.text
-        )
+        return "".join(p.text for p in si.parts if isinstance(p, types.Part) and p.text)
     return str(si)
 
 
@@ -119,10 +116,7 @@ def reasoning_before_model(
     system_instruction_text = _extract_system_instruction_text(llm_request)
     contents = llm_request.contents or []
     total_prompt_chars = sum(
-        len(part.text or "")
-        for content in contents
-        if content.parts
-        for part in content.parts
+        len(part.text or "") for content in contents if content.parts for part in content.parts
     )
     system_chars = len(system_instruction_text)
     content_count = len(contents)
@@ -248,7 +242,9 @@ def reasoning_test_state_hook(
                 for part in content.parts:
                     if part.text and placeholder in part.text:
                         part.text = part.text.replace(
-                            placeholder, f"Callback state: {dict_str}\n", 1,
+                            placeholder,
+                            f"Callback state: {dict_str}\n",
+                            1,
                         )
     return None
 
@@ -259,7 +255,9 @@ def reasoning_test_state_hook(
 
 
 def tool_test_state_hook(
-    tool: Any, args: dict, tool_context: Any,
+    tool: Any,
+    args: dict,
+    tool_context: Any,
 ) -> dict | None:
     """Write a guillemet-marked dict to state before each REPL tool execution.
 
