@@ -1,4 +1,4 @@
-<!-- validated: 2026-03-24 -->
+<!-- validated: 2026-03-26 -->
 
 # Observability and Plugin Reference
 
@@ -75,8 +75,13 @@ SqliteTracingPlugin telemetry table instead (see section 8).
 **File:** `rlm_adk/plugins/sqlite_tracing.py`
 
 Persists structured telemetry into `.adk/traces.db` (standard-library `sqlite3`,
-no external dependencies). Uses a 3-table schema with migration logic for
-evolving columns.
+no external dependencies). Uses a 3-table + 1 first-class table schema with
+migration logic for evolving columns, plus 4 SQL views for query convenience.
+
+> **Note on `spans` table:** The legacy `spans` table is no longer created on
+> fresh databases. Pre-existing databases retain the table harmlessly (no
+> `DROP TABLE` is issued), but no code writes to it. All span-like data now
+> lives in the `telemetry` table rows and the SQL views derived from them.
 
 ### Schema
 
@@ -118,6 +123,10 @@ evolving columns.
 | output_schema_name | TEXT | Pydantic schema name (if structured output) |
 | decision_mode, structured_outcome | TEXT | Structured output flow tracking |
 | terminal_completion | INT | Whether this call produced a terminal completion |
+| completion_display_text | TEXT | Human-readable completion text (from CompletionEnvelope) |
+| completion_reasoning_summary | TEXT | Reasoning summary at completion time |
+| completion_error_category | TEXT | Error category if completion was an error |
+| completion_mode | TEXT | Completion mode (e.g. `set_model_response`) |
 | status, error_type, error_message | TEXT | Error tracking |
 
 #### `session_state_events` table -- one row per curated state key change
@@ -137,6 +146,98 @@ evolving columns.
 | value_int, value_float | NUMERIC | Typed value columns |
 | value_text | TEXT | String value (truncated to 2000 chars) |
 | value_json | TEXT | JSON-serialized value |
+
+#### `completion_records` table -- one row per completion event
+
+A first-class table for completion data, written through three distinct write
+paths (see "Completion Persistence" below). The `producer_type` discriminator
+identifies which callback produced each row.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| completion_id | TEXT PK | Unique completion identifier |
+| telemetry_id | TEXT | FK to the telemetry row that triggered this completion (nullable) |
+| trace_id | TEXT FK | Parent trace |
+| producer_type | TEXT NOT NULL | Discriminator: `model`, `orchestrator`, or `orchestrator_error` |
+| terminal | INT | Whether this was a terminal (final) completion |
+| mode | TEXT NOT NULL | Completion mode (e.g. `set_model_response`) |
+| output_schema_name | TEXT | Pydantic schema name (if structured output) |
+| validated_output | TEXT (JSON) | JSON-serialized validated output |
+| raw_output | TEXT | Raw output string (truncated to 2000 chars) |
+| display_text | TEXT | Human-readable display text (truncated to 2000 chars) |
+| reasoning_summary | TEXT | Reasoning summary (truncated to 500 chars) |
+| finish_reason | TEXT | LLM finish reason |
+| error | INT | Whether this completion was an error (0/1) |
+| error_category | TEXT | Error classification category |
+| agent_name | TEXT | Agent that produced this completion |
+| depth | INT | Recursion depth |
+| fanout_idx | INT | Fanout index |
+| created_at | REAL | Insertion timestamp |
+
+#### SQL Views
+
+Four SQL views are created for query convenience. These are defined in
+`_SCHEMA_SQL` and created on fresh databases alongside the tables. On
+migrated databases, views are created by the migration logic.
+
+**`session_state_events_unified`** -- Flattens the typed value columns of
+`session_state_events` into a single `value` column via `COALESCE` across
+`value_text`, `value_int`, `value_float`, and `value_json`. Use this view
+when you want a single human-readable value column without caring about the
+underlying storage type.
+
+**`execution_observations`** -- Projects timing, token counts, REPL outcomes,
+and error information from all `telemetry` rows (no filter). Includes
+`duration_ms`, `input_tokens`, `output_tokens`, `thought_tokens`,
+`finish_reason`, `status`, `error_type`, `error_message`, `execution_mode`,
+tool-call details, and REPL enrichment columns (`repl_has_errors`,
+`repl_has_output`, `repl_llm_calls`, `repl_stdout_len`, `repl_stderr_len`,
+`repl_trace_summary`). Use this view for performance analysis, error
+investigation, and REPL execution monitoring.
+
+**`telemetry_completions`** -- Filters `telemetry` to rows where
+`decision_mode = 'set_model_response'` only. Projects completion-specific
+columns: `structured_outcome`, `terminal_completion`, `output_schema_name`,
+`validated_output_json`, `result_preview`, `result_payload`, and the four
+inline completion columns (`completion_display_text`,
+`completion_reasoning_summary`, `completion_error_category`,
+`completion_mode`). `finish_reason` is deliberately excluded because it is
+always NULL on tool-call rows. Use this view to inspect structured output
+outcomes and completion decisions without scanning the full telemetry table.
+
+**`lineage_records`** -- Projects tree-structure edge columns from all
+`telemetry` rows: `agent_name`, `agent_type`, `iteration`, `depth`,
+`fanout_idx`, `parent_depth`, `parent_fanout_idx`, `branch`,
+`invocation_id`, `session_id`, `output_schema_name`, `decision_mode`,
+`structured_outcome`, `terminal_completion`. Use this view for provenance
+queries, depth analysis, and reconstructing the execution tree.
+
+### Completion Persistence
+
+Completion data is written through three distinct paths, each triggered by a
+different callback. All three paths write to the `completion_records` table
+via the `_insert_completion_record()` helper.
+
+**Write path 1: `_flush_deferred_tool_lineage()`** -- Captures per-
+`set_model_response` completions from the reasoning agent. Called at
+`before_model_callback`, `after_agent_callback`, and `after_run_callback`
+flush points. Reads the `CompletionEnvelope` from
+`agent._rlm_terminal_completion` and writes with `producer_type='model'`.
+The `telemetry_id` is set to the deferred tool entry's telemetry row.
+
+**Write path 2: `after_run_callback`** -- Captures the root orchestrator's
+final answer. Reads `_rlm_terminal_completion` from
+`invocation_context.agent`. Writes with `producer_type='orchestrator'` (or
+`'orchestrator_error'` if the completion has `error=True`). Anchors to the
+most recent terminal `set_model_response` telemetry row at depth 0 via a
+SQL lookup.
+
+**Write path 3: `after_agent_callback`** -- Captures child orchestrator
+completions at depth > 0. Gated by `isinstance(agent, RLMOrchestratorAgent)`
+to prevent reasoning agent leakage (reasoning agent completions are already
+captured by write path 1). Writes with `producer_type='orchestrator'` (or
+`'orchestrator_error'`). `telemetry_id` is NULL because child orchestrator
+agent callbacks do not have a direct telemetry row anchor.
 
 ### Capture Strategy
 
@@ -493,3 +594,4 @@ the same issue.
 - **YYYY-MM-DD HH:MM** — `filename.py`: Brief description of what changed
 -->
 - **2026-03-25 16:55** — `rlm_adk/plugins/sqlite_tracing.py`: Pre-existing uncommitted change: added `tool_args_json TEXT` column to telemetry table schema; serializes tool args for non-execute_code tools in `after_tool_callback` `[session: cd2d9e3f]`
+- **2026-03-26 00:00** — `rlm_adk/plugins/sqlite_tracing.py`: Telemetry schema refactor: removed `spans` table from fresh DB creation; added 4 inline completion columns to `telemetry` (`completion_display_text`, `completion_reasoning_summary`, `completion_error_category`, `completion_mode`); added `completion_records` table with `producer_type` discriminator; added 4 SQL views (`session_state_events_unified`, `execution_observations`, `telemetry_completions`, `lineage_records`); added 3 completion write paths (`_flush_deferred_tool_lineage` / `after_run_callback` / `after_agent_callback`)
