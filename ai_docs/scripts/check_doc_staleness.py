@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -66,12 +67,33 @@ FILE_TO_BRANCHES: dict[str, list[str]] = {
 
 
 def _find_project_root(start: Path) -> Path:
-    """Walk up from *start* until we find pyproject.toml."""
+    """Walk up from *start* until we find pyproject.toml.
+
+    Falls back to ``git rev-parse --show-toplevel`` when the walk fails
+    (e.g. when invoked from a git worktree whose checkout doesn't include
+    this script's parent directories).
+    """
     cur = start.resolve()
     while cur != cur.parent:
         if (cur / "pyproject.toml").exists():
             return cur
         cur = cur.parent
+
+    # Fallback: ask git for the repo root (handles worktree contexts).
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            candidate = Path(result.stdout.strip())
+            if (candidate / "pyproject.toml").exists():
+                return candidate
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
     raise SystemExit("Could not locate project root (no pyproject.toml found)")
 
 
