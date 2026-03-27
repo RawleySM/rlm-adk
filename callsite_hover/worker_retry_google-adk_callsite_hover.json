@@ -1,5 +1,5 @@
 {
-  "file": "/home/rawley-stanhope/dev/rlm-adk/.claude/worktrees/agent-ae41dd8a/.claude/worktrees/agent-a0c67303/rlm_adk/callbacks/worker_retry.py",
+  "file": "/home/rawley-stanhope/dev/rlm-adk/rlm_adk/callbacks/worker_retry.py",
   "library": "google-adk",
   "import_prefix": "google.adk",
   "imported_classes": [
@@ -19,7 +19,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) ReflectAndRetryToolPlugin: Unknown\n```"
+        "markdown": "```python\n(class) ReflectAndRetryToolPlugin\n```"
       }
     },
     {
@@ -39,7 +39,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) BaseTool: Unknown\n```"
+        "markdown": "```python\n(class) BaseTool\n```\n---\nThe base class for all tools."
       }
     },
     {
@@ -59,7 +59,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(import) ToolContext: Unknown\n```"
+        "markdown": "```python\n(type) ToolContext = Context\n```\n---\nThe context within an agent run."
       }
     }
   ]

@@ -70,7 +70,8 @@ class LiveDashboardController:
         if not path.exists():
             return None
         try:
-            events = read_events(path)
+            session_id = getattr(self.state, "selected_session_id", None)
+            events = read_events(path, session_id=session_id)
             return build_tree(events) if events else None
         except Exception:
             return None

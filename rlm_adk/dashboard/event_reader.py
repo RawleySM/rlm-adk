@@ -77,8 +77,17 @@ class InvocationTree:
 # ── Public API ───────────────────────────────────────────────────────
 
 
-def read_events(path: str | Path) -> list[StepEvent]:
-    """Read JSONL file and return list of StepEvent instances."""
+def read_events(path: str | Path, *, session_id: str | None = None) -> list[StepEvent]:
+    """Read JSONL file and return list of StepEvent instances.
+
+    Args:
+        path: Path to the JSONL event file.
+        session_id: When provided, only events matching this session_id are
+            returned.  Without this filter the file accumulates events across
+            all sessions, causing ``build_tree`` to merge unrelated runs into
+            one tree (e.g. 12 sessions × 5 root calls = 60 ``reasoning_agent``
+            steps instead of 5).
+    """
     events: list[StepEvent] = []
     with open(path) as f:
         for line in f:
@@ -86,6 +95,8 @@ def read_events(path: str | Path) -> list[StepEvent]:
             if not line:
                 continue
             data = json.loads(line)
+            if session_id is not None and data.get("session_id") != session_id:
+                continue
             events.append(
                 StepEvent(**{k: v for k, v in data.items() if k in StepEvent.__dataclass_fields__})
             )
