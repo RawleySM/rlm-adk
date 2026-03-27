@@ -36,8 +36,8 @@ def render_notebook_panel(
             "display: flex; flex-direction: column; gap: 0.5rem; "
             "overflow-y: auto; min-width: 0; width: 100%;"
         ):
-            for model_event, tool_event in steps:
-                _render_model_banner(model_event)
+            for idx, (model_event, tool_event) in enumerate(steps, 1):
+                _render_model_banner(model_event, iteration=idx)
                 if tool_event is not None:
                     _render_tool_cell(tool_event)
         return
@@ -47,9 +47,9 @@ def render_notebook_panel(
         "display: flex; flex-direction: column; gap: 0.75rem; "
         "overflow-y: auto; min-width: 0; width: 100%;"
     ):
-        for model_event, tool_event in steps:
+        for idx, (model_event, tool_event) in enumerate(steps, 1):
             # Model banner (always full width)
-            _render_model_banner(model_event)
+            _render_model_banner(model_event, iteration=idx)
 
             if tool_event is not None:
                 child_inv_ids = children_of_tool_event(tree, tool_event.event_id)
@@ -76,7 +76,7 @@ def render_notebook_panel(
                     _render_tool_cell(tool_event)
 
 
-def _render_model_banner(event: StepEvent) -> None:
+def _render_model_banner(event: StepEvent, *, iteration: int = 0) -> None:
     """Render the LlmRequest banner for a model event."""
     with ui.element("div").style(
         "display: flex; align-items: center; gap: 0.75rem; "
@@ -87,7 +87,8 @@ def _render_model_banner(event: StepEvent) -> None:
         ui.label(event.agent_name or "agent").style(
             "color: var(--accent-root); font-size: 0.78rem; font-weight: 700;"
         )
-        ui.label(f"d{event.depth}").style("color: var(--text-1); font-size: 0.72rem;")
+        iter_label = f"i{iteration}" if iteration else f"d{event.depth}"
+        ui.label(iter_label).style("color: var(--text-1); font-size: 0.72rem;")
         tokens_str = f"in:{event.input_tokens} out:{event.output_tokens}"
         if event.thought_tokens:
             tokens_str += f" think:{event.thought_tokens}"
@@ -132,12 +133,17 @@ def _render_execute_code_cell(event: StepEvent) -> None:
                     "color: var(--accent-child); font-size: 0.68rem;"
                 )
 
-        # Code block
+        # Code block with syntax highlighting
         if event.code:
+            from rlm_adk.dashboard.components.flow_code_pane import _highlight_line
+
+            highlighted_lines = "\n".join(
+                _highlight_line(line) for line in event.code.splitlines()
+            )
             ui.html(
                 f'<pre style="color: var(--text-0); font-size: 0.76rem; '
                 f'margin: 0; white-space: pre-wrap; overflow-x: auto;">'
-                f"{_escape_html(event.code)}</pre>"
+                f"{highlighted_lines}</pre>"
             )
 
         # Stdout
