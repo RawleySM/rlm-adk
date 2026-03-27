@@ -48,15 +48,23 @@ class TestParseDepthKey:
         base, d, f = parse_depth_key(raw)
         assert base == "iteration_count"
         assert d == 0
-        assert f is None
+        assert f == 0
 
     def test_depth_nonzero_roundtrip(self):
         raw = depth_key("iteration_count", 2)
-        assert raw == "iteration_count@d2"
+        assert raw == "iteration_count@d2f0"
         base, d, f = parse_depth_key(raw)
         assert base == "iteration_count"
         assert d == 2
-        assert f is None
+        assert f == 0
+
+    def test_depth_nonzero_with_fanout(self):
+        raw = depth_key("iteration_count", 2, 3)
+        assert raw == "iteration_count@d2f3"
+        base, d, f = parse_depth_key(raw)
+        assert base == "iteration_count"
+        assert d == 2
+        assert f == 3
 
     def test_fanout_parsing(self):
         base, d, f = parse_depth_key("should_stop@d1f3")
@@ -177,35 +185,35 @@ async def test_queue_receives_curated_child_events():
         # Curated: iteration_count + current_depth at depth 1
         Event(
             invocation_id="parent-inv",
-            author="child_orchestrator_d1",
-            actions=EventActions(state_delta={"iteration_count@d1": 0, "current_depth@d1": 1}),
+            author="child_orchestrator_d1f0",
+            actions=EventActions(state_delta={"iteration_count@d1f0": 0, "current_depth@d1f0": 1}),
         ),
         # Non-curated: cache + request_id (should be filtered out)
         Event(
             invocation_id="parent-inv",
-            author="child_orchestrator_d1",
+            author="child_orchestrator_d1f0",
             actions=EventActions(state_delta={"cache:store": "val", "request_id": "abc"}),
         ),
         # Curated: should_stop + final_response_text
         Event(
             invocation_id="parent-inv",
-            author="child_orchestrator_d1",
+            author="child_orchestrator_d1f0",
             actions=EventActions(
                 state_delta={
-                    "should_stop@d1": True,
-                    "final_response_text@d1": "done",
+                    "should_stop@d1f0": True,
+                    "final_response_text@d1f0": "done",
                 }
             ),
         ),
         # Content event (no state_delta) — should not produce queue entry
         Event(
             invocation_id="parent-inv",
-            author="child_orchestrator_d1",
+            author="child_orchestrator_d1f0",
         ),
     ]
 
     fake_child = MagicMock()
-    fake_child.name = "child_orchestrator_d1"
+    fake_child.name = "child_orchestrator_d1f0"
     fake_child.persistent = False
     fake_child.repl = None
 
@@ -256,12 +264,12 @@ async def test_queue_receives_curated_child_events():
     e1 = child_event_queue.get_nowait()
     assert e1.custom_metadata["rlm_child_event"] is True
     assert e1.custom_metadata["child_depth"] == 1
-    assert "iteration_count@d1" in e1.actions.state_delta
-    assert "current_depth@d1" in e1.actions.state_delta
+    assert "iteration_count@d1f0" in e1.actions.state_delta
+    assert "current_depth@d1f0" in e1.actions.state_delta
 
     e2 = child_event_queue.get_nowait()
-    assert "should_stop@d1" in e2.actions.state_delta
-    assert "final_response_text@d1" in e2.actions.state_delta
+    assert "should_stop@d1f0" in e2.actions.state_delta
+    assert "final_response_text@d1f0" in e2.actions.state_delta
 
     assert child_event_queue.empty()
 
@@ -487,9 +495,9 @@ async def test_batched_dispatch_multiple_fanout_indices():
     assert result.contract.passed, result.contract.diagnostics()
 
     # Collect child events and their fanout indices.
-    # Each child orchestrator (K=3) emits at least current_depth@d1 and
-    # iteration_count@d1 in its initial state event, plus should_stop@d1
-    # and final_response_text@d1 at completion. These are all curated keys,
+    # Each child orchestrator (K=3) emits at least current_depth@d1fN and
+    # iteration_count@d1fN in its initial state event, plus should_stop@d1fN
+    # and final_response_text@d1fN at completion. These are all curated keys,
     # so child events MUST appear.
     child_events = [
         e

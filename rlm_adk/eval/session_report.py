@@ -32,11 +32,11 @@ def _trunc(value: Any, max_len: int = _MAX_VALUE_LEN) -> Any:
 
 # ---- Agent name -> depth mapping ----
 
-_AGENT_DEPTH_RE = re.compile(r'_d(\d+)$')
+_AGENT_DEPTH_RE = re.compile(r'_d(\d+)(?:f\d+)?$')
 
 
 def _agent_depth(agent_name: Optional[str]) -> int:
-    """Extract depth from agent_name pattern (reasoning_agent=0, child_reasoning_d1=1, etc)."""
+    """Extract depth from agent_name pattern (reasoning_agent=0, child_reasoning_d1f0=1, etc)."""
     if agent_name is None:
         return -1  # unknown
     if agent_name == "reasoning_agent":

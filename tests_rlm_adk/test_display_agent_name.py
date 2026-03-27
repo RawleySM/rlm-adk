@@ -47,10 +47,10 @@ class TestDisplayAgentName:
         inv = _make_invocation(agent_name="reasoning_agent", depth=0)
         assert _display_agent_name(inv) == "reasoning_agent"
 
-    def test_depth_one_returns_child_reasoning_d1(self):
-        inv = _make_invocation(agent_name="child_reasoning_d1", depth=1)
-        assert _display_agent_name(inv) == "child_reasoning_d1"
+    def test_depth_one_returns_child_reasoning_d1f0(self):
+        inv = _make_invocation(agent_name="child_reasoning_d1f0", depth=1)
+        assert _display_agent_name(inv) == "child_reasoning_d1f0"
 
-    def test_depth_two_returns_child_reasoning_d2(self):
-        inv = _make_invocation(agent_name="child_reasoning_d2", depth=2)
-        assert _display_agent_name(inv) == "child_reasoning_d2"
+    def test_depth_two_returns_child_reasoning_d2f0(self):
+        inv = _make_invocation(agent_name="child_reasoning_d2f0", depth=2)
+        assert _display_agent_name(inv) == "child_reasoning_d2f0"

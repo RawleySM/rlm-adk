@@ -851,8 +851,8 @@ async def test_lineage_plugin_model_events(tmp_path: Path, monkeypatch):
     # --- Depth 1 events have correct agent name (non-circular: comes from
     # production wiring in create_child_orchestrator, not fixture responses) ---
     d1_agent_names = {e.get("agent_name") for e in d1_before}
-    assert "child_reasoning_d1" in d1_agent_names, (
-        f"Expected 'child_reasoning_d1' in d1 agent names, got {d1_agent_names}"
+    assert "child_reasoning_d1f0" in d1_agent_names, (
+        f"Expected 'child_reasoning_d1f0' in d1 agent names, got {d1_agent_names}"
     )
 
     # --- Depth 0 events have correct agent name ---

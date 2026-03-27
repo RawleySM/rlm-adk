@@ -317,8 +317,8 @@ All constants are defined in `rlm_adk/state.py`.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `depth_key(key, depth)` | function | Returns depth-scoped key (`key@dN` for N > 0, `key` for N == 0) |
-| `parse_depth_key(raw_key)` | function | Inverse of `depth_key()` -- returns `(base_key, depth, fanout_or_None)` |
+| `depth_key(key, depth, fanout_idx)` | function | Returns depth-and-fanout-scoped key (`key@dNfM` for N > 0, `key` for N == 0) |
+| `parse_depth_key(raw_key)` | function | Inverse of `depth_key()` -- returns `(base_key, depth, fanout_idx)` |
 | `should_capture_state_key(base_key)` | function | Returns `True` if key matches `CURATED_STATE_KEYS` or `CURATED_STATE_PREFIXES` |
 | `DEPTH_SCOPED_KEYS` | `set[str]` | Keys requiring `@dN` scoping at depth > 0 |
 | `EXPOSED_STATE_KEYS` | `frozenset[str]` | 8 keys allowlisted for `_rlm_state` REPL introspection |
@@ -354,15 +354,16 @@ generation, and error isolation behavior without modifying the main execution pa
 ## depth_key() and DEPTH_SCOPED_KEYS
 
 ```python
-def depth_key(key: str, depth: int = 0) -> str:
+def depth_key(key: str, depth: int = 0, fanout_idx: int = 0) -> str:
     if depth == 0:
-        return key           # "iteration_count"
-    return f"{key}@d{depth}" # "iteration_count@d2"
+        return key                       # "iteration_count"
+    return f"{key}@d{depth}f{fanout_idx}" # "iteration_count@d2f0"
 ```
 
-At depth 0 (root orchestrator), keys are used as-is. At depth N > 0, the `@dN` suffix gives each
-recursive child its own independent state namespace. This prevents a child at depth 2 from
-clobbering the root's `iteration_count`, for example.
+At depth 0 (root orchestrator), keys are used as-is. At depth N > 0, the `@dNfM` suffix gives each
+recursive child its own independent state namespace. The depth component `N` isolates parent/child
+state; the fanout component `M` isolates sibling children dispatched via `llm_query_batched()` at
+the same depth. Single-child dispatches use `fanout_idx=0` (e.g. `iteration_count@d1f0`).
 
 The `DEPTH_SCOPED_KEYS` set defines which keys require scoping. It includes `CURRENT_DEPTH`,
 `ITERATION_COUNT`, `FINAL_RESPONSE_TEXT`, `LAST_REPL_RESULT`, `SHOULD_STOP`, and all submitted
@@ -454,3 +455,4 @@ object.__setattr__(worker, "my_attr", "value")
 -->
 
 - **2026-03-24 21:49** — `state.py`: Removed dead `OBS_REWRITE_COUNT`, `OBS_REWRITE_TOTAL_MS`, `OBS_REWRITE_FAILURE_COUNT`, `OBS_REWRITE_FAILURE_CATEGORIES` constants (AST rewriter deleted in thread bridge migration). Updated observability section comment to reflect that ObservabilityPlugin uses instance-local counters only, no obs keys written to session state.
+- **2026-03-26** — `state.py`, `repl_tool.py`, `orchestrator.py`, `agent.py`, `dispatch.py`, `repl_tracing.py`, `sqlite_tracing.py`, `session_report.py`: Implemented fanout scoping. `depth_key()` now always emits `@dNfM` format at depth > 0 (e.g. `iteration_count@d1f0`). `parse_depth_key()` return type narrowed from `tuple[str, int, int | None]` to `tuple[str, int, int]`. Agent names and output_keys include fanout suffix. Plugin depth-extraction regex patterns updated.

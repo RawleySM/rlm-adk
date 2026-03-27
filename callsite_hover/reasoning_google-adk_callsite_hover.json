@@ -18,11 +18,11 @@
         },
         {
           "context": "param:llm_request",
-          "line": 96
+          "line": 93
         },
         {
           "context": "param:llm_request",
-          "line": 211
+          "line": 205
         }
       ],
       "hover": {
@@ -34,23 +34,23 @@
       "usages": [
         {
           "context": "param:llm_response",
-          "line": 48
+          "line": 45
         },
         {
           "context": "return",
-          "line": 97
+          "line": 94
         },
         {
           "context": "param:llm_response",
-          "line": 145
+          "line": 139
         },
         {
           "context": "return",
-          "line": 146
+          "line": 140
         },
         {
           "context": "return",
-          "line": 212
+          "line": 206
         }
       ],
       "hover": {
@@ -62,15 +62,15 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 96
+          "line": 93
         },
         {
           "context": "param:callback_context",
-          "line": 145
+          "line": 139
         },
         {
           "context": "param:callback_context",
-          "line": 211
+          "line": 205
         }
       ],
       "hover": {

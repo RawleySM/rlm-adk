@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rlm_adk.dashboard.event_reader import InvocationTree
 
 from rlm_adk.dashboard.flow_builder import build_flow_transcript
 from rlm_adk.dashboard.flow_models import FlowTranscript
@@ -49,6 +53,34 @@ class LiveDashboardController:
         self.state = LiveDashboardState()
         self.state.selected_skills = []
         self._launch_task: asyncio.Task | None = None
+
+    # ── Event-driven notebook tree ────────────────────────────────────
+
+    def load_event_tree(self, jsonl_path: str | None = None) -> InvocationTree | None:
+        """Load events from dashboard_events.jsonl and build the invocation tree."""
+        from pathlib import Path
+
+        from rlm_adk.dashboard.event_reader import build_tree, read_events
+
+        path = (
+            Path(jsonl_path)
+            if jsonl_path
+            else Path(__file__).parent.parent / ".adk" / "dashboard_events.jsonl"
+        )
+        if not path.exists():
+            return None
+        try:
+            events = read_events(path)
+            return build_tree(events) if events else None
+        except Exception:
+            return None
+
+    def root_invocation_id(self, tree: InvocationTree) -> str | None:
+        """Find the root agent_name (no parent_invocation_id) from the tree."""
+        for agent_name, events in tree.by_inv.items():
+            if events and events[0].parent_invocation_id is None:
+                return agent_name
+        return None
 
     def _refresh_available_sessions(self) -> None:
         session_labels = self.loader.list_session_labels()

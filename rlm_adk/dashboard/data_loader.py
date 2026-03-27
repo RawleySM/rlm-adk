@@ -1,3 +1,4 @@
+# DEPRECATED: Superseded by event_reader.py (event-driven dashboard). Retained for backward compatibility.
 """Dashboard data loader -- reads JSONL context snapshots.
 
 Single source of truth: reads ``.adk/context_snapshots.jsonl`` and groups

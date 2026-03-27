@@ -16,6 +16,7 @@ from rlm_adk.dashboard.components.header import build_header
 from rlm_adk.dashboard.components.live_context_banner import render_live_context_banner
 from rlm_adk.dashboard.components.live_context_viewer import render_live_context_viewer
 from rlm_adk.dashboard.components.live_invocation_tree import render_live_invocation_tree
+from rlm_adk.dashboard.components.notebook_panel import render_notebook_panel
 from rlm_adk.dashboard.components.output_panel import render_output_panel
 from rlm_adk.dashboard.components.summary_bar import build_summary_bar
 from rlm_adk.dashboard.components.token_charts import (
@@ -46,4 +47,5 @@ __all__ = [
     "render_flow_output_cell",
     "render_flow_context_inspector",
     "render_flow_transcript",
+    "render_notebook_panel",
 ]

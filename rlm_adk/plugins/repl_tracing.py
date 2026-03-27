@@ -8,7 +8,6 @@ Enabled via RLM_REPL_TRACE > 0 env var.
 
 import json
 import logging
-import re
 from typing import Any, Optional
 
 from google.adk.agents.invocation_context import InvocationContext
@@ -16,10 +15,9 @@ from google.adk.events.event import Event
 from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import types
 
-from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT
+from rlm_adk.state import ITERATION_COUNT, LAST_REPL_RESULT, depth_key, parse_depth_key
 
 logger = logging.getLogger(__name__)
-_DEPTH_SUFFIX_RE = re.compile(r"@d(\d+)$")
 
 
 class REPLTracingPlugin(BasePlugin):
@@ -28,13 +26,6 @@ class REPLTracingPlugin(BasePlugin):
     def __init__(self, name: str = "repl_tracing"):
         super().__init__(name=name)
         self._traces_by_iteration: dict[str, Any] = {}
-
-    @staticmethod
-    def _parse_depth(raw_key: str) -> int:
-        match = _DEPTH_SUFFIX_RE.search(raw_key)
-        if match:
-            return int(match.group(1))
-        return 0
 
     async def on_event_callback(
         self,
@@ -54,8 +45,8 @@ class REPLTracingPlugin(BasePlugin):
                 if not trace_summary:
                     continue
 
-                depth = self._parse_depth(raw_key)
-                iteration_key = ITERATION_COUNT if depth == 0 else f"{ITERATION_COUNT}@d{depth}"
+                _base, depth, fanout = parse_depth_key(raw_key)
+                iteration_key = depth_key(ITERATION_COUNT, depth, fanout)
                 iteration = sd.get(iteration_key, 0)
                 trace_key = f"d{depth}:i{iteration}"
                 self._traces_by_iteration[trace_key] = {

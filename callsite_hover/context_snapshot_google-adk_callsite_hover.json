@@ -16,7 +16,7 @@
       "usages": [
         {
           "context": "base:ContextWindowSnapshotPlugin",
-          "line": 47
+          "line": 48
         }
       ],
       "hover": {
@@ -28,15 +28,15 @@
       "usages": [
         {
           "context": "param:callback_context",
-          "line": 79
+          "line": 80
         },
         {
           "context": "param:callback_context",
-          "line": 111
+          "line": 112
         },
         {
           "context": "param:callback_context",
-          "line": 191
+          "line": 192
         }
       ],
       "hover": {
@@ -48,31 +48,31 @@
       "usages": [
         {
           "context": "param:llm_request",
-          "line": 80
+          "line": 81
         },
         {
           "context": "param:llm_request",
-          "line": 192
+          "line": 193
         },
         {
           "context": "param:llm_request",
-          "line": 292
+          "line": 293
         },
         {
           "context": "param:llm_request",
-          "line": 305
+          "line": 306
         },
         {
           "context": "param:llm_request",
-          "line": 444
+          "line": 445
         },
         {
           "context": "param:llm_request",
-          "line": 497
+          "line": 498
         },
         {
           "context": "variable:llm_request",
-          "line": 121
+          "line": 122
         }
       ],
       "hover": {
@@ -84,23 +84,23 @@
       "usages": [
         {
           "context": "return",
-          "line": 81
+          "line": 82
         },
         {
           "context": "param:llm_response",
-          "line": 112
-        },
-        {
-          "context": "return",
           "line": 113
         },
         {
           "context": "return",
-          "line": 194
+          "line": 114
+        },
+        {
+          "context": "return",
+          "line": 195
         },
         {
           "context": "param:llm_response",
-          "line": 613
+          "line": 614
         }
       ],
       "hover": {
@@ -112,7 +112,7 @@
       "usages": [
         {
           "context": "param:invocation_context",
-          "line": 267
+          "line": 268
         }
       ],
       "hover": {

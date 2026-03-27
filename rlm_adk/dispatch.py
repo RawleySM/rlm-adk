@@ -233,7 +233,9 @@ def create_dispatch_closures(
             }
 
         # Priority 4: output_key fallback
-        output_key = getattr(agent, "output_key", None) or f"reasoning_output@d{child_depth}"
+        output_key = (
+            getattr(agent, "output_key", None) or f"reasoning_output@d{child_depth}f{fanout_idx}"
+        )
         raw = child_state.get(output_key)
         if raw is not None:
             text = render_completion_text(raw)
@@ -273,6 +275,9 @@ def create_dispatch_closures(
         model: str | None,
         output_schema: type[BaseModel] | None,
         fanout_idx: int,
+        parent_invocation_id: str | None = None,
+        parent_tool_call_id: str | None = None,
+        dispatch_call_index: int = 0,
     ) -> LLMResult:
         """Spawn a child orchestrator for a single sub-query."""
         # Preserve the raw model object for create_child_orchestrator
@@ -309,6 +314,9 @@ def create_dispatch_closures(
             instruction_router=instruction_router,
             enabled_skills=enabled_skills,
             repo_url=repo_url,
+            parent_invocation_id=parent_invocation_id,
+            parent_tool_call_id=parent_tool_call_id,
+            dispatch_call_index=dispatch_call_index,
         )
 
         try:
@@ -499,8 +507,32 @@ def create_dispatch_closures(
                 flush=True,
             )
 
+        # Read and advance per-execute_code dispatch call counter.
+        # The DashboardEventPlugin sets these on the reasoning_agent (inv_ctx.agent
+        # in tool callbacks). The dispatch closure's ctx.agent is the ORCHESTRATOR,
+        # so we reach the reasoning_agent via ctx.agent.reasoning_agent.
+        _orch = ctx.agent
+        _reasoning = getattr(_orch, "reasoning_agent", _orch)
+        dispatch_base = getattr(_reasoning, "_dashboard_dispatch_call_counter", 0)
+        object.__setattr__(_reasoning, "_dashboard_dispatch_call_counter", dispatch_base + len(prompts))
+
+        # Read parent lineage fields
+        _parent_inv_id = ctx.invocation_id
+        _parent_tool_call_id = getattr(_reasoning, "_dashboard_execute_code_event_id", None)
+
         # Run all children concurrently (semaphore limits actual concurrency)
-        tasks = [_run_child(p, model, output_schema, idx) for idx, p in enumerate(prompts)]
+        tasks = [
+            _run_child(
+                p,
+                model,
+                output_schema,
+                idx,
+                parent_invocation_id=_parent_inv_id,
+                parent_tool_call_id=_parent_tool_call_id,
+                dispatch_call_index=dispatch_base + idx,
+            )
+            for idx, p in enumerate(prompts)
+        ]
         results = await asyncio.gather(*tasks)
         all_results = list(results)
 

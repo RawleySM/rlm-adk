@@ -42,6 +42,7 @@ from rlm_adk.callbacks.reasoning import reasoning_after_model, reasoning_before_
 from rlm_adk.dispatch import WorkerPool
 from rlm_adk.orchestrator import RLMOrchestratorAgent
 from rlm_adk.plugins.dashboard_auto_launch import DashboardAutoLaunchPlugin
+from rlm_adk.plugins.dashboard_events import DashboardEventPlugin
 from rlm_adk.plugins.langfuse_tracing import LangfuseTracingPlugin
 from rlm_adk.plugins.observability import ObservabilityPlugin
 from rlm_adk.plugins.step_mode import StepModePlugin
@@ -338,6 +339,9 @@ def create_child_orchestrator(
     instruction_router: Any = None,
     enabled_skills: tuple[str, ...] = (),
     repo_url: str | None = None,
+    parent_invocation_id: str | None = None,
+    parent_tool_call_id: str | None = None,
+    dispatch_call_index: int = 0,
 ) -> RLMOrchestratorAgent:
     """Create a child orchestrator for recursive dispatch at *depth* > 0.
 
@@ -359,8 +363,8 @@ def create_child_orchestrator(
         model,
         static_instruction=RLM_CHILD_STATIC_INSTRUCTION,
         thinking_budget=thinking_budget,
-        name=f"child_reasoning_d{depth}",
-        output_key=f"reasoning_output@d{depth}",
+        name=f"child_reasoning_d{depth}f{fanout_idx}",
+        output_key=f"reasoning_output@d{depth}f{fanout_idx}",
         # output_schema intentionally NOT set on LlmAgent — the orchestrator
         # injects SetModelResponseTool manually at runtime (orchestrator.py:303-305).
         # Setting it here too causes ADK's _OutputSchemaRequestProcessor to inject
@@ -373,8 +377,8 @@ def create_child_orchestrator(
         worker_pool = WorkerPool(default_model=model)
 
     return RLMOrchestratorAgent(
-        name=f"child_orchestrator_d{depth}",
-        description=f"Child orchestrator at depth {depth}",
+        name=f"child_orchestrator_d{depth}f{fanout_idx}",
+        description=f"Child orchestrator at depth {depth} fanout {fanout_idx}",
         reasoning_agent=reasoning,
         root_prompt=prompt,
         persistent=False,
@@ -387,6 +391,9 @@ def create_child_orchestrator(
         repo_url=repo_url,
         parent_depth=depth - 1 if depth > 0 else None,
         parent_fanout_idx=parent_fanout_idx,
+        parent_invocation_id=parent_invocation_id,
+        parent_tool_call_id=parent_tool_call_id,
+        dispatch_call_index=dispatch_call_index,
         sub_agents=[reasoning],
     )
 
@@ -427,6 +434,15 @@ def _default_plugins(
             )
         except ImportError:
             logger.debug("SqliteTracingPlugin not available, skipping")
+    # DashboardEventPlugin is always included (not env-gated) — it replaces
+    # ContextWindowSnapshotPlugin as the primary event capture surface for
+    # the interactive dashboard.
+    _adk_dir = str(_package_dir() / ".adk")
+    plugins.append(
+        DashboardEventPlugin(
+            output_path=f"{_adk_dir}/dashboard_events.jsonl",
+        )
+    )
     _langfuse_env = os.getenv("RLM_ADK_LANGFUSE", "").lower() in ("1", "true", "yes")
     if langfuse or _langfuse_env:
         plugins.append(LangfuseTracingPlugin())

@@ -1,3 +1,4 @@
+# DEPRECATED: Superseded by event_reader.py (event-driven dashboard). Retained for backward compatibility.
 """Data models for the live recursive dashboard."""
 
 from __future__ import annotations

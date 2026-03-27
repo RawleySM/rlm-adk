@@ -695,6 +695,7 @@ async def run_fixture_contract_instrumented(
     - Complete stdout capture via TeeWriter
     - State key timeline construction from tagged log lines
     """
+    from rlm_adk.plugins.dashboard_events import DashboardEventPlugin
     from rlm_adk.plugins.observability import ObservabilityPlugin
     from rlm_adk.plugins.repl_tracing import REPLTracingPlugin
     from rlm_adk.plugins.sqlite_tracing import SqliteTracingPlugin
@@ -720,10 +721,12 @@ async def run_fixture_contract_instrumented(
         artifact_root = str(Path(_tmpdir) / "artifacts")
 
         _traces_db = traces_db_path or str(Path(_tmpdir) / "traces.db")
+        _dashboard_jsonl = str(Path(_tmpdir) / "dashboard_events.jsonl")
         plugins: list[BasePlugin] = [
             instrumentation_plugin,
             ObservabilityPlugin(),
             SqliteTracingPlugin(db_path=_traces_db),
+            DashboardEventPlugin(output_path=_dashboard_jsonl),
         ]
         if repl_trace_level > 0:
             plugins.append(REPLTracingPlugin())

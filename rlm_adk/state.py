@@ -8,6 +8,8 @@ ADK state key prefix scoping:
 Note: cache: and obs: prefixes are naming conventions only (session-scoped).
 """
 
+import re
+
 # Flow Control Keys
 APP_MAX_DEPTH = "app:max_depth"
 APP_MAX_ITERATIONS = "app:max_iterations"
@@ -143,41 +145,42 @@ DEPTH_SCOPED_KEYS: set[str] = {
 # must read the depth-scoped value. Global observability keys are excluded.
 
 
-def depth_key(key: str, depth: int = 0) -> str:
-    """Return a depth-scoped state key.
+def depth_key(key: str, depth: int = 0, fanout_idx: int = 0) -> str:
+    """Return a depth-and-fanout-scoped state key.
 
-    At depth 0 the original key is returned unchanged.
-    At depth N > 0 the key is suffixed with ``@dN`` so nested
-    reasoning agents operate on independent state.
+    At depth 0 the original key is returned unchanged (fanout_idx ignored).
+    At depth N > 0 the key is suffixed with ``@dNfM`` so nested
+    reasoning agents operate on independent state.  The fanout index
+    ``M`` distinguishes sibling children dispatched via
+    ``llm_query_batched()`` at the same depth.
 
-    Design note: Fanout scoping (``@dNfM``) is NOT implemented.
-    Sibling children at the same depth share the ``@dN`` namespace.
-    This is acceptable because:
-    - Children run in branch-isolated event streams (dispatch.py)
-    - Completion is read from in-memory agent attrs, not state keys
-    - parse_depth_key() supports @dNfM parsing for future expansion
+    Examples::
+
+        depth_key("iteration_count", 0)     -> "iteration_count"
+        depth_key("iteration_count", 1)     -> "iteration_count@d1f0"
+        depth_key("iteration_count", 2, 3)  -> "iteration_count@d2f3"
     """
     if depth == 0:
         return key
-    return f"{key}@d{depth}"
+    return f"{key}@d{depth}f{fanout_idx}"
 
 
 # ---- Depth/fanout key parser (shared with sqlite_tracing.py) ----
 
-import re  # noqa: E402
-
 _DEPTH_FANOUT_RE = re.compile(r"^(.+)@d(\d+)(?:f(\d+))?$")
 
 
-def parse_depth_key(raw_key: str) -> tuple[str, int, int | None]:
+def parse_depth_key(raw_key: str) -> tuple[str, int, int]:
     """Parse depth/fanout suffix from a state key.  Inverse of depth_key().
 
-    Returns (base_key, depth, fanout_or_None).
+    Returns ``(base_key, depth, fanout_idx)``.  Unscoped keys return
+    ``(raw_key, 0, 0)``; legacy ``@dN`` keys (without ``fM``) return
+    fanout ``0`` for backward compatibility with existing trace data.
     """
     m = _DEPTH_FANOUT_RE.match(raw_key)
     if m:
-        return m.group(1), int(m.group(2)), int(m.group(3)) if m.group(3) else None
-    return raw_key, 0, None
+        return m.group(1), int(m.group(2)), int(m.group(3)) if m.group(3) else 0
+    return raw_key, 0, 0
 
 
 # ---- Curated state key capture set (shared with dispatch.py, sqlite_tracing.py) ----

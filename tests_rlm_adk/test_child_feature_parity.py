@@ -180,12 +180,12 @@ class TestDepth2InductionEnabledSkills:
 
         repl = LocalREPL(depth=1)
         reasoning_agent = LlmAgent(
-            name="child_reasoning_d1",
+            name="child_reasoning_d1f0",
             model="gemini-2.0-flash",
         )
         # Simulate a depth=1 child orchestrator with enabled_skills
         child_orch = RLMOrchestratorAgent(
-            name="child_orchestrator_d1",
+            name="child_orchestrator_d1f0",
             reasoning_agent=reasoning_agent,
             sub_agents=[reasoning_agent],
             depth=1,

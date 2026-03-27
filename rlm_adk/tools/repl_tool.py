@@ -112,10 +112,10 @@ class REPLTool(BaseTool):
 
         # OG-03 fix: persist submitted code for observability
         code_hash = hashlib.sha256(code.encode()).hexdigest()
-        tool_context.state[depth_key(REPL_SUBMITTED_CODE, self._depth)] = code
-        tool_context.state[depth_key(REPL_SUBMITTED_CODE_CHARS, self._depth)] = len(code)
-        tool_context.state[depth_key(REPL_SUBMITTED_CODE_HASH, self._depth)] = code_hash
-        tool_context.state[depth_key(REPL_SUBMITTED_CODE_PREVIEW, self._depth)] = code[:500]
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE, self._depth, self._fanout_idx)] = code
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE_CHARS, self._depth, self._fanout_idx)] = len(code)
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE_HASH, self._depth, self._fanout_idx)] = code_hash
+        tool_context.state[depth_key(REPL_SUBMITTED_CODE_PREVIEW, self._depth, self._fanout_idx)] = code[:500]
 
         # Persist submitted code as a versioned artifact file
         await save_repl_code(
@@ -129,13 +129,14 @@ class REPLTool(BaseTool):
 
         self._call_count += 1
         # Track iteration count in session state for observability
-        tool_context.state[depth_key(ITERATION_COUNT, self._depth)] = self._call_count
+        tool_context.state[depth_key(ITERATION_COUNT, self._depth, self._fanout_idx)] = self._call_count
         if self._call_count > self._max_calls:
             result = {
                 "stdout": "",
                 "stderr": _CALL_LIMIT_MSG,
                 "variables": {},
                 "llm_calls_made": False,
+                "total_llm_calls": 0,
                 "call_number": self._call_count,
             }
             self._finalize_telemetry(tool_context, result)
@@ -164,7 +165,7 @@ class REPLTool(BaseTool):
         # Build read-only state snapshot for REPL introspection.
         _state_snapshot: dict[str, Any] = {}
         for key in EXPOSED_STATE_KEYS:
-            scoped = depth_key(key, self._depth) if key in DEPTH_SCOPED_KEYS else key
+            scoped = depth_key(key, self._depth, self._fanout_idx) if key in DEPTH_SCOPED_KEYS else key
             val = tool_context.state.get(scoped)
             if val is not None:
                 _state_snapshot[key] = val  # Use unscoped key name for clean API
@@ -201,7 +202,7 @@ class REPLTool(BaseTool):
                         tool_context.state[k] = v
                 # Write LAST_REPL_RESULT even on cancellation for observability
                 tool_context.state[
-                    depth_key(LAST_REPL_RESULT, self._depth)
+                    depth_key(LAST_REPL_RESULT, self._depth, self._fanout_idx)
                 ] = {
                     "code_blocks": 1,
                     "has_errors": True,
@@ -220,6 +221,7 @@ class REPLTool(BaseTool):
                     "stderr": f"CancelledError: {exc}",
                     "variables": {},
                     "llm_calls_made": llm_calls_made,
+                    "total_llm_calls": len(self.repl._pending_llm_calls),
                     "call_number": self._call_count,
                     "execution_mode": trace.execution_mode if trace else "thread_bridge",
                 }
@@ -234,7 +236,7 @@ class REPLTool(BaseTool):
                         tool_context.state[k] = v
                 # Write LAST_REPL_RESULT even on exception for observability
                 tool_context.state[
-                    depth_key(LAST_REPL_RESULT, self._depth)
+                    depth_key(LAST_REPL_RESULT, self._depth, self._fanout_idx)
                 ] = {
                     "code_blocks": 1,
                     "has_errors": True,
@@ -252,6 +254,7 @@ class REPLTool(BaseTool):
                     "stderr": f"{type(exc).__name__}: {exc}",
                     "variables": {},
                     "llm_calls_made": llm_calls_made,
+                    "total_llm_calls": len(self.repl._pending_llm_calls),
                     "call_number": self._call_count,
                     "execution_mode": trace.execution_mode if trace else "thread_bridge",
                 }
@@ -280,7 +283,7 @@ class REPLTool(BaseTool):
             }
             if trace is not None:
                 last_repl["trace_summary"] = trace.summary()
-            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth)] = last_repl
+            tool_context.state[depth_key(LAST_REPL_RESULT, self._depth, self._fanout_idx)] = last_repl
 
             # Skip ADK's post-tool summarization call for large outputs to save tokens
             output_len = len(result.stdout) + len(result.stderr)
@@ -305,6 +308,7 @@ class REPLTool(BaseTool):
                 "stderr": result.stderr,
                 "variables": variables,
                 "llm_calls_made": bool(result.llm_calls),
+                "total_llm_calls": len(result.llm_calls),
                 "call_number": self._call_count,
                 "execution_mode": exec_mode,
             }

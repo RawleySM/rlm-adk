@@ -10,13 +10,13 @@ execute_code, set_model_response at d0/d1/d2), llm_query_batched with 2 prompts.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
-from pathlib import Path
 
 import pytest
 
+from rlm_adk.state import depth_key
 from tests_rlm_adk.provider_fake.conftest import FIXTURE_DIR
-from tests_rlm_adk.provider_fake.diagnostic_dump import write_diagnostic_dump
 from tests_rlm_adk.provider_fake.expected_lineage import (
     build_skill_arch_test_lineage,
     run_all_assertions,
@@ -31,9 +31,23 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.provider_fake]
 FIXTURE_PATH = FIXTURE_DIR / "skill_arch_test.json"
 
 
-@pytest.fixture
-async def run_result(tmp_path: Path):
+def _combined_output(run_result) -> str:
+    return run_result.repl_stdout + "\n" + run_result.instrumentation_log
+
+
+def _state_json(run_result, key: str) -> dict[str, object]:
+    raw = run_result.final_state.get(key)
+    assert raw is not None, f"{key} missing from final_state"
+    if isinstance(raw, str):
+        return json.loads(raw)
+    assert isinstance(raw, dict), f"{key} is not a dict/JSON string: {type(raw)!r}"
+    return raw
+
+
+@pytest.fixture(scope="module")
+async def run_result(tmp_path_factory):
     """Run the fixture once, reuse across all tests in this module."""
+    tmp_path = tmp_path_factory.mktemp("skill_arch")
     return await run_fixture_contract_instrumented(
         FIXTURE_PATH,
         traces_db_path=str(tmp_path / "traces.db"),
@@ -48,7 +62,7 @@ class TestContractPasses:
 
 class TestArchitectureLineage:
     async def test_full_lineage(self, run_result):
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         log = parse_stdout(combined)
         lineage = build_skill_arch_test_lineage()
         report = run_all_assertions(log, lineage)
@@ -74,7 +88,7 @@ class TestDynamicInstruction:
 
     async def test_resolved_values_present(self, run_result):
         """Verify resolved placeholder values appear in DYN_INSTR tags."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         # DYN_INSTR tags confirm dynamic instruction resolution occurred
         assert "DYN_INSTR:repo_url=resolved=True" in combined, "repo_url not resolved"
         assert "DYN_INSTR:user_ctx_manifest=resolved=True" in combined, "user_ctx_manifest not resolved"
@@ -275,8 +289,20 @@ class TestChildEventReemission:
             conn.close()
 
     async def test_depth2_final_response_text(self, run_result):
-        """Verify grandchild's final_response_text='depth2_leaf_ok' bubbled up."""
+        """Verify the grandchild's final response text bubbled into state/events/stdout."""
         assert run_result.traces_db_path
+        d2_text = run_result.final_state.get("final_response_text@d2f0")
+        assert isinstance(d2_text, str) and d2_text, "final_response_text@d2f0 missing"
+        d2_reasoning = _state_json(run_result, "reasoning_output@d2f0")
+        assert d2_reasoning.get("final_answer") == d2_text, (
+            f"Grandchild reasoning_output final_answer {d2_reasoning!r} "
+            f"did not match final_response_text@d2f0={d2_text!r}"
+        )
+        d1_stdout = run_result.final_state.get("last_repl_result@d1f0", {}).get("stdout", "")
+        assert f"grandchild_said={d2_text}" in d1_stdout, (
+            "Depth-1 REPL stdout did not echo the depth-2 response text. "
+            f"d1 stdout: {d1_stdout!r}"
+        )
         conn = sqlite3.connect(run_result.traces_db_path)
         try:
             rows = conn.execute(
@@ -284,8 +310,9 @@ class TestChildEventReemission:
                 "WHERE state_key = 'final_response_text' AND key_depth = 2"
             ).fetchall()
             assert len(rows) > 0, "No final_response_text at key_depth=2"
-            assert rows[0][0] == "depth2_leaf_ok", (
-                f"Grandchild final_response_text = {rows[0][0]!r}, expected 'depth2_leaf_ok'"
+            assert any(row[0] == d2_text for row in rows), (
+                "Depth-2 final_response_text event rows did not contain the depth-2 "
+                f"state value {d2_text!r}. Rows: {rows!r}"
             )
         finally:
             conn.close()
@@ -296,23 +323,23 @@ class TestBatchedDispatch:
 
     async def test_batch_count_in_stdout(self, run_result):
         """Verify 'batch_count=2' appears in REPL stdout."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         assert "batch_count=2" in combined, (
             "batch_count=2 not found in stdout. "
             "llm_query_batched may not have returned 2 results."
         )
 
     async def test_batch_results_in_stdout(self, run_result):
-        """Verify individual batch results appear in stdout."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        """Verify both batch results surfaced as structured payloads in REPL stdout."""
+        combined = _combined_output(run_result)
         assert "batch_0=" in combined, "batch_0 result not found in stdout"
         assert "batch_1=" in combined, "batch_1 result not found in stdout"
-        assert "finding_A_summary" in combined, "finding_A_summary not found in stdout"
-        assert "finding_B_summary" in combined, "finding_B_summary not found in stdout"
+        assert '"summary"' in combined, "summary field not found in batch stdout"
+        assert '"confidence"' in combined, "confidence field not found in batch stdout"
 
     async def test_turn2_iteration_count(self, run_result):
         """Verify turn2 code read iteration_count=2 from _rlm_state."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         assert "turn2_iteration_count=2" in combined, (
             "turn2_iteration_count=2 not found in stdout. "
             "Either _rlm_state snapshot was wrong or second execute_code didn't increment."
@@ -320,18 +347,20 @@ class TestBatchedDispatch:
 
     async def test_turn1_variable_persisted(self, run_result):
         """Verify that the 'result' variable from Turn 1 persists into Turn 2 REPL namespace."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         assert "turn1_skill_result_persisted=True" in combined, (
             "turn1_skill_result_persisted=True not found in stdout. "
             "REPL namespace may not persist across execute_code calls."
         )
 
-    async def test_depth2_proof_in_stdout(self, run_result):
-        """Verify depth2_leaf_ok flows through the depth=2 chain into root stdout."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
-        assert "depth2_leaf_ok" in combined, (
-            "depth2_leaf_ok not found in stdout. "
-            "The depth=2 chain (root -> d1 execute_code -> d2 set_model_response -> d1 -> root) may be broken."
+    async def test_depth2_result_propagates_into_child_stdout(self, run_result):
+        """Verify the actual depth-2 final answer propagated into the depth-1 REPL output."""
+        combined = _combined_output(run_result)
+        d2_text = run_result.final_state.get("final_response_text@d2f0")
+        assert isinstance(d2_text, str) and d2_text, "final_response_text@d2f0 missing"
+        assert f"grandchild_said={d2_text}" in combined, (
+            "The depth-1 REPL stdout did not include the depth-2 final answer. "
+            "The thread-bridge return path may be broken."
         )
 
 
@@ -419,23 +448,23 @@ class TestDepth2StateVerification:
     """Verify the d2 execute_code (idx 8) printed state verification markers.
 
     The grandchild at depth=2 reads _rlm_state and prints [D2_STATE:key=value]
-    markers. These are captured in final_state['last_repl_result@d2']['stdout']
+    markers. These are captured in final_state['last_repl_result@d2f0']['stdout']
     because child event re-emission writes depth-scoped state keys.
     """
 
     @staticmethod
     def _d2_stdout(run_result) -> str:
-        """Extract d2 REPL stdout from depth-scoped last_repl_result@d2."""
-        lrr = run_result.final_state.get("last_repl_result@d2")
+        """Extract d2 REPL stdout from depth-scoped last_repl_result@d2f0."""
+        lrr = run_result.final_state.get("last_repl_result@d2f0")
         if isinstance(lrr, dict):
             return lrr.get("stdout", "")
         return ""
 
     async def test_d2_repl_result_exists(self, run_result):
-        """last_repl_result@d2 must exist in final_state (proves child event re-emission)."""
-        lrr = run_result.final_state.get("last_repl_result@d2")
+        """last_repl_result@d2f0 must exist in final_state (proves child event re-emission)."""
+        lrr = run_result.final_state.get("last_repl_result@d2f0")
         assert lrr is not None, (
-            "last_repl_result@d2 not in final_state — "
+            "last_repl_result@d2f0 not in final_state — "
             "child event re-emission (d2 -> d1 -> d0) may be broken."
         )
 
@@ -443,16 +472,16 @@ class TestDepth2StateVerification:
         """At least one [D2_STATE: prefixed line exists in d2 REPL stdout."""
         d2_out = self._d2_stdout(run_result)
         assert "[D2_STATE:" in d2_out, (
-            "[D2_STATE: markers not found in last_repl_result@d2 stdout. "
+            "[D2_STATE: markers not found in last_repl_result@d2f0 stdout. "
             "The grandchild execute_code at idx 8 may not have run or its output was lost. "
-            f"last_repl_result@d2 = {run_result.final_state.get('last_repl_result@d2')!r}"
+            f"last_repl_result@d2f0 = {run_result.final_state.get('last_repl_result@d2f0')!r}"
         )
 
     async def test_d2_depth_correct(self, run_result):
         """[D2_STATE:depth=2] proves _rlm_depth=2 was in _rlm_state at d2."""
         d2_out = self._d2_stdout(run_result)
         assert "[D2_STATE:depth=2]" in d2_out, (
-            "[D2_STATE:depth=2] not found in last_repl_result@d2 stdout. "
+            "[D2_STATE:depth=2] not found in last_repl_result@d2f0 stdout. "
             "Either _rlm_depth was not propagated to depth=2 or the grandchild REPL "
             f"did not execute idx 8 code. d2 stdout: {d2_out[:200]!r}"
         )
@@ -461,16 +490,32 @@ class TestDepth2StateVerification:
         """[D2_STATE:current_depth= in d2 stdout. Value may be MISSING (not depth-scoped to children)."""
         d2_out = self._d2_stdout(run_result)
         assert "[D2_STATE:current_depth=" in d2_out, (
-            "[D2_STATE:current_depth= not found in last_repl_result@d2 stdout. "
+            "[D2_STATE:current_depth= not found in last_repl_result@d2f0 stdout. "
             f"d2 stdout: {d2_out[:200]!r}"
         )
 
-    async def test_d2_proof_marker(self, run_result):
-        """[D2_STATE:proof=depth2_state_verified] proves full d2 code execution."""
+    async def test_d2_runtime_state_shape(self, run_result):
+        """Depth-2 stdout should report runtime-derived state shape, not a canned proof string."""
         d2_out = self._d2_stdout(run_result)
-        assert "[D2_STATE:proof=depth2_state_verified]" in d2_out, (
-            "[D2_STATE:proof=depth2_state_verified] not found in last_repl_result@d2 stdout. "
-            f"The d2 execute_code may have crashed before reaching the proof marker. "
+        key_count_match = re.search(r"\[D2_STATE:key_count=(\d+)\]", d2_out)
+        assert key_count_match, (
+            "Depth-2 stdout did not report state key count. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+        assert int(key_count_match.group(1)) >= 5, (
+            f"Depth-2 state key count too small: {key_count_match.group(1)}. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+        assert "[D2_STATE:has_skill_instruction=True]" in d2_out, (
+            "Depth-2 state did not report skill_instruction in _rlm_state. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+        assert "[D2_STATE:has_user_ctx_manifest=True]" in d2_out, (
+            "Depth-2 state did not report user_ctx_manifest in _rlm_state. "
+            f"d2 stdout: {d2_out[:200]!r}"
+        )
+        assert "[D2_STATE:resolved_dyn_keys=['skill_instruction']]" in d2_out, (
+            "Depth-2 stdout did not report the resolved dynamic-instruction keys. "
             f"d2 stdout: {d2_out[:200]!r}"
         )
 
@@ -494,7 +539,7 @@ class TestStructuredOutputCoverage:
 
     async def test_structured_output_marker_in_stdout(self, run_result):
         """Verify [STRUCTURED_OUTPUT: markers appear in combined stdout."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         assert "[STRUCTURED_OUTPUT:" in combined, (
             "[STRUCTURED_OUTPUT: marker not found in stdout. "
             "The llm_query_batched(output_schema=BatchResult) code at idx 11 "
@@ -503,7 +548,7 @@ class TestStructuredOutputCoverage:
 
     async def test_structured_output_parsed_results(self, run_result):
         """Verify both batch results have parsed=True and accessible fields."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
+        combined = _combined_output(run_result)
         assert "[STRUCTURED_OUTPUT:batch_0_parsed=True]" in combined, (
             "batch_0_parsed=True not found — child 0 structured output not parsed"
         )
@@ -511,33 +556,125 @@ class TestStructuredOutputCoverage:
             "batch_1_parsed=True not found — child 1 structured output not parsed"
         )
 
-    async def test_structured_output_field_values(self, run_result):
-        """Verify parsed field values from BatchResult schema are accessible."""
-        combined = run_result.repl_stdout + "\n" + run_result.instrumentation_log
-        assert "[STRUCTURED_OUTPUT:batch_0_summary=finding_A_summary]" in combined, (
-            "batch_0 summary field not accessible via .parsed"
+    async def test_structured_output_runtime_shape(self, run_result):
+        """Verify parsed structured outputs have the expected runtime shape and value ranges."""
+        combined = _combined_output(run_result)
+        assert "[STRUCTURED_OUTPUT:parsed_count=2]" in combined, (
+            "parsed_count=2 not found — batched structured outputs were not both parsed"
         )
-        assert "[STRUCTURED_OUTPUT:batch_0_confidence=0.92]" in combined, (
-            "batch_0 confidence field not accessible via .parsed"
+        assert "[STRUCTURED_OUTPUT:unique_summary_count=2]" in combined, (
+            "unique_summary_count=2 not found — sibling structured outputs may have clobbered"
         )
-        assert "[STRUCTURED_OUTPUT:batch_1_summary=finding_B_summary]" in combined, (
-            "batch_1 summary field not accessible via .parsed"
+        assert "[STRUCTURED_OUTPUT:all_confidences_in_range=True]" in combined, (
+            "Confidence range marker not found — parsed confidence values were not usable"
         )
-        assert "[STRUCTURED_OUTPUT:batch_1_confidence=0.87]" in combined, (
-            "batch_1 confidence field not accessible via .parsed"
+        payloads = [
+            _state_json(run_result, "reasoning_output@d1f0"),
+            _state_json(run_result, "reasoning_output@d1f1"),
+        ]
+        summaries: list[str] = []
+        for payload in payloads:
+            assert set(payload) == {"summary", "confidence"}, (
+                f"Unexpected structured output fields: {payload!r}"
+            )
+            summary = payload["summary"]
+            confidence = payload["confidence"]
+            assert isinstance(summary, str) and summary, f"Invalid summary field: {payload!r}"
+            assert isinstance(confidence, (int, float)), (
+                f"Confidence is not numeric: {payload!r}"
+            )
+            assert 0.0 <= float(confidence) <= 1.0, (
+                f"Confidence outside [0,1]: {payload!r}"
+            )
+            summaries.append(summary)
+        assert len(set(summaries)) == len(summaries), (
+            f"Sibling structured outputs should be distinct, got {summaries!r}"
         )
 
 
-class TestDiagnosticDump:
-    """Data capture test: writes a comprehensive JSON diagnostic dump of the fixture run."""
+class TestFanoutScoping:
+    """Verify fanout scoping: batch children at the same depth get independent state keys.
 
-    async def test_write_diagnostic_dump(self, run_result):
-        """Write diagnostic dump to issues/dashboard/fixture_runtime_output.json.
+    The two batch children at depth=1 (idx 12, 13) produce distinct
+    fanout-scoped state keys (e.g. iteration_count@d1f0 vs @d1f1).
+    The root's execute_code at idx 11 also prints depth_key() output
+    to prove the function is accessible in REPL globals.
+    """
 
-        This test always passes -- it exists solely to capture runtime data.
+    async def test_depth_key_used_for_runtime_fanout_scoping(self, run_result):
+        """Verify depth_key() ran in REPL code and its computed keys line up with sibling state."""
+        combined = _combined_output(run_result)
+        last_repl = run_result.final_state.get("last_repl_result", {})
+        submitted_code = run_result.final_state.get("repl_submitted_code", "")
+        assert "depth_key(" in submitted_code, "Root execute_code did not invoke depth_key()"
+        assert isinstance(last_repl, dict) and last_repl.get("has_errors") is False, (
+            f"Root last_repl_result indicates REPL failure: {last_repl!r}"
+        )
+        expected_keys = [depth_key("iteration_count", 1, i) for i in range(2)]
+        assert "[FANOUT_SCOPE:key_count=2]" in combined, (
+            "REPL code did not report fanout key generation across both batch results"
+        )
+        assert "[FANOUT_SCOPE:unique_keys=True]" in combined, (
+            "Computed fanout keys were not unique"
+        )
+        assert "[FANOUT_SCOPE:all_depth_scoped=True]" in combined, (
+            "Computed fanout keys were not depth-scoped"
+        )
+        for key in expected_keys:
+            assert key in run_result.final_state, f"{key} missing from final_state"
+            assert key in combined, f"{key} missing from REPL fanout-scope output"
+
+    async def test_batch_children_write_distinct_state_keys(self, run_result):
+        """Batch child 0 writes @d1f0 keys, child 1 writes @d1f1 — no clobbering."""
+        state = run_result.final_state
+        # Both batch children's orchestrators emit initial state with
+        # iteration_count@d1fN via EventActions(state_delta=...), which is
+        # re-emitted through the child_event_queue and applied to session state.
+        f0_key = "iteration_count@d1f0"
+        f1_key = "iteration_count@d1f1"
+        assert f0_key in state, (
+            f"{f0_key} not in final_state — batch child 0 (fanout_idx=0) "
+            "did not write its fanout-scoped initial state, or child event "
+            f"re-emission dropped the key. Keys with '@d1': "
+            f"{[k for k in state if '@d1' in str(k)]}"
+        )
+        assert f1_key in state, (
+            f"{f1_key} not in final_state — batch child 1 (fanout_idx=1) "
+            "did not write its fanout-scoped initial state, or child event "
+            f"re-emission dropped the key. Keys with '@d1': "
+            f"{[k for k in state if '@d1' in str(k)]}"
+        )
+
+    async def test_batch_children_state_keys_independent(self, run_result):
+        """Sibling state keys coexist — both should_stop@d1f0 and @d1f1 are present."""
+        state = run_result.final_state
+        for base_key in ("should_stop", "final_response_text"):
+            f0 = f"{base_key}@d1f0"
+            f1 = f"{base_key}@d1f1"
+            assert f0 in state, f"{f0} missing from final_state"
+            assert f1 in state, f"{f1} missing from final_state"
+
+    async def test_old_depth_format_absent(self, run_result):
+        """Regression guard: old @dN format (without fM suffix) must NOT exist in final_state.
+
+        The system now always generates @dNfM format (e.g. iteration_count@d1f0).
+        A regression that wrote both old and new formats would pass all positive
+        assertions silently. This test ensures the old format is absent.
         """
-        output_path = write_diagnostic_dump(
-            run_result,
-            output_path="./issues/dashboard/fixture_runtime_output.json",
-        )
-        assert output_path.exists(), f"Diagnostic dump was not written to {output_path}"
+        state = run_result.final_state
+        old_format_keys = [
+            "iteration_count",
+            "current_depth",
+            "should_stop",
+            "final_response_text",
+            "last_repl_result",
+        ]
+        for base_key in old_format_keys:
+            old_key = f"{base_key}@d1"
+            new_f0 = depth_key(base_key, 1, 0)
+            assert old_key not in state, (
+                f"Regression: old format key '{old_key}' found in final_state. "
+                f"The system should only write new format keys like '{new_f0}'. "
+                f"Keys matching '@d1' in state: "
+                f"{[k for k in state if '@d1' in str(k)]}"
+            )

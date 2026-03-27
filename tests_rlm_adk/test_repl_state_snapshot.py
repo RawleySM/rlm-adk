@@ -155,7 +155,7 @@ class TestSnapshotInjectedIntoRepl:
         depth = 2
         tool = REPLTool(repl, max_calls=10, depth=depth)
 
-        # Pre-seed a depth-scoped key (LAST_REPL_RESULT) with @d2 suffix.
+        # Pre-seed a depth-scoped key (LAST_REPL_RESULT) with @d2f0 suffix.
         # LAST_REPL_RESULT is in DEPTH_SCOPED_KEYS and is NOT overwritten
         # by REPLTool before code execution (only after), so the snapshot
         # will see this pre-seeded value.

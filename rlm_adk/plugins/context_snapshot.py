@@ -1,3 +1,4 @@
+# DEPRECATED: Superseded by dashboard_events.py (DashboardEventPlugin). Retained for backward compatibility.
 """ContextWindowSnapshotPlugin - Captures full context window decomposition.
 
 Writes one JSONL line per LLM call, capturing the exact per-turn,

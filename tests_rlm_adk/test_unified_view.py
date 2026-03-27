@@ -32,7 +32,7 @@ def _insert_sse_row(
     value_text: str | None,
     value_json: str | None,
     key_depth: int = 1,
-    author: str = "child_orchestrator_d1",
+    author: str = "child_orchestrator_d1f0",
 ) -> None:
     """Insert a row directly into session_state_events for testing."""
     conn.execute(

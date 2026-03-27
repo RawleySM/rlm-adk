@@ -241,6 +241,9 @@ class RLMOrchestratorAgent(BaseAgent):
     enabled_skills: tuple[str, ...] = ()
     parent_depth: int | None = None
     parent_fanout_idx: int | None = None
+    parent_invocation_id: str | None = None
+    parent_tool_call_id: str | None = None
+    dispatch_call_index: int = 0
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Collapsed orchestrator -- delegates to reasoning_agent with REPLTool.
@@ -259,8 +262,9 @@ class RLMOrchestratorAgent(BaseAgent):
         else:
             repl = LocalREPL(depth=1)
 
-        # Inject LLMResult into REPL namespace for skill functions
+        # Inject LLMResult and depth_key into REPL namespace
         repl.globals["LLMResult"] = LLMResult
+        repl.globals["depth_key"] = depth_key
 
         # Inject skill globals into REPL namespace unconditionally.
         # All orchestrators (root and children) get skill functions in REPL
@@ -310,21 +314,33 @@ class RLMOrchestratorAgent(BaseAgent):
             _loop = asyncio.get_running_loop()
             repl.set_llm_query_fns(
                 make_sync_llm_query(
-                    llm_query_async, _loop, cancelled=repl._cancelled,
+                    llm_query_async,
+                    _loop,
+                    cancelled=repl._cancelled,
                 ),
                 make_sync_llm_query_batched(
-                    llm_query_batched_async, _loop, cancelled=repl._cancelled,
+                    llm_query_batched_async,
+                    _loop,
+                    cancelled=repl._cancelled,
                 ),
             )
-        # Create telemetry finalizer from SqliteTracingPlugin (GAP-06 fix).
+        # Create telemetry finalizer(s) from plugins that support GAP-06.
         # The finalizer ensures tool telemetry rows are completed even when
         # ADK's after_tool_callback doesn't fire for deeply nested async tools.
+        # Both SqliteTracingPlugin and DashboardEventPlugin provide finalizers;
+        # compose them so a single call dispatches to all.
         telemetry_finalizer = None
         plugin_manager = getattr(ctx, "plugin_manager", None)
         if plugin_manager is not None:
-            sqlite_plugin = plugin_manager.get_plugin("sqlite_tracing")
-            if sqlite_plugin is not None and hasattr(sqlite_plugin, "make_telemetry_finalizer"):
-                telemetry_finalizer = sqlite_plugin.make_telemetry_finalizer()
+            finalizers = []
+            for plugin_name in ("sqlite_tracing", "dashboard_events"):
+                plugin = plugin_manager.get_plugin(plugin_name)
+                if plugin and hasattr(plugin, "make_telemetry_finalizer"):
+                    finalizers.append(plugin.make_telemetry_finalizer())
+            if finalizers:
+                telemetry_finalizer = (lambda fns: lambda tid, r: [f(tid, r) for f in fns])(
+                    finalizers
+                )
 
         # Create REPLTool with post_dispatch_state_patch_fn
         repl_tool = REPLTool(
@@ -376,6 +392,9 @@ class RLMOrchestratorAgent(BaseAgent):
         object.__setattr__(_ra, "_rlm_pending_request_meta", None)
         object.__setattr__(_ra, "_rlm_last_response_meta", None)
         object.__setattr__(_ra, "_rlm_base_lineage", None)
+        object.__setattr__(_ra, "_rlm_parent_invocation_id", self.parent_invocation_id)
+        object.__setattr__(_ra, "_rlm_parent_tool_call_id", self.parent_tool_call_id)
+        object.__setattr__(_ra, "_rlm_dispatch_call_index", self.dispatch_call_index)
         # Ensure ADK manages tool call/response history at depth 0.
         # Children (depth > 0) keep include_contents='none' set by
         # create_child_orchestrator so they don't inherit parent session
@@ -391,8 +410,8 @@ class RLMOrchestratorAgent(BaseAgent):
         try:
             # Build initial state delta.
             initial_state: dict[str, Any] = {
-                depth_key(CURRENT_DEPTH, self.depth): self.depth,
-                depth_key(ITERATION_COUNT, self.depth): 0,
+                depth_key(CURRENT_DEPTH, self.depth, self.fanout_idx): self.depth,
+                depth_key(ITERATION_COUNT, self.depth, self.fanout_idx): 0,
             }
             if _skill_globals:
                 initial_state[REPL_SKILL_GLOBALS_INJECTED] = sorted(_skill_globals.keys())
@@ -548,8 +567,10 @@ class RLMOrchestratorAgent(BaseAgent):
                             author=self.name,
                             actions=EventActions(
                                 state_delta={
-                                    depth_key(FINAL_RESPONSE_TEXT, self.depth): error_msg,
-                                    depth_key(SHOULD_STOP, self.depth): True,
+                                    depth_key(
+                                        FINAL_RESPONSE_TEXT, self.depth, self.fanout_idx
+                                    ): error_msg,
+                                    depth_key(SHOULD_STOP, self.depth, self.fanout_idx): True,
                                 }
                             ),
                         )
@@ -620,8 +641,9 @@ class RLMOrchestratorAgent(BaseAgent):
                             depth_key(
                                 FINAL_RESPONSE_TEXT,
                                 self.depth,
+                                self.fanout_idx,
                             ): final_text,
-                            depth_key(SHOULD_STOP, self.depth): True,
+                            depth_key(SHOULD_STOP, self.depth, self.fanout_idx): True,
                         }
                     ),
                 )
@@ -646,8 +668,9 @@ class RLMOrchestratorAgent(BaseAgent):
                             depth_key(
                                 FINAL_RESPONSE_TEXT,
                                 self.depth,
+                                self.fanout_idx,
                             ): exhausted_msg,
-                            depth_key(SHOULD_STOP, self.depth): True,
+                            depth_key(SHOULD_STOP, self.depth, self.fanout_idx): True,
                         }
                     ),
                 )

@@ -18,7 +18,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\nclass App(\n    *,\n    name: str,\n    root_agent: BaseAgent,\n    plugins: list[BasePlugin] = list,\n    events_compaction_config: Any | None = None,\n    context_cache_config: Any | None = None,\n    resumability_config: Any | None = None\n)\n```\n---\nRepresents an LLM-backed agentic application.\n\nAn `App` is the top-level container for an agentic system powered by LLMs.\nIt manages a root agent (`root_agent`), which serves as the root of an agent\ntree, enabling coordination and communication across all agents in the\nhierarchy.\nThe `plugins` are application-wide components that provide shared capabilities\nand services to the entire system."
+        "markdown": "```python\nclass App(\n    *,\n    name: str,\n    root_agent: BaseAgent,\n    plugins: list[BasePlugin] = list,\n    events_compaction_config: Any | None = None,\n    context_cache_config: ContextCacheConfig | None = None,\n    resumability_config: Any | None = None\n)\n```\n---\nRepresents an LLM-backed agentic application.\n\nAn `App` is the top-level container for an agentic system powered by LLMs.\nIt manages a root agent (`root_agent`), which serves as the root of an agent\ntree, enabling coordination and communication across all agents in the\nhierarchy.\nThe `plugins` are application-wide components that provide shared capabilities\nand services to the entire system."
       }
     },
     {

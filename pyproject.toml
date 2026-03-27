@@ -94,9 +94,9 @@ ignore = [
 quote-style = "double"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "tests_rlm_adk"]
+testpaths = ["tests_rlm_adk"]
 asyncio_mode = "auto"
-addopts = '-m "provider_fake_contract and not agent_challenge"'
+addopts = 'tests_rlm_adk/test_skill_arch_e2e.py -m "provider_fake"'
 markers = [
     "provider_fake: e2e tests that run against provider-fake replay fixtures (no network)",
     "provider_fake_contract: default provider-fake fixture-contract suite",

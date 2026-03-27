@@ -33,14 +33,14 @@ class TestStepDepthFromAgentName:
 
     @pytest.mark.asyncio
     async def test_child_reasoning_d3_reports_depth_3(self):
-        """child_reasoning_d3 must yield paused_depth == 3."""
+        """child_reasoning_d3f0 must yield paused_depth == 3."""
         from rlm_adk.plugins.step_mode import StepModePlugin
 
         step_gate.set_step_mode(True)
 
         plugin = StepModePlugin()
         mock_ctx = MagicMock()
-        mock_ctx._invocation_context.agent.name = "child_reasoning_d3"
+        mock_ctx._invocation_context.agent.name = "child_reasoning_d3f0"
         # Deliberately set state depth to 0 to prove it's NOT used
         mock_ctx.state = {"current_depth": 0}
         mock_request = MagicMock()
@@ -53,7 +53,7 @@ class TestStepDepthFromAgentName:
         )
 
         await asyncio.sleep(0.05)
-        assert step_gate.paused_agent_name == "child_reasoning_d3"
+        assert step_gate.paused_agent_name == "child_reasoning_d3f0"
         assert step_gate.paused_depth == 3
 
         step_gate.advance()
@@ -90,14 +90,14 @@ class TestStepDepthFromAgentName:
 
     @pytest.mark.asyncio
     async def test_child_reasoning_d1_reports_depth_1(self):
-        """child_reasoning_d1 must yield paused_depth == 1."""
+        """child_reasoning_d1f0 must yield paused_depth == 1."""
         from rlm_adk.plugins.step_mode import StepModePlugin
 
         step_gate.set_step_mode(True)
 
         plugin = StepModePlugin()
         mock_ctx = MagicMock()
-        mock_ctx._invocation_context.agent.name = "child_reasoning_d1"
+        mock_ctx._invocation_context.agent.name = "child_reasoning_d1f0"
         mock_ctx.state = {"current_depth": 99}  # decoy
         mock_request = MagicMock()
 

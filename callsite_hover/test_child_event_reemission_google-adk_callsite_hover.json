@@ -17,7 +17,7 @@
       "instances": [
         {
           "name": "session",
-          "line": 156
+          "line": 164
         }
       ],
       "hover": {
@@ -29,7 +29,7 @@
       "instances": [
         {
           "name": "session_service",
-          "line": 163
+          "line": 171
         }
       ],
       "hover": {
@@ -41,7 +41,7 @@
       "instances": [
         {
           "name": "ctx",
-          "line": 164
+          "line": 172
         }
       ],
       "hover": {
@@ -53,19 +53,19 @@
       "instances": [
         {
           "name": null,
-          "line": 178
+          "line": 186
         },
         {
           "name": null,
-          "line": 184
+          "line": 192
         },
         {
           "name": null,
-          "line": 190
+          "line": 198
         },
         {
           "name": null,
-          "line": 201
+          "line": 209
         }
       ],
       "hover": {
@@ -77,7 +77,7 @@
       "instances": [
         {
           "name": null,
-          "line": 169
+          "line": 177
         }
       ],
       "hover": {
@@ -89,15 +89,15 @@
       "instances": [
         {
           "name": null,
-          "line": 181
+          "line": 189
         },
         {
           "name": null,
-          "line": 187
+          "line": 195
         },
         {
           "name": null,
-          "line": 193
+          "line": 201
         }
       ],
       "hover": {
@@ -111,7 +111,7 @@
       "usages": [
         {
           "context": "base:_StubAgent",
-          "line": 150
+          "line": 158
         }
       ],
       "hover": {

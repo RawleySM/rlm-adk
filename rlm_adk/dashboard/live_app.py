@@ -6,10 +6,9 @@ from typing import Any
 
 from nicegui import ui
 
-from rlm_adk.dashboard.components.flow_context_inspector import render_flow_context_inspector
-from rlm_adk.dashboard.components.flow_transcript import render_flow_transcript
 from rlm_adk.dashboard.components.live_context_viewer import render_live_context_viewer
 from rlm_adk.dashboard.components.live_invocation_tree import render_live_invocation_tree
+from rlm_adk.dashboard.components.notebook_panel import render_notebook_panel
 from rlm_adk.dashboard.live_controller import LiveDashboardController, LiveDashboardUI
 from rlm_adk.dashboard.live_loader import LiveDashboardLoader
 from rlm_adk.dashboard.run_service import resolve_fixture_file_path
@@ -178,7 +177,7 @@ _LIVE_PAGE_CSS = """
         return [...hits].filter(_visible);
       },
     },
-    /* X — Widgets: interactive Quasar components + pill-shaped chips */
+    /* X — Widgets: interactive Quasar components, pill chips, and styled NiceGUI cells */
     x: {
       tag: 'Widget',
       bg: '#FF9800',
@@ -186,13 +185,26 @@ _LIVE_PAGE_CSS = """
       select() {
         const hits = new Set();
         document.querySelectorAll(
-          '.q-btn, .q-toggle, .q-select, .q-field, ' +
-          '[role="switch"], [role="combobox"], [role="button"], ' +
+          '.q-btn, .q-toggle, .q-select, .q-field, .q-tab, ' +
+          '[role="switch"], [role="combobox"], [role="button"], [role="tab"], ' +
           'button, .flow-nav-btn'
         ).forEach(el => hits.add(el));
         /* All pill-shaped chips (clickable or display-only) */
         document.querySelectorAll('[style*="border-radius: 999px"]')
           .forEach(el => hits.add(el));
+        /* Styled NiceGUI components: elements with IDs that have border or
+           background styling — these are the visual cells in the notebook panel
+           (model banners, tool cells, code blocks, stdout panes, child panels) */
+        document.querySelectorAll('[id^="c"][style*="border"]').forEach(el => {
+          const s = el.getAttribute('style') || '';
+          if (s.indexOf('border-radius: 999px') > -1) return; /* already captured as pill */
+          const r = el.getBoundingClientRect();
+          if (r.height > 20 && r.width > 60) hits.add(el);
+        });
+        document.querySelectorAll('[id^="c"][style*="background"]').forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (r.height > 20 && r.width > 60) hits.add(el);
+        });
         return [...hits].filter(_visible);
       },
     },
@@ -216,6 +228,7 @@ _LIVE_PAGE_CSS = """
 
   function _visible(el) {
     const r = el.getBoundingClientRect();
+    /* Element must have non-zero layout dimensions (not display:none) */
     return r.width > 0 && r.height > 0;
   }
 
@@ -234,21 +247,20 @@ _LIVE_PAGE_CSS = """
     active = level;
     const cfg = LEVELS[level];
     const els = cfg.select();
-    const scrollY = window.scrollY;
 
     els.forEach(el => {
       const rect = el.getBoundingClientRect();
       const id = el.id ? '#' + el.id : (el.className?.split?.(' ')[0] || el.tagName.toLowerCase());
 
-      /* Label badge */
+      /* Label badge — fixed positioning, viewport-relative */
       const lbl = document.createElement('div');
       lbl.className = OV;
       lbl.textContent = cfg.tag + ': ' + id;
       lbl.style.cssText =
-        'position:absolute;z-index:100000;pointer-events:none;border-radius:2px;' +
+        'position:fixed;z-index:100000;pointer-events:none;border-radius:2px;' +
         'font:bold 10px/1.3 monospace;padding:1px 4px;white-space:nowrap;opacity:0.92;' +
         'background:' + cfg.bg + ';color:#fff;';
-      lbl.style.top = (rect.top + scrollY) + 'px';
+      lbl.style.top = rect.top + 'px';
       lbl.style.left = rect.left + 'px';
       document.body.appendChild(lbl);
 
@@ -257,10 +269,10 @@ _LIVE_PAGE_CSS = """
         const box = document.createElement('div');
         box.className = OV_BOX;
         box.style.cssText =
-          'position:absolute;z-index:99999;pointer-events:none;' +
+          'position:fixed;z-index:99999;pointer-events:none;' +
           'border:2px solid ' + cfg.outline + ';border-radius:4px;' +
           'background:' + cfg.outline.replace(/[\d.]+\)$/, '0.08)') + ';';
-        box.style.top = (rect.top + scrollY) + 'px';
+        box.style.top = rect.top + 'px';
         box.style.left = rect.left + 'px';
         box.style.width = rect.width + 'px';
         box.style.height = rect.height + 'px';
@@ -880,36 +892,48 @@ def _close_context_viewer(
 
 def _nav_rail(controller: LiveDashboardController, live_ui: LiveDashboardUI) -> None:
     """Render the left nav rail with view toggle icons."""
+    # Dict mapping mode name -> button element, so _set_view_mode can toggle classes.
+    nav_btns: dict[str, ui.element] = {}
+
     with ui.element("div").classes("flow-nav-rail"):
         # Flow view button
         flow_active = "flow-nav-btn--active" if controller.state.view_mode == "flow" else ""
         with (
             ui.element("div")
             .classes(f"flow-nav-btn {flow_active}")
-            .on("click", lambda: _set_view_mode("flow", controller, live_ui))
-        ):
+            .on("click", lambda: _set_view_mode("flow", controller, live_ui, nav_btns))
+        ) as flow_btn:
             ui.label("\u2261").style(
                 "color: var(--text-0); font-size: 1.3rem; font-weight: 700;"
             ).tooltip("Transcript")
+        nav_btns["flow"] = flow_btn
 
         # Tree view button
         tree_active = "flow-nav-btn--active" if controller.state.view_mode == "tree" else ""
         with (
             ui.element("div")
             .classes(f"flow-nav-btn {tree_active}")
-            .on("click", lambda: _set_view_mode("tree", controller, live_ui))
-        ):
+            .on("click", lambda: _set_view_mode("tree", controller, live_ui, nav_btns))
+        ) as tree_btn:
             ui.label("\u25e8").style(
                 "color: var(--text-0); font-size: 1.3rem; font-weight: 700;"
             ).tooltip("Tree")
+        nav_btns["tree"] = tree_btn
 
 
 def _set_view_mode(
     mode: str,
     controller: LiveDashboardController,
     live_ui: LiveDashboardUI,
+    nav_btns: dict[str, ui.element],
 ) -> None:
     controller.state.view_mode = mode
+    # Toggle active CSS class on nav rail buttons so the indicator updates immediately.
+    for btn_mode, btn_el in nav_btns.items():
+        if btn_mode == mode:
+            btn_el.classes(add="flow-nav-btn--active")
+        else:
+            btn_el.classes(remove="flow-nav-btn--active")
     live_ui.refresh_all()
 
 
@@ -918,92 +942,14 @@ def _render_flow_view(
     live_ui: LiveDashboardUI,
     text_panel_body,
 ) -> None:
-    """Render the flow transcript with optional context inspector sidebar."""
-    transcript = controller.flow_transcript()
-
-    with ui.element("div").style("display: flex; flex: 1; min-width: 0; width: 100%;"):
-        # Main transcript column
-        with ui.element("div").style(
-            "flex: 1; min-width: 0; padding: 0.75rem 1rem; overflow-y: auto;"
-        ):
-            ui.label("Recursive Notebook Flow").style(
-                "color: var(--text-0); font-size: 1.1rem; font-weight: 800; margin-bottom: 0.65rem;"
-            )
-            render_flow_transcript(
-                transcript,
-                on_open_context=lambda pane_id, item, inv_id="": _open_flow_context(
-                    controller, text_panel_body, pane_id, item, inv_id
-                ),
-                on_open_child_window=lambda child: _open_child_window(controller, child),
-            )
-
-        # Context inspector sidebar
-        if transcript.inspector is not None:
-            inspector = transcript.inspector
-            # Enrich with session skills
-            session_summary = controller.session_summary()
-            from rlm_adk.dashboard.flow_models import FlowInspectorData
-
-            enriched = FlowInspectorData(
-                state_items=inspector.state_items,
-                skills=session_summary.registered_skills,
-                return_value_json=inspector.return_value_json,
-                selected_pane_id=inspector.selected_pane_id,
-                context_items=inspector.context_items,
-            )
-            render_flow_context_inspector(
-                enriched,
-                on_click_item=lambda item: _open_flow_state_item(controller, text_panel_body, item),
-            )
+    """Render the event-driven notebook panel."""
+    with ui.element("div").style("flex: 1; min-width: 0; padding: 0.75rem 1rem; overflow-y: auto;"):
+        tree = controller.load_event_tree()
+        if tree is not None:
+            root_inv = controller.root_invocation_id(tree)
+            if root_inv:
+                with ui.element("div").style("padding: 0; width: 100%;"):
+                    render_notebook_panel(tree, root_inv)
 
 
-def _open_flow_context(
-    controller: LiveDashboardController,
-    refresh_viewer,
-    pane_id: str,
-    item,
-    invocation_id: str = "",
-) -> None:
-    """Open context viewer for a flow context chip, using the clicked card's invocation."""
-    pane = controller._pane_by_id(pane_id)
-    invocation = _find_invocation_by_id(pane, invocation_id) or controller.selected_invocation(pane)
-    lineage = controller.selected_invocation_lineage()
-    if invocation is not None:
-        controller.open_invocation_context_viewer(invocation, item, lineage)
-        refresh_viewer.refresh()
 
-
-def _find_invocation_by_id(pane, invocation_id: str):
-    """Find a specific invocation by ID within a pane."""
-    if not pane or not invocation_id or not pane.invocations:
-        return None
-    for inv in pane.invocations:
-        if inv.invocation_id == invocation_id:
-            return inv
-    return None
-
-
-def _open_flow_state_item(
-    controller: LiveDashboardController,
-    refresh_viewer,
-    item,
-) -> None:
-    """Open context viewer for a state item from the inspector."""
-    value_text = item.value if isinstance(item.value, str) else repr(item.value)
-    controller.open_text_viewer(
-        label=item.base_key,
-        text=value_text,
-        raw_key=item.raw_key,
-    )
-    refresh_viewer.refresh()
-
-
-def _open_child_window(
-    controller: LiveDashboardController,
-    child,
-) -> None:
-    """Open a child pane in a new browser window."""
-    if not child.pane_id or not controller.state.selected_session_id:
-        return
-    url = f"/live/session/{controller.state.selected_session_id}/pane/{child.pane_id}"
-    ui.run_javascript(f'window.open("{url}", "_blank")')

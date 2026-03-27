@@ -14,7 +14,7 @@
       "usages": [
         {
           "context": "base:REPLTracingPlugin",
-          "line": 25
+          "line": 23
         }
       ],
       "hover": {
@@ -26,11 +26,11 @@
       "usages": [
         {
           "context": "param:invocation_context",
-          "line": 42
+          "line": 33
         },
         {
           "context": "param:invocation_context",
-          "line": 74
+          "line": 65
         }
       ],
       "hover": {
@@ -42,11 +42,11 @@
       "usages": [
         {
           "context": "param:event",
-          "line": 43
+          "line": 34
         },
         {
           "context": "return",
-          "line": 44
+          "line": 35
         }
       ],
       "hover": {
