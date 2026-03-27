@@ -1,6 +1,6 @@
 {
   "scenario_id": "skill_arch_test",
-  "description": "Full pipeline exercise v2: 15 model calls exercising SkillToolset L1/L2 discovery at d0/d1/d2, depth=2 via run_test_skill -> llm_query chain, llm_query_batched with 2 prompts + output_schema=BatchResult (structured output), and cross-turn persistence. Proves GAP-A (children get SkillToolset), GAP-D (children get dynamic instruction), and structured output via llm_query_batched.",
+  "description": "Full pipeline exercise v3: 20 model calls exercising SkillToolset L1/L2 discovery at d0/d1/d2, depth=2 via run_test_skill -> llm_query chain, llm_query_batched with 2 prompts + output_schema=BatchResult (structured output), cross-turn persistence, AND combo dispatch (llm_query_batched + llm_query in same REPL cell). Turn 3 runs llm_query_batched(3 prompts, output_schema=NumberClassification) then llm_query(output_schema=AggregateReport) in a single execute_code submission. Proves GAP-A, GAP-D, structured output, and same-cell batched+single dispatch.",
   "config": {
     "model": "gemini-fake",
     "thinking_budget": 0,
@@ -370,7 +370,32 @@
     {
       "call_index": 14,
       "caller": "reasoning",
-      "note": "idx 14 / d0: Root reasoning agent sees Turn 1 (skill + depth=2 chain with SkillToolset discovery) and Turn 2 (batch) results. Calls set_model_response with final answer.",
+      "note": "idx 14 / d0: Turn 3 — combo dispatch. Same execute_code cell runs llm_query_batched(3 prompts, output_schema=NumberClassification) THEN llm_query(output_schema=AggregateReport) that incorporates the batched results. Proves batched+single dispatch in a single REPL cell.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "execute_code",
+                "args": {
+                  "code": "import random\nfrom pydantic import BaseModel, Field\n\n# --- Pydantic schemas for number classification ---\nclass NumberClassification(BaseModel):\n    even_number: bool\n    value: int\n    positive: bool\n\nclass AggregateReport(BaseModel):\n    total_numbers: int\n    even_count: int\n    positive_count: int\n    value_sum: int\n    verdict: str\n\n# Generate three random numbers (seeded for deterministic replay)\nrng = random.Random(42)\nnum_a = rng.randint(-50, 50)\nnum_b = rng.randint(-50, 50)\nnum_c = rng.randint(-50, 50)\nprint(f'[COMBO:num_a={num_a}]')\nprint(f'[COMBO:num_b={num_b}]')\nprint(f'[COMBO:num_c={num_c}]')\n\n# ============================================================\n# Phase 1: llm_query_batched() — classify each number\n# ============================================================\nbatch_prompts = [\n    f'Classify the number {num_a}. Return JSON with: even_number (true if divisible by 2), value (the integer), positive (true if >= 0).',\n    f'Classify the number {num_b}. Return JSON with: even_number (true if divisible by 2), value (the integer), positive (true if >= 0).',\n    f'Classify the number {num_c}. Return JSON with: even_number (true if divisible by 2), value (the integer), positive (true if >= 0).',\n]\nclassification_results = llm_query_batched(batch_prompts, output_schema=NumberClassification)\n\nclassifications = []\nfor i, r in enumerate(classification_results):\n    has_parsed = r.parsed is not None\n    print(f'[COMBO:batch_{i}_parsed={has_parsed}]')\n    if has_parsed:\n        classifications.append(r.parsed)\n        print(f'[COMBO:batch_{i}_even={r.parsed[\"even_number\"]}]')\n        print(f'[COMBO:batch_{i}_value={r.parsed[\"value\"]}]')\n        print(f'[COMBO:batch_{i}_positive={r.parsed[\"positive\"]}]')\n\nprint(f'[COMBO:classifications_count={len(classifications)}]')\n\n# ---------------------------------------------------------------\n# Phase 2: llm_query() — aggregate the classification results\n# This proves batched + single dispatch work in the same REPL cell.\n# ---------------------------------------------------------------\neven_count = sum(1 for c in classifications if c['even_number'])\npositive_count = sum(1 for c in classifications if c['positive'])\nvalue_sum = sum(c['value'] for c in classifications)\n\naggregate_prompt = (\n    f'Aggregate report for {len(classifications)} classified numbers.\\n'\n    f'Even count: {even_count}, Positive count: {positive_count}, Value sum: {value_sum}.\\n'\n    f'Return JSON with: total_numbers, even_count, positive_count, value_sum, '\n    f'and a verdict string summarizing the batch.'\n)\naggregate_result = llm_query(aggregate_prompt, output_schema=AggregateReport)\nagg_parsed = aggregate_result.parsed is not None\nprint(f'[COMBO:aggregate_parsed={agg_parsed}]')\nif agg_parsed:\n    print(f'[COMBO:aggregate_verdict={aggregate_result.parsed[\"verdict\"]}]')\n    print(f'[COMBO:aggregate_total={aggregate_result.parsed[\"total_numbers\"]}]')\n    print(f'[COMBO:aggregate_even_count={aggregate_result.parsed[\"even_count\"]}]')\n    print(f'[COMBO:aggregate_value_sum={aggregate_result.parsed[\"value_sum\"]}]')\nprint(f'[COMBO:phase1_was_batched=True]')\nprint(f'[COMBO:phase2_was_single=True]')\nprint(f'[COMBO:same_cell_combo=True]')"
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 800, "candidatesTokenCount": 90, "totalTokenCount": 890},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 15,
+      "caller": "worker",
+      "note": "idx 15 / d1: Batch child 0 (fanout_idx=0, NumberClassification). Classifies num_a.",
       "status": 200,
       "body": {
         "candidates": [{
@@ -380,8 +405,9 @@
               "functionCall": {
                 "name": "set_model_response",
                 "args": {
-                  "final_answer": "Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), SkillToolset discovery confirmed at d0/d1/d2, batched dispatch with output_schema=BatchResult returned 2 structured results (finding_A_summary@0.92, finding_B_summary@0.87).",
-                  "reasoning_summary": "Exercised list_skills + load_skill at all depths, run_test_skill for depth=2 chain, and llm_query_batched with output_schema for structured fanout. All components confirmed including GAP-A/GAP-D fixes and structured output."
+                  "even_number": true,
+                  "value": -10,
+                  "positive": false
                 }
               }
             }]
@@ -389,7 +415,116 @@
           "finishReason": "STOP",
           "index": 0
         }],
-        "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 70, "totalTokenCount": 970},
+        "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 15, "totalTokenCount": 75},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 16,
+      "caller": "worker",
+      "note": "idx 16 / d1: Batch child 1 (fanout_idx=1, NumberClassification). Classifies num_b.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "set_model_response",
+                "args": {
+                  "even_number": false,
+                  "value": 33,
+                  "positive": true
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 15, "totalTokenCount": 75},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 17,
+      "caller": "worker",
+      "note": "idx 17 / d1: Batch child 2 (fanout_idx=2, NumberClassification). Classifies num_c.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "set_model_response",
+                "args": {
+                  "even_number": true,
+                  "value": 8,
+                  "positive": true
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 15, "totalTokenCount": 75},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 18,
+      "caller": "worker",
+      "note": "idx 18 / d1: Single llm_query child (AggregateReport). Aggregates the 3 classifications from Phase 1. Proves single dispatch runs after batched dispatch in the same REPL cell.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "set_model_response",
+                "args": {
+                  "total_numbers": 3,
+                  "even_count": 2,
+                  "positive_count": 2,
+                  "value_sum": 31,
+                  "verdict": "3 numbers classified: 2 even, 2 positive, sum=31"
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 80, "candidatesTokenCount": 20, "totalTokenCount": 100},
+        "modelVersion": "gemini-fake"
+      }
+    },
+    {
+      "call_index": 19,
+      "caller": "reasoning",
+      "note": "idx 19 / d0: Root reasoning agent sees all 3 turns. Calls set_model_response with final answer covering depth=2 chain, batched dispatch, AND combo dispatch proof.",
+      "status": 200,
+      "body": {
+        "candidates": [{
+          "content": {
+            "role": "model",
+            "parts": [{
+              "functionCall": {
+                "name": "set_model_response",
+                "args": {
+                  "final_answer": "Pipeline verified: depth=2 chain succeeded (depth2_leaf_ok via child), SkillToolset discovery confirmed at d0/d1/d2, batched dispatch with output_schema=BatchResult returned 2 structured results (finding_A_summary@0.92, finding_B_summary@0.87), and combo dispatch proved llm_query_batched(3)+llm_query(1) in same REPL cell (2 even, 2 positive, sum=31).",
+                  "reasoning_summary": "Exercised list_skills + load_skill at all depths, run_test_skill for depth=2 chain, llm_query_batched with output_schema for structured fanout, and combo dispatch (batched then single in one cell). All components confirmed including GAP-A/GAP-D fixes, structured output, and same-cell multi-dispatch."
+                }
+              }
+            }]
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }],
+        "usageMetadata": {"promptTokenCount": 1100, "candidatesTokenCount": 80, "totalTokenCount": 1180},
         "modelVersion": "gemini-fake"
       }
     }
@@ -399,8 +534,8 @@
     "final_answer": {
       "$contains": "depth=2 chain succeeded"
     },
-    "total_iterations": 2,
-    "total_model_calls": 15
+    "total_iterations": 3,
+    "total_model_calls": 20
   },
   "expected_state": {
     "user_provided_ctx": {"$not_none": true},
@@ -408,7 +543,7 @@
     "repo_url": {"$contains": "test.example.com"},
     "skill_instruction": {"$contains": "run_test_skill"},
     "last_repl_result": {"$not_none": true},
-    "iteration_count": 2,
+    "iteration_count": 3,
     "current_depth": 0,
     "should_stop": true
   }

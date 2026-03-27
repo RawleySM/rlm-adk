@@ -172,3 +172,26 @@ def events_for_invocation(tree: InvocationTree, inv_id: str) -> list[StepEvent]:
 def children_of_tool_event(tree: InvocationTree, tool_event_id: str) -> list[str]:
     """Get sorted child invocation_ids spawned by a tool event."""
     return tree.children_of_tool.get(tool_event_id, [])
+
+
+def steps_for_dispatch(
+    tree: InvocationTree,
+    agent_name: str,
+    parent_tool_event_id: str,
+) -> list[tuple[StepEvent, StepEvent | None]]:
+    """Return only the steps belonging to a specific parent dispatch.
+
+    The same agent_name (e.g. child_reasoning_d1f0) can be reused across
+    multiple parent execute_code calls.  Without filtering, the child panel
+    would show set_model_response blocks from every dispatch — not just the
+    one the user clicked into.
+
+    Filtering is on the model event's parent_tool_call_id, so retry pairs
+    (two SMR calls within the same dispatch) are preserved.
+    """
+    all_steps = tree.steps.get(agent_name, [])
+    return [
+        (m, t)
+        for m, t in all_steps
+        if m.parent_tool_call_id == parent_tool_event_id
+    ]

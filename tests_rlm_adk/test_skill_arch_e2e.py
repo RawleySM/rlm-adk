@@ -263,9 +263,9 @@ class TestDepthScopedState:
             conn.close()
 
     async def test_iteration_count_at_root(self, run_result):
-        """Verify iteration_count=2 at depth=0 (two execute_code calls)."""
-        assert run_result.final_state.get("iteration_count") == 2, (
-            f"iteration_count = {run_result.final_state.get('iteration_count')}, expected 2"
+        """Verify iteration_count=3 at depth=0 (three execute_code calls)."""
+        assert run_result.final_state.get("iteration_count") == 3, (
+            f"iteration_count = {run_result.final_state.get('iteration_count')}, expected 3"
         )
 
 
@@ -557,8 +557,17 @@ class TestStructuredOutputCoverage:
         )
 
     async def test_structured_output_runtime_shape(self, run_result):
-        """Verify parsed structured outputs have the expected runtime shape and value ranges."""
+        """Verify parsed structured outputs have the expected runtime shape and value ranges.
+
+        Turn 2 produced BatchResult(summary, confidence) at @d1f0/@d1f1.
+        Turn 3's combo dispatch overwrites those keys:
+          - llm_query_batched(3) writes NumberClassification to @d1f0, @d1f1, @d1f2
+          - llm_query(1) (delegates to batched k=1) overwrites @d1f0 with AggregateReport
+        Final state: @d1f0=AggregateReport, @d1f1=NumberClassification, @d1f2=NumberClassification.
+        Turn 2 stdout markers still verify the BatchResult parsing worked.
+        """
         combined = _combined_output(run_result)
+        # Turn 2 stdout markers (not overwritten by state changes)
         assert "[STRUCTURED_OUTPUT:parsed_count=2]" in combined, (
             "parsed_count=2 not found — batched structured outputs were not both parsed"
         )
@@ -568,28 +577,24 @@ class TestStructuredOutputCoverage:
         assert "[STRUCTURED_OUTPUT:all_confidences_in_range=True]" in combined, (
             "Confidence range marker not found — parsed confidence values were not usable"
         )
-        payloads = [
-            _state_json(run_result, "reasoning_output@d1f0"),
-            _state_json(run_result, "reasoning_output@d1f1"),
-        ]
-        summaries: list[str] = []
-        for payload in payloads:
-            assert set(payload) == {"summary", "confidence"}, (
-                f"Unexpected structured output fields: {payload!r}"
-            )
-            summary = payload["summary"]
-            confidence = payload["confidence"]
-            assert isinstance(summary, str) and summary, f"Invalid summary field: {payload!r}"
-            assert isinstance(confidence, (int, float)), (
-                f"Confidence is not numeric: {payload!r}"
-            )
-            assert 0.0 <= float(confidence) <= 1.0, (
-                f"Confidence outside [0,1]: {payload!r}"
-            )
-            summaries.append(summary)
-        assert len(set(summaries)) == len(summaries), (
-            f"Sibling structured outputs should be distinct, got {summaries!r}"
+
+        # Turn 3 combo dispatch overwrote @d1f0 with AggregateReport (single llm_query)
+        agg = _state_json(run_result, "reasoning_output@d1f0")
+        assert set(agg) == {"total_numbers", "even_count", "positive_count", "value_sum", "verdict"}, (
+            f"@d1f0 should be AggregateReport from combo single dispatch, got: {agg!r}"
         )
+        assert agg["total_numbers"] == 3
+        assert isinstance(agg["verdict"], str) and agg["verdict"]
+
+        # Turn 3 batch children wrote NumberClassification to @d1f1, @d1f2
+        for key in ("reasoning_output@d1f1", "reasoning_output@d1f2"):
+            nc = _state_json(run_result, key)
+            assert set(nc) == {"even_number", "value", "positive"}, (
+                f"{key} should be NumberClassification, got: {nc!r}"
+            )
+            assert isinstance(nc["value"], int), f"value not int: {nc!r}"
+            assert isinstance(nc["even_number"], bool), f"even_number not bool: {nc!r}"
+            assert isinstance(nc["positive"], bool), f"positive not bool: {nc!r}"
 
 
 class TestFanoutScoping:
@@ -602,15 +607,18 @@ class TestFanoutScoping:
     """
 
     async def test_depth_key_used_for_runtime_fanout_scoping(self, run_result):
-        """Verify depth_key() ran in REPL code and its computed keys line up with sibling state."""
+        """Verify depth_key() ran in REPL code and its computed keys line up with sibling state.
+
+        Note: repl_submitted_code stores only the latest code (Turn 3 combo dispatch).
+        depth_key() was used in Turn 2, so we verify via cumulative stdout markers.
+        """
         combined = _combined_output(run_result)
         last_repl = run_result.final_state.get("last_repl_result", {})
-        submitted_code = run_result.final_state.get("repl_submitted_code", "")
-        assert "depth_key(" in submitted_code, "Root execute_code did not invoke depth_key()"
         assert isinstance(last_repl, dict) and last_repl.get("has_errors") is False, (
             f"Root last_repl_result indicates REPL failure: {last_repl!r}"
         )
         expected_keys = [depth_key("iteration_count", 1, i) for i in range(2)]
+        # Turn 2 stdout markers prove depth_key() was invoked
         assert "[FANOUT_SCOPE:key_count=2]" in combined, (
             "REPL code did not report fanout key generation across both batch results"
         )
