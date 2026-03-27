@@ -28,7 +28,11 @@ def render_notebook_panel(
             multiple execute_code calls; this scopes to one dispatch while
             preserving retry SMR pairs within that dispatch.
     """
-    from rlm_adk.dashboard.event_reader import children_of_tool_event, steps_for_dispatch
+    from rlm_adk.dashboard.event_reader import (
+        children_of_tool_event,
+        inflight_tool_children,
+        steps_for_dispatch,
+    )
 
     if parent_tool_event_id:
         steps = steps_for_dispatch(tree, inv_id, parent_tool_event_id)
@@ -62,46 +66,71 @@ def render_notebook_panel(
 
             if tool_event is not None:
                 child_inv_ids = children_of_tool_event(tree, tool_event.event_id)
+                is_last = idx == len(steps)
                 with ui.element("div").style("margin-left: 1.5rem;"):
-                    # Collapse/expand toggle (default: expanded)
-                    arrow = ui.label("\u25bc").style(
-                        "cursor: pointer; color: var(--text-1); font-size: 0.8rem; "
-                        "user-select: none; padding: 0.15rem 0; opacity: 0.7;"
-                    )
-                    expanded_div = ui.element("div")
-                    collapsed_div = ui.element("div")
-                    collapsed_div.visible = False
-                    arrow.on(
-                        "click",
-                        _make_collapse_toggle(expanded_div, collapsed_div, arrow),
-                    )
+                    # Row: arrow on left, content on right
+                    with ui.element("div").style(
+                        "display: flex; flex-direction: row; align-items: flex-start; gap: 0.35rem;"
+                    ):
+                        # Collapse/expand toggle (default: only last expanded)
+                        arrow = ui.label("\u25bc" if is_last else "\u25b6").style(
+                            "cursor: pointer; color: var(--text-1); font-size: 0.8rem; "
+                            "user-select: none; padding: 0.15rem 0; opacity: 0.7; "
+                            "flex-shrink: 0; line-height: 1.6;"
+                        )
+                        # Content area
+                        with ui.element("div").style("flex: 1; min-width: 0;"):
+                            expanded_div = ui.element("div")
+                            collapsed_div = ui.element("div")
+                            expanded_div.visible = is_last
+                            collapsed_div.visible = not is_last
+                            arrow.on(
+                                "click",
+                                _make_collapse_toggle(expanded_div, collapsed_div, arrow),
+                            )
 
-                    with expanded_div:
-                        if child_inv_ids:
-                            # No scroll constraint for code under 200 lines
-                            code_lines = len(tool_event.code.splitlines()) if tool_event.code else 0
-                            left_style = "flex: 1; min-width: 0;"
-                            if code_lines >= 200:
-                                left_style += " overflow-y: auto; max-height: 50vh;"
-                            # Tool has children: render side-by-side
-                            with ui.element("div").style(
-                                "display: flex; flex-direction: row; gap: 0.75rem; "
-                                "min-width: 0; width: 100%; align-items: flex-start;"
-                            ):
-                                # Left: execute_code cell
-                                with ui.element("div").style(left_style):
+                            with expanded_div:
+                                if child_inv_ids:
+                                    # No scroll constraint for code under 200 lines
+                                    code_lines = (
+                                        len(tool_event.code.splitlines()) if tool_event.code else 0
+                                    )
+                                    left_style = "flex: 1; min-width: 0;"
+                                    if code_lines >= 200:
+                                        left_style += " overflow-y: auto; max-height: 50vh;"
+                                    # Tool has children: render side-by-side
+                                    with ui.element("div").style(
+                                        "display: flex; flex-direction: row; gap: 0.75rem; "
+                                        "min-width: 0; width: 100%; align-items: flex-start;"
+                                    ):
+                                        # Left: execute_code cell
+                                        with ui.element("div").style(left_style):
+                                            _render_tool_cell(tool_event)
+                                        # Right: child panel
+                                        with ui.element("div").style(
+                                            "flex: 1; min-width: 0; overflow-y: auto; "
+                                            "max-height: 50vh;"
+                                        ):
+                                            _render_child_panel(
+                                                tree, tool_event.event_id, child_inv_ids
+                                            )
+                                else:
+                                    # No children: render tool cell full width
                                     _render_tool_cell(tool_event)
-                                # Right: child panel
-                                with ui.element("div").style(
-                                    "flex: 1; min-width: 0; overflow-y: auto; max-height: 50vh;"
-                                ):
-                                    _render_child_panel(tree, tool_event.event_id, child_inv_ids)
-                        else:
-                            # No children: render tool cell full width
-                            _render_tool_cell(tool_event)
 
-                    with collapsed_div:
-                        _render_compact_tool_chip(tool_event)
+                            with collapsed_div:
+                                _render_compact_tool_chip(tool_event)
+                                if child_inv_ids:
+                                    _render_collapsed_children(
+                                        tree, tool_event.event_id, child_inv_ids
+                                    )
+            else:
+                # Tool in-flight: check for children already spawned
+                inflight_tool_id, inflight_ids = inflight_tool_children(tree, inv_id)
+                if inflight_ids and inflight_tool_id:
+                    with ui.element("div").style("margin-left: 1.5rem;"):
+                        _render_inflight_tool_indicator()
+                        _render_child_panel(tree, inflight_tool_id, inflight_ids)
 
 
 def _render_model_banner(event: StepEvent, *, iteration: int = 0) -> None:
@@ -294,6 +323,53 @@ def _render_compact_tool_chip(event: StepEvent) -> None:
             ui.label(f"{event.duration_ms:.0f}ms").style(
                 "color: var(--text-1); font-size: 0.68rem;"
             )
+
+
+def _render_inflight_tool_indicator() -> None:
+    """Render a dashed chip indicating a tool is still executing."""
+    with ui.element("div").style(
+        "display: inline-flex; align-items: center; gap: 0.4rem; "
+        "padding: 0.25rem 0.6rem; border-radius: 6px; margin-bottom: 0.35rem; "
+        "border: 1px dashed var(--accent-active); "
+        "background: rgba(126,240,160,0.04);"
+    ):
+        ui.label("execute_code").style(
+            "color: var(--accent-active); font-size: 0.72rem; font-weight: 700;"
+        )
+        ui.label("running\u2026").style(
+            "color: var(--text-1); font-size: 0.68rem; font-style: italic;"
+        )
+
+
+def _render_collapsed_children(
+    tree: InvocationTree,
+    tool_event_id: str,
+    child_inv_ids: list[str],
+) -> None:
+    """Render child invocations in collapsed form: banner + compact tool chips."""
+    from rlm_adk.dashboard.event_reader import steps_for_dispatch
+
+    with ui.element("div").style(
+        "margin-left: 1rem; margin-top: 0.35rem; padding: 0.4rem 0.5rem; "
+        "border-left: 2px solid var(--accent-child); "
+        "background: rgba(255,107,159,0.03); "
+        "border-radius: 0 6px 6px 0; "
+        "display: flex; flex-direction: column; gap: 0.35rem;"
+    ):
+        for child_id in child_inv_ids:
+            child_steps = steps_for_dispatch(tree, child_id, tool_event_id)
+            if not child_steps:
+                continue
+            # Child banner (first model event)
+            first_model, _ = child_steps[0]
+            _render_model_banner(first_model, iteration=0)
+            # Compact chips for each tool call
+            with ui.element("div").style(
+                "margin-left: 1.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem;"
+            ):
+                for _, tool_ev in child_steps:
+                    if tool_ev is not None:
+                        _render_compact_tool_chip(tool_ev)
 
 
 def _render_child_panel(

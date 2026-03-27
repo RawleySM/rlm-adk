@@ -31,7 +31,7 @@
         }
       ],
       "hover": {
-        "markdown": "```python\n(class) CallbackContext\n```\n---\nThe context of various callbacks within an agent run."
+        "markdown": "```python\n(type) CallbackContext = Context\n```\n---\nThe context within an agent run."
       }
     },
     {

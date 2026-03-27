@@ -317,7 +317,7 @@ async def live_dashboard_page() -> None:
     await controller.initialize()
 
     ui.dark_mode(True)
-    ui.page_title("RLM Live Recursive Dashboard")
+    ui.page_title("RLM-ADK Live")
     ui.add_head_html(_LIVE_PAGE_CSS)
 
     @ui.refreshable
@@ -351,11 +351,8 @@ async def live_dashboard_page() -> None:
                 with ui.element("div").style(
                     "display: flex; flex-direction: column; gap: 0.45rem; min-width: 0;"
                 ):
-                    ui.label("RLM Live Recursive Dashboard").style(
+                    ui.label("RLM-ADK Live").style(
                         "color: var(--text-0); font-size: 1.35rem; font-weight: 800;"
-                    )
-                    ui.label("Live view plus replay launch controls").style(
-                        "color: var(--text-1); font-size: 0.82rem;"
                     )
 
                 with ui.element("div").style(
@@ -425,15 +422,6 @@ async def live_dashboard_page() -> None:
                 _session_meta_row(
                     "User Query",
                     _query_chips,
-                    controller=controller,
-                    refresh_viewer=text_panel_body,
-                )
-                _session_meta_row(
-                    "Skills in Prompt",
-                    [
-                        (name, description, f"skill:{name}")
-                        for name, description in session_summary.registered_skills
-                    ],
                     controller=controller,
                     refresh_viewer=text_panel_body,
                 )

@@ -72,6 +72,8 @@ class InvocationTree:
     children_of_tool: dict[str, list[str]] = field(default_factory=dict)
     # inv_id -> list of (model_event, tool_event | None) pairs
     steps: dict[str, list[tuple[StepEvent, StepEvent | None]]] = field(default_factory=dict)
+    # agent_name -> (inflight_tool_id, child_names) for tools still executing
+    inflight_children: dict[str, tuple[str, list[str]]] = field(default_factory=dict)
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -134,11 +136,7 @@ def build_tree(events: list[StepEvent]) -> InvocationTree:
     for _tool_id, child_names in children_of_tool.items():
         child_names.sort(
             key=lambda name: next(
-                (
-                    e.dispatch_call_index
-                    for e in by_inv[name]
-                    if e.dispatch_call_index is not None
-                ),
+                (e.dispatch_call_index for e in by_inv[name] if e.dispatch_call_index is not None),
                 0,
             )
         )
@@ -157,10 +155,38 @@ def build_tree(events: list[StepEvent]) -> InvocationTree:
                         break
         steps[agent_name] = paired
 
+    # --- In-flight tool children ---
+    # When a tool is executing (before_tool fired but after_tool not yet),
+    # child events exist in the JSONL but the parent tool event does not.
+    # Detect these so the dashboard can render children incrementally.
+    completed_tool_ids: set[str] = set()
+    for agent_steps in steps.values():
+        for _, tool_ev in agent_steps:
+            if tool_ev is not None:
+                completed_tool_ids.add(tool_ev.event_id)
+
+    inflight: dict[str, tuple[str, list[str]]] = {}
+    for tool_id, child_names in children_of_tool.items():
+        if tool_id in completed_tool_ids or not child_names:
+            continue
+        # In-flight tool: find parent agent by child depth - 1
+        first_child_events = by_inv.get(child_names[0], [])
+        if not first_child_events:
+            continue
+        parent_depth = first_child_events[0].depth - 1
+        for agent_name, agent_steps in steps.items():
+            agent_events = by_inv.get(agent_name, [])
+            if not agent_events or agent_events[0].depth != parent_depth:
+                continue
+            if agent_steps and agent_steps[-1][1] is None:
+                inflight[agent_name] = (tool_id, child_names)
+                break
+
     return InvocationTree(
         by_inv=dict(by_inv),
         children_of_tool=dict(children_of_tool),
         steps=steps,
+        inflight_children=inflight,
     )
 
 
@@ -172,6 +198,12 @@ def events_for_invocation(tree: InvocationTree, inv_id: str) -> list[StepEvent]:
 def children_of_tool_event(tree: InvocationTree, tool_event_id: str) -> list[str]:
     """Get sorted child invocation_ids spawned by a tool event."""
     return tree.children_of_tool.get(tool_event_id, [])
+
+
+def inflight_tool_children(tree: InvocationTree, agent_name: str) -> tuple[str | None, list[str]]:
+    """Return (tool_event_id, child_names) for an in-flight tool, or (None, [])."""
+    entry = tree.inflight_children.get(agent_name)
+    return entry if entry is not None else (None, [])
 
 
 def steps_for_dispatch(
@@ -190,8 +222,4 @@ def steps_for_dispatch(
     (two SMR calls within the same dispatch) are preserved.
     """
     all_steps = tree.steps.get(agent_name, [])
-    return [
-        (m, t)
-        for m, t in all_steps
-        if m.parent_tool_call_id == parent_tool_event_id
-    ]
+    return [(m, t) for m, t in all_steps if m.parent_tool_call_id == parent_tool_event_id]

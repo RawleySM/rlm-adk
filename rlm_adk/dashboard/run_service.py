@@ -155,12 +155,9 @@ def list_provider_fake_fixtures(
     if not resolved_fixture_dir.exists():
         return []
 
-    stems: list[str] = []
-    for fixture_path in sorted(resolved_fixture_dir.glob("*.json")):
-        if not fixture_path.is_file():
-            continue
-        stems.append(fixture_path.stem)
-    return stems
+    fixture_files = [p for p in resolved_fixture_dir.glob("*.json") if p.is_file()]
+    fixture_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [p.stem for p in fixture_files]
 
 
 def resolve_fixture_file_path(
@@ -283,7 +280,8 @@ async def prepare_provider_fake_launch(
     _set_provider_fake_env(base_url, router.config)
 
     resolved_skills = (
-        tuple(enabled_skills) if enabled_skills
+        tuple(enabled_skills)
+        if enabled_skills
         else tuple(router.config.get("enabled_skills") or ())
     )
 
