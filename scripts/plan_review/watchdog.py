@@ -150,13 +150,34 @@ def _snapshot_plans(plans_dir: Path) -> set[str]:
 
 # ── Plan copy ──────────────────────────────────────────────────────────────
 
-def copy_plan_to_proposals(plan_path: Path) -> Path:
-    """Copy a plan file into proposals/plans/ and return the destination path."""
+def copy_plan_to_proposals(plan_path: Path, version: int | None = None) -> Path:
+    """Copy a plan file into proposals/plans/ and return the destination path.
+
+    If *version* is given, the copy is named ``{stem}_v{version}.md``.
+    """
     PROPOSALS_PLANS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = PROPOSALS_PLANS_DIR / plan_path.name
+    if version is not None:
+        dest = PROPOSALS_PLANS_DIR / f"{plan_path.stem}_v{version}.md"
+    else:
+        dest = PROPOSALS_PLANS_DIR / plan_path.name
     shutil.copy2(plan_path, dest)
     tag("PLAN", f"Copied {plan_path.name} -> {dest}")
     return dest
+
+
+def save_review(plan_path: Path, iteration: int, review_text: str) -> Path:
+    """Persist a Codex review to proposals/plans/{stem}_review_{iteration}.md."""
+    PROPOSALS_PLANS_DIR.mkdir(parents=True, exist_ok=True)
+    review_path = PROPOSALS_PLANS_DIR / f"{plan_path.stem}_review_{iteration}.md"
+    review_path.write_text(
+        f"# Codex Review — Iteration {iteration}\n"
+        f"**Plan:** `{plan_path.name}`\n"
+        f"**Timestamp:** {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n\n"
+        f"---\n\n"
+        f"{review_text}\n"
+    )
+    tag("REVIEW", f"Saved review -> {review_path}")
+    return review_path
 
 
 # ── Claude session interaction ─────────────────────────────────────────────
@@ -205,7 +226,8 @@ def resume_claude_session(
         CLAUDE_BIN,
         "--resume", session_id,
         "--print",
-        "--output-format", "stream-json",
+        "--output-format", "json",
+        "--permission-mode", "auto",
         prompt,
     ]
 
@@ -276,7 +298,7 @@ def spawn_headless_claude(
     cmd = [
         CLAUDE_BIN,
         "-p",
-        "--output-format", "stream-json",
+        "--output-format", "json",
         "--permission-mode", "auto",
         prompt,
     ]
@@ -345,6 +367,12 @@ def run_review_loop(
 
     previous_feedback = ""
 
+    # Save initial plan as v0
+    try:
+        copy_plan_to_proposals(plan_path, version=0)
+    except OSError as exc:
+        debug("PLAN", f"Failed to save v0: {exc}")
+
     for iteration in range(max_iterations):
         tag("REVIEW", f"Iteration {iteration + 1}/{max_iterations} for {plan_path.name}")
 
@@ -363,6 +391,12 @@ def run_review_loop(
         verdict = parse_verdict(review_text)
         tag("REVIEW", f"Verdict: {verdict}")
         debug("REVIEW", f"Review text:\n{review_text[:300]}...")
+
+        # ── Persist review to proposals/plans/ ────────────────────────────
+        try:
+            save_review(plan_path, iteration + 1, review_text)
+        except OSError as exc:
+            debug("REVIEW", f"Failed to save review: {exc}")
 
         # ── Update bridge state ──────────────────────────────────────────
         update_bridge(bp, {
@@ -385,7 +419,7 @@ def run_review_loop(
                     "approved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }, indent=2)
             )
-            debug("APPROVED", f"Marker written: {marker_path}")
+            tag("APPROVED", f"Marker written: {marker_path}")
             clear_bridge(bp)
             return True
 
@@ -409,6 +443,12 @@ def run_review_loop(
             _wait_for_plan_update(plan_path, timeout=300)
         else:
             debug("WATCH", "[TEST] Skipping wait for plan revision")
+
+        # ── Save revised plan as v{n} ─────────────────────────────────────
+        try:
+            copy_plan_to_proposals(plan_path, version=iteration + 1)
+        except OSError as exc:
+            debug("PLAN", f"Failed to save v{iteration + 1}: {exc}")
 
     # Max iterations exhausted
     tag("REVIEW", f"Max iterations ({max_iterations}) reached for {plan_path.name}")
@@ -491,13 +531,7 @@ def watch(plans_dir: Path | None = None, one_shot: bool = False) -> None:
 
         tag("PLAN", f"New plan detected: {new_filename}")
 
-        # Copy to proposals/plans/
-        try:
-            copy_plan_to_proposals(plan_path)
-        except OSError as exc:
-            tag("PLAN", f"Failed to copy plan: {exc}")
-
-        # Run review loop
+        # Run review loop (saves v0 + reviews + versioned revisions to proposals/plans/)
         session_id = _find_session_for_plan(new_filename)
         approved = run_review_loop(
             plan_path=plan_path,
@@ -549,11 +583,6 @@ def main() -> None:
             sys.exit(1)
 
         tag("PLAN", f"Direct review: {plan.name}")
-        try:
-            copy_plan_to_proposals(plan)
-        except OSError as exc:
-            debug("PLAN", f"Copy failed: {exc}")
-
         approved = run_review_loop(plan_path=plan)
         sys.exit(0 if approved else 1)
 

@@ -271,8 +271,8 @@ def test_watch_one_shot() -> list[str]:
                 watchdog_mod.tag = original_tag
                 dropper.join(timeout=5)
 
-            # 1. Plan should have been copied to proposals/plans/
-            copied = proposals_dir / plan_filename
+            # 1. Plan should have been copied to proposals/plans/ (as _v0)
+            copied = proposals_dir / plan_filename.replace(".md", "_v0.md")
             if not copied.exists():
                 errors.append("Plan not copied to proposals/plans/")
             elif copied.read_text() != CANNED_PLAN:
