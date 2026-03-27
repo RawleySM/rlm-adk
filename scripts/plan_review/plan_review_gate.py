@@ -127,7 +127,11 @@ def process_stop_hook(hook_input: dict, bp: Path) -> dict | None:
         max_iterations=max_iterations,
     )
 
-    return {"continue": True, "systemMessage": system_msg}
+    return {
+        "decision": "block",
+        "reason": review_text,
+        "systemMessage": system_msg,
+    }
 
 
 def main() -> None:
@@ -139,7 +143,7 @@ def main() -> None:
 
         if result is not None:
             json.dump(result, sys.stdout)
-            sys.exit(2)  # Exit 2 = block the stop
+            sys.exit(0)  # Exit 0 + decision:"block" JSON = block stop with parsed output
 
         sys.exit(0)
     except Exception:
