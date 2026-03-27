@@ -253,27 +253,6 @@ def resume_claude_session(
         return False
 
 
-HEADLESS_PROMPT_TEMPLATE = """\
-## Plan Revision Request
-
-A plan has been reviewed by Codex and needs revisions.
-
-### Plan Location
-`{plan_path}`
-
-### Current Plan Content
-{plan_content}
-
-### Codex Review Feedback (iteration {iteration})
-{review_text}
-
-### Instructions
-1. Read the plan carefully
-2. Address every issue raised in the review
-3. Write the revised plan back to `{plan_path}`
-4. Ensure the plan is complete, addresses edge cases, and is ready for implementation"""
-
-
 def spawn_headless_claude(
     plan_path: str,
     review_text: str,
@@ -281,18 +260,29 @@ def spawn_headless_claude(
 ) -> bool:
     """Spawn a fresh headless Claude to revise the plan.
 
+    Writes the review to a temp file and passes a short prompt that tells
+    Claude to read both the plan and the review file.  This avoids hitting
+    CLI argument-length limits or timeouts from embedding 20KB+ in argv.
+
     Returns True if the command succeeded, False otherwise.
     """
-    try:
-        plan_content = Path(plan_path).read_text()
-    except OSError:
-        plan_content = "(could not read plan)"
+    tag("RESUME", f"Spawning headless Claude for revision (iteration {iteration})")
 
-    prompt = HEADLESS_PROMPT_TEMPLATE.format(
-        plan_path=plan_path,
-        plan_content=plan_content,
-        review_text=review_text,
-        iteration=iteration,
+    if _test_mode():
+        tag("RESUME", "[TEST] Would spawn headless Claude with review feedback")
+        return True
+
+    # Write review to a temp file so Claude reads it rather than receiving it inline
+    review_file = Path(f"/tmp/plan_review_feedback_{iteration}.md")
+    review_file.write_text(
+        f"# Codex Review — Iteration {iteration}\n\n{review_text}\n"
+    )
+
+    prompt = (
+        f"Read the plan at {plan_path} and the Codex review at {review_file}. "
+        f"Revise the plan to address EVERY issue raised in the review. "
+        f"Write the revised plan back to {plan_path}. "
+        f"Do not explain — just read, revise, and write."
     )
 
     cmd = [
@@ -303,21 +293,17 @@ def spawn_headless_claude(
         prompt,
     ]
 
-    tag("RESUME", f"Spawning headless Claude for revision (iteration {iteration})")
-
-    if _test_mode():
-        tag("RESUME", "[TEST] Would spawn headless Claude with review feedback")
-        return True
-
     try:
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=900,
             cwd=str(PROJECT_DIR),
         )
         debug("RESUME", f"exit={proc.returncode} stdout_len={len(proc.stdout)}")
+        if proc.returncode != 0:
+            debug("RESUME", f"stderr: {proc.stderr[:500]}")
         return proc.returncode == 0
     except (subprocess.TimeoutExpired, OSError) as exc:
         tag("RESUME", f"Failed: {exc}")
@@ -423,8 +409,9 @@ def run_review_loop(
             clear_bridge(bp)
             return True
 
-        # REVISE — send feedback to Claude
+        # REVISE — capture mtime BEFORE spawning Claude (it writes synchronously)
         previous_feedback = review_text
+        pre_spawn_mtime = plan_path.stat().st_mtime if plan_path.exists() else 0
 
         plan_session_id = _find_session_for_plan(plan_path.name)
         ok = send_feedback_to_claude(
@@ -437,10 +424,14 @@ def run_review_loop(
         if not ok:
             tag("RESUME", "Could not deliver feedback to Claude — continuing review loop")
 
-        # Wait for Claude to revise the plan
+        # Check if Claude already revised (subprocess.run blocks until done)
         if not _test_mode():
-            debug("WATCH", "Waiting for plan revision...")
-            _wait_for_plan_update(plan_path, timeout=300)
+            current_mtime = plan_path.stat().st_mtime if plan_path.exists() else 0
+            if current_mtime > pre_spawn_mtime:
+                debug("WATCH", f"Plan {plan_path.name} already updated by Claude")
+            else:
+                debug("WATCH", "Waiting for plan revision...")
+                _wait_for_plan_update(plan_path, timeout=300)
         else:
             debug("WATCH", "[TEST] Skipping wait for plan revision")
 
