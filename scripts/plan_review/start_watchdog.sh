@@ -56,8 +56,20 @@ fi
 
 # ── Set defaults ─────────────────────────────────────────────────────────────
 
+# PLAN_REVIEW_ENABLED gates Mode A (hook chain), not Mode B (watchdog).
+# Export it so any hooks triggered by Claude sessions also see it.
 export PLAN_REVIEW_ENABLED="${PLAN_REVIEW_ENABLED:-1}"
 export PLAN_REVIEW_MAX_ITERATIONS="${PLAN_REVIEW_MAX_ITERATIONS:-5}"
+
+# ── Check for existing watchdog ──────────────────────────────────────────────
+
+if [ -f "${LOG_DIR}/watchdog.pid" ]; then
+    OLD_PID=$(cat "${LOG_DIR}/watchdog.pid")
+    if kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "Watchdog already running (PID: $OLD_PID). Kill it first or use --force."
+        exit 1
+    fi
+fi
 
 # ── Prepare directories ─────────────────────────────────────────────────────
 
@@ -83,6 +95,9 @@ setsid python3 "$WATCHDOG" "${EXTRA_ARGS[@]}" \
     > "$LOG_FILE" 2>&1 &
 
 WATCHDOG_PID=$!
+
+# Propagate termination signals to the watchdog process
+trap "kill $WATCHDOG_PID 2>/dev/null; exit" SIGTERM SIGINT SIGHUP
 
 echo "Watchdog running in background (PID: ${WATCHDOG_PID})."
 echo ""

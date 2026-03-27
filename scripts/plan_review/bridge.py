@@ -6,6 +6,7 @@ Stdlib-only.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import sys
@@ -46,10 +47,17 @@ def write_bridge(path: Path, data: dict) -> None:
 
 
 def update_bridge(path: Path, updates: dict) -> dict:
-    """Merge *updates* into the existing bridge file and return the result."""
-    existing = read_bridge(path) or {}
-    existing.update(updates)
-    write_bridge(path, existing)
+    """Merge *updates* into the existing bridge file and return the result.
+
+    Uses fcntl.flock to prevent concurrent read-modify-write races.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(".lock")
+    with open(lock_path, "w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        existing = read_bridge(path) or {}
+        existing.update(updates)
+        write_bridge(path, existing)
     return existing
 
 

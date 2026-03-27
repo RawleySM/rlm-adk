@@ -45,7 +45,7 @@ def process_stop_hook(hook_input: dict, bp: Path) -> dict | None:
     """Process a Stop hook event.
 
     Returns:
-        dict with ``continue`` + ``systemMessage`` to block stop and inject review,
+        dict with ``decision: "block"`` + ``systemMessage`` to block stop and inject review,
         or None to allow normal stop (exit 0).
     """
     # ── Feature gate ────────────────────────────────────────────────────
@@ -146,7 +146,8 @@ def main() -> None:
             sys.exit(0)  # Exit 0 + decision:"block" JSON = block stop with parsed output
 
         sys.exit(0)
-    except Exception:
+    except Exception as exc:
+        print(f"[HOOK ERROR] plan_review_gate: {exc}", file=sys.stderr)
         sys.exit(0)
 
 

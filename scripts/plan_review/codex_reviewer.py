@@ -14,7 +14,10 @@ import time
 from pathlib import Path
 
 CODEX_BIN = os.environ.get("CODEX_BIN", str(Path.home() / ".npm-global/bin/codex"))
-PROJECT_DIR = os.environ.get("CODEX_REPO_DIR", "/home/rawley-stanhope/dev/rlm-adk")
+PROJECT_DIR = os.environ.get(
+    "CODEX_REPO_DIR",
+    str(Path(__file__).resolve().parent.parent.parent),
+)
 MODEL = os.environ.get("CODEX_MODEL", "gpt-5.4")
 
 REVIEW_PROMPT_TEMPLATE = """\
@@ -100,10 +103,9 @@ def _live_review(
     if proc.stdout.strip():
         return proc.stdout.strip()
 
-    return (
-        f"Codex exited with code {proc.returncode} but produced no output.\n"
-        f"stderr: {proc.stderr[:500]}\n\n"
-        f"VERDICT: REVISE"
+    raise RuntimeError(
+        f"Codex exited with code {proc.returncode} and produced no output. "
+        f"stderr: {proc.stderr[:500]}"
     )
 
 
@@ -128,7 +130,11 @@ def review_plan(
     plan_content = Path(plan_path).read_text()
     output_path = Path(f"/tmp/plan_review_result_{session_id}_{iteration}.md")
 
-    return _live_review(plan_content, previous_feedback, output_path)
+    try:
+        return _live_review(plan_content, previous_feedback, output_path)
+    finally:
+        # Clean up temp result file
+        output_path.unlink(missing_ok=True)
 
 
 def parse_verdict(review_text: str) -> str:

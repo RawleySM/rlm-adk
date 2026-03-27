@@ -45,6 +45,7 @@ Stdlib-only.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -72,7 +73,6 @@ from codex_reviewer import parse_verdict, review_plan  # noqa: E402
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
 PROPOSALS_PLANS_DIR = PROJECT_DIR / "proposals" / "plans"
 CLAUDE_BIN = shutil.which("claude") or "claude"
-SESSION_DIR = Path.home() / ".claude" / "projects" / "-home-rawley-stanhope-dev-rlm-adk"
 
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -273,7 +273,8 @@ def spawn_headless_claude(
         return True
 
     # Write review to a temp file so Claude reads it rather than receiving it inline
-    review_file = Path(f"/tmp/plan_review_feedback_{iteration}.md")
+    plan_stem = Path(plan_path).stem
+    review_file = Path(f"/tmp/plan_review_feedback_{plan_stem}_{iteration}.md")
     review_file.write_text(
         f"# Codex Review — Iteration {iteration}\n\n{review_text}\n"
     )
@@ -308,6 +309,9 @@ def spawn_headless_claude(
     except (subprocess.TimeoutExpired, OSError) as exc:
         tag("RESUME", f"Failed: {exc}")
         return False
+    finally:
+        # Clean up temp feedback file
+        review_file.unlink(missing_ok=True)
 
 
 def send_feedback_to_claude(
@@ -376,7 +380,7 @@ def run_review_loop(
 
         verdict = parse_verdict(review_text)
         tag("REVIEW", f"Verdict: {verdict}")
-        debug("REVIEW", f"Review text:\n{review_text[:300]}...")
+        debug("REVIEW", f"Review text (first 200 chars): {review_text[:200].replace(chr(10), ' ')}...")
 
         # ── Persist review to proposals/plans/ ────────────────────────────
         try:
@@ -409,9 +413,10 @@ def run_review_loop(
             clear_bridge(bp)
             return True
 
-        # REVISE — capture mtime BEFORE spawning Claude (it writes synchronously)
+        # REVISE — capture mtime and content hash BEFORE spawning Claude
         previous_feedback = review_text
         pre_spawn_mtime = plan_path.stat().st_mtime if plan_path.exists() else 0
+        pre_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest() if plan_path.exists() else ""
 
         plan_session_id = _find_session_for_plan(plan_path.name)
         ok = send_feedback_to_claude(
@@ -422,18 +427,23 @@ def run_review_loop(
         )
 
         if not ok:
-            tag("RESUME", "Could not deliver feedback to Claude — continuing review loop")
-
-        # Check if Claude already revised (subprocess.run blocks until done)
-        if not _test_mode():
+            tag("RESUME", "Could not deliver feedback to Claude — skipping wait")
+        elif not _test_mode():
+            # Only wait for plan update if Claude was successfully spawned
             current_mtime = plan_path.stat().st_mtime if plan_path.exists() else 0
             if current_mtime > pre_spawn_mtime:
                 debug("WATCH", f"Plan {plan_path.name} already updated by Claude")
             else:
                 debug("WATCH", "Waiting for plan revision...")
-                _wait_for_plan_update(plan_path, timeout=300)
+                _wait_for_plan_update(plan_path, pre_spawn_mtime, timeout=300)
         else:
             debug("WATCH", "[TEST] Skipping wait for plan revision")
+
+        # Detect stale re-review: plan content unchanged after revision attempt
+        post_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest() if plan_path.exists() else ""
+        if post_hash == pre_hash and not _test_mode():
+            tag("REVIEW", f"Plan {plan_path.name} unchanged after revision — stopping loop")
+            break
 
         # ── Save revised plan as v{n} ─────────────────────────────────────
         try:
@@ -447,13 +457,19 @@ def run_review_loop(
     return False
 
 
-def _wait_for_plan_update(plan_path: Path, timeout: float = 300) -> bool:
+def _wait_for_plan_update(
+    plan_path: Path,
+    baseline_mtime: float | None = None,
+    timeout: float = 300,
+) -> bool:
     """Wait for the plan file to be modified. Returns True if modified."""
-    try:
-        original_mtime = plan_path.stat().st_mtime
-    except OSError:
-        return False
+    if baseline_mtime is None:
+        try:
+            baseline_mtime = plan_path.stat().st_mtime
+        except OSError:
+            return False
 
+    original_mtime = baseline_mtime
     deadline = time.monotonic() + timeout
     poll_interval = float(os.environ.get("PLAN_REVIEW_POLL_INTERVAL", "2"))
 
@@ -576,6 +592,15 @@ def main() -> None:
         tag("PLAN", f"Direct review: {plan.name}")
         approved = run_review_loop(plan_path=plan)
         sys.exit(0 if approved else 1)
+
+    import signal
+
+    def _graceful_shutdown(signum: int, _frame: object) -> None:
+        sig_name = signal.Signals(signum).name
+        tag("WATCH", f"Received {sig_name} — shutting down")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
 
     try:
         watch(plans_dir=args.plans_dir, one_shot=args.one_shot)

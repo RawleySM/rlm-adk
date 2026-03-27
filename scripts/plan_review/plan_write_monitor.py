@@ -33,6 +33,10 @@ def process_hook_input(hook_input: dict, bp: Path) -> dict | None:
 
     Returns a dict to write to stdout (systemMessage), or None for no-op.
     """
+    # Feature gate — cheapest check first
+    if os.environ.get("PLAN_REVIEW_ENABLED", "0") != "1":
+        return None
+
     # Only care about Write tool calls
     tool_name = hook_input.get("tool_name", "")
     if tool_name != "Write":
@@ -42,10 +46,6 @@ def process_hook_input(hook_input: dict, bp: Path) -> dict | None:
     tool_input = hook_input.get("tool_input", {})
     file_path = tool_input.get("file_path", "")
     if not file_path or not is_plan_file(file_path):
-        return None
-
-    # Feature gate
-    if os.environ.get("PLAN_REVIEW_ENABLED", "0") != "1":
         return None
 
     # Check if we already have an active review cycle for this plan
@@ -72,8 +72,9 @@ def main() -> None:
         if result is not None:
             json.dump(result, sys.stdout)
         sys.exit(0)
-    except Exception:
-        # Hooks must never crash Claude Code
+    except Exception as exc:
+        # Hooks must never crash Claude Code — but log for debuggability
+        print(f"[HOOK ERROR] plan_write_monitor: {exc}", file=sys.stderr)
         sys.exit(0)
 
 
