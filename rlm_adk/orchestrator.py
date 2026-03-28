@@ -13,6 +13,7 @@ CRIT-1: All state writes inside _run_async_impl use yield Event(actions=EventAct
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import uuid
@@ -255,6 +256,11 @@ class RLMOrchestratorAgent(BaseAgent):
         trace_level = int(os.getenv("RLM_REPL_TRACE", "0"))
         object.__setattr__(self.reasoning_agent, "_structured_result", None)
         object.__setattr__(self, "_rlm_terminal_completion", None)
+
+        # Dedup: track SHA-256 digests of model Content text emitted during
+        # the reasoning loop so the orchestrator's post-loop Content event
+        # can be suppressed when the same text was already yielded by ADK.
+        _emitted_text_digests: set[str] = set()
 
         # Initialize REPL environment (reuse persistent REPL if provided)
         if self.repl is not None:
@@ -541,6 +547,14 @@ class RLMOrchestratorAgent(BaseAgent):
             for attempt in range(max_retries + 1):
                 try:
                     async for event in self.reasoning_agent.run_async(ctx):
+                        # Record text digests of model Content events for
+                        # dedup — suppress duplicate post-loop emission.
+                        if event.content and event.content.role == "model" and event.content.parts:
+                            for part in event.content.parts:
+                                if part.text:
+                                    _emitted_text_digests.add(
+                                        hashlib.sha256(part.text.encode()).hexdigest()
+                                    )
                         yield event
                         # Drain child events accumulated during tool execution
                         if _child_event_queue is not None:
@@ -647,15 +661,17 @@ class RLMOrchestratorAgent(BaseAgent):
                         }
                     ),
                 )
-                # Yield final content event
-                yield Event(
-                    invocation_id=ctx.invocation_id,
-                    author=self.name,
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part.from_text(text=final_text)],
-                    ),
-                )
+                # Yield final content event (suppress if already emitted)
+                _final_digest = hashlib.sha256(final_text.encode()).hexdigest()
+                if _final_digest not in _emitted_text_digests:
+                    yield Event(
+                        invocation_id=ctx.invocation_id,
+                        author=self.name,
+                        content=types.Content(
+                            role="model",
+                            parts=[types.Part.from_text(text=final_text)],
+                        ),
+                    )
             else:
                 exhausted_msg = final_text or (
                     "[RLM ERROR] Reasoning agent completed without producing a final answer."
@@ -674,14 +690,17 @@ class RLMOrchestratorAgent(BaseAgent):
                         }
                     ),
                 )
-                yield Event(
-                    invocation_id=ctx.invocation_id,
-                    author=self.name,
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part.from_text(text=exhausted_msg)],
-                    ),
-                )
+                # Yield error content event (suppress if already emitted)
+                _err_digest = hashlib.sha256(exhausted_msg.encode()).hexdigest()
+                if _err_digest not in _emitted_text_digests:
+                    yield Event(
+                        invocation_id=ctx.invocation_id,
+                        author=self.name,
+                        content=types.Content(
+                            role="model",
+                            parts=[types.Part.from_text(text=exhausted_msg)],
+                        ),
+                    )
 
         finally:
             # Clean up reasoning_agent wiring
